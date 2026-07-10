@@ -1,6 +1,35 @@
 import { createWorker } from 'tesseract.js';
+import sharp from 'sharp';
 
-const WORKER_CACHE: { worker: any; lang: string } | null = null;
+let workerPromise: Promise<any> | null = null;
+
+async function getWorker(): Promise<any> {
+  if (!workerPromise) {
+    workerPromise = createWorker('spa', 1, {
+      logger: () => {},
+    });
+  }
+  return workerPromise;
+}
+
+async function preprocessImage(buffer: Buffer): Promise<Buffer> {
+  const metadata = await sharp(buffer).metadata();
+  const img = sharp(buffer);
+
+  const maxDim = 2000;
+  if (metadata.width && metadata.width > maxDim) {
+    img.resize({ width: maxDim });
+  } else if (metadata.height && metadata.height > maxDim) {
+    img.resize({ height: maxDim });
+  }
+
+  return img
+    .grayscale()
+    .normalise()
+    .linear(1.4, -40)
+    .sharpen({ sigma: 1.5, m1: 0, m2: 3, x1: 3, y2: 15, y3: 15 })
+    .toBuffer();
+}
 
 function parsePanamanianDate(text: string): string | null {
   const patterns = [
@@ -35,12 +64,14 @@ function parseTotal(text: string): number | null {
     /monto[:\s]*\$?([\d,]+(?:\.\d{1,2})?)/i,
     /\$?([\d,]+(?:\.\d{1,2})?)\s*(?:total|monto)/i,
     /subtotal[:\s]*\$?([\d,]+(?:\.\d{1,2})?)/i,
+    /neto[:\s]*\$?([\d,]+(?:\.\d{1,2})?)/i,
+    /pagar[:\s]*\$?([\d,]+(?:\.\d{1,2})?)/i,
   ];
   for (const p of patterns) {
     const m = text.match(p);
     if (m) return parseFloat(m[1].replace(/,/g, ''));
   }
-  const nums = text.match(/\$?(\d[\d,]*\.\d{2})\b/g);
+  const nums = text.match(/\$?\b(\d[\d,]*\.\d{2})\b/g);
   if (nums) {
     const amounts = nums.map(n => parseFloat(n.replace(/[\$,]/g, ''))).filter(n => n > 0);
     if (amounts.length > 0) return Math.max(...amounts);
@@ -50,19 +81,19 @@ function parseTotal(text: string): number | null {
 
 function parseProvider(text: string): string | null {
   const patterns = [
-    /(?:proveedor|proveedora|empresa|raz[oó]n social|nombre)[:\s]+(.+)/i,
-    /factura\s*(?:de|a|#)?[:\s]*([^\n]+)/i,
+    /(?:proveedor|proveedora|empresa|raz[oó]n social|nombre|cliente)[:\s]+(.+)/i,
+    /factura\s*(?:de|a|#|n[°º])?[:\s]*([^\n]+)/i,
     /recibo\s*(?:de|#)?[:\s]*([^\n]+)/i,
   ];
   for (const p of patterns) {
     const m = text.match(p);
-    if (m) return m[1].trim().substring(0, 100);
+    if (m) return m[1].trim().replace(/^[:\s]+/, '').substring(0, 100);
   }
   return null;
 }
 
 function parseRUC(text: string): string | null {
-  const m = text.match(/(\d{1,3}[-\/]\d{1,6}[-\/]\d{1,6})/);
+  const m = text.match(/\b(\d{1,3}[-\/]\d{1,6}[-\/]\d{1,6})\b/);
   return m ? m[1] : null;
 }
 
@@ -85,25 +116,26 @@ export interface OCRResult {
 }
 
 export async function extractFromImage(imageBuffer: Buffer): Promise<OCRResult> {
-  const worker = await createWorker('spa');
+  const worker = await getWorker();
 
-  try {
-    const { data } = await worker.recognize(imageBuffer);
-    const text = data.text.trim();
-    const confidence = data.confidence !== undefined
-      ? Math.round(data.confidence * 100) / 10000
-      : 0.5;
+  const processed = await preprocessImage(imageBuffer);
 
-    return {
-      text,
-      date: parsePanamanianDate(text),
-      total: parseTotal(text),
-      provider: parseProvider(text),
-      ruc: parseRUC(text),
-      itbms: parseITBMS(text),
-      confidence: Math.min(1, Math.max(0, confidence)),
-    };
-  } finally {
-    await worker.terminate();
-  }
+  const { data } = await worker.recognize(processed, {
+    blocks: true,
+  });
+
+  const text = data.text.trim();
+  const confidence = data.confidence !== undefined
+    ? data.confidence / 100
+    : 0;
+
+  return {
+    text,
+    date: parsePanamanianDate(text),
+    total: parseTotal(text),
+    provider: parseProvider(text),
+    ruc: parseRUC(text),
+    itbms: parseITBMS(text),
+    confidence: Math.min(1, Math.max(0, confidence)),
+  };
 }
