@@ -6,8 +6,8 @@
   "types": "./src/index.ts",
   "scripts": {
     "build": "tsc",
-    "lint": "echo 'lint ok'",
-    "test": "echo 'tests ok'"
+    "lint": "eslint src/",
+    "test": "vitest run"
   },
   "dependencies": {
     "@agt-contador/shared": "*",

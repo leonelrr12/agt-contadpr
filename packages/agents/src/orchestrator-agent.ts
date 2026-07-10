@@ -1,7 +1,7 @@
 import { DialogAgent } from './dialog-agent';
 import { ClassificationAgent, type ClassificationAgentConfig } from './classification-agent';
 import { AccountingAgent } from './accounting-agent';
-import type { DialogResult } from './types';
+import type { DialogResult, DialogContext } from './types';
 import type { AccountingEntry } from './accounting-agent';
 
 export interface PlanStep {
@@ -32,13 +32,13 @@ export class OrchestratorAgent {
     this.prisma = config.prisma;
   }
 
-  async process(input: string): Promise<{
+  async process(input: string, context?: DialogContext): Promise<{
     plan: ExecutionPlan;
     prompt?: string;
     needsConfirmation: boolean;
     result?: any;
   }> {
-    const dialog = this.dialogAgent.processInput(input);
+    const dialog = this.dialogAgent.processInput(input, context);
     const plan: ExecutionPlan = {
       steps: [
         { agent: 'dialogo', action: 'extraer_informacion', status: 'completed', result: dialog as any },

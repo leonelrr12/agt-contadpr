@@ -31,7 +31,7 @@
         </div>
       </div>
       <div class="sidebar-actions">
-        <button onclick="showReports()" class="btn-outline">Ver Reportes</button>
+        <button onclick="toggleReports()" class="btn-outline">Ver Reportes</button>
       </div>
     </aside>
 
@@ -48,10 +48,14 @@
           <button class="quick-btn" onclick="showInput('escribir')">✏️ Escribir</button>
           <button class="quick-btn" onclick="showInput('factura')">📷 Factura</button>
           <button class="quick-btn" onclick="showInput('voz')">🎤 Hablar</button>
+          <button class="quick-btn mobile-only" onclick="toggleReports()">📊 Reportes</button>
         </div>
         <div id="text-input" class="hidden">
           <textarea id="message-input" placeholder="Ej: Compré combustible por $40 con tarjeta..." rows="2"></textarea>
-          <button id="send-btn" onclick="sendMessage()">Enviar</button>
+          <div style="display:flex;gap:6px">
+            <button id="send-btn" onclick="sendMessage()">Enviar</button>
+            <button class="btn-secondary" onclick="cancelInput()" style="padding:10px 16px;font-size:14px">✕</button>
+          </div>
         </div>
       </div>
     </main>
@@ -68,6 +72,61 @@
         <button class="btn-primary" onclick="confirmTransaction()">✅ Confirmar</button>
         <button class="btn-secondary" onclick="editTransaction()">✏️ Editar</button>
         <button class="btn-danger" onclick="closeModal()">❌ Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="confirm-overlay" class="hidden" onclick="closeConfirm()"></div>
+  <div id="confirm-dialog" class="hidden">
+    <div id="confirm-body">
+      <div id="confirm-icon">⚠️</div>
+      <div id="confirm-msg"></div>
+    </div>
+    <div id="confirm-footer">
+      <button class="btn-secondary" onclick="closeConfirm()">Cancelar</button>
+      <button id="confirm-ok-btn" class="btn-danger">Sí, anular</button>
+    </div>
+  </div>
+
+  <div id="reports-overlay" class="hidden" onclick="toggleReports()"></div>
+  <div id="reports-panel">
+    <div class="panel-header">
+      <h2>Reportes Contables</h2>
+      <button onclick="toggleReports()">✕</button>
+    </div>
+    <nav class="panel-tabs">
+      <button class="active" data-panel="diario">Libro Diario</button>
+      <button data-panel="balance">Balance</button>
+      <button data-panel="resultados">Resultados</button>
+    </nav>
+    <div class="panel-body">
+      <div id="panel-diario" class="panel-tab active">
+        <div class="filter-bar">
+          <input type="date" id="filter-diario-from">
+          <input type="date" id="filter-diario-to">
+          <button class="btn-filter" onclick="filterPanelDiario()">Filtrar</button>
+          <button class="btn-filter" style="background:#6b7280" onclick="clearDiarioFilters()">Limpiar</button>
+        </div>
+        <div id="diario-content"></div>
+        <div class="pagination" id="diario-pagination"></div>
+      </div>
+      <div id="panel-balance" class="panel-tab">
+        <div class="filter-bar">
+          <input type="date" id="filter-balance-from">
+          <input type="date" id="filter-balance-to">
+          <button class="btn-filter" onclick="loadPanelBalance()">Filtrar</button>
+          <button class="btn-filter" style="background:#6b7280" onclick="clearBalanceFilters()">Limpiar</button>
+        </div>
+        <div id="balance-content"></div>
+      </div>
+      <div id="panel-resultados" class="panel-tab">
+        <div class="filter-bar">
+          <input type="date" id="filter-resultados-from">
+          <input type="date" id="filter-resultados-to">
+          <button class="btn-filter" onclick="loadPanelResultados()">Filtrar</button>
+          <button class="btn-filter" style="background:#6b7280" onclick="clearResultadosFilters()">Limpiar</button>
+        </div>
+        <div id="resultados-content"></div>
       </div>
     </div>
   </div>

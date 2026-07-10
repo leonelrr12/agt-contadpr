@@ -6,8 +6,8 @@
     "dev": "tsx watch src/main.ts",
     "build": "tsc",
     "start": "node dist/main.js",
-    "lint": "echo 'lint ok'",
-    "test": "echo 'tests ok'"
+    "lint": "eslint src/",
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@agt-contador/agents": "*",

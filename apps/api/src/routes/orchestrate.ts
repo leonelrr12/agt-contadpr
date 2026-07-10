@@ -4,7 +4,7 @@ import { OrchestratorAgent } from '@agt-contador/agents';
 export const orchestrateRouter = Router();
 
 orchestrateRouter.post('/', async (req, res) => {
-  const { input } = req.body;
+  const { input, context } = req.body;
   if (!input) { res.status(400).json({ error: 'input is required' }); return; }
 
   const orchestrator = new OrchestratorAgent({
@@ -13,7 +13,7 @@ orchestrateRouter.post('/', async (req, res) => {
   });
 
   try {
-    const result = await orchestrator.process(input);
+    const result = await orchestrator.process(input, context);
     res.json(result);
   } catch (error: any) {
     res.status(500).json({ error: error.message });

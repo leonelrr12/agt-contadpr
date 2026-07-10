@@ -10,8 +10,8 @@ reportsRouter.get('/balance-comprobacion', async (req, res) => {
   };
   if (startDate || endDate) {
     where.journalEntry = { ...where.journalEntry as Record<string, unknown>, date: {} };
-    if (startDate) (where.journalEntry as Record<string, unknown>).date = { ...(where.journalEntry as Record<string, unknown>).date as Record<string, unknown>, gte: new Date(startDate as string) };
-    if (endDate) (where.journalEntry as Record<string, unknown>).date = { ...(where.journalEntry as Record<string, unknown>).date as Record<string, unknown>, lte: new Date(endDate as string) };
+    if (startDate) (where.journalEntry as Record<string, unknown>).date = { ...(where.journalEntry as Record<string, unknown>).date as Record<string, unknown>, gte: new Date(startDate as string + 'T00:00:00.000Z') };
+    if (endDate) (where.journalEntry as Record<string, unknown>).date = { ...(where.journalEntry as Record<string, unknown>).date as Record<string, unknown>, lte: new Date(endDate as string + 'T23:59:59.999Z') };
   }
 
   const lines = await req.prisma.journalLine.findMany({
@@ -92,8 +92,8 @@ reportsRouter.get('/estado-resultados', async (req, res) => {
 
   if (startDate || endDate) {
     where.journalEntry = { ...where.journalEntry as Record<string, unknown>, date: {} };
-    if (startDate) (where.journalEntry as Record<string, unknown>).date = { ...(where.journalEntry as Record<string, unknown>).date as Record<string, unknown>, gte: new Date(startDate as string) };
-    if (endDate) (where.journalEntry as Record<string, unknown>).date = { ...(where.journalEntry as Record<string, unknown>).date as Record<string, unknown>, lte: new Date(endDate as string) };
+    if (startDate) (where.journalEntry as Record<string, unknown>).date = { ...(where.journalEntry as Record<string, unknown>).date as Record<string, unknown>, gte: new Date(startDate as string + 'T00:00:00.000Z') };
+    if (endDate) (where.journalEntry as Record<string, unknown>).date = { ...(where.journalEntry as Record<string, unknown>).date as Record<string, unknown>, lte: new Date(endDate as string + 'T23:59:59.999Z') };
   }
 
   const lines = await req.prisma.journalLine.findMany({

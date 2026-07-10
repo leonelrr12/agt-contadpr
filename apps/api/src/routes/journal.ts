@@ -3,21 +3,30 @@ import { Router } from 'express';
 export const journalRouter = Router();
 
 journalRouter.get('/', async (req, res) => {
-  const { startDate, endDate, status } = req.query;
+  const { startDate, endDate, status, page: pageStr, pageSize: pageSizeStr } = req.query;
   const where: Record<string, unknown> = { companyId: 'demo-company' };
   if (status) where.status = status;
   if (startDate || endDate) {
     where.date = {};
-    if (startDate) (where.date as Record<string, unknown>).gte = new Date(startDate as string);
-    if (endDate) (where.date as Record<string, unknown>).lte = new Date(endDate as string);
+    if (startDate) (where.date as Record<string, unknown>).gte = new Date(startDate as string + 'T00:00:00.000Z');
+    if (endDate) (where.date as Record<string, unknown>).lte = new Date(endDate as string + 'T23:59:59.999Z');
   }
 
-  const entries = await req.prisma.journalEntry.findMany({
-    where,
-    include: { lines: { include: { account: true } }, createdBy: { select: { name: true } } },
-    orderBy: { date: 'desc' },
-  });
-  res.json(entries);
+  const page = Math.max(1, parseInt(pageStr as string) || 1);
+  const pageSize = Math.min(100, Math.max(1, parseInt(pageSizeStr as string) || 50));
+  const skip = (page - 1) * pageSize;
+
+  const [entries, total] = await Promise.all([
+    req.prisma.journalEntry.findMany({
+      where,
+      include: { lines: { include: { account: true } }, createdBy: { select: { name: true } } },
+      orderBy: { date: 'desc' },
+      skip,
+      take: pageSize,
+    }),
+    req.prisma.journalEntry.count({ where }),
+  ]);
+  res.json({ entries, total, page, pageSize, totalPages: Math.ceil(total / pageSize) });
 });
 
 journalRouter.get('/:id', async (req, res) => {
@@ -65,6 +74,59 @@ journalRouter.patch('/:id/status', async (req, res) => {
     data: { status },
   });
   res.json(entry);
+});
+
+journalRouter.post('/:id/anular', async (req, res) => {
+  const entryId = req.params.id;
+
+  try {
+    const result = await req.prisma.$transaction(async (tx) => {
+      const original = await tx.journalEntry.findFirst({
+        where: { id: entryId, companyId: 'demo-company' },
+        include: { lines: true, transactions: true },
+      });
+      if (!original) throw Object.assign(new Error('Asiento no encontrado'), { status: 404 });
+      if (original.status === 'ANULADO') throw Object.assign(new Error('El asiento ya está anulado'), { status: 400 });
+      if (original.description.startsWith('ANULACIÓN:')) throw Object.assign(new Error('No se puede anular un asiento de reversión'), { status: 400 });
+
+      const reversal = await tx.journalEntry.create({
+        data: {
+          date: new Date(),
+          description: `ANULACIÓN: ${original.description}`,
+          status: 'CONFIRMADO',
+          companyId: 'demo-company',
+          createdById: 'demo-user',
+          lines: {
+            create: original.lines.map(l => ({
+              accountId: l.accountId,
+              debit: l.credit,
+              credit: l.debit,
+            })),
+          },
+        },
+        include: { lines: { include: { account: true } } },
+      });
+
+      await tx.journalEntry.update({
+        where: { id: original.id },
+        data: { status: 'ANULADO' },
+      });
+
+      if (original.transactions?.length > 0) {
+        await tx.transaction.updateMany({
+          where: { journalEntryId: original.id },
+          data: { journalEntryId: reversal.id },
+        });
+      }
+
+      return { original: { ...original, status: 'ANULADO' }, reversal };
+    });
+
+    res.json(result);
+  } catch (e: any) {
+    const status = e.status || 500;
+    res.status(status).json({ error: e.message });
+  }
 });
 
 journalRouter.get('/mayor/:accountId', async (req, res) => {

@@ -9,8 +9,8 @@
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "build": "tsc",
-    "lint": "echo 'lint ok'",
-    "test": "echo 'tests ok'"
+    "lint": "eslint src/",
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0"
