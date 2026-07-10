@@ -5,8 +5,8 @@ const agent = new DialogAgent();
 
 describe('DialogAgent', () => {
   describe('processInput - GASTO', () => {
-    it('detects combustible purchase with cash', () => {
-      const result = agent.processInput('Compré combustible por $40 con efectivo');
+    it('detects combustible purchase with cash', async () => {
+      const result = await agent.processInput('Compré combustible por $40 con efectivo');
       expect(result.type).toBe('GASTO');
       expect(result.concept).toBe('Combustible');
       expect(result.amount).toBe(40);
@@ -14,16 +14,16 @@ describe('DialogAgent', () => {
       expect(result.missingFields).toHaveLength(0);
     });
 
-    it('detects electricity payment with card', () => {
-      const result = agent.processInput('Pagué la electricidad por $23 con tarjeta');
+    it('detects electricity payment with card', async () => {
+      const result = await agent.processInput('Pagué la electricidad por $23 con tarjeta');
       expect(result.type).toBe('GASTO');
       expect(result.concept).toBe('Electricidad');
       expect(result.amount).toBe(23);
       expect(result.paymentMethod).toBe('TARJETA_CREDITO');
     });
 
-    it('detects internet expense', () => {
-      const result = agent.processInput('Compré internet por $80');
+    it('detects internet expense', async () => {
+      const result = await agent.processInput('Compré internet por $80');
       expect(result.type).toBe('GASTO');
       expect(result.concept).toBe('Internet');
       expect(result.amount).toBe(80);
@@ -33,16 +33,16 @@ describe('DialogAgent', () => {
   });
 
   describe('processInput - VENTA', () => {
-    it('detects a sale in cash', () => {
-      const result = agent.processInput('Vendí $250 en efectivo');
+    it('detects a sale in cash', async () => {
+      const result = await agent.processInput('Vendí $250 en efectivo');
       expect(result.type).toBe('VENTA');
       expect(result.concept).toBe('Ventas');
       expect(result.amount).toBe(250);
       expect(result.paymentMethod).toBe('EFECTIVO');
     });
 
-    it('detects a sale without payment method', () => {
-      const result = agent.processInput('Vendí $356');
+    it('detects a sale without payment method', async () => {
+      const result = await agent.processInput('Vendí $356');
       expect(result.type).toBe('VENTA');
       expect(result.amount).toBe(356);
       expect(result.missingFields).toContain('paymentMethod');
@@ -50,14 +50,14 @@ describe('DialogAgent', () => {
   });
 
   describe('processInput - date parsing', () => {
-    it('uses today when no date is given', () => {
-      const result = agent.processInput('Compré comida por $10');
+    it('uses today when no date is given', async () => {
+      const result = await agent.processInput('Compré comida por $10');
       const today = new Date().toISOString().split('T')[0];
       expect(result.date).toBe(today);
     });
 
-    it('parses "ayer" as yesterday', () => {
-      const result = agent.processInput('Compré comida por $10 ayer');
+    it('parses "ayer" as yesterday', async () => {
+      const result = await agent.processInput('Compré comida por $10 ayer');
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
       expect(result.date).toBe(yesterday.toISOString().split('T')[0]);
@@ -65,14 +65,14 @@ describe('DialogAgent', () => {
   });
 
   describe('processInput - missing fields', () => {
-    it('reports missing amount', () => {
-      const result = agent.processInput('Compré combustible con tarjeta');
+    it('reports missing amount', async () => {
+      const result = await agent.processInput('Compré combustible con tarjeta');
       expect(result.missingFields).toContain('amount');
       expect(result.confidence).toBeLessThan(0.95);
     });
 
-    it('reports missing fields when input is vague', () => {
-      const result = agent.processInput('Hola');
+    it('reports missing fields when input is vague', async () => {
+      const result = await agent.processInput('Hola');
       expect(result.missingFields.length).toBeGreaterThan(0);
     });
   });
@@ -93,7 +93,7 @@ describe('DialogAgent', () => {
   });
 
   describe('processInput with context', () => {
-    it('fills missing fields from previous context', () => {
+    it('fills missing fields from previous context', async () => {
       const context = {
         messages: [],
         extractedData: {
@@ -109,7 +109,7 @@ describe('DialogAgent', () => {
           suggestedResponse: '',
         },
       };
-      const result = agent.processInput('con tarjeta', context);
+      const result = await agent.processInput('con tarjeta', context);
       expect(result.type).toBe('GASTO');
       expect(result.amount).toBe(40);
       expect(result.concept).toBe('Combustible');

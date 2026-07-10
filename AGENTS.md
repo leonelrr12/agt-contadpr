@@ -91,7 +91,7 @@ Campos nuevos en JournalEntry: `reviewedById`, `reviewedAt`, `reviewNotes`. Enum
 ## Current state (MVP Phase 1 - completo)
 
 - **LLM integrado**: DeepSeek via OpenAI-compatible API, con fallback a keywords
-- No tests, no CI, no ESLint config (package exists in devDeps but unused)
+- Tests: **37 tests** (dialog, accounting, orchestrator, classification) via Vitest. **Lint**: ESLint configurado con `typescript-eslint`
 - No auth, no Docker, no Husky
 - Frontend is vanilla HTML/JS/CSS (not React/Next.js as Plan.md describes)
 - Prisma generates client to `node_modules/@prisma/client` by default (turbo `outputs: ["src/generated/**"]` in `turbo.json` may be stale)
