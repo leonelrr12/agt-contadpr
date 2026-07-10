@@ -112,13 +112,14 @@ async function processOCRFile(file) {
 
 async function sendOCRResult() {
   if (!ocrData || !ocrData.text) return;
+  const text = ocrData.text.trim().substring(0, 500);
   document.getElementById('ocr-result').classList.add('hidden');
   document.getElementById('ocr-upload').classList.add('hidden');
   document.getElementById('quick-actions').classList.remove('hidden');
   ocrData = null;
 
   const input = document.getElementById('message-input');
-  input.value = ocrData.text.trim().substring(0, 500);
+  input.value = text;
   await sendMessage();
 }
 
