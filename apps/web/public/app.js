@@ -2,15 +2,18 @@ const API_URL = '/api';
 let pendingResult = null;
 let currentInput = '';
 let dialogContext = null;
+let ocrData = null;
 
 function showInput(mode) {
   document.getElementById('quick-actions').classList.add('hidden');
+  if (mode === 'factura') {
+    document.getElementById('ocr-upload').classList.remove('hidden');
+    return;
+  }
   const input = document.getElementById('text-input');
   input.classList.remove('hidden');
   if (mode === 'escribir') {
     document.getElementById('message-input').placeholder = 'Ej: Compré combustible por $40 con tarjeta...';
-  } else if (mode === 'factura') {
-    document.getElementById('message-input').placeholder = 'Describe la factura o simula subir imagen...';
   } else if (mode === 'voz') {
     document.getElementById('message-input').placeholder = 'Dicta tu transacción...';
   }
@@ -21,6 +24,95 @@ function cancelInput() {
   document.getElementById('text-input').classList.add('hidden');
   document.getElementById('quick-actions').classList.remove('hidden');
   document.getElementById('message-input').value = '';
+}
+
+/* ── OCR / Factura ── */
+document.getElementById('ocr-file-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    document.getElementById('ocr-preview-img').src = ev.target.result;
+    document.getElementById('ocr-dropzone').classList.add('hidden');
+    document.getElementById('ocr-preview').classList.remove('hidden');
+    document.getElementById('ocr-result').classList.add('hidden');
+  };
+  reader.readAsDataURL(file);
+});
+
+function cancelOCR() {
+  document.getElementById('ocr-upload').classList.add('hidden');
+  document.getElementById('ocr-dropzone').classList.remove('hidden');
+  document.getElementById('ocr-preview').classList.add('hidden');
+  document.getElementById('ocr-loading').classList.add('hidden');
+  document.getElementById('ocr-result').classList.add('hidden');
+  document.getElementById('ocr-file-input').value = '';
+  document.getElementById('ocr-preview-img').src = '';
+  ocrData = null;
+  document.getElementById('quick-actions').classList.remove('hidden');
+}
+
+async function processOCR() {
+  const fileInput = document.getElementById('ocr-file-input');
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  document.getElementById('ocr-preview').classList.add('hidden');
+  document.getElementById('ocr-loading').classList.remove('hidden');
+  document.getElementById('ocr-status').textContent = 'Procesando imagen con OCR...';
+
+  try {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const res = await fetch(`${API_URL}/ocr/extract`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Error al procesar');
+    }
+
+    const data = await res.json();
+    ocrData = data;
+
+    document.getElementById('ocr-loading').classList.add('hidden');
+    document.getElementById('ocr-result').classList.remove('hidden');
+
+    let html = `<div class="ocr-extracted"><strong>Texto extraído:</strong><pre>${escapeHtml(data.text.substring(0, 500))}</pre>`;
+    if (data.total) html += `<div class="ocr-field"><span>💰 Total:</span><strong>$${data.total.toFixed(2)}</strong></div>`;
+    if (data.date) html += `<div class="ocr-field"><span>📅 Fecha:</span><strong>${data.date}</strong></div>`;
+    if (data.provider) html += `<div class="ocr-field"><span>🏢 Proveedor:</span><strong>${escapeHtml(data.provider)}</strong></div>`;
+    if (data.ruc) html += `<div class="ocr-field"><span>🔢 RUC:</span><strong>${escapeHtml(data.ruc)}</strong></div>`;
+    if (data.itbms !== null) html += `<div class="ocr-field"><span>📊 ITBMS:</span><strong>${data.itbms}%</strong></div>`;
+    html += `<div class="ocr-field"><span>🎯 Confianza:</span><strong>${(data.confidence * 100).toFixed(0)}%</strong></div>`;
+    html += '</div>';
+    document.getElementById('ocr-result-text').innerHTML = html;
+  } catch (err) {
+    document.getElementById('ocr-loading').classList.add('hidden');
+    document.getElementById('ocr-preview').classList.remove('hidden');
+    alert('Error: ' + err.message);
+  }
+}
+
+async function sendOCRResult() {
+  if (!ocrData || !ocrData.text) return;
+  document.getElementById('ocr-result').classList.add('hidden');
+  document.getElementById('ocr-upload').classList.add('hidden');
+  document.getElementById('quick-actions').classList.remove('hidden');
+  ocrData = null;
+
+  const input = document.getElementById('message-input');
+  input.value = ocrData.text.trim().substring(0, 500);
+  await sendMessage();
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
 }
 
 async function sendMessage() {

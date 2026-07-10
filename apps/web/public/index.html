@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Agente Contable</title>
-  <link rel="stylesheet" href="styles.css?v=4">
+  <link rel="stylesheet" href="styles.css?v=5">
 </head>
 <body>
   <div id="app">
@@ -62,6 +62,32 @@
           <div style="display:flex;gap:6px">
             <button id="send-btn" onclick="sendMessage()">Enviar</button>
             <button class="btn-secondary" onclick="cancelInput()" style="padding:10px 16px;font-size:14px">✕</button>
+          </div>
+        </div>
+        <div id="ocr-upload" class="hidden">
+          <div id="ocr-dropzone" onclick="document.getElementById('ocr-file-input').click()">
+            <div id="ocr-drop-icon">📷</div>
+            <div id="ocr-drop-text">Haz clic o arrastra una foto de factura/recibo</div>
+            <div id="ocr-drop-hint">JPEG, PNG o WebP — Máx 10MB</div>
+            <input type="file" id="ocr-file-input" accept="image/jpeg,image/png,image/webp" hidden>
+          </div>
+          <div id="ocr-preview" class="hidden">
+            <img id="ocr-preview-img">
+            <div id="ocr-actions">
+              <button class="btn-primary" id="ocr-process-btn" onclick="processOCR()">🔍 Procesar Factura</button>
+              <button class="btn-secondary" onclick="cancelOCR()">✕ Cancelar</button>
+            </div>
+          </div>
+          <div id="ocr-loading" class="hidden">
+            <div class="spinner"></div>
+            <div id="ocr-status">Procesando imagen con OCR...</div>
+          </div>
+          <div id="ocr-result" class="hidden">
+            <div id="ocr-result-text"></div>
+            <div id="ocr-result-actions">
+              <button class="btn-primary" id="ocr-send-btn" onclick="sendOCRResult()">✅ Usar como transacción</button>
+              <button class="btn-secondary" onclick="cancelOCR()">✕ Cancelar</button>
+            </div>
           </div>
         </div>
       </div>
@@ -175,7 +201,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=6"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </body>
 </html>
