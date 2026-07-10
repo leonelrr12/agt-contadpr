@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: contador
+      POSTGRES_PASSWORD: contador123
+      POSTGRES_DB: agt_contador
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U contador -d agt_contador"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: "postgresql://contador:contador123@db:5432/agt_contador?schema=public"
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY}"
+      PORT: 3001
+      DB_HOST: db
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "8090:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./apps/web/public:/usr/share/nginx/html:ro
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

@@ -1,4 +1,5 @@
 import type { DialogResult, DialogContext } from './types';
+import { LLMService } from './llm-service';
 
 function parseInput(input: string): {
   amount: number;
@@ -96,29 +97,54 @@ function parseInput(input: string): {
 }
 
 export class DialogAgent {
-  processInput(input: string, context?: DialogContext): DialogResult {
-    const fresh = parseInput(input);
+  private llm: LLMService;
+
+  constructor(apiKey?: string) {
+    this.llm = new LLMService(apiKey);
+  }
+
+  async processInput(input: string, context?: DialogContext): Promise<DialogResult> {
+    let extracted: {
+      type: string;
+      amount: number;
+      concept: string;
+      paymentMethod: string | null;
+      date: string;
+      missingFields: string[];
+    } | null = null;
+
+    if (this.llm.isEnabled) {
+      const llmResult = await this.llm.extract(input);
+      if (llmResult && !llmResult.missingFields.includes('type')) {
+        extracted = llmResult;
+      }
+    }
+
+    if (!extracted) {
+      extracted = parseInput(input);
+    }
+
     const prev = context?.extractedData;
 
-    let type = fresh.type as DialogResult['type'];
-    let amount = fresh.amount;
-    let concept = fresh.concept;
-    let paymentMethod = fresh.paymentMethod;
+    let type = extracted.type as DialogResult['type'];
+    let amount = extracted.amount;
+    let concept = extracted.concept;
+    let paymentMethod = extracted.paymentMethod;
     const missingFields: string[] = [];
 
     if (prev) {
-      if (fresh.missingFields.includes('type') && prev.type) {
+      if (extracted.missingFields.includes('type') && prev.type) {
         type = prev.type;
       }
-      const conceptUnset = fresh.missingFields.includes('concept') || fresh.missingFields.includes('concept_category');
-      const noKeywordMatch = fresh.missingFields.includes('type');
+      const conceptUnset = extracted.missingFields.includes('concept') || extracted.missingFields.includes('concept_category');
+      const noKeywordMatch = extracted.missingFields.includes('type');
       if ((conceptUnset || noKeywordMatch) && prev.concept) {
         concept = prev.concept;
       }
-      if (fresh.amount === 0 && prev.amount && prev.amount > 0) {
+      if (extracted.amount === 0 && prev.amount && prev.amount > 0) {
         amount = prev.amount;
       }
-      if (fresh.missingFields.includes('paymentMethod') && prev.paymentMethod) {
+      if (extracted.missingFields.includes('paymentMethod') && prev.paymentMethod) {
         paymentMethod = prev.paymentMethod;
       }
     }
@@ -134,8 +160,8 @@ export class DialogAgent {
       description: input,
       concept,
       paymentMethod,
-      date: fresh.date,
-      confidence: missingFields.length === 0 ? 0.95 : 0.6,
+      date: extracted.date || new Date().toISOString().split('T')[0],
+      confidence: missingFields.length === 0 ? (this.llm.isEnabled ? 0.98 : 0.95) : 0.6,
       missingFields,
       suggestedResponse: missingFields.length === 0
         ? `He entendido: ${type === 'VENTA' ? 'Venta' : type === 'GASTO' ? 'Gasto' : type} de ${concept} por $${amount}${paymentMethod ? ` pagado con ${paymentMethod}` : ''}. ¿Confirmas?`

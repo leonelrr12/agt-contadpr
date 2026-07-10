@@ -2,6 +2,77 @@ import { Router } from 'express';
 
 export const journalRouter = Router();
 
+journalRouter.get('/pendientes', async (req, res) => {
+  const { startDate, endDate } = req.query;
+  const where: Record<string, unknown> = {
+    companyId: 'demo-company',
+    status: 'BORRADOR',
+  };
+  if (startDate || endDate) {
+    where.date = {};
+    if (startDate) (where.date as Record<string, unknown>).gte = new Date(startDate as string + 'T00:00:00.000Z');
+    if (endDate) (where.date as Record<string, unknown>).lte = new Date(endDate as string + 'T23:59:59.999Z');
+  }
+
+  const entries = await req.prisma.journalEntry.findMany({
+    where,
+    include: {
+      lines: { include: { account: true } },
+      createdBy: { select: { name: true, email: true } },
+    },
+    orderBy: { date: 'asc' },
+  });
+  res.json(entries);
+});
+
+journalRouter.post('/:id/review', async (req, res) => {
+  const { action, notes } = req.body;
+  if (!action || !['aprobar', 'rechazar'].includes(action)) {
+    res.status(400).json({ error: 'action must be "aprobar" or "rechazar"' });
+    return;
+  }
+
+  try {
+    const result = await req.prisma.$transaction(async (tx) => {
+      const entry = await tx.journalEntry.findFirst({
+        where: { id: req.params.id, companyId: 'demo-company' },
+      });
+      if (!entry) throw Object.assign(new Error('Asiento no encontrado'), { status: 404 });
+
+      if (entry.status !== 'BORRADOR') {
+        throw Object.assign(
+          new Error(`Solo se pueden revisar asientos en BORRADOR. Estado actual: ${entry.status}`),
+          { status: 400 },
+        );
+      }
+
+      const newStatus = action === 'aprobar' ? 'CONFIRMADO' : 'RECHAZADO';
+
+      const updated = await tx.journalEntry.update({
+        where: { id: entry.id },
+        data: {
+          status: newStatus,
+          reviewedById: 'demo-user',
+          reviewedAt: new Date(),
+          reviewNotes: notes || null,
+        },
+        include: {
+          lines: { include: { account: true } },
+          createdBy: { select: { name: true } },
+          reviewedBy: { select: { name: true } },
+        },
+      });
+
+      return updated;
+    });
+
+    res.json(result);
+  } catch (e: any) {
+    const status = e.status || 500;
+    res.status(status).json({ error: e.message });
+  }
+});
+
 journalRouter.get('/', async (req, res) => {
   const { startDate, endDate, status, page: pageStr, pageSize: pageSizeStr } = req.query;
   const where: Record<string, unknown> = { companyId: 'demo-company' };
@@ -32,7 +103,11 @@ journalRouter.get('/', async (req, res) => {
 journalRouter.get('/:id', async (req, res) => {
   const entry = await req.prisma.journalEntry.findFirst({
     where: { id: req.params.id, companyId: 'demo-company' },
-    include: { lines: { include: { account: true } }, createdBy: { select: { name: true } } },
+    include: {
+      lines: { include: { account: true } },
+      createdBy: { select: { name: true } },
+      reviewedBy: { select: { name: true } },
+    },
   });
   if (!entry) { res.status(404).json({ error: 'Journal entry not found' }); return; }
   res.json(entry);
@@ -69,11 +144,30 @@ journalRouter.post('/', async (req, res) => {
 
 journalRouter.patch('/:id/status', async (req, res) => {
   const { status } = req.body;
-  const entry = await req.prisma.journalEntry.update({
+  const allowedTransitions: Record<string, string[]> = {
+    BORRADOR: ['RECHAZADO'],    // solo el creador puede re-enviar tras corrección (future)
+    RECHAZADO: ['BORRADOR'],     // re-envío tras correcciones
+  };
+
+  const entry = await req.prisma.journalEntry.findFirst({
+    where: { id: req.params.id, companyId: 'demo-company' },
+  });
+  if (!entry) { res.status(404).json({ error: 'Asiento no encontrado' }); return; }
+
+  const allowed = allowedTransitions[entry.status];
+  if (!allowed || !allowed.includes(status)) {
+    res.status(400).json({
+      error: `Transición no válida: ${entry.status} → ${status}. Use el endpoint /review para aprobar/rechazar.`,
+    });
+    return;
+  }
+
+  const updated = await req.prisma.journalEntry.update({
     where: { id: req.params.id },
     data: { status },
+    include: { lines: { include: { account: true } }, createdBy: { select: { name: true } } },
   });
-  res.json(entry);
+  res.json(updated);
 });
 
 journalRouter.post('/:id/anular', async (req, res) => {

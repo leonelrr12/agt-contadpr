@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -40,6 +40,7 @@ model User {
   company        Company         @relation(fields: [companyId], references: [id])
   transactions   Transaction[]
   journalEntries JournalEntry[]
+  reviewedEntries JournalEntry[] @relation("ReviewedEntries")
   auditLogs      AuditLog[]
 }
 
@@ -102,17 +103,21 @@ model Transaction {
 }
 
 model JournalEntry {
-  id          String   @id @default(cuid())
-  date        DateTime
-  description String
-  status      String   @default("BORRADOR")
-  companyId   String
-  createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String    @id @default(cuid())
+  date         DateTime
+  description  String
+  status       String    @default("BORRADOR")
+  companyId    String
+  createdById  String
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNotes  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   company      Company       @relation(fields: [companyId], references: [id])
   createdBy    User          @relation(fields: [createdById], references: [id])
+  reviewedBy   User?         @relation("ReviewedEntries", fields: [reviewedById], references: [id])
   lines        JournalLine[]
   transactions Transaction[]
 }

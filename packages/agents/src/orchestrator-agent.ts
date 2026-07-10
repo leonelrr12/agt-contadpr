@@ -26,7 +26,7 @@ export class OrchestratorAgent {
   private prisma: any;
 
   constructor(config: ClassificationAgentConfig) {
-    this.dialogAgent = new DialogAgent();
+    this.dialogAgent = new DialogAgent(config.deepseekApiKey);
     this.classificationAgent = new ClassificationAgent(config);
     this.accountingAgent = new AccountingAgent(config.prisma);
     this.prisma = config.prisma;
@@ -38,7 +38,7 @@ export class OrchestratorAgent {
     needsConfirmation: boolean;
     result?: any;
   }> {
-    const dialog = this.dialogAgent.processInput(input, context);
+    const dialog = await this.dialogAgent.processInput(input, context);
     const plan: ExecutionPlan = {
       steps: [
         { agent: 'dialogo', action: 'extraer_informacion', status: 'completed', result: dialog as any },
@@ -51,7 +51,7 @@ export class OrchestratorAgent {
       return { plan, prompt, needsConfirmation: false };
     }
 
-    const classification = await this.classificationAgent.classify(dialog.concept);
+    const classification = await this.classificationAgent.classify(dialog.concept, dialog.type);
     plan.steps.push({
       agent: 'clasificacion',
       action: 'clasificar_concepto',
@@ -112,7 +112,7 @@ export class OrchestratorAgent {
       data: {
         date: new Date(dialog.date),
         description: entry.description,
-        status: 'CONFIRMADO',
+        status: 'BORRADOR',
         companyId: 'demo-company',
         createdById: 'demo-user',
         lines: {

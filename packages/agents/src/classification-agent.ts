@@ -3,6 +3,7 @@ import type { ClassificationResult } from '@agt-contador/shared';
 export interface ClassificationAgentConfig {
   prisma: any;
   companyId: string;
+  deepseekApiKey?: string;
 }
 
 export class ClassificationAgent {
@@ -14,20 +15,26 @@ export class ClassificationAgent {
     this.companyId = config.companyId;
   }
 
-  async classify(conceptName: string): Promise<ClassificationResult> {
+  private async loadAccounts(): Promise<any[]> {
+    return this.prisma.account.findMany({
+      where: { companyId: this.companyId, isActive: true },
+    });
+  }
+
+  async classify(conceptName: string, transactionType?: string): Promise<ClassificationResult> {
     const allConcepts = await this.prisma.concept.findMany({
       where: { companyId: this.companyId, isActive: true },
       include: { account: true },
     });
 
     const lowerName = conceptName.toLowerCase();
-    const concept = allConcepts.find((c: any) => c.name.toLowerCase() === lowerName);
+    const exactMatch = allConcepts.find((c: any) => c.name.toLowerCase() === lowerName);
 
-    if (concept) {
+    if (exactMatch) {
       return {
-        concept: concept.name,
-        accountId: concept.accountId,
-        confidence: concept.confidence,
+        concept: exactMatch.name,
+        accountId: exactMatch.accountId,
+        confidence: exactMatch.confidence,
       };
     }
 
@@ -41,6 +48,27 @@ export class ClassificationAgent {
         concept: partialMatch.name,
         accountId: partialMatch.accountId,
         confidence: partialMatch.confidence * 0.8,
+      };
+    }
+
+    const accounts = await this.loadAccounts();
+    const typeToGeneric: Record<string, string> = {
+      INGRESO: 'Otros Ingresos',
+      GASTO: 'Gastos Varios',
+      COMPRA: 'Compra de mercancía',
+      VENTA: 'Ventas',
+      PAGO_PROVEEDOR: 'Proveedores',
+      COBRO_CLIENTE: 'Clientes',
+      PRESTAMO: 'Préstamos por Pagar LP',
+    };
+    const genericName = typeToGeneric[transactionType || ''] || 'Gastos Varios';
+    const genericAccount = accounts.find((a: any) => a.name === genericName);
+
+    if (genericAccount) {
+      return {
+        concept: conceptName,
+        accountId: genericAccount.id,
+        confidence: 0.5,
       };
     }
 

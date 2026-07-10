@@ -159,3 +159,78 @@ reportsRouter.get('/flujo-caja', async (req, res) => {
 
   res.json({ movimientos, saldoActual: saldo });
 });
+
+reportsRouter.get('/dashboard', async (req, res) => {
+  const lines = await req.prisma.journalLine.findMany({
+    where: {
+      journalEntry: { companyId: 'demo-company', status: 'CONFIRMADO' },
+      account: { type: { in: ['INGRESO', 'GASTO', 'COSTO'] } },
+    },
+    include: { account: true, journalEntry: { select: { date: true, description: true } } },
+    orderBy: { journalEntry: { date: 'asc' } },
+  });
+
+  const monthlyMap = new Map<string, { ingresos: number; gastos: number; costos: number }>();
+  const gastosPorCategoria: Record<string, number> = {};
+  const ingresosPorCategoria: Record<string, number> = {};
+  let totalIngresos = 0;
+  let totalGastos = 0;
+  let totalCostos = 0;
+
+  for (const line of lines) {
+    const month = line.journalEntry.date.toISOString().slice(0, 7);
+    if (!monthlyMap.has(month)) monthlyMap.set(month, { ingresos: 0, gastos: 0, costos: 0 });
+    const m = monthlyMap.get(month)!;
+
+    if (line.account.type === 'INGRESO') {
+      const amount = line.credit - line.debit;
+      totalIngresos += amount;
+      m.ingresos += amount;
+      const cat = line.account.name;
+      ingresosPorCategoria[cat] = (ingresosPorCategoria[cat] || 0) + amount;
+    } else if (line.account.type === 'GASTO') {
+      const amount = line.debit - line.credit;
+      totalGastos += amount;
+      m.gastos += amount;
+      const cat = line.account.name;
+      gastosPorCategoria[cat] = (gastosPorCategoria[cat] || 0) + amount;
+    } else if (line.account.type === 'COSTO') {
+      const amount = line.debit - line.credit;
+      totalCostos += amount;
+      m.costos += amount;
+    }
+  }
+
+  const monthly = Array.from(monthlyMap.entries()).map(([month, data]) => ({
+    month,
+    ingresos: Math.round(data.ingresos * 100) / 100,
+    gastos: Math.round(data.gastos * 100) / 100,
+    costos: Math.round(data.costos * 100) / 100,
+    neto: Math.round((data.ingresos - data.gastos - data.costos) * 100) / 100,
+  }));
+
+  const topGastos = Object.entries(gastosPorCategoria)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([nombre, total]) => ({ nombre, total: Math.round(total * 100) / 100 }));
+
+  const topIngresos = Object.entries(ingresosPorCategoria)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([nombre, total]) => ({ nombre, total: Math.round(total * 100) / 100 }));
+
+  const utilidadNeta = totalIngresos - totalGastos - totalCostos;
+
+  res.json({
+    monthly,
+    resumen: {
+      totalIngresos: Math.round(totalIngresos * 100) / 100,
+      totalGastos: Math.round(totalGastos * 100) / 100,
+      totalCostos: Math.round(totalCostos * 100) / 100,
+      utilidadNeta: Math.round(utilidadNeta * 100) / 100,
+      meses: monthly.length,
+    },
+    topGastos,
+    topIngresos,
+  });
+});

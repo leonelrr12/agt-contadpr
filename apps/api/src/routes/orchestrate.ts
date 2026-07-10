@@ -7,9 +7,11 @@ orchestrateRouter.post('/', async (req, res) => {
   const { input, context } = req.body;
   if (!input) { res.status(400).json({ error: 'input is required' }); return; }
 
+  const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
   const orchestrator = new OrchestratorAgent({
     prisma: req.prisma,
     companyId: 'demo-company',
+    deepseekApiKey,
   });
 
   try {
@@ -24,9 +26,11 @@ orchestrateRouter.post('/confirm', async (req, res) => {
   const { result } = req.body;
   if (!result) { res.status(400).json({ error: `result required. Got body keys: ${Object.keys(req.body).join(',')}` }); return; }
 
+  const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
   const orchestrator = new OrchestratorAgent({
     prisma: req.prisma,
     companyId: 'demo-company',
+    deepseekApiKey,
   });
 
   try {

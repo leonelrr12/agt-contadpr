@@ -31,7 +31,9 @@ export enum PaymentMethod {
 
 export enum JournalEntryStatus {
   BORRADOR = 'BORRADOR',
+  REVISADO = 'REVISADO',
   CONFIRMADO = 'CONFIRMADO',
+  RECHAZADO = 'RECHAZADO',
   ANULADO = 'ANULADO',
 }
 
@@ -62,6 +64,9 @@ export interface JournalEntry {
   status: JournalEntryStatus;
   lines: JournalLine[];
   createdById: string;
+  reviewedById?: string;
+  reviewedAt?: Date;
+  reviewNotes?: string;
   createdAt: Date;
   updatedAt: Date;
 }

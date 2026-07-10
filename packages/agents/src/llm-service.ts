@@ -1,0 +1,111 @@
+import OpenAI from 'openai';
+
+export interface LLMExtraction {
+  type: string;
+  amount: number;
+  concept: string;
+  paymentMethod: string | null;
+  date: string;
+  missingFields: string[];
+}
+
+const EXTRACTION_SYSTEM_PROMPT = (today: string) => `Eres un extractor de datos contables. Hoy es ${today}. Analiza el texto del usuario y extrae la información estructurada de la transacción.
+
+Tipos de transacción válidos: INGRESO, GASTO, COMPRA, VENTA, PAGO_PROVEEDOR, COBRO_CLIENTE, PRESTAMO
+
+Métodos de pago válidos (opcional): EFECTIVO, TARJETA_CREDITO, TARJETA_DEBITO, TRANSFERENCIA, CHEQUE, BANCO
+
+Reglas:
+- Si el texto menciona "compré", "pagué", "pague", "gasto" → type: GASTO
+- Si menciona "vendí", "venta", "facturé", "cobré" → type: VENTA
+- Si menciona "cobro", "cliente", "cobre" → type: COBRO_CLIENTE
+- Si menciona "pago a proveedor", "proveedor" → type: PAGO_PROVEEDOR
+- Si menciona "compra de mercancía", "inventario" → type: COMPRA
+- Si menciona "préstamo", "prestamo", "prstamo" → type: PRESTAMO
+- Si menciona "ingreso", "depósito", "abono", "recibí" → type: INGRESO
+
+Conceptos comunes:
+- "combustible", "gasolina", "gas" → Combustible
+- "electricidad", "luz" → Electricidad
+- "internet" → Internet
+- "teléfono", "celular" → Teléfono
+- "agua" → Agua
+- "papelería", "oficina", "útiles" → Papelería
+- "alimentación", "comida", "almuerzo" → Alimentación
+- "alquiler", "renta" → Alquiler
+- "seguro" → Seguros
+- "publicidad", "marketing" → Publicidad
+- "combustible" (si type=Venta) → Venta de combustible
+
+Para el concepto, usa el nombre más específico posible. Si no reconoces el concepto exacto,
+usa el término que el usuario mencionó (ej: "hosting", "dominio", "fletes").
+
+Moneda: Siempre USD. La fecha debe estar en formato YYYY-MM-DD.
+Hoy es ${today}. Si no se menciona fecha, usa ${today}. Si se menciona "ayer", usa el día anterior a ${today}. Si se menciona "anteayer", usa dos días antes de ${today}.
+
+Responde SOLO con un JSON válido con esta estructura:
+{
+  "type": "tipo de transacción",
+  "amount": número (sin símbolos),
+  "concept": "nombre del concepto",
+  "paymentMethod": "método de pago o null",
+  "date": "YYYY-MM-DD (hoy es ${today})",
+  "missingFields": ["lista de campos faltantes - solo si no se pudo determinar"]
+}
+
+Campos opcionales: paymentMethod. Si no se menciona, ponlo como null.
+Si el monto no se encuentra, pon amount: 0 y añade "amount" a missingFields.
+Si el concepto no se puede determinar, pon concept: "" y añade "concept".`;
+
+export class LLMService {
+  private client: OpenAI | null = null;
+  private enabled: boolean;
+
+  constructor(apiKey: string | undefined) {
+    this.enabled = !!apiKey;
+    if (apiKey) {
+      this.client = new OpenAI({
+        apiKey,
+        baseURL: 'https://api.deepseek.com',
+      });
+    }
+  }
+
+  get isEnabled(): boolean {
+    return this.enabled;
+  }
+
+  async extract(input: string): Promise<LLMExtraction | null> {
+    if (!this.client || !this.enabled) return null;
+
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const response = await this.client.chat.completions.create({
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: EXTRACTION_SYSTEM_PROMPT(today) },
+          { role: 'user', content: input },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.1,
+        max_tokens: 300,
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+      if (!content) return null;
+
+      const parsed = JSON.parse(content) as LLMExtraction;
+      return {
+        type: parsed.type || '',
+        amount: typeof parsed.amount === 'number' ? parsed.amount : 0,
+        concept: parsed.concept || '',
+        paymentMethod: parsed.paymentMethod || null,
+        date: parsed.date || new Date().toISOString().split('T')[0],
+        missingFields: Array.isArray(parsed.missingFields) ? parsed.missingFields : [],
+      };
+    } catch (error: any) {
+      console.error('[LLM] Extraction error:', error?.message || error);
+      return null;
+    }
+  }
+}

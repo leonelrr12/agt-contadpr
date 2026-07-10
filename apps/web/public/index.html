@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Agente Contable</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
   <div id="app">
@@ -30,9 +30,16 @@
           <span class="summary-value" id="utilidad-mes">$0</span>
         </div>
       </div>
-      <div class="sidebar-actions">
-        <button onclick="toggleReports()" class="btn-outline">Ver Reportes</button>
-      </div>
+      <nav id="sidebar-nav">
+        <button class="nav-link active" data-view="chat">💬 Chat</button>
+        <button class="nav-link" data-view="panel-diario">📋 Diario</button>
+        <button class="nav-link" data-view="panel-balance">⚖️ Balance</button>
+        <button class="nav-link" data-view="panel-resultados">📊 Resultados</button>
+        <button class="nav-link" data-view="panel-dashboard">📈 Dashboard</button>
+        <button class="nav-link" data-view="panel-cuentas">🏦 Cuentas</button>
+        <button class="nav-link" data-view="panel-conceptos">📝 Conceptos</button>
+        <button class="nav-link" data-view="panel-revision" id="nav-revision">🔍 Revisión <span id="pendientes-badge" class="badge hidden">0</span></button>
+      </nav>
     </aside>
 
     <main id="main">
@@ -95,15 +102,26 @@
       <button onclick="toggleReports()">✕</button>
     </div>
     <nav class="panel-tabs">
-      <button class="active" data-panel="diario">Libro Diario</button>
+      <button class="active" data-panel="diario">Diario</button>
       <button data-panel="balance">Balance</button>
       <button data-panel="resultados">Resultados</button>
+      <button data-panel="dashboard">Dashboard</button>
+      <button data-panel="cuentas">Cuentas</button>
+      <button data-panel="conceptos">Conceptos</button>
+      <button data-panel="revision">🔍 Revisión</button>
     </nav>
     <div class="panel-body">
       <div id="panel-diario" class="panel-tab active">
         <div class="filter-bar">
           <input type="date" id="filter-diario-from">
           <input type="date" id="filter-diario-to">
+          <select id="filter-diario-status" style="padding:6px 10px;border:1px solid #e2e4e8;border-radius:6px;font-size:12px;background:#fff;font-family:inherit;color:#333">
+            <option value="CONFIRMADO">✓ Aprobados</option>
+            <option value="BORRADOR">⏳ Pendientes</option>
+            <option value="RECHAZADO">✗ Rechazados</option>
+            <option value="ANULADO">↩ Anulados</option>
+            <option value="">Todos</option>
+          </select>
           <button class="btn-filter" onclick="filterPanelDiario()">Filtrar</button>
           <button class="btn-filter" style="background:#6b7280" onclick="clearDiarioFilters()">Limpiar</button>
         </div>
@@ -128,9 +146,36 @@
         </div>
         <div id="resultados-content"></div>
       </div>
+      <div id="panel-dashboard" class="panel-tab">
+        <div id="dashboard-content">
+          <div class="empty">Cargando dashboard...</div>
+        </div>
+      </div>
+      <div id="panel-cuentas" class="panel-tab">
+        <div id="cuentas-content">
+          <div class="empty">Cargando catálogo de cuentas...</div>
+        </div>
+      </div>
+      <div id="panel-conceptos" class="panel-tab">
+        <div id="conceptos-content">
+          <div class="empty">Cargando conceptos...</div>
+        </div>
+      </div>
+      <div id="panel-revision" class="panel-tab">
+        <div class="filter-bar">
+          <input type="date" id="filter-revision-from">
+          <input type="date" id="filter-revision-to">
+          <button class="btn-filter" onclick="loadPanelRevision()">Filtrar</button>
+          <button class="btn-filter" style="background:#6b7280" onclick="clearRevisionFilters()">Limpiar</button>
+        </div>
+        <div id="revision-content">
+          <div class="empty">Cargando asientos pendientes...</div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=5"></script>
+  <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </body>
 </html>

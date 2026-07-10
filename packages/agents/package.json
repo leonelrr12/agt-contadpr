@@ -10,8 +10,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agt-contador/prisma-schema": "*",
     "@agt-contador/shared": "*",
-    "@agt-contador/prisma-schema": "*"
+    "openai": "^6.46.0"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

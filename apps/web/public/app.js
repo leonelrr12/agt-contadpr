@@ -412,7 +412,44 @@ function toggleReports() {
   panel.classList.toggle('open');
   overlay.classList.toggle('hidden');
   document.body.style.overflow = isOpen ? '' : 'hidden';
-  if (!isOpen) { loadPanelDiario(); loadPanelBalance(); loadPanelResultados(); }
+  if (!isOpen) { loadPanelDiario(); loadPanelBalance(); loadPanelResultados(); loadPanelDashboard(); loadPanelCuentas(); loadPanelConceptos(); loadPanelRevision(); }
+}
+
+/* ── Sidebar navigation ── */
+document.querySelectorAll('.nav-link').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const view = btn.dataset.view;
+    document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    if (view === 'chat') {
+      toggleReportsClose();
+      return;
+    }
+
+    toggleReportsOpen();
+    const panelBtn = document.querySelector(`.panel-tabs button[data-panel="${view.replace('panel-', '')}"]`);
+    if (panelBtn) panelBtn.click();
+  });
+});
+
+function toggleReportsOpen() {
+  const panel = document.getElementById('reports-panel');
+  const overlay = document.getElementById('reports-overlay');
+  if (!panel.classList.contains('open')) {
+    panel.classList.add('open');
+    overlay.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    loadPanelDiario(); loadPanelBalance(); loadPanelResultados(); loadPanelDashboard(); loadPanelCuentas(); loadPanelConceptos(); loadPanelRevision();
+  }
+}
+
+function toggleReportsClose() {
+  const panel = document.getElementById('reports-panel');
+  const overlay = document.getElementById('reports-overlay');
+  panel.classList.remove('open');
+  overlay.classList.add('hidden');
+  document.body.style.overflow = '';
 }
 
 document.querySelectorAll('.panel-tabs button').forEach(btn => {
@@ -439,7 +476,9 @@ async function loadPanelDiario() {
   const pagEl = document.getElementById('diario-pagination');
   const from = document.getElementById('filter-diario-from').value;
   const to = document.getElementById('filter-diario-to').value;
+  const status = document.getElementById('filter-diario-status').value;
   let url = `${API_URL}/journal?page=${diarioPage}&pageSize=${DIARIO_PAGE_SIZE}`;
+  if (status) url += `&status=${status}`;
   if (from) url += `&startDate=${from}`;
   if (to) url += `&endDate=${to}`;
   try {
@@ -450,12 +489,23 @@ async function loadPanelDiario() {
       pagEl.innerHTML = '';
       return;
     }
-    let html = '<table><thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th><th></th></tr></thead><tbody>';
+    let html = '<table><thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th><th>Estado</th></tr></thead><tbody>';
     for (const e of data.entries) {
       const date = new Date(e.date).toLocaleDateString('es-PA');
-      for (const line of e.lines) {
-        const canUndo = e.status === 'CONFIRMADO' && !e.description.startsWith('ANULACIÓN:') && line === e.lines[0];
-        html += `<tr><td>${date}</td><td>${e.description}</td><td>${line.account?.name || ''}</td><td class="debit">${line.debit ? '$' + line.debit.toFixed(2) : ''}</td><td class="credit">${line.credit ? '$' + line.credit.toFixed(2) : ''}</td><td>${canUndo ? `<button onclick="anularPanel('${e.id}')" class="btn-undo" title="Anular asiento">↩</button>` : ''}</td></tr>`;
+      let statusTag = '';
+      if (e.status === 'BORRADOR') statusTag = '<span class="tag tag-draft">BORRADOR</span>';
+      else if (e.status === 'CONFIRMADO') statusTag = '<span class="tag tag-conf">CONFIRMADO</span>';
+      else if (e.status === 'RECHAZADO') statusTag = `<span class="tag tag-rejected" title="${e.reviewNotes || ''}">RECHAZADO</span>`;
+      else if (e.status === 'ANULADO') statusTag = '<span class="tag tag-void">ANULADO</span>';
+      const firstLine = e.lines[0];
+      if (firstLine) {
+        const canUndo = e.status === 'CONFIRMADO' && !e.description.startsWith('ANULACIÓN:');
+        const undoBtn = canUndo ? `<button onclick="anularPanel('${e.id}')" class="btn-undo" title="Anular asiento">↩</button>` : '';
+        html += `<tr><td>${date}</td><td>${e.description}${e.reviewNotes ? `<br><small style="color:#c62828">${e.reviewNotes}</small>` : ''}</td><td>${firstLine.account?.name || ''}</td><td class="debit">${firstLine.debit ? '$' + firstLine.debit.toFixed(2) : ''}</td><td class="credit">${firstLine.credit ? '$' + firstLine.credit.toFixed(2) : ''}</td><td>${statusTag} ${undoBtn}</td></tr>`;
+      }
+      for (let i = 1; i < e.lines.length; i++) {
+        const line = e.lines[i];
+        html += `<tr><td></td><td></td><td>${line.account?.name || ''}</td><td class="debit">${line.debit ? '$' + line.debit.toFixed(2) : ''}</td><td class="credit">${line.credit ? '$' + line.credit.toFixed(2) : ''}</td><td></td></tr>`;
       }
     }
     el.innerHTML = html + '</tbody></table>';
@@ -482,6 +532,7 @@ async function loadPanelDiario() {
 function clearDiarioFilters() {
   document.getElementById('filter-diario-from').value = '';
   document.getElementById('filter-diario-to').value = '';
+  document.getElementById('filter-diario-status').value = 'CONFIRMADO';
   diarioPage = 1;
   loadPanelDiario();
 }
@@ -559,6 +610,269 @@ function clearResultadosFilters() {
   document.getElementById('filter-resultados-from').value = '';
   document.getElementById('filter-resultados-to').value = '';
   loadPanelResultados();
+}
+
+/* ── Dashboard ── */
+let dashboardCharts = [];
+
+function destroyDashboardCharts() {
+  dashboardCharts.forEach(c => c.destroy());
+  dashboardCharts = [];
+}
+
+async function loadPanelDashboard() {
+  const el = document.getElementById('dashboard-content');
+  destroyDashboardCharts();
+  if (typeof Chart === 'undefined') {
+    el.innerHTML = '<div class="empty">Cargando librería de gráficos...</div>';
+    try {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js';
+        s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    } catch { el.innerHTML = '<div class="empty">Error al cargar gráficos. Recarga la página.</div>'; return; }
+  }
+  try {
+    const res = await fetch(`${API_URL}/reports/dashboard`);
+    const d = await res.json();
+
+    let html = `
+    <div class="dash-summary">
+      <div class="dash-card dash-card-ing"><span>Ingresos</span><strong>$${d.resumen.totalIngresos.toFixed(2)}</strong></div>
+      <div class="dash-card dash-card-gas"><span>Gastos</span><strong>$${d.resumen.totalGastos.toFixed(2)}</strong></div>
+      <div class="dash-card dash-card-cost"><span>Costos</span><strong>$${d.resumen.totalCostos.toFixed(2)}</strong></div>
+      <div class="dash-card ${d.resumen.utilidadNeta >= 0 ? 'dash-card-pos' : 'dash-card-neg'}"><span>Utilidad Neta</span><strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong></div>
+    </div>
+    <div class="dash-grid">
+      <div class="dash-chart-card"><h4>Ingresos vs Gastos por Mes</h4><canvas id="chart-monthly"></canvas></div>
+      <div class="dash-chart-card"><h4>Gastos por Categoría</h4><canvas id="chart-gastos"></canvas></div>
+    </div>`;
+
+    if (d.topIngresos.length) {
+      html += `<div class="dash-grid"><div class="dash-chart-card"><h4>Ingresos por Categoría</h4><canvas id="chart-ingresos"></canvas></div><div></div></div>`;
+    }
+
+    el.innerHTML = html;
+
+    const months = d.monthly.map(m => {
+      const [y, mo] = m.month.split('-');
+      const dt = new Date(parseInt(y), parseInt(mo) - 1);
+      return dt.toLocaleDateString('es-PA', { month: 'short', year: 'numeric' });
+    });
+
+    const ctx1 = document.getElementById('chart-monthly');
+    if (ctx1) {
+      dashboardCharts.push(new Chart(ctx1, {
+        type: 'bar',
+        data: {
+          labels: months,
+          datasets: [
+            { label: 'Ingresos', data: d.monthly.map(m => m.ingresos), backgroundColor: '#2e7d32', borderRadius: 4 },
+            { label: 'Gastos', data: d.monthly.map(m => m.gastos), backgroundColor: '#c62828', borderRadius: 4 },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } } },
+          scales: { y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.06)' } }, x: { grid: { display: false } } },
+        },
+      }));
+    }
+
+    const ctx2 = document.getElementById('chart-gastos');
+    if (ctx2 && d.topGastos.length) {
+      const colors = ['#c62828', '#e53935', '#ef5350', '#e57373', '#ef9a9a', '#ffcdd2', '#b71c1c', '#d32f2f'];
+      dashboardCharts.push(new Chart(ctx2, {
+        type: 'doughnut',
+        data: {
+          labels: d.topGastos.map(g => g.nombre),
+          datasets: [{ data: d.topGastos.map(g => g.total), backgroundColor: colors.slice(0, d.topGastos.length) }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 10, font: { size: 11 } } } },
+        },
+      }));
+    }
+
+    const ctx3 = document.getElementById('chart-ingresos');
+    if (ctx3 && d.topIngresos.length) {
+      const colors = ['#2e7d32', '#388e3c', '#43a047', '#4caf50', '#66bb6a', '#81c784', '#a5d6a7', '#c8e6c9'];
+      dashboardCharts.push(new Chart(ctx3, {
+        type: 'doughnut',
+        data: {
+          labels: d.topIngresos.map(g => g.nombre),
+          datasets: [{ data: d.topIngresos.map(g => g.total), backgroundColor: colors.slice(0, d.topIngresos.length) }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 10, font: { size: 11 } } } },
+        },
+      }));
+    }
+  } catch (e) { el.innerHTML = '<div class="empty">Error al cargar dashboard</div>'; }
+}
+
+/* ── Catálogo de Cuentas ── */
+async function loadPanelCuentas() {
+  const el = document.getElementById('cuentas-content');
+  try {
+    const res = await fetch(`${API_URL}/accounts`);
+    const cuentas = await res.json();
+    if (!cuentas.length) { el.innerHTML = '<div class="empty">No hay cuentas registradas</div>'; return; }
+
+    const tipos = ['ACTIVO', 'PASIVO', 'PATRIMONIO', 'INGRESO', 'COSTO', 'GASTO'];
+    const colores = { ACTIVO: '#1565c0', PASIVO: '#e65100', PATRIMONIO: '#6a1b9a', INGRESO: '#2e7d32', COSTO: '#c62828', GASTO: '#d84315' };
+    const labels = { ACTIVO: 'Activos', PASIVO: 'Pasivos', PATRIMONIO: 'Patrimonio', INGRESO: 'Ingresos', COSTO: 'Costos', GASTO: 'Gastos' };
+
+    let html = '';
+    for (const tipo of tipos) {
+      const filtradas = cuentas.filter(c => c.type === tipo && !c.parentId);
+      if (!filtradas.length) continue;
+      html += `<div class="cuenta-grupo"><div class="cuenta-tipo" style="background:${colores[tipo]}">${labels[tipo]}</div>`;
+      for (const root of filtradas) {
+        html += buildCuentaTree(root, cuentas);
+      }
+      html += '</div>';
+    }
+    el.innerHTML = html;
+  } catch (e) { el.innerHTML = '<div class="empty">Error al cargar cuentas</div>'; }
+}
+
+function buildCuentaTree(account, all, depth = 0) {
+  const children = all.filter(c => c.parentId === account.id);
+  let html = `<div class="cuenta-row" style="padding-left:${depth * 20 + 8}px">
+    <span class="cuenta-code">${account.code}</span>
+    <span class="cuenta-name">${account.name}</span>
+  </div>`;
+  for (const child of children) {
+    html += buildCuentaTree(child, all, depth + 1);
+  }
+  return html;
+}
+
+/* ── Conceptos Contables ── */
+async function loadPanelConceptos() {
+  const el = document.getElementById('conceptos-content');
+  try {
+    const res = await fetch(`${API_URL}/concepts`);
+    const concepts = await res.json();
+    if (!concepts.length) { el.innerHTML = '<div class="empty">No hay conceptos registrados</div>'; return; }
+
+    let html = '<table><thead><tr><th>Concepto</th><th>Cuenta Contable</th><th>Código</th><th>Confianza</th></tr></thead><tbody>';
+    for (const c of concepts) {
+      const pct = Math.round(c.confidence * 100);
+      html += `<tr>
+        <td><strong>${c.name}</strong></td>
+        <td>${c.account?.name || '—'}</td>
+        <td class="cuenta-code">${c.account?.code || '—'}</td>
+        <td><span class="tag tag-conf">${pct}%</span></td>
+      </tr>`;
+    }
+    el.innerHTML = html + '</tbody></table>';
+  } catch (e) { el.innerHTML = '<div class="empty">Error al cargar conceptos</div>'; }
+}
+
+/* ── Revisión de Asientos (Contador Senior) ── */
+async function loadPanelRevision() {
+  const el = document.getElementById('revision-content');
+  const from = document.getElementById('filter-revision-from').value;
+  const to = document.getElementById('filter-revision-to').value;
+  let url = `${API_URL}/journal/pendientes`;
+  if (from) url += `?startDate=${from}`;
+  if (to) url += `${from ? '&' : '?'}endDate=${to}`;
+  try {
+    const res = await fetch(url);
+    const entries = await res.json();
+    if (!entries || !entries.length) {
+      el.innerHTML = '<div class="empty">✅ No hay asientos pendientes de revisión</div>';
+      document.getElementById('pendientes-badge').classList.add('hidden');
+      return;
+    }
+    document.getElementById('pendientes-badge').textContent = entries.length;
+    document.getElementById('pendientes-badge').classList.remove('hidden');
+
+    let html = `<div style="margin-bottom:8px;font-size:13px;color:#6b7280">${entries.length} asiento(s) pendiente(s) de revisión</div>`;
+    for (const e of entries) {
+      const date = new Date(e.date).toLocaleDateString('es-PA');
+      const totalDeb = e.lines.reduce((s, l) => s + l.debit, 0);
+      const totalCred = e.lines.reduce((s, l) => s + l.credit, 0);
+      const creador = e.createdBy?.name || 'N/A';
+      html += `<div class="revision-card" data-id="${e.id}">
+        <div class="rev-header">
+          <span class="rev-date">${date}</span>
+          <span class="rev-creator">por ${creador}</span>
+        </div>
+        <div class="rev-desc">${e.description}</div>
+        <div class="rev-lines">`;
+      for (const line of e.lines) {
+        const name = line.account?.name || 'Cuenta';
+        if (line.debit > 0) html += `<div class="rev-line"><span>${name}</span><span class="debit">$${line.debit.toFixed(2)}</span></div>`;
+        if (line.credit > 0) html += `<div class="rev-line"><span>${name}</span><span class="credit">$${line.credit.toFixed(2)}</span></div>`;
+      }
+      html += `<div class="rev-line rev-total"><span>Total</span><span>Deb: $${totalDeb.toFixed(2)} / Cred: $${totalCred.toFixed(2)}</span></div>`;
+      html += `</div>
+        <div class="rev-actions">
+          <button class="btn-approve" onclick="aprobarAsiento('${e.id}')">✅ Aprobar</button>
+          <button class="btn-reject" onclick="rechazarAsiento('${e.id}')">❌ Rechazar</button>
+        </div>
+      </div>`;
+    }
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<div class="empty">Error al cargar pendientes</div>';
+  }
+}
+
+function clearRevisionFilters() {
+  document.getElementById('filter-revision-from').value = '';
+  document.getElementById('filter-revision-to').value = '';
+  loadPanelRevision();
+}
+
+async function aprobarAsiento(id) {
+  const card = document.querySelector(`.revision-card[data-id="${id}"]`);
+  if (card) {
+    card.querySelector('.rev-actions').innerHTML = '<span style="color:#2e7d32;font-weight:600">APROBANDO...</span>';
+  }
+  try {
+    const res = await fetch(`${API_URL}/journal/${id}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'aprobar' }),
+    });
+    if (!res.ok) { const err = await res.json(); alert(err.error); return; }
+    loadPanelRevision();
+    updateSummary();
+    addMessage(`✅ Asiento #${id.slice(0,8)} aprobado por Contador Senior.`, 'assistant');
+  } catch (e) {
+    alert('Error al aprobar');
+    loadPanelRevision();
+  }
+}
+
+async function rechazarAsiento(id) {
+  const notes = prompt('Motivo del rechazo (opcional):');
+  if (notes === null) return;
+  const card = document.querySelector(`.revision-card[data-id="${id}"]`);
+  if (card) {
+    card.querySelector('.rev-actions').innerHTML = '<span style="color:#c62828;font-weight:600">RECHAZANDO...</span>';
+  }
+  try {
+    const res = await fetch(`${API_URL}/journal/${id}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'rechazar', notes: notes || '' }),
+    });
+    if (!res.ok) { const err = await res.json(); alert(err.error); return; }
+    loadPanelRevision();
+    addMessage(`❌ Asiento #${id.slice(0,8)} **rechazado**${notes ? ' — Motivo: ' + notes : ''}\n\nPuedes corregir la transacción y volver a enviarla. El creador verá el asiento como **RECHAZADO** en el Diario y podrá re-enviarlo.`, 'assistant');
+  } catch (e) {
+    alert('Error al rechazar');
+    loadPanelRevision();
+  }
 }
 
 document.getElementById('message-input').addEventListener('keydown', (e) => {
