@@ -1,25 +1,32 @@
-import { createWorker } from 'tesseract.js';
+import { createWorker, OEM, PSM } from 'tesseract.js';
 import sharp from 'sharp';
 import OpenAI from 'openai';
 
-let workerPromise: Promise<any> | null = null;
+let workers: { worker: any; psm: any }[] | null = null;
 
-async function getWorker(): Promise<any> {
-  if (!workerPromise) {
-    workerPromise = createWorker('spa', 1, {
-      logger: () => {},
-    });
-  }
-  return workerPromise;
-}
-
-function getVisionClient(): OpenAI | null {
+function getLLMClient(): OpenAI | null {
   const key = process.env.DEEPSEEK_API_KEY;
   if (!key) return null;
   return new OpenAI({
     apiKey: key,
     baseURL: 'https://api.deepseek.com',
   });
+}
+
+async function getWorkers(): Promise<{ worker: any; psm: number }[]> {
+  if (!workers) {
+    workers = await Promise.all(
+      [PSM.AUTO, PSM.SINGLE_COLUMN, PSM.SINGLE_BLOCK].map(async (psm) => {
+        const worker = await createWorker('spa', OEM.LSTM_ONLY);
+        await worker.setParameters({
+          tessedit_pageseg_mode: psm,
+          tessedit_char_whitelist: '',
+        });
+        return { worker, psm };
+      }),
+    );
+  }
+  return workers;
 }
 
 async function preprocessImage(buffer: Buffer): Promise<Buffer> {
@@ -36,25 +43,23 @@ async function preprocessImage(buffer: Buffer): Promise<Buffer> {
   return img
     .grayscale()
     .normalise()
-    .linear(1.4, -40)
-    .sharpen({ sigma: 1.5, m1: 0, m2: 3, x1: 3, y2: 15, y3: 15 })
+    .linear(1.5, -50)
+    .sharpen({ sigma: 2, m1: 0, m2: 4, x1: 4, y2: 20, y3: 20 })
     .toBuffer();
 }
 
-async function extractWithVision(imageBuffer: Buffer): Promise<{
+async function extractWithLLM(rawText: string): Promise<{
   text: string;
   total: number | null;
   date: string | null;
   provider: string | null;
   ruc: string | null;
   itbms: number | null;
-  confidence: number;
 } | null> {
-  const client = getVisionClient();
-  if (!client) return null;
+  const client = getLLMClient();
+  if (!client || !rawText.trim()) return null;
 
-  const b64 = imageBuffer.toString('base64');
-  const dataUrl = `data:image/jpeg;base64,${b64}`;
+  const today = new Date().toISOString().split('T')[0];
 
   try {
     const response = await client.chat.completions.create({
@@ -62,82 +67,63 @@ async function extractWithVision(imageBuffer: Buffer): Promise<{
       messages: [
         {
           role: 'system',
-          content: `Eres un extractor de datos de facturas y recibos panameños. Analiza la imagen y extrae la información en JSON.
+          content: `Eres un asistente que extrae datos de facturas y recibos panameños a partir del texto de OCR.
 
-Campos a extraer:
-- text: transcripción completa del texto visible
-- total: monto total (número, sin símbolo $)
-- date: fecha en formato YYYY-MM-DD
-- provider: nombre del proveedor o empresa
-- ruc: número de RUC si aparece
-- itbms: porcentaje o monto de ITBMS si aparece
-- confidence: porcentaje de confianza (0-100)
+Hoy es ${today}.
 
-Si un campo no se encuentra, usa null.
-Si el texto es manuscrito, haz tu mejor esfuerzo por transcribirlo.
-Responde SOLO con JSON, sin explicaciones.`,
+Recibes texto crudo de OCR (puede tener errores). Debes limpiarlo y extraer:
+
+1. text: el texto limpio, corrigiendo errores obvios de OCR
+2. total: monto total (número, sin $)
+3. date: fecha en formato YYYY-MM-DD
+4. provider: nombre del proveedor o empresa
+5. ruc: número de RUC (formato ##-#####-##)
+6. itbms: monto o tasa de ITBMS (número, sin %)
+
+Si no encuentras un campo, pon null.
+Responde SOLO con JSON, sin explicaciones ni markdown.`,
         },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image_url',
-              image_url: { url: dataUrl, detail: 'high' },
-            },
-          ],
-        },
+        { role: 'user', content: rawText.substring(0, 2000) },
       ],
-      temperature: 0.1,
-      max_tokens: 1000,
+      temperature: 0.05,
+      max_tokens: 500,
+      response_format: { type: 'json_object' },
     });
 
     const content = response.choices?.[0]?.message?.content;
     if (!content) return null;
 
-    const jsonStart = content.indexOf('{');
-    const jsonEnd = content.lastIndexOf('}');
-    if (jsonStart === -1 || jsonEnd === -1) return null;
-
-    const parsed = JSON.parse(content.substring(jsonStart, jsonEnd + 1));
+    const parsed = JSON.parse(content);
     return {
-      text: parsed.text || '',
+      text: parsed.text || rawText,
       total: typeof parsed.total === 'number' ? parsed.total : null,
       date: parsed.date || null,
       provider: parsed.provider || null,
       ruc: parsed.ruc || null,
       itbms: typeof parsed.itbms === 'number' ? parsed.itbms : null,
-      confidence: typeof parsed.confidence === 'number' ? parsed.confidence / 100 : 0.7,
     };
   } catch (e) {
-    console.error('[OCR Vision] Error:', e);
+    console.error('[OCR LLM] Error:', e);
     return null;
   }
 }
 
-async function extractWithTesseract(imageBuffer: Buffer): Promise<{
-  text: string;
-  total: number | null;
-  date: string | null;
-  provider: string | null;
-  ruc: string | null;
-  itbms: number | null;
-  confidence: number;
-}> {
+async function runTesseract(imageBuffer: Buffer): Promise<string> {
   const processed = await preprocessImage(imageBuffer);
-  const worker = await getWorker();
-  const { data } = await worker.recognize(processed);
-  const text = data.text.trim();
-  const confidence = data.confidence !== undefined ? data.confidence / 100 : 0;
+  const allWorkers = await getWorkers();
+  let bestText = '';
+  let bestConfidence = 0;
 
-  return {
-    text,
-    date: parsePanamanianDate(text),
-    total: parseTotal(text),
-    provider: parseProvider(text),
-    ruc: parseRUC(text),
-    itbms: parseITBMS(text),
-    confidence: Math.min(1, Math.max(0, confidence)),
-  };
+  for (const { worker, psm } of allWorkers) {
+    const { data } = await worker.recognize(processed);
+    const conf = data.confidence ?? 0;
+    if (conf > bestConfidence && data.text.trim().length > bestText.length) {
+      bestConfidence = conf;
+      bestText = data.text.trim();
+    }
+  }
+
+  return bestText;
 }
 
 function parsePanamanianDate(text: string): string | null {
@@ -222,16 +208,36 @@ export interface OCRResult {
   ruc: string | null;
   itbms: number | null;
   confidence: number;
-  source: 'vision' | 'tesseract';
+  source: 'tesseract' | 'tesseract+llm';
 }
 
 export async function extractFromImage(imageBuffer: Buffer): Promise<OCRResult> {
-  const visionResult = await extractWithVision(imageBuffer);
+  const rawText = await runTesseract(imageBuffer);
+  const confidence = rawText.length > 50 ? 0.6 : 0.3;
 
-  if (visionResult) {
-    return { ...visionResult, source: 'vision' };
+  const llmResult = await extractWithLLM(rawText);
+
+  if (llmResult) {
+    return {
+      text: llmResult.text || rawText,
+      date: llmResult.date || parsePanamanianDate(rawText),
+      total: llmResult.total ?? parseTotal(rawText),
+      provider: llmResult.provider || parseProvider(rawText),
+      ruc: llmResult.ruc || parseRUC(rawText),
+      itbms: llmResult.itbms ?? parseITBMS(rawText),
+      confidence: 0.85,
+      source: 'tesseract+llm',
+    };
   }
 
-  const tesseractResult = await extractWithTesseract(imageBuffer);
-  return { ...tesseractResult, source: 'tesseract' };
+  return {
+    text: rawText,
+    date: parsePanamanianDate(rawText),
+    total: parseTotal(rawText),
+    provider: parseProvider(rawText),
+    ruc: parseRUC(rawText),
+    itbms: parseITBMS(rawText),
+    confidence,
+    source: 'tesseract',
+  };
 }
