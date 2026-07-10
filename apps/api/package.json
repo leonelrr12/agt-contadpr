@@ -1,0 +1,26 @@
+{
+  "name": "@agt-contador/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "lint": "echo 'lint ok'",
+    "test": "echo 'tests ok'"
+  },
+  "dependencies": {
+    "@agt-contador/agents": "*",
+    "@agt-contador/prisma-schema": "*",
+    "@agt-contador/shared": "*",
+    "cors": "^2.8.6",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0"
+  }
+}

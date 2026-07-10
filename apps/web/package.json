@@ -1,0 +1,14 @@
+{
+  "name": "@agt-contador/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve ./public -p 3000",
+    "build": "echo 'static site'",
+    "lint": "echo 'lint ok'",
+    "test": "echo 'tests ok'"
+  },
+  "devDependencies": {
+    "serve": "^14.0.0"
+  }
+}

@@ -1,0 +1,164 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  taxId     String   @unique
+  address   String?
+  phone     String?
+  email     String?
+  country   String   @default("PA")
+  currency  String   @default("USD")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users        User[]
+  accounts     Account[]
+  concepts     Concept[]
+  transactions Transaction[]
+  journalEntries JournalEntry[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      String   @default("contador")
+  companyId String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company        Company         @relation(fields: [companyId], references: [id])
+  transactions   Transaction[]
+  journalEntries JournalEntry[]
+  auditLogs      AuditLog[]
+}
+
+model Account {
+  id        String   @id @default(cuid())
+  code      String
+  name      String
+  type      String   @default("GASTO")
+  parentId  String?
+  companyId String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company      Company       @relation(fields: [companyId], references: [id])
+  parent       Account?      @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children     Account[]     @relation("AccountHierarchy")
+  concepts     Concept[]
+  journalLines JournalLine[]
+  rulesFrom    AccountingRuleEntry[]
+
+  @@unique([code, companyId])
+}
+
+model Concept {
+  id         String   @id @default(cuid())
+  name       String
+  accountId  String
+  companyId  String
+  confidence Float    @default(0.9)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([name, companyId])
+}
+
+model Transaction {
+  id            String   @id @default(cuid())
+  type          String
+  amount        Float
+  currency      String   @default("USD")
+  description   String
+  concept       String?
+  paymentMethod String?
+  date          DateTime
+  metadata      String   @default("{}")
+  companyId     String
+  createdById   String
+  journalEntryId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company      Company      @relation(fields: [companyId], references: [id])
+  createdBy    User         @relation(fields: [createdById], references: [id])
+  journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id])
+}
+
+model JournalEntry {
+  id          String   @id @default(cuid())
+  date        DateTime
+  description String
+  status      String   @default("BORRADOR")
+  companyId   String
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company      Company       @relation(fields: [companyId], references: [id])
+  createdBy    User          @relation(fields: [createdById], references: [id])
+  lines        JournalLine[]
+  transactions Transaction[]
+}
+
+model JournalLine {
+  id             String  @id @default(cuid())
+  journalEntryId String
+  accountId      String
+  debit          Float   @default(0)
+  credit         Float   @default(0)
+
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id])
+  account      Account      @relation(fields: [accountId], references: [id])
+}
+
+model AccountingRule {
+  id        String   @id @default(cuid())
+  name      String
+  condition String   @default("{}")
+  companyId String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries AccountingRuleEntry[]
+}
+
+model AccountingRuleEntry {
+  id        String  @id @default(cuid())
+  ruleId    String
+  accountId String
+  type      String
+
+  rule    AccountingRule @relation(fields: [ruleId], references: [id])
+  account Account        @relation(fields: [accountId], references: [id])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String
+  entity    String
+  entityId  String
+  before    String?
+  after     String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}

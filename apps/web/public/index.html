@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agente Contable</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <h2>Resumen</h2>
+      </div>
+      <div id="summary-content">
+        <div class="summary-card">
+          <span class="summary-label">Ventas hoy</span>
+          <span class="summary-value" id="ventas-hoy">$0</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">Gastos hoy</span>
+          <span class="summary-value" id="gastos-hoy">$0</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">Saldo Caja</span>
+          <span class="summary-value" id="saldo-caja">$0</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">Utilidad del Mes</span>
+          <span class="summary-value" id="utilidad-mes">$0</span>
+        </div>
+      </div>
+      <div class="sidebar-actions">
+        <button onclick="showReports()" class="btn-outline">Ver Reportes</button>
+      </div>
+    </aside>
+
+    <main id="main">
+      <header id="chat-header">
+        <h1>Agente Contable</h1>
+        <p class="subtitle">¿Qué deseas registrar hoy?</p>
+      </header>
+
+      <div id="chat-messages"></div>
+
+      <div id="input-area">
+        <div id="quick-actions">
+          <button class="quick-btn" onclick="showInput('escribir')">✏️ Escribir</button>
+          <button class="quick-btn" onclick="showInput('factura')">📷 Factura</button>
+          <button class="quick-btn" onclick="showInput('voz')">🎤 Hablar</button>
+        </div>
+        <div id="text-input" class="hidden">
+          <textarea id="message-input" placeholder="Ej: Compré combustible por $40 con tarjeta..." rows="2"></textarea>
+          <button id="send-btn" onclick="sendMessage()">Enviar</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="modal-overlay" class="hidden">
+    <div id="modal">
+      <div id="modal-header">
+        <h3>Confirmar Transacción</h3>
+        <button onclick="closeModal()">✕</button>
+      </div>
+      <div id="modal-body"></div>
+      <div id="modal-footer">
+        <button class="btn-primary" onclick="confirmTransaction()">✅ Confirmar</button>
+        <button class="btn-secondary" onclick="editTransaction()">✏️ Editar</button>
+        <button class="btn-danger" onclick="closeModal()">❌ Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
