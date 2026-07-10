@@ -99,6 +99,7 @@ async function processOCRFile(file) {
     if (data.ruc) html += `<div class="ocr-field"><span>🔢 RUC:</span><strong>${escapeHtml(data.ruc)}</strong></div>`;
     if (data.itbms !== null) html += `<div class="ocr-field"><span>📊 ITBMS:</span><strong>${data.itbms}%</strong></div>`;
     html += `<div class="ocr-field"><span>🎯 Confianza:</span><strong>${(data.confidence * 100).toFixed(0)}%</strong></div>`;
+    html += `<div class="ocr-field"><span>🤖 Motor:</span><strong>${data.source === 'vision' ? 'DeepSeek Vision' : 'Tesseract OCR'}</strong></div>`;
     html += '</div>';
     document.getElementById('ocr-result-text').innerHTML = html;
   } catch (err) {
