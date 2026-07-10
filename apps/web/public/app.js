@@ -27,39 +27,50 @@ function cancelInput() {
 }
 
 /* ── OCR / Factura ── */
-document.getElementById('ocr-file-input').addEventListener('change', (e) => {
-  const file = e.target.files[0];
+function openCamera() {
+  document.getElementById('ocr-camera-input').click();
+}
+function openGallery() {
+  document.getElementById('ocr-gallery-input').click();
+}
+
+function handleOCRFile(file) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = (ev) => {
     document.getElementById('ocr-preview-img').src = ev.target.result;
-    document.getElementById('ocr-dropzone').classList.add('hidden');
+    document.getElementById('ocr-capture-actions').classList.add('hidden');
     document.getElementById('ocr-preview').classList.remove('hidden');
     document.getElementById('ocr-result').classList.add('hidden');
+    // Auto-start OCR
+    processOCRFile(file);
   };
   reader.readAsDataURL(file);
+}
+
+document.getElementById('ocr-camera-input').addEventListener('change', (e) => {
+  handleOCRFile(e.target.files[0]);
+});
+document.getElementById('ocr-gallery-input').addEventListener('change', (e) => {
+  handleOCRFile(e.target.files[0]);
 });
 
 function cancelOCR() {
   document.getElementById('ocr-upload').classList.add('hidden');
-  document.getElementById('ocr-dropzone').classList.remove('hidden');
+  document.getElementById('ocr-capture-actions').classList.remove('hidden');
   document.getElementById('ocr-preview').classList.add('hidden');
   document.getElementById('ocr-loading').classList.add('hidden');
   document.getElementById('ocr-result').classList.add('hidden');
-  document.getElementById('ocr-file-input').value = '';
+  document.getElementById('ocr-camera-input').value = '';
+  document.getElementById('ocr-gallery-input').value = '';
   document.getElementById('ocr-preview-img').src = '';
   ocrData = null;
   document.getElementById('quick-actions').classList.remove('hidden');
 }
 
-async function processOCR() {
-  const fileInput = document.getElementById('ocr-file-input');
-  const file = fileInput.files[0];
-  if (!file) return;
-
-  document.getElementById('ocr-preview').classList.add('hidden');
+async function processOCRFile(file) {
   document.getElementById('ocr-loading').classList.remove('hidden');
-  document.getElementById('ocr-status').textContent = 'Procesando imagen con OCR...';
+  document.getElementById('ocr-status').textContent = 'Analizando factura con OCR...';
 
   try {
     const formData = new FormData();
@@ -92,7 +103,8 @@ async function processOCR() {
     document.getElementById('ocr-result-text').innerHTML = html;
   } catch (err) {
     document.getElementById('ocr-loading').classList.add('hidden');
-    document.getElementById('ocr-preview').classList.remove('hidden');
+    document.getElementById('ocr-preview').classList.add('hidden');
+    document.getElementById('ocr-capture-actions').classList.remove('hidden');
     alert('Error: ' + err.message);
   }
 }

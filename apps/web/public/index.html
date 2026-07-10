@@ -65,27 +65,24 @@
           </div>
         </div>
         <div id="ocr-upload" class="hidden">
-          <div id="ocr-dropzone" onclick="document.getElementById('ocr-file-input').click()">
-            <div id="ocr-drop-icon">📷</div>
-            <div id="ocr-drop-text">Haz clic o arrastra una foto de factura/recibo</div>
-            <div id="ocr-drop-hint">JPEG, PNG o WebP — Máx 10MB</div>
-            <input type="file" id="ocr-file-input" accept="image/jpeg,image/png,image/webp" hidden>
+          <div id="ocr-capture-actions">
+            <button class="quick-btn" onclick="openCamera()" style="flex:2">📸 Tomar foto</button>
+            <button class="quick-btn" onclick="openGallery()" style="flex:2">🖼 Elegir de galería</button>
+            <button class="btn-secondary" onclick="cancelOCR()" style="padding:10px 20px">✕</button>
           </div>
+          <input type="file" id="ocr-camera-input" accept="image/*" capture="environment" hidden>
+          <input type="file" id="ocr-gallery-input" accept="image/jpeg,image/png,image/webp" hidden>
           <div id="ocr-preview" class="hidden">
             <img id="ocr-preview-img">
-            <div id="ocr-actions">
-              <button class="btn-primary" id="ocr-process-btn" onclick="processOCR()">🔍 Procesar Factura</button>
-              <button class="btn-secondary" onclick="cancelOCR()">✕ Cancelar</button>
-            </div>
           </div>
           <div id="ocr-loading" class="hidden">
             <div class="spinner"></div>
-            <div id="ocr-status">Procesando imagen con OCR...</div>
+            <div id="ocr-status">Analizando factura con OCR...</div>
           </div>
           <div id="ocr-result" class="hidden">
             <div id="ocr-result-text"></div>
             <div id="ocr-result-actions">
-              <button class="btn-primary" id="ocr-send-btn" onclick="sendOCRResult()">✅ Usar como transacción</button>
+              <button class="btn-primary" onclick="sendOCRResult()">✅ Usar como transacción</button>
               <button class="btn-secondary" onclick="cancelOCR()">✕ Cancelar</button>
             </div>
           </div>
@@ -201,7 +198,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=7"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </body>
 </html>

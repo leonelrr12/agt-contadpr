@@ -501,36 +501,20 @@ body {
 #ocr-upload {
   padding: 8px 0;
 }
-#ocr-dropzone {
-  border: 2px dashed #ccc;
-  border-radius: 12px;
-  padding: 32px 16px;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.2s;
-  background: #fafafa;
+#ocr-capture-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
-#ocr-dropzone:hover {
-  border-color: #1a1a2e;
-  background: #f0f0ff;
-}
-#ocr-drop-icon { font-size: 40px; margin-bottom: 8px; }
-#ocr-drop-text { font-size: 15px; color: #333; font-weight: 500; margin-bottom: 4px; }
-#ocr-drop-hint { font-size: 12px; color: #999; }
 #ocr-preview {
   text-align: center;
 }
 #ocr-preview-img {
   max-width: 100%;
-  max-height: 300px;
+  max-height: 320px;
   border-radius: 8px;
   border: 1px solid #e0e0e0;
   margin-bottom: 10px;
-}
-#ocr-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
 }
 #ocr-loading {
   text-align: center;
