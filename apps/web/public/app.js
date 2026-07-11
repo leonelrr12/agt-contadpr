@@ -8,6 +8,15 @@ let pendingClassification = null;
 function showInput(mode) {
   document.getElementById('quick-actions').classList.add('hidden');
   if (mode === 'factura') {
+    document.getElementById('ocr-capture-actions').classList.remove('hidden');
+    document.getElementById('ocr-preview').classList.add('hidden');
+    document.getElementById('ocr-loading').classList.add('hidden');
+    document.getElementById('ocr-result').classList.add('hidden');
+    document.getElementById('ocr-result-text').innerHTML = '';
+    document.getElementById('ocr-camera-input').value = '';
+    document.getElementById('ocr-gallery-input').value = '';
+    document.getElementById('ocr-preview-img').src = '';
+    ocrData = null;
     document.getElementById('ocr-upload').classList.remove('hidden');
     return;
   }
@@ -71,11 +80,23 @@ function cancelOCR() {
 
 async function processOCRFile(file) {
   document.getElementById('ocr-loading').classList.remove('hidden');
-  document.getElementById('ocr-status').textContent = 'Analizando factura con OCR...';
+  document.getElementById('ocr-status').textContent = 'Comprimiendo imagen...';
 
   try {
+    const compressed = await new Promise((resolve, reject) => {
+      new Compressor(file, {
+        quality: 0.7,
+        maxWidth: 1920,
+        maxHeight: 1920,
+        mimeType: 'image/jpeg',
+        success: resolve,
+        error: reject,
+      });
+    });
+
+    document.getElementById('ocr-status').textContent = 'Analizando factura con OCR...';
     const formData = new FormData();
-    formData.append('image', file);
+    formData.append('image', compressed, file.name);
 
     const res = await fetch(`${API_URL}/ocr/extract`, {
       method: 'POST',
@@ -93,15 +114,16 @@ async function processOCRFile(file) {
     document.getElementById('ocr-loading').classList.add('hidden');
     document.getElementById('ocr-result').classList.remove('hidden');
 
-    let html = `<div class="ocr-extracted"><strong>Texto extraído:</strong><pre>${escapeHtml(data.text.substring(0, 500))}</pre>`;
-    if (data.total) html += `<div class="ocr-field"><span>💰 Total:</span><strong>$${data.total.toFixed(2)}</strong></div>`;
-    if (data.date) html += `<div class="ocr-field"><span>📅 Fecha:</span><strong>${data.date}</strong></div>`;
-    if (data.provider) html += `<div class="ocr-field"><span>🏢 Proveedor:</span><strong>${escapeHtml(data.provider)}</strong></div>`;
-    if (data.ruc) html += `<div class="ocr-field"><span>🔢 RUC:</span><strong>${escapeHtml(data.ruc)}</strong></div>`;
-    if (data.itbms !== null) html += `<div class="ocr-field"><span>📊 ITBMS:</span><strong>${data.itbms}%</strong></div>`;
-    html += `<div class="ocr-field"><span>🎯 Confianza:</span><strong>${(data.confidence * 100).toFixed(0)}%</strong></div>`;
-    html += `<div class="ocr-field"><span>🤖 Motor:</span><strong>${data.source === 'tesseract+llm' ? 'Tesseract + DeepSeek' : 'Tesseract'}</strong></div>`;
-    html += '</div>';
+    let html = `<div class="ocr-extracted">
+      <div class="ocr-field"><span>📄 Texto:</span><textarea id="ocr-edit-text" rows="3">${escapeHtml(data.text.substring(0, 500))}</textarea></div>
+      <div class="ocr-field"><span>💰 Total:</span><input type="number" step="0.01" id="ocr-edit-total" value="${data.total ?? ''}"></div>
+      <div class="ocr-field"><span>📅 Fecha:</span><input type="date" id="ocr-edit-date" value="${data.date || ''}"></div>
+      <div class="ocr-field"><span>🏢 Proveedor:</span><input type="text" id="ocr-edit-provider" value="${escapeHtml(data.provider || '')}"></div>
+      <div class="ocr-field"><span>🔢 RUC:</span><input type="text" id="ocr-edit-ruc" value="${escapeHtml(data.ruc || '')}"></div>
+      <div class="ocr-field"><span>📊 ITBMS:</span><input type="number" step="0.01" id="ocr-edit-itbms" value="${data.itbms ?? ''}"></div>
+      <div class="ocr-field"><span>🎯 Confianza:</span><strong>${(data.confidence * 100).toFixed(0)}%</strong></div>
+      <div class="ocr-field"><span>🤖 Motor:</span><strong>${data.source === 'tesseract+llm' ? 'Tesseract + DeepSeek' : 'Tesseract'}</strong></div>
+    </div>`;
     document.getElementById('ocr-result-text').innerHTML = html;
   } catch (err) {
     document.getElementById('ocr-loading').classList.add('hidden');
@@ -111,13 +133,68 @@ async function processOCRFile(file) {
   }
 }
 
+async function correctAndSendOCR() {
+  if (!ocrData) return;
+  const corrected = {
+    text: document.getElementById('ocr-edit-text')?.value?.trim() || ocrData.text,
+    total: parseFloat(document.getElementById('ocr-edit-total')?.value) || null,
+    date: document.getElementById('ocr-edit-date')?.value || null,
+    provider: document.getElementById('ocr-edit-provider')?.value?.trim() || null,
+    ruc: document.getElementById('ocr-edit-ruc')?.value?.trim() || null,
+    itbms: parseFloat(document.getElementById('ocr-edit-itbms')?.value) || null,
+  };
+
+  try {
+    await fetch(`${API_URL}/ocr/correct`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        rawText: ocrData.text,
+        correctedText: corrected.text,
+        total: corrected.total,
+        date: corrected.date,
+        provider: corrected.provider,
+        ruc: corrected.ruc,
+        itbms: corrected.itbms,
+      }),
+    });
+  } catch (_) {}
+
+  ocrData.text = corrected.text;
+  ocrData.total = corrected.total;
+  ocrData.date = corrected.date;
+  ocrData.provider = corrected.provider;
+  ocrData.ruc = corrected.ruc;
+  ocrData.itbms = corrected.itbms;
+
+  await sendOCRResult();
+}
+
 async function sendOCRResult() {
   if (!ocrData || !ocrData.text) return;
-  const text = ocrData.text.trim().substring(0, 500);
+  const data = ocrData;
+  ocrData = null;
+
+  const total = data.total;
+  const provider = data.provider || null;
+
+  dialogContext = {
+    amount: total || 0,
+    provider: provider,
+    date: data.date || null,
+    itbms: data.itbms != null,
+  };
+
+  const parts = [];
+  if (provider) parts.push(`Compra a ${provider}`);
+  else parts.push('Compra');
+  if (total) parts.push(`por $${total}`);
+
+  const text = parts.join(' ');
+
   document.getElementById('ocr-result').classList.add('hidden');
   document.getElementById('ocr-upload').classList.add('hidden');
   document.getElementById('quick-actions').classList.remove('hidden');
-  ocrData = null;
 
   const input = document.getElementById('message-input');
   input.value = text;
@@ -128,6 +205,33 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+function showPaymentMethodSelector() {
+  const methods = [
+    { value: 'EFECTIVO', label: '💵 Efectivo' },
+    { value: 'TARJETA_CREDITO', label: '💳 Tarjeta Crédito' },
+    { value: 'TARJETA_DEBITO', label: '💳 Tarjeta Débito' },
+    { value: 'TRANSFERENCIA', label: '🏦 Transferencia' },
+    { value: 'CHEQUE', label: '📄 Cheque' },
+  ];
+
+  let html = '<div class="classification-box"><strong>Selecciona el método de pago:</strong><br><br>';
+  for (const m of methods) {
+    html += `<button class="quick-btn" onclick="selectPaymentMethod('${m.value}')" style="flex:1;min-width:120px">${m.label}</button> `;
+  }
+  html += '</div>';
+
+  addMessage(html, 'assistant-html');
+}
+
+async function selectPaymentMethod(method) {
+  if (!dialogContext) dialogContext = {};
+  dialogContext.paymentMethod = method;
+
+  const input = document.getElementById('message-input');
+  input.value = currentInput;
+  await sendMessage();
 }
 
 async function showClassificationUI(concept) {
@@ -211,13 +315,17 @@ async function sendMessage() {
       cancelInput();
     } else if (data.prompt) {
       dialogContext = data.plan?.dialog || null;
-      addMessage(data.prompt, 'assistant');
-      if (data.prompt.includes('clasificarlo manualmente')) {
+      const missing = data.plan?.dialog?.missingFields || [];
+      if (missing.includes('paymentMethod')) {
+        cancelInput();
+        showPaymentMethodSelector();
+      } else if (data.prompt.includes('clasificarlo manualmente')) {
         cancelInput();
         const match = data.prompt.match(/el concepto "([^"]+)"/);
         const concept = match ? match[1] : text;
         showClassificationUI(concept);
       } else {
+        addMessage(data.prompt, 'assistant');
         showInput('escribir');
       }
     } else {

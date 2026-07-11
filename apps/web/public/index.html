@@ -83,6 +83,7 @@
             <div id="ocr-result-text"></div>
             <div id="ocr-result-actions">
               <button class="btn-primary" onclick="sendOCRResult()">✅ Usar como transacción</button>
+              <button class="btn-secondary" onclick="correctAndSendOCR()">✏️ Corregir y enviar</button>
               <button class="btn-secondary" onclick="cancelOCR()">✕ Cancelar</button>
             </div>
           </div>
@@ -199,7 +200,8 @@
     </div>
   </div>
 
-  <script src="app.js?v=14"></script>
+  <script src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
+  <script src="app.js?v=15"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </body>
 </html>

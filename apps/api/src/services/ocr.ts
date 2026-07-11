@@ -1,6 +1,7 @@
 import { createWorker, OEM, PSM } from 'tesseract.js';
 import sharp from 'sharp';
 import OpenAI from 'openai';
+import { PrismaClient } from '@agt-contador/prisma-schema';
 
 let workers: { worker: any; psm: any }[] | null = null;
 
@@ -48,7 +49,51 @@ async function preprocessImage(buffer: Buffer): Promise<Buffer> {
     .toBuffer();
 }
 
-async function extractWithLLM(rawText: string): Promise<{
+async function findSimilarExamples(prisma: PrismaClient, provider?: string | null): Promise<any[]> {
+  if (!provider) {
+    return prisma.oCRExample.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      where: { provider: { not: null } },
+    });
+  }
+
+  const exact = await prisma.oCRExample.findMany({
+    where: { provider: { equals: provider, mode: 'insensitive' } },
+    orderBy: { createdAt: 'desc' },
+    take: 5,
+  });
+
+  if (exact.length >= 3) return exact;
+
+  return prisma.oCRExample.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 5 - exact.length,
+    where: { provider: { not: null } },
+  });
+}
+
+function buildFewShotPrompt(examples: any[]): string {
+  if (!examples.length) return '';
+
+  let block = '\n\n## Ejemplos de extracciones correctas anteriores\n\n';
+  for (const ex of examples) {
+    block += `### OCR raw:\n${ex.rawText.substring(0, 300)}\n\n`;
+    block += `### Extracción corregida:\n`;
+    block += `- text: "${ex.correctedText || ex.rawText.substring(0, 100)}"\n`;
+    block += `- total: ${ex.total ?? 'null'}\n`;
+    block += `- date: "${ex.date || 'null'}"\n`;
+    block += `- provider: "${ex.provider || 'null'}"\n`;
+    block += `- ruc: "${ex.ruc || 'null'}"\n`;
+    block += `- itbms: ${ex.itbms ?? 'null'}\n\n`;
+  }
+  return block;
+}
+
+async function extractWithLLM(
+  rawText: string,
+  prisma?: PrismaClient,
+): Promise<{
   text: string;
   total: number | null;
   date: string | null;
@@ -60,6 +105,12 @@ async function extractWithLLM(rawText: string): Promise<{
   if (!client || !rawText.trim()) return null;
 
   const today = new Date().toISOString().split('T')[0];
+
+  let fewShotContext = '';
+  if (prisma) {
+    const examples = await findSimilarExamples(prisma);
+    fewShotContext = buildFewShotPrompt(examples);
+  }
 
   try {
     const response = await client.chat.completions.create({
@@ -81,7 +132,7 @@ Recibes texto crudo de OCR (puede tener errores). Debes limpiarlo y extraer:
 6. itbms: monto o tasa de ITBMS (número, sin %)
 
 Si no encuentras un campo, pon null.
-Responde SOLO con JSON, sin explicaciones ni markdown.`,
+Responde SOLO con JSON, sin explicaciones ni markdown.${fewShotContext}`,
         },
         { role: 'user', content: rawText.substring(0, 2000) },
       ],
@@ -211,14 +262,19 @@ export interface OCRResult {
   source: 'tesseract' | 'tesseract+llm';
 }
 
-export async function extractFromImage(imageBuffer: Buffer): Promise<OCRResult> {
+export async function extractFromImage(
+  imageBuffer: Buffer,
+  prisma?: PrismaClient,
+): Promise<OCRResult> {
   const rawText = await runTesseract(imageBuffer);
   const confidence = rawText.length > 50 ? 0.6 : 0.3;
 
-  const llmResult = await extractWithLLM(rawText);
+  const llmResult = await extractWithLLM(rawText, prisma);
+
+  let result: OCRResult;
 
   if (llmResult) {
-    return {
+    result = {
       text: llmResult.text || rawText,
       date: llmResult.date || parsePanamanianDate(rawText),
       total: llmResult.total ?? parseTotal(rawText),
@@ -228,16 +284,65 @@ export async function extractFromImage(imageBuffer: Buffer): Promise<OCRResult> 
       confidence: 0.85,
       source: 'tesseract+llm',
     };
+  } else {
+    result = {
+      text: rawText,
+      date: parsePanamanianDate(rawText),
+      total: parseTotal(rawText),
+      provider: parseProvider(rawText),
+      ruc: parseRUC(rawText),
+      itbms: parseITBMS(rawText),
+      confidence,
+      source: 'tesseract',
+    };
   }
 
-  return {
-    text: rawText,
-    date: parsePanamanianDate(rawText),
-    total: parseTotal(rawText),
-    provider: parseProvider(rawText),
-    ruc: parseRUC(rawText),
-    itbms: parseITBMS(rawText),
-    confidence,
-    source: 'tesseract',
-  };
+  if (prisma) {
+    try {
+      await prisma.oCRExample.create({
+        data: {
+          rawText: rawText.substring(0, 5000),
+          correctedText: result.text.substring(0, 500),
+          total: result.total,
+          date: result.date,
+          provider: result.provider,
+          ruc: result.ruc,
+          itbms: result.itbms,
+          confidence: result.confidence,
+          source: result.source,
+        },
+      });
+    } catch (e) {
+      console.error('[OCR] Error saving example:', e);
+    }
+  }
+
+  return result;
+}
+
+export async function saveCorrection(
+  prisma: PrismaClient,
+  data: {
+    rawText: string;
+    correctedText: string;
+    total?: number | null;
+    date?: string | null;
+    provider?: string | null;
+    ruc?: string | null;
+    itbms?: number | null;
+  },
+) {
+  return prisma.oCRExample.create({
+    data: {
+      rawText: data.rawText.substring(0, 5000),
+      correctedText: data.correctedText?.substring(0, 500) || null,
+      total: data.total ?? null,
+      date: data.date || null,
+      provider: data.provider || null,
+      ruc: data.ruc || null,
+      itbms: data.itbms ?? null,
+      confidence: 0.95,
+      source: 'user_correction',
+    },
+  });
 }

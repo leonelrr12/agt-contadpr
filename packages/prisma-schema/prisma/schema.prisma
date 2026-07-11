@@ -167,3 +167,24 @@ model AuditLog {
 
   user User @relation(fields: [userId], references: [id])
 }
+
+model OCRExample {
+  id             String   @id @default(cuid())
+  rawText        String
+  correctedText  String?
+  total          Float?
+  date           String?
+  provider       String?
+  ruc            String?
+  itbms          Float?
+  imageHash      String?
+  confidence     Float    @default(0)
+  source         String   @default("tesseract+llm")
+  companyId      String   @default("demo-company")
+  createdById    String   @default("demo-user")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([provider])
+  @@index([companyId])
+}

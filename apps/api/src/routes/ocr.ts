@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { extractFromImage } from '../services/ocr';
+import { extractFromImage, saveCorrection } from '../services/ocr';
 
 export const ocrRouter = Router();
 
@@ -24,7 +24,7 @@ ocrRouter.post('/extract', upload.single('image'), async (req, res) => {
   }
 
   try {
-    const result = await extractFromImage(req.file.buffer);
+    const result = await extractFromImage(req.file.buffer, req.prisma);
     res.json(result);
   } catch (error: any) {
     console.error('[OCR] Error:', error);
@@ -32,6 +32,32 @@ ocrRouter.post('/extract', upload.single('image'), async (req, res) => {
       error: 'Error al procesar la imagen',
       detail: error?.message || 'Unknown',
     });
+  }
+});
+
+ocrRouter.post('/correct', async (req, res) => {
+  try {
+    const { rawText, correctedText, total, date, provider, ruc, itbms } = req.body;
+
+    if (!rawText || !correctedText) {
+      res.status(400).json({ error: 'rawText y correctedText son requeridos' });
+      return;
+    }
+
+    const example = await saveCorrection(req.prisma, {
+      rawText,
+      correctedText,
+      total,
+      date,
+      provider,
+      ruc,
+      itbms,
+    });
+
+    res.json({ success: true, id: example.id });
+  } catch (error: any) {
+    console.error('[OCR] Error saving correction:', error);
+    res.status(500).json({ error: 'Error al guardar corrección' });
   }
 });
 

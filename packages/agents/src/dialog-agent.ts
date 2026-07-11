@@ -162,7 +162,7 @@ export class DialogAgent {
       if (extracted.amount === 0 && prev.amount && prev.amount > 0) {
         amount = prev.amount;
       }
-      if (extracted.missingFields.includes('paymentMethod') && prev.paymentMethod) {
+      if (!paymentMethod && prev?.paymentMethod) {
         paymentMethod = prev.paymentMethod;
       }
       if (!extracted.itbms && prev.itbms) {

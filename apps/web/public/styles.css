@@ -556,13 +556,31 @@ body {
 .ocr-field {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 8px;
   padding: 4px 0;
   font-size: 13px;
   border-bottom: 1px dashed #eee;
 }
 .ocr-field:last-child { border-bottom: none; }
-.ocr-field span { color: #6b7280; }
+.ocr-field span { color: #6b7280; flex-shrink: 0; }
 .ocr-field strong { color: #1a1a2e; }
+.ocr-field textarea,
+.ocr-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid #d0d5dd;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+  background: #fff;
+  color: #1a1a2e;
+}
+.ocr-field textarea {
+  resize: vertical;
+  min-height: 48px;
+}
 #ocr-result-actions {
   display: flex;
   gap: 8px;
