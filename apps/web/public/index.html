@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Agente Contable</title>
-  <link rel="stylesheet" href="styles.css?v=5">
+  <link rel="stylesheet" href="styles.css?v=7">
 </head>
 <body>
   <div id="app">
@@ -145,6 +145,7 @@
             <option value="ANULADO">↩ Anulados</option>
             <option value="">Todos</option>
           </select>
+          <input type="text" id="filter-diario-provider" placeholder="Proveedor..." style="padding:6px 10px;border:1px solid #e2e4e8;border-radius:6px;font-size:12px;background:#fff;font-family:inherit;color:#333;width:130px">
           <button class="btn-filter" onclick="filterPanelDiario()">Filtrar</button>
           <button class="btn-filter" style="background:#6b7280" onclick="clearDiarioFilters()">Limpiar</button>
         </div>
@@ -198,7 +199,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=14"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </body>
 </html>

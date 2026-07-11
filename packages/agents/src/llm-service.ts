@@ -7,6 +7,8 @@ export interface LLMExtraction {
   paymentMethod: string | null;
   date: string;
   missingFields: string[];
+  itbms?: boolean;
+  provider?: string | null;
 }
 
 const EXTRACTION_SYSTEM_PROMPT = (today: string) => `Eres un extractor de datos contables. Hoy es ${today}. Analiza el texto del usuario y extrae la información estructurada de la transacción.
@@ -23,6 +25,9 @@ Reglas:
 - Si menciona "compra de mercancía", "inventario" → type: COMPRA
 - Si menciona "préstamo", "prestamo", "prstamo" → type: PRESTAMO
 - Si menciona "ingreso", "depósito", "abono", "recibí" → type: INGRESO
+- Si menciona "itbms", "pago de itbms", "declaración itbms", "dgi" → type: PAGO_ITBMS
+
+ITBMS: Si la transacción menciona "itbms", "iva", "impuesto", "7%" o "incluye itbms", añade "itbms": true en el JSON. Para compras de inventario y ventas, detecta si el monto incluye o excluye ITBMS.
 
 Conceptos comunes:
 - "combustible", "gasolina", "gas" → Combustible
@@ -40,6 +45,8 @@ Conceptos comunes:
 Para el concepto, usa el nombre más específico posible. Si no reconoces el concepto exacto,
 usa el término que el usuario mencionó (ej: "hosting", "dominio", "fletes").
 
+Proveedor: Si el texto menciona "a [nombre]" (ej: "a Distribuidora XYZ") o "proveedor [nombre]" extrae el nombre del proveedor en el campo "provider". Si no, pon null.
+
 Moneda: Siempre USD. La fecha debe estar en formato YYYY-MM-DD.
 Hoy es ${today}. Si no se menciona fecha, usa ${today}. Si se menciona "ayer", usa el día anterior a ${today}. Si se menciona "anteayer", usa dos días antes de ${today}.
 
@@ -50,7 +57,9 @@ Responde SOLO con un JSON válido con esta estructura:
   "concept": "nombre del concepto",
   "paymentMethod": "método de pago o null",
   "date": "YYYY-MM-DD (hoy es ${today})",
-  "missingFields": ["lista de campos faltantes - solo si no se pudo determinar"]
+  "missingFields": ["lista de campos faltantes - solo si no se pudo determinar"],
+  "itbms": true|false,
+  "provider": "nombre del proveedor o null"
 }
 
 Campos opcionales: paymentMethod. Si no se menciona, ponlo como null.
@@ -102,6 +111,8 @@ export class LLMService {
         paymentMethod: parsed.paymentMethod || null,
         date: parsed.date || new Date().toISOString().split('T')[0],
         missingFields: Array.isArray(parsed.missingFields) ? parsed.missingFields : [],
+        itbms: parsed.itbms === true,
+        provider: parsed.provider || null,
       };
     } catch (error: any) {
       console.error('[LLM] Extraction error:', error?.message || error);

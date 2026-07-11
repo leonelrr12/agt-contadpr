@@ -4,7 +4,7 @@ export interface DialogContext {
 }
 
 export interface DialogResult {
-  type: 'INGRESO' | 'GASTO' | 'COMPRA' | 'VENTA' | 'PAGO_PROVEEDOR' | 'COBRO_CLIENTE' | 'PRESTAMO';
+  type: 'INGRESO' | 'GASTO' | 'COMPRA' | 'VENTA' | 'PAGO_PROVEEDOR' | 'COBRO_CLIENTE' | 'PRESTAMO' | 'PAGO_ITBMS';
   amount: number;
   currency: string;
   description: string;
@@ -14,6 +14,10 @@ export interface DialogResult {
   confidence: number;
   missingFields: string[];
   suggestedResponse: string;
+  itbms?: boolean;
+  itbmsRate?: number;
+  itbmsAmount?: number;
+  provider: string | null;
 }
 
 export interface AgentTask {

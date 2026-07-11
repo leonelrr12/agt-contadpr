@@ -16,6 +16,9 @@ function makePrismaStub() {
         { code: '2.2.01', id: 'prestamos-lp-id' },
         { code: '4.01.01', id: 'ventas-id' },
         { code: '6.06.01', id: 'gasto-id' },
+        { code: '1.1.05', id: 'itbms-por-cobrar-id' },
+        { code: '2.1.05', id: 'itbms-por-pagar-id' },
+        { code: '6.05.01', id: 'itbms-gastado-id' },
       ],
     },
   };
@@ -141,6 +144,135 @@ describe('AccountingAgent', () => {
       expect(entry.credit).toHaveLength(1);
       expect(entry.credit[0].accountId).toBe('ventas-id');
       expect(entry.credit[0].amount).toBe(250);
+    });
+
+    it('is balanced', () => {
+      const entry = agent.generateEntry(dialog, classification);
+      expect(agent.validateEntry(entry).valid).toBe(true);
+    });
+  });
+
+  describe('generateEntry - COMPRA con ITBMS', () => {
+    const agent = new AccountingAgent(makePrismaStub());
+
+    const dialog: DialogResult = {
+      type: 'COMPRA',
+      amount: 100,
+      currency: 'USD',
+      description: 'Compra de mercancía por $100 con ITBMS',
+      concept: 'Compra de mercancía',
+      paymentMethod: 'TRANSFERENCIA',
+      date: '2026-07-10',
+      confidence: 0.95,
+      missingFields: [],
+      suggestedResponse: '',
+      itbmsRate: 0.07,
+      itbmsAmount: 7,
+    };
+
+    const classification: ClassificationResult = {
+      concept: 'Compra de mercancía',
+      accountId: 'inventario-mercancia-id',
+      confidence: 0.95,
+    };
+
+    it('splits debit into inventory and ITBMS por Cobrar', () => {
+      const entry = agent.generateEntry(dialog, classification);
+      expect(entry.debit).toHaveLength(2);
+      expect(entry.debit[0].accountId).toBe('inventario-mercancia');
+      expect(entry.debit[0].amount).toBe(100);
+      expect(entry.debit[1].accountId).toBe('itbms-por-cobrar');
+      expect(entry.debit[1].amount).toBe(7);
+    });
+
+    it('total credit equals total debit (balanced)', () => {
+      const entry = agent.generateEntry(dialog, classification);
+      expect(entry.credit[0].amount).toBe(107);
+      expect(agent.validateEntry(entry).valid).toBe(true);
+    });
+
+    it('generates correct description with ITBMS', () => {
+      const entry = agent.generateEntry(dialog, classification);
+      expect(entry.description).toContain('+ ITBMS $7');
+    });
+  });
+
+  describe('generateEntry - VENTA con ITBMS', () => {
+    const agent = new AccountingAgent(makePrismaStub());
+
+    const dialog: DialogResult = {
+      type: 'VENTA',
+      amount: 200,
+      currency: 'USD',
+      description: 'Venta de producto por $200 con ITBMS',
+      concept: 'Ventas',
+      paymentMethod: 'EFECTIVO',
+      date: '2026-07-10',
+      confidence: 0.95,
+      missingFields: [],
+      suggestedResponse: '',
+      itbmsRate: 0.07,
+      itbmsAmount: 14,
+    };
+
+    const classification: ClassificationResult = {
+      concept: 'Ventas',
+      accountId: 'ventas-id',
+      confidence: 0.95,
+    };
+
+    it('debits total (sale + ITBMS) to cash', () => {
+      const entry = agent.generateEntry(dialog, classification);
+      expect(entry.debit).toHaveLength(1);
+      expect(entry.debit[0].accountId).toBe('caja');
+      expect(entry.debit[0].amount).toBe(214);
+    });
+
+    it('credits sales account and ITBMS por Pagar', () => {
+      const entry = agent.generateEntry(dialog, classification);
+      expect(entry.credit).toHaveLength(2);
+      expect(entry.credit[0].accountId).toBe('ventas-id');
+      expect(entry.credit[0].amount).toBe(200);
+      expect(entry.credit[1].accountId).toBe('itbms-por-pagar');
+      expect(entry.credit[1].amount).toBe(14);
+    });
+
+    it('is balanced', () => {
+      const entry = agent.generateEntry(dialog, classification);
+      expect(agent.validateEntry(entry).valid).toBe(true);
+    });
+  });
+
+  describe('generateEntry - PAGO_ITBMS', () => {
+    const agent = new AccountingAgent(makePrismaStub());
+
+    const dialog: DialogResult = {
+      type: 'PAGO_ITBMS',
+      amount: 150,
+      currency: 'USD',
+      description: 'Pago de ITBMS a DGI',
+      concept: 'Pago de ITBMS',
+      paymentMethod: 'TRANSFERENCIA',
+      date: '2026-07-10',
+      confidence: 0.95,
+      missingFields: [],
+      suggestedResponse: '',
+    };
+
+    const classification: ClassificationResult = {
+      concept: 'Pago de ITBMS',
+      accountId: '',
+      confidence: 0,
+    };
+
+    it('debits ITBMS por Pagar and credits bank', () => {
+      const entry = agent.generateEntry(dialog, classification);
+      expect(entry.debit).toHaveLength(1);
+      expect(entry.debit[0].accountId).toBe('itbms-por-pagar');
+      expect(entry.debit[0].amount).toBe(150);
+      expect(entry.credit).toHaveLength(1);
+      expect(entry.credit[0].accountId).toBe('banco-general');
+      expect(entry.credit[0].amount).toBe(150);
     });
 
     it('is balanced', () => {

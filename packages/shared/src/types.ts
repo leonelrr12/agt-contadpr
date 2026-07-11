@@ -18,6 +18,7 @@ export enum TransactionType {
   INTERES = 'INTERES',
   ACTIVO = 'ACTIVO',
   DEPRECIACION = 'DEPRECIACION',
+  PAGO_ITBMS = 'PAGO_ITBMS',
 }
 
 export enum PaymentMethod {

@@ -18,7 +18,14 @@ const ALIAS_TO_CODE: Record<string, string> = {
   'prestamos-lp': '2.2.01',
   ventas: '4.01.01',
   gasto: '6.06.01',
+  'itbms-por-cobrar': '1.1.05',
+  'itbms-por-pagar': '2.1.05',
+  'itbms-gastado': '6.05.01',
 };
+
+function getItbmsRate(): number {
+  return parseFloat(process.env.ITBMS_RATE || '') || 0.07;
+}
 
 export class AccountingAgent {
   private prisma: any;
@@ -46,6 +53,11 @@ export class AccountingAgent {
       credit: [],
       description: `${dialog.type}: ${dialog.concept} - $${dialog.amount}`,
     };
+    const itbmsRate = dialog.itbmsRate ?? getItbmsRate();
+    const useItbms = dialog.itbmsRate !== undefined || (process.env.ITBMS_ENABLED === 'true');
+    const itbmsAmount = useItbms && (dialog.type === 'COMPRA' || dialog.type === 'VENTA')
+      ? Math.round(dialog.amount * itbmsRate * 100) / 100
+      : 0;
 
     switch (dialog.type) {
       case 'GASTO': {
@@ -60,20 +72,31 @@ export class AccountingAgent {
         break;
       }
       case 'VENTA': {
+        const totalAmount = dialog.amount + itbmsAmount;
         if (dialog.paymentMethod === 'EFECTIVO') {
-          entry.debit.push({ accountId: 'caja', name: 'Caja', amount: dialog.amount });
+          entry.debit.push({ accountId: 'caja', name: 'Caja', amount: totalAmount });
         } else {
-          entry.debit.push({ accountId: 'clientes', name: 'Clientes', amount: dialog.amount });
+          entry.debit.push({ accountId: 'clientes', name: 'Clientes', amount: totalAmount });
         }
         entry.credit.push({ accountId: classification.accountId, name: classification.concept, amount: dialog.amount });
+        if (itbmsAmount > 0) {
+          entry.credit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: itbmsAmount });
+          entry.description = `${dialog.type}: ${dialog.concept} - $${dialog.amount} + ITBMS $${itbmsAmount}`;
+        }
         break;
       }
       case 'COMPRA': {
-        entry.debit.push({ accountId: 'inventario-mercancia', name: 'Inventario de Mercancía', amount: dialog.amount });
+        const netAmount = dialog.amount;
+        entry.debit.push({ accountId: 'inventario-mercancia', name: 'Inventario de Mercancía', amount: netAmount });
+        if (itbmsAmount > 0) {
+          entry.debit.push({ accountId: 'itbms-por-cobrar', name: 'ITBMS por Cobrar', amount: itbmsAmount });
+          entry.description = `${dialog.type}: ${dialog.concept} - $${netAmount} + ITBMS $${itbmsAmount}`;
+        }
+        const totalAmount = netAmount + itbmsAmount;
         if (dialog.paymentMethod === 'TARJETA_CREDITO') {
-          entry.credit.push({ accountId: 'tarjeta-credito', name: 'Tarjetas de Crédito', amount: dialog.amount });
+          entry.credit.push({ accountId: 'tarjeta-credito', name: 'Tarjetas de Crédito', amount: totalAmount });
         } else {
-          entry.credit.push({ accountId: 'proveedores', name: 'Proveedores', amount: dialog.amount });
+          entry.credit.push({ accountId: 'proveedores', name: 'Proveedores', amount: totalAmount });
         }
         break;
       }
@@ -95,6 +118,12 @@ export class AccountingAgent {
       case 'PRESTAMO': {
         entry.debit.push({ accountId: 'caja', name: 'Caja', amount: dialog.amount });
         entry.credit.push({ accountId: 'prestamos-lp', name: 'Préstamos Bancarios LP', amount: dialog.amount });
+        break;
+      }
+      case 'PAGO_ITBMS': {
+        entry.debit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: dialog.amount });
+        entry.credit.push({ accountId: 'banco-general', name: 'Bancos', amount: dialog.amount });
+        entry.description = `Pago de ITBMS a DGI - $${dialog.amount}`;
         break;
       }
     }

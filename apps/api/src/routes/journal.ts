@@ -74,7 +74,7 @@ journalRouter.post('/:id/review', async (req, res) => {
 });
 
 journalRouter.get('/', async (req, res) => {
-  const { startDate, endDate, status, page: pageStr, pageSize: pageSizeStr } = req.query;
+  const { startDate, endDate, status, provider: providerFilter, page: pageStr, pageSize: pageSizeStr } = req.query;
   const where: Record<string, unknown> = { companyId: 'demo-company' };
   if (status) where.status = status;
   if (startDate || endDate) {
@@ -85,19 +85,35 @@ journalRouter.get('/', async (req, res) => {
 
   const page = Math.max(1, parseInt(pageStr as string) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(pageSizeStr as string) || 50));
-  const skip = (page - 1) * pageSize;
 
-  const [entries, total] = await Promise.all([
-    req.prisma.journalEntry.findMany({
-      where,
-      include: { lines: { include: { account: true } }, createdBy: { select: { name: true } } },
-      orderBy: { date: 'desc' },
-      skip,
-      take: pageSize,
-    }),
-    req.prisma.journalEntry.count({ where }),
-  ]);
-  res.json({ entries, total, page, pageSize, totalPages: Math.ceil(total / pageSize) });
+  const allEntries = await req.prisma.journalEntry.findMany({
+    where,
+    include: {
+      lines: { include: { account: true } },
+      createdBy: { select: { name: true } },
+      transactions: { select: { metadata: true, concept: true } },
+    },
+    orderBy: { date: 'desc' },
+  });
+
+  const enriched = allEntries.map((e: any) => {
+    const tx = e.transactions?.[0];
+    let provider: string | null = null;
+    if (tx?.metadata) {
+      try { const m = JSON.parse(tx.metadata); provider = m.provider || null; } catch { }
+    }
+    return { ...e, provider };
+  });
+
+  const filtered = providerFilter
+    ? enriched.filter((e: any) => e.provider && e.provider.toLowerCase().includes((providerFilter as string).toLowerCase()))
+    : enriched;
+
+  const total = filtered.length;
+  const totalPages = Math.ceil(total / pageSize);
+  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  res.json({ entries: paginated, total, page, pageSize, totalPages });
 });
 
 journalRouter.get('/:id', async (req, res) => {

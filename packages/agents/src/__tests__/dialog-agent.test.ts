@@ -92,6 +92,28 @@ describe('DialogAgent', () => {
     });
   });
 
+  describe('processInput - ITBMS detection', () => {
+    it('detects ITBMS in keyword text', async () => {
+      const result = await agent.processInput('Compra de mercancía por $100 con ITBMS');
+      expect(result.type).toBe('COMPRA');
+      expect(result.amount).toBe(100);
+      expect(result.itbmsRate).toBe(0.07);
+      expect(result.itbmsAmount).toBe(7);
+    });
+
+    it('does not set ITBMS when not mentioned', async () => {
+      const result = await agent.processInput('Compré combustible por $40');
+      expect(result.itbmsRate).toBeUndefined();
+      expect(result.itbmsAmount).toBeUndefined();
+    });
+
+    it('detects PAGO_ITBMS transaction type', async () => {
+      const result = await agent.processInput('Pago de ITBMS por $150');
+      expect(result.type).toBe('PAGO_ITBMS');
+      expect(result.concept).toBe('Pago de ITBMS');
+    });
+  });
+
   describe('processInput with context', () => {
     it('fills missing fields from previous context', async () => {
       const context = {

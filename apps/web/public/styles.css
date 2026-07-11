@@ -31,8 +31,8 @@ body {
   margin-bottom: 6px;
 }
 
-.summary-label { display: block; font-size: 13px; opacity: 0.7; margin-bottom: 2px; }
-.summary-value { display: block; font-size: 22px; font-weight: 700; }
+.summary-label { display: block; font-size: 11px; opacity: 0.7; margin-bottom: 2px; }
+.summary-value { display: block; font-size: 16px; font-weight: 700; }
 
 #sidebar-nav {
   margin-top: 12px;
@@ -798,4 +798,40 @@ body {
   .panel-tabs button { padding: 10px 8px; font-size: 12px; }
   .panel-body table { font-size: 12px; }
   .panel-body th, .panel-body td { padding: 6px 8px; }
+}
+
+/* ── Classification Box ── */
+.classification-box {
+  background: #f0f7ff;
+  border: 1px solid #b3d4fc;
+  border-radius: 8px;
+  padding: 14px;
+  margin: 8px 0;
+  font-size: 14px;
+}
+.classification-box strong {
+  color: #1a1a2e;
+}
+.classify-select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #c0c0c0;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  margin-top: 6px;
+  max-height: 200px;
+}
+.classify-btn {
+  padding: 8px 20px;
+  background: #1a1a2e;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.classify-btn:hover {
+  opacity: 0.85;
 }

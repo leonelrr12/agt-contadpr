@@ -3,6 +3,7 @@ let pendingResult = null;
 let currentInput = '';
 let dialogContext = null;
 let ocrData = null;
+let pendingClassification = null;
 
 function showInput(mode) {
   document.getElementById('quick-actions').classList.add('hidden');
@@ -129,6 +130,52 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+async function showClassificationUI(concept) {
+  pendingClassification = { concept, input: currentInput };
+  try {
+    const res = await fetch(`${API_URL}/accounts`);
+    const accounts = await res.json();
+    const pasivos = accounts.filter(a => a.type === 'PASIVO' || a.type === 'GASTO');
+
+    let html = `<div class="classification-box"><strong>Clasificar: "${concept}"</strong><br><br>`;
+    html += `<label for="classify-account">Selecciona la cuenta contable:</label><br>`;
+    html += `<select id="classify-account" class="classify-select">`;
+    html += `<option value="">— Selecciona una cuenta —</option>`;
+    for (const a of accounts) {
+      html += `<option value="${a.id}">${a.code} — ${a.name}</option>`;
+    }
+    html += `</select>`;
+    html += `<br><br><button class="classify-btn" onclick="submitClassification()">Clasificar</button>`;
+    html += `</div>`;
+
+    addMessage(html, 'assistant-html');
+  } catch (e) {
+    addMessage('Error al cargar cuentas. Intenta de nuevo.', 'assistant');
+  }
+}
+
+async function submitClassification() {
+  const select = document.getElementById('classify-account');
+  const accountId = select.value;
+  if (!accountId) { alert('Selecciona una cuenta'); return; }
+
+  const { concept, input } = pendingClassification;
+  pendingClassification = null;
+
+  try {
+    await fetch(`${API_URL}/concepts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: concept, accountId }),
+    });
+
+    document.getElementById('message-input').value = input;
+    await sendMessage();
+  } catch (e) {
+    addMessage('Error al clasificar. Intenta de nuevo.', 'assistant');
+  }
+}
+
 async function sendMessage() {
   const input = document.getElementById('message-input');
   const text = input.value.trim();
@@ -161,15 +208,26 @@ async function sendMessage() {
       dialogContext = null;
       pendingResult = data.result;
       showConfirmationModal(data);
+      cancelInput();
     } else if (data.prompt) {
       dialogContext = data.plan?.dialog || null;
       addMessage(data.prompt, 'assistant');
+      if (data.prompt.includes('clasificarlo manualmente')) {
+        cancelInput();
+        const match = data.prompt.match(/el concepto "([^"]+)"/);
+        const concept = match ? match[1] : text;
+        showClassificationUI(concept);
+      } else {
+        showInput('escribir');
+      }
+    } else {
+      cancelInput();
     }
   } catch (err) {
     removeLoading();
     handleLocalProcessing(text);
+    cancelInput();
   }
-  cancelInput();
 }
 
 function extractPaymentMethod(input) {
@@ -269,9 +327,11 @@ function generateMockEntry(type, concept, amount, paymentMethod) {
 function addMessage(text, role) {
   const container = document.getElementById('chat-messages');
   const div = document.createElement('div');
-  div.className = `message ${role}`;
+  div.className = `message ${role === 'assistant-html' ? 'assistant' : role}`;
 
-  if (role === 'assistant' && text.includes('Débito:') && text.includes('Crédito:')) {
+  if (role === 'assistant-html') {
+    div.innerHTML = text;
+  } else if (role === 'assistant' && text.includes('Débito:') && text.includes('Crédito:')) {
     div.innerHTML = formatEntryMessage(text);
   } else {
     div.textContent = text;
@@ -497,14 +557,14 @@ async function updateSummary() {
     const res = await fetch(`${API_URL}/reports/estado-resultados`);
     if (res.ok) {
       const data = await res.json();
-      document.getElementById('ventas-hoy').textContent = `$${data.ingresos.total || 0}`;
-      document.getElementById('gastos-hoy').textContent = `$${data.gastos.total || 0}`;
-      document.getElementById('utilidad-mes').textContent = `$${data.utilidadNeta || 0}`;
+      document.getElementById('ventas-hoy').textContent = `$${(data.ingresos.total || 0).toFixed(2)}`;
+      document.getElementById('gastos-hoy').textContent = `$${(data.gastos.total || 0).toFixed(2)}`;
+      document.getElementById('utilidad-mes').textContent = `$${(data.utilidadNeta || 0).toFixed(2)}`;
     }
     const cashRes = await fetch(`${API_URL}/reports/flujo-caja`);
     if (cashRes.ok) {
       const data = await cashRes.json();
-      document.getElementById('saldo-caja').textContent = `$${data.saldoActual || 0}`;
+      document.getElementById('saldo-caja').textContent = `$${(data.saldoActual || 0).toFixed(2)}`;
     }
   } catch (e) {
     // fallback
@@ -583,10 +643,12 @@ async function loadPanelDiario() {
   const from = document.getElementById('filter-diario-from').value;
   const to = document.getElementById('filter-diario-to').value;
   const status = document.getElementById('filter-diario-status').value;
+  const provider = document.getElementById('filter-diario-provider').value;
   let url = `${API_URL}/journal?page=${diarioPage}&pageSize=${DIARIO_PAGE_SIZE}`;
   if (status) url += `&status=${status}`;
   if (from) url += `&startDate=${from}`;
   if (to) url += `&endDate=${to}`;
+  if (provider) url += `&provider=${encodeURIComponent(provider)}`;
   try {
     const res = await fetch(url);
     const data = await res.json();
@@ -595,7 +657,7 @@ async function loadPanelDiario() {
       pagEl.innerHTML = '';
       return;
     }
-    let html = '<table><thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th><th>Estado</th></tr></thead><tbody>';
+    let html = '<table><thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th><th>Proveedor</th><th>Estado</th></tr></thead><tbody>';
     for (const e of data.entries) {
       const date = new Date(e.date).toLocaleDateString('es-PA');
       let statusTag = '';
@@ -603,15 +665,16 @@ async function loadPanelDiario() {
       else if (e.status === 'CONFIRMADO') statusTag = '<span class="tag tag-conf">CONFIRMADO</span>';
       else if (e.status === 'RECHAZADO') statusTag = `<span class="tag tag-rejected" title="${e.reviewNotes || ''}">RECHAZADO</span>`;
       else if (e.status === 'ANULADO') statusTag = '<span class="tag tag-void">ANULADO</span>';
+      const providerHtml = e.provider ? `<span style="font-size:11px;color:#6b7280">${e.provider}</span>` : '';
       const firstLine = e.lines[0];
       if (firstLine) {
         const canUndo = e.status === 'CONFIRMADO' && !e.description.startsWith('ANULACIÓN:');
         const undoBtn = canUndo ? `<button onclick="anularPanel('${e.id}')" class="btn-undo" title="Anular asiento">↩</button>` : '';
-        html += `<tr><td>${date}</td><td>${e.description}${e.reviewNotes ? `<br><small style="color:#c62828">${e.reviewNotes}</small>` : ''}</td><td>${firstLine.account?.name || ''}</td><td class="debit">${firstLine.debit ? '$' + firstLine.debit.toFixed(2) : ''}</td><td class="credit">${firstLine.credit ? '$' + firstLine.credit.toFixed(2) : ''}</td><td>${statusTag} ${undoBtn}</td></tr>`;
+        html += `<tr><td>${date}</td><td>${e.description}${e.reviewNotes ? `<br><small style="color:#c62828">${e.reviewNotes}</small>` : ''}</td><td>${firstLine.account?.name || ''}</td><td class="debit">${firstLine.debit ? '$' + firstLine.debit.toFixed(2) : ''}</td><td class="credit">${firstLine.credit ? '$' + firstLine.credit.toFixed(2) : ''}</td><td>${providerHtml}</td><td>${statusTag} ${undoBtn}</td></tr>`;
       }
       for (let i = 1; i < e.lines.length; i++) {
         const line = e.lines[i];
-        html += `<tr><td></td><td></td><td>${line.account?.name || ''}</td><td class="debit">${line.debit ? '$' + line.debit.toFixed(2) : ''}</td><td class="credit">${line.credit ? '$' + line.credit.toFixed(2) : ''}</td><td></td></tr>`;
+        html += `<tr><td></td><td></td><td>${line.account?.name || ''}</td><td class="debit">${line.debit ? '$' + line.debit.toFixed(2) : ''}</td><td class="credit">${line.credit ? '$' + line.credit.toFixed(2) : ''}</td><td></td><td></td></tr>`;
       }
     }
     el.innerHTML = html + '</tbody></table>';
@@ -639,6 +702,7 @@ function clearDiarioFilters() {
   document.getElementById('filter-diario-from').value = '';
   document.getElementById('filter-diario-to').value = '';
   document.getElementById('filter-diario-status').value = 'CONFIRMADO';
+  document.getElementById('filter-diario-provider').value = '';
   diarioPage = 1;
   loadPanelDiario();
 }
@@ -990,6 +1054,6 @@ document.getElementById('message-input').addEventListener('keydown', (e) => {
 
 document.addEventListener('DOMContentLoaded', () => {
   addMessage('¡Buenos días! Soy tu agente contable. ¿Qué deseas registrar hoy?', 'assistant');
-  addMessage('Puedes escribir algo como:\n• "Compré combustible por $40 con tarjeta"\n• "Vendí $250 en efectivo"\n• "Pagué la electricidad"', 'assistant');
+  addMessage('Puedes escribir algo como:\n• "Compré combustible por $40 con tarjeta"\n• "Vendí $250 en efectivo"\n• "Pagué la electricidad"\n• "Compra de mercancía por $100 con ITBMS a Distribuidora XYZ, crédito"\n• "Vendí $200 en efectivo con ITBMS"\n• "Pago de ITBMS por $150"', 'assistant');
   updateSummary();
 });

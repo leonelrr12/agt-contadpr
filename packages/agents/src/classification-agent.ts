@@ -59,7 +59,7 @@ export class ClassificationAgent {
       VENTA: 'Ventas',
       PAGO_PROVEEDOR: 'Proveedores',
       COBRO_CLIENTE: 'Clientes',
-      PRESTAMO: 'Préstamos por Pagar LP',
+      PRESTAMO: 'Préstamos Bancarios LP',
     };
     const genericName = typeToGeneric[transactionType || ''] || 'Gastos Varios';
     const genericAccount = accounts.find((a: any) => a.name === genericName);

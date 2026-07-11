@@ -89,9 +89,16 @@ export class OrchestratorAgent {
       return { plan, prompt: `Error contable: ${validation.error}`, needsConfirmation: false };
     }
 
+    const typeLabels: Record<string, string> = {
+      VENTA: 'Venta', GASTO: 'Gasto', COMPRA: 'Compra',
+      INGRESO: 'Ingreso', PRESTAMO: 'Préstamo',
+      COBRO_CLIENTE: 'Cobro', PAGO_PROVEEDOR: 'Pago Proveedor',
+      PAGO_ITBMS: 'Pago ITBMS',
+    };
     const summaryParts = [
-      `**${dialog.type === 'VENTA' ? 'Venta' : dialog.type === 'GASTO' ? 'Gasto' : dialog.type}**: ${dialog.concept} por **$${dialog.amount}**`,
+      `**${typeLabels[dialog.type] || dialog.type}**: ${dialog.concept} por **$${dialog.amount}**${dialog.itbmsAmount ? ` (+ ITBMS $${dialog.itbmsAmount})` : ''}`,
     ];
+    if (dialog.provider) summaryParts.push(`Proveedor: **${dialog.provider}**`);
     if (dialog.paymentMethod) summaryParts.push(`Pago con: **${dialog.paymentMethod}**`);
     summaryParts.push('');
     summaryParts.push('**Asiento contable:**');
@@ -125,12 +132,16 @@ export class OrchestratorAgent {
       include: { lines: { include: { account: true } } },
     });
 
+    const metadata: Record<string, unknown> = {};
+    if (dialog.provider) metadata.provider = dialog.provider;
+
     await this.prisma.transaction.create({
       data: {
         type: dialog.type, amount: dialog.amount, description: dialog.description,
         concept: dialog.concept, paymentMethod: dialog.paymentMethod,
         date: new Date(dialog.date), companyId: 'demo-company',
         createdById: 'demo-user', journalEntryId: entryData.id,
+        metadata: JSON.stringify(metadata),
       },
     });
 

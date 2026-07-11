@@ -8,6 +8,8 @@ function parseInput(input: string): {
   concept: string;
   paymentMethod: string | null;
   missingFields: string[];
+  itbms: boolean;
+  provider: string | null;
 } {
   const lower = input.toLowerCase();
 
@@ -45,7 +47,7 @@ function parseInput(input: string): {
       concept = 'Papelería';
     } else if (lower.includes('agua')) {
       concept = 'Agua';
-    } else if (lower.includes('compra') && (lower.includes('inventario') || lower.includes('mercancia') || lower.includes('mercaderia'))) {
+    } else if (lower.includes('compra') && (lower.includes('inventario') || lower.includes('mercancia') || lower.includes('mercancía') || lower.includes('mercaderia'))) {
       type = 'COMPRA';
       concept = 'Compra de mercancía';
     } else {
@@ -56,6 +58,9 @@ function parseInput(input: string): {
   } else if (lower.includes('vend') || lower.includes('venta') || lower.includes('factur')) {
     type = 'VENTA';
     concept = 'Ventas';
+  } else if (lower.includes('itbms') || lower.includes('dgi') || (lower.includes('pago') && lower.includes('impuesto'))) {
+    type = 'PAGO_ITBMS';
+    concept = 'Pago de ITBMS';
   } else if (lower.includes('pag') || lower.includes('pague')) {
     type = 'GASTO';
     if (lower.includes('luz') || lower.includes('electricidad')) concept = 'Electricidad';
@@ -89,11 +94,20 @@ function parseInput(input: string): {
     paymentMethod = 'TARJETA_DEBITO';
   }
 
+  const itbms = lower.includes('itbms') || lower.includes('iva') || lower.includes('impuesto') || lower.includes('7%');
+
+  let provider: string | null = null;
+  const providerMatch = input.match(/(?:a|proveedor|de)\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ\s]+?)(?:\s+por|\s+con|\s+en|\s+itbms|\s+,\s*|$)/i);
+  if (providerMatch) {
+    const p = providerMatch[1].trim();
+    if (p.length > 1 && p.length < 60) provider = p;
+  }
+
   if (!concept) missingFields.push('concept');
   if (amount === 0) missingFields.push('amount');
   if (!paymentMethod) missingFields.push('paymentMethod');
 
-  return { amount, date, type, concept, paymentMethod, missingFields };
+  return { amount, date, type, concept, paymentMethod, missingFields, itbms, provider };
 }
 
 export class DialogAgent {
@@ -111,6 +125,8 @@ export class DialogAgent {
       paymentMethod: string | null;
       date: string;
       missingFields: string[];
+      itbms?: boolean;
+      provider?: string | null;
     } | null = null;
 
     if (this.llm.isEnabled) {
@@ -130,6 +146,8 @@ export class DialogAgent {
     let amount = extracted.amount;
     let concept = extracted.concept;
     let paymentMethod = extracted.paymentMethod;
+    let itbms = extracted.itbms === true;
+    let provider = extracted.provider || null;
     const missingFields: string[] = [];
 
     if (prev) {
@@ -147,11 +165,22 @@ export class DialogAgent {
       if (extracted.missingFields.includes('paymentMethod') && prev.paymentMethod) {
         paymentMethod = prev.paymentMethod;
       }
+      if (!extracted.itbms && prev.itbms) {
+        itbms = prev.itbms;
+      }
+      if (!extracted.provider && prev.provider) {
+        provider = prev.provider;
+      }
     }
 
     if (!concept) missingFields.push('concept');
     if (amount === 0) missingFields.push('amount');
     if (!paymentMethod) missingFields.push('paymentMethod');
+
+    const itbmsRate = itbms ? (parseFloat(process.env.ITBMS_RATE || '') || 0.07) : undefined;
+    const itbmsAmount = itbms && (type === 'COMPRA' || type === 'VENTA')
+      ? Math.round(amount * itbmsRate! * 100) / 100
+      : undefined;
 
     return {
       type,
@@ -163,8 +192,12 @@ export class DialogAgent {
       date: extracted.date || new Date().toISOString().split('T')[0],
       confidence: missingFields.length === 0 ? (this.llm.isEnabled ? 0.98 : 0.95) : 0.6,
       missingFields,
+      itbms,
+      itbmsRate,
+      itbmsAmount,
+      provider,
       suggestedResponse: missingFields.length === 0
-        ? `He entendido: ${type === 'VENTA' ? 'Venta' : type === 'GASTO' ? 'Gasto' : type} de ${concept} por $${amount}${paymentMethod ? ` pagado con ${paymentMethod}` : ''}. ¿Confirmas?`
+        ? `He entendido: ${type === 'VENTA' ? 'Venta' : type === 'GASTO' ? 'Gasto' : type} de ${concept} por $${amount}${paymentMethod ? ` pagado con ${paymentMethod}` : ''}${itbms ? ` (ITBMS ${(itbmsRate! * 100).toFixed(0)}% incluido)` : ''}. ¿Confirmas?`
         : `Necesito más información: ${missingFields.join(', ')}`,
     };
   }
