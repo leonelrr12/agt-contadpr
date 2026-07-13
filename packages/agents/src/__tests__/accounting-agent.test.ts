@@ -104,6 +104,12 @@ describe('AccountingAgent', () => {
       const entry = agent.generateEntry(transferDialog, classification);
       expect(entry.credit[0].accountId).toBe('banco-general');
     });
+
+    it('credits proveedores when payment is CREDITO (supplier credit)', () => {
+      const creditDialog = { ...dialog, paymentMethod: 'CREDITO' };
+      const entry = agent.generateEntry(creditDialog, classification);
+      expect(entry.credit[0].accountId).toBe('proveedores');
+    });
   });
 
   describe('generateEntry - VENTA', () => {
@@ -194,6 +200,31 @@ describe('AccountingAgent', () => {
     it('generates correct description with ITBMS', () => {
       const entry = agent.generateEntry(dialog, classification);
       expect(entry.description).toContain('+ ITBMS $7');
+    });
+
+    it('credits caja when payment is EFECTIVO for COMPRA', () => {
+      const cashDialog = { ...dialog, paymentMethod: 'EFECTIVO' };
+      const entry = agent.generateEntry(cashDialog, classification);
+      expect(entry.credit[0].accountId).toBe('caja');
+      expect(entry.credit[0].name).toBe('Caja');
+    });
+
+    it('credits proveedores when payment is CREDITO (supplier credit)', () => {
+      const creditDialog = { ...dialog, paymentMethod: 'CREDITO' };
+      const entry = agent.generateEntry(creditDialog, classification);
+      expect(entry.credit[0].accountId).toBe('proveedores');
+      expect(entry.credit[0].name).toBe('Proveedores');
+    });
+
+    it('credits proveedores by default for COMPRA (null, TRANSFERENCIA, CHEQUE)', () => {
+      const entry = agent.generateEntry(dialog, classification);
+      expect(entry.credit[0].accountId).toBe('proveedores');
+    });
+
+    it('credits tarjeta-credito when payment is TARJETA_CREDITO for COMPRA', () => {
+      const cardDialog = { ...dialog, paymentMethod: 'TARJETA_CREDITO' };
+      const entry = agent.generateEntry(cardDialog, classification);
+      expect(entry.credit[0].accountId).toBe('tarjeta-credito');
     });
   });
 

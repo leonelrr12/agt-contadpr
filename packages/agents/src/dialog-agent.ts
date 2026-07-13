@@ -84,6 +84,8 @@ function parseInput(input: string): {
 
   if (lower.includes('tarjeta') || lower.includes('tc') || lower.includes('tarjeta de credito') || lower.includes('tarjeta crédito')) {
     paymentMethod = 'TARJETA_CREDITO';
+  } else if (lower.includes('credito') || lower.includes('crédito')) {
+    paymentMethod = 'CREDITO';
   } else if (lower.includes('efectivo')) {
     paymentMethod = 'EFECTIVO';
   } else if (lower.includes('banco general') || lower.includes('transferencia')) {
@@ -162,7 +164,7 @@ export class DialogAgent {
       if (extracted.amount === 0 && prev.amount && prev.amount > 0) {
         amount = prev.amount;
       }
-      if (!paymentMethod && prev?.paymentMethod) {
+      if (prev?.paymentMethod) {
         paymentMethod = prev.paymentMethod;
       }
       if (!extracted.itbms && prev.itbms) {

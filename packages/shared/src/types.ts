@@ -28,6 +28,7 @@ export enum PaymentMethod {
   TRANSFERENCIA = 'TRANSFERENCIA',
   CHEQUE = 'CHEQUE',
   BANCO = 'BANCO',
+  CREDITO = 'CREDITO',
 }
 
 export enum JournalEntryStatus {

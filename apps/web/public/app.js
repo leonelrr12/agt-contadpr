@@ -357,6 +357,7 @@ function showPaymentMethodSelector() {
     { value: 'EFECTIVO', label: '💵 Efectivo' },
     { value: 'TARJETA_CREDITO', label: '💳 Tarjeta Crédito' },
     { value: 'TARJETA_DEBITO', label: '💳 Tarjeta Débito' },
+    { value: 'CREDITO', label: '📋 Crédito Proveedor' },
     { value: 'TRANSFERENCIA', label: '🏦 Transferencia' },
     { value: 'CHEQUE', label: '📄 Cheque' },
   ];
@@ -462,7 +463,6 @@ async function sendMessage() {
       dialogContext = data.plan?.dialog || null;
       const missing = data.plan?.dialog?.missingFields || [];
       if (missing.includes('paymentMethod')) {
-        cancelInput();
         showPaymentMethodSelector();
       } else if (data.prompt.includes('clasificarlo manualmente')) {
         cancelInput();
@@ -485,7 +485,8 @@ async function sendMessage() {
 
 function extractPaymentMethod(input) {
   const lower = input.toLowerCase();
-  if (lower.includes('tarjeta') || lower.includes('tc') || lower.includes('credito') || lower.includes('tarjeta de credito') || lower.includes('tarjeta crédito')) return 'TARJETA_CREDITO';
+  if (lower.includes('tarjeta') || lower.includes('tc') || lower.includes('tarjeta de credito') || lower.includes('tarjeta crédito')) return 'TARJETA_CREDITO';
+  if (lower.includes('credito') || lower.includes('crédito')) return 'CREDITO';
   if (lower.includes('efectivo') || lower.includes('cash')) return 'EFECTIVO';
   if (lower.includes('debito') || lower.includes('débito') || lower.includes('tarjeta de debito')) return 'TARJETA_DEBITO';
   if (lower.includes('transferencia') || lower.includes('banco general') || lower.includes('banco nacional')) return 'TRANSFERENCIA';

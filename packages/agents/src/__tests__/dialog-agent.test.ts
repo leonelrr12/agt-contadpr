@@ -30,6 +30,16 @@ describe('DialogAgent', () => {
       expect(result.paymentMethod).toBeNull();
       expect(result.missingFields).toContain('paymentMethod');
     });
+
+    it('detects standalone credito as CREDITO (supplier credit, not credit card)', async () => {
+      const result = await agent.processInput('Compré mercancía por $100 a crédito');
+      expect(result.paymentMethod).toBe('CREDITO');
+    });
+
+    it('still detects tarjeta de credito as TARJETA_CREDITO', async () => {
+      const result = await agent.processInput('Compré mercancía por $100 con tarjeta de crédito');
+      expect(result.paymentMethod).toBe('TARJETA_CREDITO');
+    });
   });
 
   describe('processInput - VENTA', () => {

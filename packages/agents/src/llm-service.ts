@@ -15,7 +15,10 @@ const EXTRACTION_SYSTEM_PROMPT = (today: string) => `Eres un extractor de datos 
 
 Tipos de transacción válidos: INGRESO, GASTO, COMPRA, VENTA, PAGO_PROVEEDOR, COBRO_CLIENTE, PRESTAMO
 
-Métodos de pago válidos (opcional): EFECTIVO, TARJETA_CREDITO, TARJETA_DEBITO, TRANSFERENCIA, CHEQUE, BANCO
+Métodos de pago válidos (opcional): EFECTIVO, TARJETA_CREDITO, TARJETA_DEBITO, TRANSFERENCIA, CHEQUE, BANCO, CREDITO
+- "tarjeta de crédito", "tarjeta", "tc" → TARJETA_CREDITO
+- "crédito" (sin "tarjeta") → CREDITO (crédito con proveedor, no tarjeta)
+IMPORTANTE: NO inventes ni infieras el método de pago. Si el texto no menciona EXPLÍCITAMENTE cómo se pagó, pon paymentMethod como null.
 
 Reglas:
 - Si el texto menciona "compré", "pagué", "pague", "gasto" → type: GASTO

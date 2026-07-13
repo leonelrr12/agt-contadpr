@@ -64,6 +64,8 @@ export class AccountingAgent {
         entry.debit.push({ accountId: classification.accountId, name: classification.concept, amount: dialog.amount });
         if (dialog.paymentMethod === 'TARJETA_CREDITO') {
           entry.credit.push({ accountId: 'tarjeta-credito', name: 'Tarjetas de Crédito', amount: dialog.amount });
+        } else if (dialog.paymentMethod === 'CREDITO') {
+          entry.credit.push({ accountId: 'proveedores', name: 'Proveedores', amount: dialog.amount });
         } else if (dialog.paymentMethod === 'EFECTIVO') {
           entry.credit.push({ accountId: 'caja', name: 'Caja', amount: dialog.amount });
         } else {
@@ -95,6 +97,10 @@ export class AccountingAgent {
         const totalAmount = netAmount + itbmsAmount;
         if (dialog.paymentMethod === 'TARJETA_CREDITO') {
           entry.credit.push({ accountId: 'tarjeta-credito', name: 'Tarjetas de Crédito', amount: totalAmount });
+        } else if (dialog.paymentMethod === 'EFECTIVO') {
+          entry.credit.push({ accountId: 'caja', name: 'Caja', amount: totalAmount });
+        } else if (dialog.paymentMethod === 'CREDITO') {
+          entry.credit.push({ accountId: 'proveedores', name: 'Proveedores', amount: totalAmount });
         } else {
           entry.credit.push({ accountId: 'proveedores', name: 'Proveedores', amount: totalAmount });
         }
