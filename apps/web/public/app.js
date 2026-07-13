@@ -7,6 +7,8 @@ let pendingClassification = null;
 
 function showInput(mode) {
   document.getElementById('quick-actions').classList.add('hidden');
+  document.getElementById('ocr-upload').classList.add('hidden');
+  document.getElementById('pdf-upload').classList.add('hidden');
   if (mode === 'factura') {
     document.getElementById('ocr-capture-actions').classList.remove('hidden');
     document.getElementById('ocr-preview').classList.add('hidden');
@@ -18,6 +20,16 @@ function showInput(mode) {
     document.getElementById('ocr-preview-img').src = '';
     ocrData = null;
     document.getElementById('ocr-upload').classList.remove('hidden');
+    return;
+  }
+  if (mode === 'pdf') {
+    document.getElementById('pdf-actions').classList.remove('hidden');
+    document.getElementById('pdf-loading').classList.add('hidden');
+    document.getElementById('pdf-result').classList.add('hidden');
+    document.getElementById('pdf-result-text').innerHTML = '';
+    document.getElementById('pdf-file-input').value = '';
+    pdfData = null;
+    document.getElementById('pdf-upload').classList.remove('hidden');
     return;
   }
   const input = document.getElementById('text-input');
@@ -198,6 +210,116 @@ async function sendOCRResult() {
 
   const input = document.getElementById('message-input');
   input.value = text;
+  await sendMessage();
+}
+
+/* ── PDF / Factura Electrónica ── */
+let pdfData = null;
+
+function openPDFPicker() {
+  document.getElementById('pdf-file-input').click();
+}
+
+document.getElementById('pdf-file-input').addEventListener('change', (e) => {
+  handlePDFFile(e.target.files[0]);
+});
+
+function handlePDFFile(file) {
+  if (!file) return;
+  document.getElementById('pdf-actions').classList.add('hidden');
+  document.getElementById('pdf-loading').classList.remove('hidden');
+  processPDFFile(file);
+}
+
+function cancelPDF() {
+  document.getElementById('pdf-upload').classList.add('hidden');
+  document.getElementById('pdf-actions').classList.remove('hidden');
+  document.getElementById('pdf-loading').classList.add('hidden');
+  document.getElementById('pdf-result').classList.add('hidden');
+  document.getElementById('pdf-file-input').value = '';
+  pdfData = null;
+  document.getElementById('quick-actions').classList.remove('hidden');
+}
+
+async function processPDFFile(file) {
+  document.getElementById('pdf-status').textContent = 'Extrayendo datos del PDF...';
+  const formData = new FormData();
+  formData.append('pdf', file);
+
+  try {
+    const res = await fetch(`${API_URL}/factura/extract`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Error al procesar PDF');
+    }
+    const data = await res.json();
+    pdfData = data;
+
+    document.getElementById('pdf-loading').classList.add('hidden');
+    document.getElementById('pdf-result').classList.remove('hidden');
+
+    let html = `<div class="ocr-extracted">
+      <div class="ocr-field"><span>🏢 Proveedor:</span><input type="text" id="pdf-edit-provider" value="${escapeHtml(data.provider || '')}"></div>
+      <div class="ocr-field"><span>🔢 RUC:</span><input type="text" id="pdf-edit-ruc" value="${escapeHtml(data.ruc || '')}"></div>
+      <div class="ocr-field"><span>🧾 Factura #:</span><input type="text" id="pdf-edit-invoice" value="${escapeHtml(data.invoiceNumber || '')}"></div>
+      <div class="ocr-field"><span>📅 Fecha:</span><input type="date" id="pdf-edit-date" value="${data.date || ''}"></div>
+      <div class="ocr-field"><span>💰 Subtotal:</span><input type="number" step="0.01" id="pdf-edit-subtotal" value="${data.subtotal ?? ''}"></div>
+      <div class="ocr-field"><span>📊 ITBMS:</span><input type="number" step="0.01" id="pdf-edit-itbms" value="${data.itbms ?? ''}"></div>
+      <div class="ocr-field"><span>💰 Total:</span><input type="number" step="0.01" id="pdf-edit-total" value="${data.total ?? ''}"></div>
+      <div class="ocr-field"><span>🎯 Confianza:</span><strong>${(data.confidence * 100).toFixed(0)}%</strong></div>
+      <div class="ocr-field"><span>🤖 Motor:</span><strong>${data.source === 'pdf-parse+llm' ? 'PDF + DeepSeek' : 'PDF'}</strong></div>
+      <div class="ocr-field" style="flex-direction:column;align-items:stretch;gap:4px"><span>📄 Texto extraído:</span><textarea id="pdf-edit-text" rows="3" style="width:100%">${escapeHtml(data.text.substring(0, 500))}</textarea></div>
+    </div>`;
+    document.getElementById('pdf-result-text').innerHTML = html;
+  } catch (err) {
+    document.getElementById('pdf-loading').classList.add('hidden');
+    document.getElementById('pdf-actions').classList.remove('hidden');
+    alert('Error: ' + err.message);
+  }
+}
+
+async function sendPDFResult() {
+  if (!pdfData) return;
+  const data = pdfData;
+  const provider = document.getElementById('pdf-edit-provider')?.value?.trim() || data.provider || '';
+  const ruc = document.getElementById('pdf-edit-ruc')?.value?.trim() || data.ruc || '';
+  const invoiceNumber = document.getElementById('pdf-edit-invoice')?.value?.trim() || data.invoiceNumber || '';
+  const date = document.getElementById('pdf-edit-date')?.value || data.date || '';
+  const total = parseFloat(document.getElementById('pdf-edit-total')?.value) || data.total || 0;
+  const subtotal = parseFloat(document.getElementById('pdf-edit-subtotal')?.value) || data.subtotal || null;
+  const itbms = parseFloat(document.getElementById('pdf-edit-itbms')?.value) || data.itbms || null;
+  const text = document.getElementById('pdf-edit-text')?.value?.trim() || data.text || '';
+
+  pdfData = null;
+
+  const hasItbms = itbms != null && itbms > 0;
+
+  dialogContext = {
+    amount: total,
+    provider: provider,
+    date: date || null,
+    itbms: hasItbms,
+    itbmsAmount: itbms,
+    invoiceNumber: invoiceNumber,
+    ruc: ruc,
+  };
+
+  let message = '';
+  if (provider) message += `Compra a ${provider}`;
+  else message += 'Compra';
+  if (total) message += ` por $${total}`;
+  if (invoiceNumber) message += `, factura ${invoiceNumber}`;
+  if (hasItbms && subtotal) message += ` (subtotal $${subtotal}, ITBMS $${itbms})`;
+
+  document.getElementById('pdf-result').classList.add('hidden');
+  document.getElementById('pdf-upload').classList.add('hidden');
+  document.getElementById('quick-actions').classList.remove('hidden');
+
+  const input = document.getElementById('message-input');
+  input.value = message;
   await sendMessage();
 }
 
