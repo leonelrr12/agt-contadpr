@@ -3,6 +3,7 @@ let pendingResult = null;
 let currentInput = '';
 let dialogContext = null;
 let ocrData = null;
+let ocrAbortController = null;
 let pendingClassification = null;
 
 function showInput(mode) {
@@ -78,6 +79,10 @@ document.getElementById('ocr-gallery-input').addEventListener('change', (e) => {
 });
 
 function cancelOCR() {
+  if (ocrAbortController) {
+    ocrAbortController.abort();
+    ocrAbortController = null;
+  }
   document.getElementById('ocr-upload').classList.add('hidden');
   document.getElementById('ocr-capture-actions').classList.remove('hidden');
   document.getElementById('ocr-preview').classList.add('hidden');
@@ -91,6 +96,9 @@ function cancelOCR() {
 }
 
 async function processOCRFile(file) {
+  ocrAbortController = new AbortController();
+  const signal = ocrAbortController.signal;
+
   document.getElementById('ocr-loading').classList.remove('hidden');
   document.getElementById('ocr-status').textContent = 'Comprimiendo imagen...';
 
@@ -113,6 +121,7 @@ async function processOCRFile(file) {
     const res = await fetch(`${API_URL}/ocr/extract`, {
       method: 'POST',
       body: formData,
+      signal,
     });
 
     if (!res.ok) {
@@ -124,6 +133,7 @@ async function processOCRFile(file) {
     ocrData = data;
 
     document.getElementById('ocr-loading').classList.add('hidden');
+    document.getElementById('ocr-preview').classList.add('hidden');
     document.getElementById('ocr-result').classList.remove('hidden');
 
     let html = `<div class="ocr-extracted">
@@ -135,13 +145,26 @@ async function processOCRFile(file) {
       <div class="ocr-field"><span>📊 ITBMS:</span><input type="number" step="0.01" id="ocr-edit-itbms" value="${data.itbms ?? ''}"></div>
       <div class="ocr-field"><span>🎯 Confianza:</span><strong>${(data.confidence * 100).toFixed(0)}%</strong></div>
       <div class="ocr-field"><span>🤖 Motor:</span><strong>${data.source === 'tesseract+llm' ? 'Tesseract + DeepSeek' : 'Tesseract'}</strong></div>
+      <button class="ocr-toggle-img" onclick="toggleOCRImage()" style="margin-top:8px;font-size:12px;padding:6px 12px;background:none;border:1px solid #d0d5dd;border-radius:4px;cursor:pointer;color:#1a1a2e;width:100%">📷 Ver imagen</button>
     </div>`;
     document.getElementById('ocr-result-text').innerHTML = html;
   } catch (err) {
+    if (err.name === 'AbortError') return;
     document.getElementById('ocr-loading').classList.add('hidden');
     document.getElementById('ocr-preview').classList.add('hidden');
     document.getElementById('ocr-capture-actions').classList.remove('hidden');
     alert('Error: ' + err.message);
+  }
+}
+
+function toggleOCRImage() {
+  const el = document.getElementById('ocr-preview');
+  const btn = document.querySelector('.ocr-toggle-img');
+  if (!el || !btn) return;
+  el.classList.toggle('hidden');
+  btn.textContent = el.classList.contains('hidden') ? '📷 Ver imagen' : '📷 Ocultar imagen';
+  if (!el.classList.contains('hidden')) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 }
 
