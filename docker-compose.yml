@@ -1,6 +1,7 @@
 services:
   db:
     image: postgres:16-alpine
+    container_name: agt-contador-db-1
     restart: unless-stopped
     environment:
       POSTGRES_USER: contador
@@ -20,6 +21,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: agt-contador-api-1
     restart: unless-stopped
     ports:
       - "3001:3001"
