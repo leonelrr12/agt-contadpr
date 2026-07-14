@@ -32,6 +32,7 @@ let ocrAbortController = null;
 let pendingClassification = null;
 
 function showInput(mode) {
+  stopQRScanner();
   document.getElementById('quick-actions').classList.add('hidden');
   document.getElementById('dgi-menu').classList.add('hidden');
   document.getElementById('qr-upload').classList.add('hidden');
@@ -338,8 +339,70 @@ function showDGIMenu() {
 }
 
 function hideDGIMenu() {
+  stopQRScanner();
   document.getElementById('dgi-menu').classList.add('hidden');
   document.getElementById('quick-actions').classList.remove('hidden');
+}
+
+/* ── QR Scanner ── */
+let qrScannerInstance = null;
+
+function showQRScanner() {
+  hideDGIMenu();
+  document.getElementById('qr-scanner').classList.remove('hidden');
+  document.getElementById('qr-reader-status').textContent = 'Iniciando cámara...';
+
+  if (typeof Html5Qrcode === 'undefined') {
+    document.getElementById('qr-reader-status').textContent = '❌ Error al cargar la librería QR. Recarga la página.';
+    return;
+  }
+
+  qrScannerInstance = new Html5Qrcode('qr-reader');
+
+  qrScannerInstance.start(
+    { facingMode: 'environment' }, // cámara trasera
+    {
+      fps: 10,
+      qrbox: { width: 250, height: 250 },
+    },
+    (decodedText) => {
+      // QR detectado
+      stopQRScanner();
+      if (decodedText.startsWith('http://') || decodedText.startsWith('https://')) {
+        document.getElementById('qr-url-input').value = decodedText;
+        document.getElementById('qr-url-input').focus();
+        // Abrir el input de URL con la URL precargada
+        document.getElementById('qr-upload').classList.remove('hidden');
+        document.getElementById('qr-scanner').classList.add('hidden');
+        document.getElementById('qr-actions').classList.remove('hidden');
+        document.getElementById('qr-loading').classList.add('hidden');
+        document.getElementById('qr-result').classList.add('hidden');
+        document.getElementById('quick-actions').classList.add('hidden');
+      } else {
+        alert('El QR no contiene una URL válida. Contenido: ' + decodedText.substring(0, 100));
+        showQRScanner(); // reintentar
+      }
+    },
+    () => {
+      // No hace falta mostrar nada en cada frame sin QR
+    },
+  ).catch((err) => {
+    document.getElementById('qr-reader-status').textContent = '❌ Error al acceder a la cámara: ' + (err.message || 'permiso denegado');
+    console.error('[QR] Error:', err);
+  });
+}
+
+function stopQRScanner() {
+  if (qrScannerInstance) {
+    try {
+      qrScannerInstance.stop().catch(() => {});
+      qrScannerInstance.clear().catch(() => {});
+    } catch (e) { /* ignore */ }
+    qrScannerInstance = null;
+  }
+  document.getElementById('qr-scanner').classList.add('hidden');
+  document.getElementById('qr-reader').innerHTML = '';
+  document.getElementById('qr-reader-status').textContent = '';
 }
 
 function showQRInput() {
@@ -350,6 +413,7 @@ function showQRInput() {
 }
 
 function cancelQR() {
+  stopQRScanner();
   document.getElementById('qr-upload').classList.add('hidden');
   document.getElementById('qr-loading').classList.add('hidden');
   document.getElementById('qr-result').classList.add('hidden');
