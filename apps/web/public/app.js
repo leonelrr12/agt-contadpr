@@ -33,6 +33,8 @@ let pendingClassification = null;
 
 function showInput(mode) {
   document.getElementById('quick-actions').classList.add('hidden');
+  document.getElementById('dgi-menu').classList.add('hidden');
+  document.getElementById('qr-upload').classList.add('hidden');
   document.getElementById('ocr-upload').classList.add('hidden');
   document.getElementById('pdf-upload').classList.add('hidden');
   if (mode === 'factura') {
@@ -327,6 +329,121 @@ async function processPDFFile(file) {
     document.getElementById('pdf-actions').classList.remove('hidden');
     alert('Error: ' + err.message);
   }
+}
+
+/* ── DGI Menu (PDF / QR / URL) ── */
+function showDGIMenu() {
+  document.getElementById('quick-actions').classList.add('hidden');
+  document.getElementById('dgi-menu').classList.remove('hidden');
+}
+
+function hideDGIMenu() {
+  document.getElementById('dgi-menu').classList.add('hidden');
+  document.getElementById('quick-actions').classList.remove('hidden');
+}
+
+function showQRInput() {
+  hideDGIMenu();
+  document.getElementById('qr-upload').classList.remove('hidden');
+  document.getElementById('qr-url-input').value = '';
+  document.getElementById('qr-url-input').focus();
+}
+
+function cancelQR() {
+  document.getElementById('qr-upload').classList.add('hidden');
+  document.getElementById('qr-loading').classList.add('hidden');
+  document.getElementById('qr-result').classList.add('hidden');
+  document.getElementById('qr-url-input').value = '';
+  document.getElementById('quick-actions').classList.remove('hidden');
+}
+
+let qrData = null;
+
+async function processQRUrl() {
+  const url = document.getElementById('qr-url-input').value.trim();
+  if (!url) { alert('Pega la URL del PDF (puedes escanear un QR)'); return; }
+
+  document.getElementById('qr-actions').classList.add('hidden');
+  document.getElementById('qr-loading').classList.remove('hidden');
+  document.getElementById('qr-status').textContent = 'Descargando PDF...';
+
+  try {
+    const res = await authFetch(`${API_URL}/factura/extract-url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Error al procesar');
+    }
+
+    const data = await res.json();
+    qrData = data;
+
+    document.getElementById('qr-loading').classList.add('hidden');
+    document.getElementById('qr-result').classList.remove('hidden');
+
+    let html = `<div class="ocr-extracted">
+      <div class="ocr-field"><span>🏢 Proveedor:</span><input type="text" id="qr-edit-provider" value="${escapeHtml(data.provider || '')}"></div>
+      <div class="ocr-field"><span>🔢 RUC:</span><input type="text" id="qr-edit-ruc" value="${escapeHtml(data.ruc || '')}"></div>
+      <div class="ocr-field"><span>🧾 Factura #:</span><input type="text" id="qr-edit-invoice" value="${escapeHtml(data.invoiceNumber || '')}"></div>
+      <div class="ocr-field"><span>📅 Fecha:</span><input type="date" id="qr-edit-date" value="${data.date || ''}"></div>
+      <div class="ocr-field"><span>💰 Subtotal:</span><input type="number" step="0.01" id="qr-edit-subtotal" value="${data.subtotal ?? ''}"></div>
+      <div class="ocr-field"><span>📊 ITBMS:</span><input type="number" step="0.01" id="qr-edit-itbms" value="${data.itbms ?? ''}"></div>
+      <div class="ocr-field"><span>💰 Total:</span><input type="number" step="0.01" id="qr-edit-total" value="${data.total ?? ''}"></div>
+      <div class="ocr-field"><span>🎯 Confianza:</span><strong>${(data.confidence * 100).toFixed(0)}%</strong></div>
+      <div class="ocr-field" style="flex-direction:column;align-items:stretch;gap:4px"><span>📄 Texto:</span><textarea id="qr-edit-text" rows="3" style="width:100%">${escapeHtml((data.text || '').substring(0, 500))}</textarea></div>
+    </div>`;
+    document.getElementById('qr-result-text').innerHTML = html;
+  } catch (err) {
+    document.getElementById('qr-loading').classList.add('hidden');
+    document.getElementById('qr-actions').classList.remove('hidden');
+    alert('Error: ' + err.message);
+  }
+}
+
+async function sendQRResult() {
+  if (!qrData) return;
+  const data = qrData;
+  const provider = document.getElementById('qr-edit-provider')?.value?.trim() || data.provider || '';
+  const ruc = document.getElementById('qr-edit-ruc')?.value?.trim() || data.ruc || '';
+  const invoiceNumber = document.getElementById('qr-edit-invoice')?.value?.trim() || data.invoiceNumber || '';
+  const date = document.getElementById('qr-edit-date')?.value || data.date || '';
+  const total = parseFloat(document.getElementById('qr-edit-total')?.value) || data.total || 0;
+  const subtotal = parseFloat(document.getElementById('qr-edit-subtotal')?.value) || data.subtotal || null;
+  const itbms = parseFloat(document.getElementById('qr-edit-itbms')?.value) || data.itbms || null;
+  const text = document.getElementById('qr-edit-text')?.value?.trim() || data.text || '';
+
+  qrData = null;
+
+  const hasItbms = itbms != null && itbms > 0;
+
+  dialogContext = {
+    amount: total,
+    provider: provider,
+    date: date || null,
+    itbms: hasItbms,
+    itbmsAmount: itbms,
+    invoiceNumber: invoiceNumber,
+    ruc: ruc,
+  };
+
+  let message = '';
+  if (provider) message += `Compra a ${provider}`;
+  else message += 'Compra';
+  if (total) message += ` por $${total}`;
+  if (invoiceNumber) message += `, factura ${invoiceNumber}`;
+  if (hasItbms && subtotal) message += ` (subtotal $${subtotal}, ITBMS $${itbms})`;
+
+  document.getElementById('qr-result').classList.add('hidden');
+  document.getElementById('qr-upload').classList.add('hidden');
+  document.getElementById('quick-actions').classList.remove('hidden');
+
+  const input = document.getElementById('message-input');
+  input.value = message;
+  await sendMessage();
 }
 
 async function sendPDFResult() {
