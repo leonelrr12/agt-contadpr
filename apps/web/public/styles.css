@@ -957,3 +957,28 @@ body {
 .hidden {
   display: none !important;
 }
+
+/* ── Sidebar user & logout ── */
+.sidebar-logout-btn {
+  margin-top: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid #e2e4e8;
+  border-radius: 6px;
+  color: #dc2626;
+  background: #fff;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+.sidebar-logout-btn:hover {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+.sidebar-logout-btn:active {
+  background: #fee2e2;
+  transform: scale(0.98);
+}
