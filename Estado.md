@@ -16,11 +16,9 @@ El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones 
 
 ## 1. Seguridad — 🔴 Crítico
 
-### 1.1 Sin autenticación
-- **Todo** usa `companyId: 'demo-company'` y `createdById: 'demo-user'` hardcodeados.
-- El modelo `User` existe pero no hay login, JWT, sesiones ni middleware de auth.
-- Cualquiera que acceda al endpoint puede crear, modificar o anular asientos.
-- **Recomendación**: Implementar JWT middleware con roles (`admin`, `contador`, `asistente`).
+### 1.1 Sin autenticación ✅ COMPLETADO
+- ~~Todo usa companyId y createdById hardcodeados. No hay login, JWT, sesiones ni middleware de auth.~~
+- **Implementado**: JWT con `jsonwebtoken` + `bcryptjs`. Middleware `requireAuth` en todas las rutas. Endpoints `POST /api/auth/login`, `POST /api/auth/register` (crea empresa + copia plan de cuentas + conceptos), `GET /api/auth/me`. Login page en `/login.html`. Token en localStorage. `authFetch()` wrapper en frontend. Logout en sidebar. Multi-company listo (User.companyId).
 
 ### 1.2 CORS abierto
 ```ts

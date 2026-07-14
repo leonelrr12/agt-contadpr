@@ -6,7 +6,7 @@ export const conceptsRouter = Router();
 
 conceptsRouter.get('/', async (req, res) => {
   const concepts = await req.prisma.concept.findMany({
-    where: { companyId: 'demo-company' },
+    where: { companyId: req.user!.companyId },
     include: { account: true },
     orderBy: { name: 'asc' },
   });
@@ -16,7 +16,7 @@ conceptsRouter.get('/', async (req, res) => {
 conceptsRouter.post('/', validate(createConceptSchema), async (req, res) => {
   const { name, accountId } = req.body;
   const concept = await req.prisma.concept.create({
-    data: { name, accountId, companyId: 'demo-company' },
+    data: { name, accountId, companyId: req.user!.companyId },
     include: { account: true },
   });
   res.status(201).json(concept);

@@ -6,7 +6,7 @@ export const transactionsRouter = Router();
 
 transactionsRouter.get('/', async (req, res) => {
   const transactions = await req.prisma.transaction.findMany({
-    where: { companyId: 'demo-company' },
+    where: { companyId: req.user!.companyId },
     include: { journalEntry: true },
     orderBy: { date: 'desc' },
   });
@@ -24,8 +24,8 @@ transactionsRouter.post('/', validate(createTransactionSchema), async (req, res)
       paymentMethod,
       date: new Date(date),
       metadata: JSON.stringify(metadata || {}),
-      companyId: 'demo-company',
-      createdById: 'demo-user',
+      companyId: req.user!.companyId,
+      createdById: req.user!.userId,
     },
   });
   res.status(201).json(transaction);

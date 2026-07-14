@@ -9,7 +9,7 @@ reportsRouter.get('/balance-comprobacion', async (req, res) => {
   const { startDate, endDate } = req.query;
 
   const journalEntry: Record<string, unknown> = {
-    companyId: 'demo-company',
+    companyId: req.user!.companyId,
     status: 'CONFIRMADO',
   };
   const dateFilter = buildDateFilter(startDate as string, endDate as string);
@@ -36,11 +36,13 @@ reportsRouter.get('/balance-comprobacion', async (req, res) => {
     balanceMap.set(key, existing);
   }
 
-  const result = Array.from(balanceMap.values()).map((b) => ({
-    ...b,
-    balance: Math.abs(b.totalDebit - b.totalCredit),
-    balanceType: b.totalDebit > b.totalCredit ? 'DEUDOR' : 'ACREEDOR',
-  }));
+  const result = Array.from(balanceMap.values())
+    .map((b) => ({
+      ...b,
+      balance: Math.abs(b.totalDebit - b.totalCredit),
+      balanceType: b.totalDebit > b.totalCredit ? 'DEUDOR' : 'ACREEDOR',
+    }))
+    .sort((a, b) => a.account.code.localeCompare(b.account.code, undefined, { numeric: true }));
 
   res.json(result);
 });
@@ -89,7 +91,7 @@ reportsRouter.get('/balance-general', async (req, res) => {
 reportsRouter.get('/estado-resultados', async (req, res) => {
   const { startDate, endDate } = req.query;
   const journalEntry: Record<string, unknown> = {
-    companyId: 'demo-company',
+    companyId: req.user!.companyId,
     status: 'CONFIRMADO',
   };
   const dateFilter = buildDateFilter(startDate as string, endDate as string);
@@ -251,7 +253,7 @@ reportsRouter.get('/export/:type', async (req, res) => {
     switch (type) {
       case 'balance-comprobacion': {
         const journalEntry: Record<string, unknown> = {
-          companyId: 'demo-company',
+          companyId: req.user!.companyId,
           status: 'CONFIRMADO',
         };
         const dateFilter = buildDateFilter(startDate as string, endDate as string);
@@ -270,11 +272,13 @@ reportsRouter.get('/export/:type', async (req, res) => {
           existing.totalCredit += line.credit;
           balanceMap.set(line.accountId, existing);
         }
-        data = Array.from(balanceMap.values()).map((b) => ({
-          ...b,
-          balance: Math.abs(b.totalDebit - b.totalCredit),
-          balanceType: b.totalDebit > b.totalCredit ? 'DEUDOR' : 'ACREEDOR',
-        })) as unknown as Record<string, unknown>;
+        data = (Array.from(balanceMap.values()) as any[])
+          .map((b: any) => ({
+            ...b,
+            balance: Math.abs(b.totalDebit - b.totalCredit),
+            balanceType: b.totalDebit > b.totalCredit ? 'DEUDOR' : 'ACREEDOR',
+          }))
+          .sort((a: any, b: any) => a.account.code.localeCompare(b.account.code, undefined, { numeric: true })) as unknown as Record<string, unknown>;
         break;
       }
 
@@ -311,7 +315,7 @@ reportsRouter.get('/export/:type', async (req, res) => {
 
       case 'estado-resultados': {
         const journalEntry: Record<string, unknown> = {
-          companyId: 'demo-company',
+          companyId: req.user!.companyId,
           status: 'CONFIRMADO',
         };
         const dateFilter = buildDateFilter(startDate as string, endDate as string);

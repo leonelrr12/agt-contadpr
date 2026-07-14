@@ -24,12 +24,16 @@ export class OrchestratorAgent {
   private classificationAgent: ClassificationAgent;
   private accountingAgent: AccountingAgent;
   private prisma: any;
+  private companyId: string;
+  private userId: string;
 
-  constructor(config: ClassificationAgentConfig) {
+  constructor(config: ClassificationAgentConfig & { userId?: string }) {
     this.dialogAgent = new DialogAgent(config.deepseekApiKey);
     this.classificationAgent = new ClassificationAgent(config);
     this.accountingAgent = new AccountingAgent(config.prisma);
     this.prisma = config.prisma;
+    this.companyId = config.companyId;
+    this.userId = config.userId || 'demo-user';
   }
 
   async process(input: string, context?: DialogContext): Promise<{
@@ -120,8 +124,8 @@ export class OrchestratorAgent {
         date: new Date(dialog.date),
         description: entry.description,
         status: 'BORRADOR',
-        companyId: 'demo-company',
-        createdById: 'demo-user',
+        companyId: this.companyId,
+        createdById: this.userId,
         lines: {
           create: [
             ...entry.debit.map((d: any) => ({ accountId: d.accountId, debit: d.amount, credit: 0 })),
@@ -139,8 +143,8 @@ export class OrchestratorAgent {
       data: {
         type: dialog.type, amount: dialog.amount, description: dialog.description,
         concept: dialog.concept, paymentMethod: dialog.paymentMethod,
-        date: new Date(dialog.date), companyId: 'demo-company',
-        createdById: 'demo-user', journalEntryId: entryData.id,
+        date: new Date(dialog.date), companyId: this.companyId,
+        createdById: this.userId, journalEntryId: entryData.id,
         metadata: JSON.stringify(metadata),
       },
     });

@@ -12,7 +12,7 @@ export const journalRouter = Router();
 journalRouter.get('/pendientes', async (req, res) => {
   const { startDate, endDate } = req.query;
   const where: Record<string, unknown> = {
-    companyId: 'demo-company',
+    companyId: req.user!.companyId,
     status: 'BORRADOR',
   };
   const dateFilter = buildDateFilter(startDate as string, endDate as string);
@@ -52,7 +52,7 @@ journalRouter.post('/:id/review', validate(reviewJournalSchema), async (req, res
         where: { id: entry.id },
         data: {
           status: newStatus,
-          reviewedById: 'demo-user',
+          reviewedById: req.user!.userId,
           reviewedAt: new Date(),
           reviewNotes: notes || null,
         },
@@ -140,7 +140,7 @@ journalRouter.post('/', validate(createJournalEntrySchema), async (req, res) => 
     data: {
       date: new Date(date),
       description,
-      companyId: 'demo-company',
+      companyId: req.user!.companyId,
       createdById: 'demo-user',
       lines: {
         create: lines.map((l: { accountId: string; debit?: number; credit?: number }) => ({
@@ -201,8 +201,8 @@ journalRouter.post('/:id/anular', async (req, res) => {
           date: new Date(),
           description: `ANULACIÓN: ${original.description}`,
           status: 'CONFIRMADO',
-          companyId: 'demo-company',
-          createdById: 'demo-user',
+          companyId: req.user!.companyId,
+          createdById: req.user!.userId,
           lines: {
             create: original.lines.map(l => ({
               accountId: l.accountId,

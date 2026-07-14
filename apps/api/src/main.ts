@@ -12,6 +12,8 @@ import { orchestrateRouter } from './routes/orchestrate';
 import { ocrRouter } from './routes/ocr';
 import { facturaRouter } from './routes/factura';
 import { configRouter } from './routes/config';
+import { authRouter } from './routes/auth';
+import { requireAuth } from './middleware/auth';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -56,11 +58,22 @@ app.use('/api/orchestrate', llmLimiter);
 app.use('/api/ocr', heavyLimiter);
 app.use('/api/factura', heavyLimiter);
 
+// Prisma client en req para todas las rutas
 app.use((req, _res, next) => {
   req.prisma = prisma;
   next();
 });
 
+// ── Rutas públicas (sin autenticación) ──
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+app.use('/api/auth', authRouter);
+
+// ── Middleware de autenticación para el resto de rutas ──
+app.use('/api', requireAuth);
+
+// ── Rutas protegidas ──
 app.use('/api/accounts', accountsRouter);
 app.use('/api/journal', journalRouter);
 app.use('/api/reports', reportsRouter);
@@ -70,10 +83,6 @@ app.use('/api/orchestrate', orchestrateRouter);
 app.use('/api/ocr', ocrRouter);
 app.use('/api/factura', facturaRouter);
 app.use('/api/config', configRouter);
-
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok' });
-});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

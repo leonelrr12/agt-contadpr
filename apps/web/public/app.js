@@ -1,4 +1,29 @@
 const API_URL = '/api';
+
+// ── Auth ──
+function getToken() { return localStorage.getItem('agt_token'); }
+function getUser() {
+  try { return JSON.parse(localStorage.getItem('agt_user')); } catch { return null; }
+}
+function authFetch(url, options = {}) {
+  const token = getToken();
+  if (!token) { window.location.href = '/login.html'; return Promise.reject('No auth'); }
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      'Authorization': `Bearer ${token}`,
+      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+    },
+  }).then(res => {
+    if (res.status === 401) { localStorage.clear(); window.location.href = '/login.html'; }
+    return res;
+  });
+}
+
+// Check auth on load
+if (!getToken()) { window.location.href = '/login.html'; }
+
 let pendingResult = null;
 let currentInput = '';
 let dialogContext = null;
@@ -118,7 +143,7 @@ async function processOCRFile(file) {
     const formData = new FormData();
     formData.append('image', compressed, file.name);
 
-    const res = await fetch(`${API_URL}/ocr/extract`, {
+    const res = await authFetch(`${API_URL}/ocr/extract`, {
       method: 'POST',
       body: formData,
       signal,
@@ -180,7 +205,7 @@ async function correctAndSendOCR() {
   };
 
   try {
-    await fetch(`${API_URL}/ocr/correct`, {
+    await authFetch(`${API_URL}/ocr/correct`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -270,7 +295,7 @@ async function processPDFFile(file) {
   formData.append('pdf', file);
 
   try {
-    const res = await fetch(`${API_URL}/factura/extract`, {
+    const res = await authFetch(`${API_URL}/factura/extract`, {
       method: 'POST',
       body: formData,
     });
@@ -383,7 +408,7 @@ async function selectPaymentMethod(method) {
 async function showClassificationUI(concept) {
   pendingClassification = { concept, input: currentInput };
   try {
-    const res = await fetch(`${API_URL}/accounts`);
+    const res = await authFetch(`${API_URL}/accounts`);
     const accounts = await res.json();
     const pasivos = accounts.filter(a => a.type === 'PASIVO' || a.type === 'GASTO');
 
@@ -413,9 +438,8 @@ async function submitClassification() {
   pendingClassification = null;
 
   try {
-    await fetch(`${API_URL}/concepts`, {
+    await authFetch(`${API_URL}/concepts`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: concept, accountId }),
     });
 
@@ -446,7 +470,7 @@ async function sendMessage() {
   try {
     const body = { input: text };
     if (dialogContext) body.context = { extractedData: dialogContext };
-    const res = await fetch(`${API_URL}/orchestrate`, {
+    const res = await authFetch(`${API_URL}/orchestrate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -682,7 +706,7 @@ async function confirmTransaction() {
   addMessage('✅ Transacción confirmada. Registrando...', 'assistant');
 
   try {
-    const res = await fetch(`${API_URL}/orchestrate/confirm`, {
+    const res = await authFetch(`${API_URL}/orchestrate/confirm`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ result }),
@@ -720,7 +744,7 @@ function addUndoButton(entryId) {
 
 async function showRecentEntries() {
   try {
-    const res = await fetch(`${API_URL}/journal?pageSize=5`);
+    const res = await authFetch(`${API_URL}/journal?pageSize=5`);
     const data = await res.json();
     const entries = data.entries;
     if (!entries || !entries.length) {
@@ -770,7 +794,7 @@ function anularEntry(id, btn) {
   showConfirm('¿Estás seguro de anular este asiento?\nSe creará un asiento de reversión.', 'Sí, anular', async () => {
     if (btn) { btn.disabled = true; btn.textContent = 'Anulando...'; btn.style.opacity = '0.6'; }
     try {
-      const res = await fetch(`${API_URL}/journal/${id}/anular`, { method: 'POST' });
+      const res = await authFetch(`${API_URL}/journal/${id}/anular`, { method: 'POST' });
       if (!res.ok) { const e = await res.json(); alert(e.error); if (btn) btn.remove(); return; }
       const data = await res.json();
       if (btn) btn.remove();
@@ -926,7 +950,7 @@ async function loadPanelDiario() {
   if (to) url += `&endDate=${to}`;
   if (provider) url += `&provider=${encodeURIComponent(provider)}`;
   try {
-    const res = await fetch(url);
+    const res = await authFetch(url);
     const data = await res.json();
     if (!data.entries || !data.entries.length) {
       el.innerHTML = '<div class="empty">No hay asientos registrados</div>';
@@ -998,7 +1022,7 @@ async function loadPanelBalance() {
   if (from) url += `?startDate=${from}`;
   if (to) url += `${from ? '&' : '?'}endDate=${to}`;
   try {
-    const res = await fetch(url);
+    const res = await authFetch(url);
     const data = await res.json();
     if (!data.length) { el.innerHTML = '<div class="empty">No hay movimientos</div>'; return; }
     let html = '<table><thead><tr><th>Cuenta</th><th>Débitos</th><th>Créditos</th><th>Saldo</th></tr></thead><tbody>';
@@ -1024,7 +1048,7 @@ async function loadPanelResultados() {
   if (from) url += `?startDate=${from}`;
   if (to) url += `${from ? '&' : '?'}endDate=${to}`;
   try {
-    const res = await fetch(url);
+    const res = await authFetch(url);
     const d = await res.json();
 
     let html = '<div class="summary-grid">' +
@@ -1081,7 +1105,7 @@ async function loadPanelDashboard() {
     } catch { el.innerHTML = '<div class="empty">Error al cargar gráficos. Recarga la página.</div>'; return; }
   }
   try {
-    const res = await fetch(`${API_URL}/reports/dashboard`);
+    const res = await authFetch(`${API_URL}/reports/dashboard`);
     const d = await res.json();
 
     let html = `
@@ -1165,7 +1189,7 @@ async function loadPanelDashboard() {
 async function loadPanelCuentas() {
   const el = document.getElementById('cuentas-content');
   try {
-    const res = await fetch(`${API_URL}/accounts`);
+    const res = await authFetch(`${API_URL}/accounts`);
     const cuentas = await res.json();
     if (!cuentas.length) { el.innerHTML = '<div class="empty">No hay cuentas registradas</div>'; return; }
 
@@ -1203,7 +1227,7 @@ function buildCuentaTree(account, all, depth = 0) {
 async function loadPanelConceptos() {
   const el = document.getElementById('conceptos-content');
   try {
-    const res = await fetch(`${API_URL}/concepts`);
+    const res = await authFetch(`${API_URL}/concepts`);
     const concepts = await res.json();
     if (!concepts.length) { el.innerHTML = '<div class="empty">No hay conceptos registrados</div>'; return; }
 
@@ -1227,7 +1251,7 @@ let cuentasCache = [];
 async function loadPanelCuentasAdmin() {
   const el = document.getElementById('cuentas-admin-content');
   try {
-    const res = await fetch(`${API_URL}/accounts`);
+    const res = await authFetch(`${API_URL}/accounts`);
     cuentasCache = await res.json();
     if (!cuentasCache.length) { el.innerHTML = '<div class="empty">No hay cuentas registradas</div>'; return; }
     document.getElementById('cuentas-admin-count').textContent = `${cuentasCache.length} cuentas`;
@@ -1328,7 +1352,7 @@ async function saveCuenta() {
     let res;
     if (id) {
       // Editar
-      res = await fetch(`${API_URL}/accounts/${id}`, {
+      res = await authFetch(`${API_URL}/accounts/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, isActive: active === 'true' }),
@@ -1336,7 +1360,7 @@ async function saveCuenta() {
     } else {
       // Crear
       if (!code || !name || !type) { alert('Código, Nombre y Tipo son requeridos'); return; }
-      res = await fetch(`${API_URL}/accounts`, {
+      res = await authFetch(`${API_URL}/accounts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, name, type, parentId }),
@@ -1359,7 +1383,7 @@ let conceptosCache = [];
 async function loadPanelConceptosAdmin() {
   const el = document.getElementById('conceptos-admin-content');
   try {
-    const res = await fetch(`${API_URL}/concepts`);
+    const res = await authFetch(`${API_URL}/concepts`);
     conceptosCache = await res.json();
     if (!conceptosCache.length) { el.innerHTML = '<div class="empty">No hay conceptos registrados</div>'; return; }
     document.getElementById('conceptos-admin-count').textContent = `${conceptosCache.length} conceptos`;
@@ -1439,14 +1463,14 @@ async function saveConcepto() {
   try {
     let res;
     if (id) {
-      res = await fetch(`${API_URL}/concepts/${id}`, {
+      res = await authFetch(`${API_URL}/concepts/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, accountId: accountId || undefined, isActive: isActive === 'true' }),
       });
     } else {
       if (!accountId) { alert('Selecciona una cuenta contable'); return; }
-      res = await fetch(`${API_URL}/concepts`, {
+      res = await authFetch(`${API_URL}/concepts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, accountId }),
@@ -1466,7 +1490,7 @@ function cancelConceptoForm() {
 /* ── Administración: Configuración ── */
 async function loadPanelConfig() {
   try {
-    const res = await fetch(`${API_URL}/config`);
+    const res = await authFetch(`${API_URL}/config`);
     const cfg = await res.json();
     document.getElementById('config-itbms-rate').value = cfg.itbmsRate * 100;
     document.getElementById('config-itbms-enabled').value = cfg.itbmsEnabled ? 'true' : 'false';
@@ -1480,7 +1504,7 @@ async function saveConfig() {
   if (isNaN(rate) || rate < 0 || rate > 20) { alert('Tasa ITBMS debe estar entre 0 y 20'); return; }
 
   try {
-    const res = await fetch(`${API_URL}/config`, {
+    const res = await authFetch(`${API_URL}/config`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ itbmsRate: rate / 100, itbmsEnabled: enabled }),
@@ -1501,7 +1525,7 @@ async function loadPanelRevision() {
   if (from) url += `?startDate=${from}`;
   if (to) url += `${from ? '&' : '?'}endDate=${to}`;
   try {
-    const res = await fetch(url);
+    const res = await authFetch(url);
     const entries = await res.json();
     if (!entries || !entries.length) {
       el.innerHTML = '<div class="empty">✅ No hay asientos pendientes de revisión</div>';
@@ -1555,7 +1579,7 @@ async function aprobarAsiento(id) {
     card.querySelector('.rev-actions').innerHTML = '<span style="color:#2e7d32;font-weight:600">APROBANDO...</span>';
   }
   try {
-    const res = await fetch(`${API_URL}/journal/${id}/review`, {
+    const res = await authFetch(`${API_URL}/journal/${id}/review`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'aprobar' }),
@@ -1578,7 +1602,7 @@ async function rechazarAsiento(id) {
     card.querySelector('.rev-actions').innerHTML = '<span style="color:#c62828;font-weight:600">RECHAZANDO...</span>';
   }
   try {
-    const res = await fetch(`${API_URL}/journal/${id}/review`, {
+    const res = await authFetch(`${API_URL}/journal/${id}/review`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'rechazar', notes: notes || '' }),
@@ -1611,7 +1635,7 @@ async function exportReport(reportType, format = 'xlsx') {
   if (statusEl && reportType === 'diario' && statusEl.value) url += `&status=${statusEl.value}`;
 
   try {
-    const res = await fetch(url);
+    const res = await authFetch(url);
     if (!res.ok) {
       const err = await res.json();
       alert('Error al exportar: ' + (err.error || 'Error desconocido'));
@@ -1633,7 +1657,20 @@ async function exportReport(reportType, format = 'xlsx') {
   }
 }
 
+function logout() {
+  localStorage.removeItem('agt_token');
+  localStorage.removeItem('agt_user');
+  window.location.href = '/login.html';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  // Mostrar info del usuario
+  const user = getUser();
+  if (user) {
+    document.getElementById('sidebar-user-name').textContent = user.name;
+    document.getElementById('sidebar-user-company').textContent = user.company?.name || '';
+  }
+
   addMessage('¡Buenos días! Soy tu agente contable. ¿Qué deseas registrar hoy?', 'assistant');
   addMessage('Puedes escribir algo como:\n• "Compré combustible por $40 con tarjeta"\n• "Vendí $250 en efectivo"\n• "Pagué la electricidad"\n• "Compra de mercancía por $100 con ITBMS a Distribuidora XYZ, crédito"\n• "Vendí $200 en efectivo con ITBMS"\n• "Pago de ITBMS por $150"', 'assistant');
   updateSummary();

@@ -11,7 +11,8 @@ orchestrateRouter.post('/', validate(orchestrateSchema), async (req, res) => {
   const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
   const orchestrator = new OrchestratorAgent({
     prisma: req.prisma,
-    companyId: 'demo-company',
+    companyId: req.user!.companyId,
+    userId: req.user!.userId,
     deepseekApiKey,
   });
 
@@ -29,7 +30,8 @@ orchestrateRouter.post('/confirm', validate(orchestrateConfirmSchema), async (re
   const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
   const orchestrator = new OrchestratorAgent({
     prisma: req.prisma,
-    companyId: 'demo-company',
+    companyId: req.user!.companyId,
+    userId: req.user!.userId,
     deepseekApiKey,
   });
 

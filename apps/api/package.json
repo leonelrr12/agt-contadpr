@@ -13,10 +13,12 @@
     "@agt-contador/agents": "*",
     "@agt-contador/prisma-schema": "*",
     "@agt-contador/shared": "*",
+    "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "exceljs": "^4.4.0",
     "express": "^4.21.0",
     "express-rate-limit": "^8.5.2",
+    "jsonwebtoken": "^9.0.3",
     "multer": "^2.2.0",
     "pdf-parse": "^2.4.5",
     "sharp": "^0.35.3",
@@ -24,8 +26,10 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.0",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.2.0",
     "@types/node": "^22.0.0",
     "@types/pdf-parse": "^1.1.5",

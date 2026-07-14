@@ -6,7 +6,7 @@ export const accountsRouter = Router();
 
 accountsRouter.get('/', async (req, res) => {
   const accounts = await req.prisma.account.findMany({
-    where: { companyId: 'demo-company' },
+    where: { companyId: req.user!.companyId },
     include: { children: true },
     orderBy: { code: 'asc' },
   });
@@ -34,7 +34,7 @@ accountsRouter.get('/:id', async (req, res) => {
 accountsRouter.post('/', validate(createAccountSchema), async (req, res) => {
   const { code, name, type, parentId } = req.body;
   const account = await req.prisma.account.create({
-    data: { code, name, type, parentId, companyId: 'demo-company' },
+    data: { code, name, type, parentId, companyId: req.user!.companyId },
   });
   res.status(201).json(account);
 });
