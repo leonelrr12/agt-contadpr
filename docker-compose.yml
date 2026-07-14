@@ -4,9 +4,9 @@ services:
     container_name: agt-contador-db-1
     restart: unless-stopped
     environment:
-      POSTGRES_USER: contador
-      POSTGRES_PASSWORD: contador123
-      POSTGRES_DB: agt_contador
+      POSTGRES_USER: ${DB_USER:-contador}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-contador123}
+      POSTGRES_DB: ${DB_NAME:-agt_contador}
     ports:
       - "5433:5432"
     volumes:

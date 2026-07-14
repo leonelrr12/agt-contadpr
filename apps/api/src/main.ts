@@ -49,7 +49,11 @@ const heavyLimiter = rateLimit({
   message: { error: 'Demasiadas solicitudes de procesamiento. Intente de nuevo en 1 minuto.' },
 });
 
-app.use(cors());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(express.json({ limit: '5mb' }));
 
 // Aplica rate limiting por ruta (antes de los routers)

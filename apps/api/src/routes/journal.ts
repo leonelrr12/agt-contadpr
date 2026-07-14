@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { validate } from '../middleware/validate';
 import { buildDateFilter } from '../lib/date-filter';
+import { logAudit } from '../services/audit-log';
 import {
   createJournalEntrySchema,
   reviewJournalSchema,
@@ -63,10 +64,20 @@ journalRouter.post('/:id/review', validate(reviewJournalSchema), async (req, res
         },
       });
 
-      return updated;
+      return { updated, previousStatus: entry.status };
     });
 
-    res.json(result);
+    // Audit log
+    await logAudit(req.prisma, {
+      userId: req.user!.userId,
+      action: result.updated.status === 'CONFIRMADO' ? 'JOURNAL_APPROVED' : 'JOURNAL_REJECTED',
+      entity: 'JournalEntry',
+      entityId: req.params.id,
+      before: { status: result.previousStatus },
+      after: { status: result.updated.status, notes: notes || null },
+    });
+
+    res.json(result.updated);
   } catch (e: any) {
     const status = e.status || 500;
     res.status(status).json({ error: e.message });
@@ -141,7 +152,7 @@ journalRouter.post('/', validate(createJournalEntrySchema), async (req, res) => 
       date: new Date(date),
       description,
       companyId: req.user!.companyId,
-      createdById: 'demo-user',
+      createdById: req.user!.userId,
       lines: {
         create: lines.map((l: { accountId: string; debit?: number; credit?: number }) => ({
           accountId: l.accountId,
@@ -152,6 +163,15 @@ journalRouter.post('/', validate(createJournalEntrySchema), async (req, res) => 
     },
     include: { lines: { include: { account: true } } },
   });
+
+  await logAudit(req.prisma, {
+    userId: req.user!.userId,
+    action: 'JOURNAL_CREATED',
+    entity: 'JournalEntry',
+    entityId: entry.id,
+    after: { description, date, lineCount: lines.length },
+  });
+
   res.status(201).json(entry);
 });
 
@@ -227,6 +247,15 @@ journalRouter.post('/:id/anular', async (req, res) => {
       }
 
       return { original: { ...original, status: 'ANULADO' }, reversal };
+    });
+
+    await logAudit(req.prisma, {
+      userId: req.user!.userId,
+      action: 'JOURNAL_ANNULED',
+      entity: 'JournalEntry',
+      entityId: entryId,
+      before: { status: result.original.status },
+      after: { status: 'ANULADO', reversalId: result.reversal.id },
     });
 
     res.json(result);

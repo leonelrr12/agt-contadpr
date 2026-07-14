@@ -20,21 +20,18 @@ El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones 
 - ~~Todo usa companyId y createdById hardcodeados. No hay login, JWT, sesiones ni middleware de auth.~~
 - **Implementado**: JWT con `jsonwebtoken` + `bcryptjs`. Middleware `requireAuth` en todas las rutas. Endpoints `POST /api/auth/login`, `POST /api/auth/register` (crea empresa + copia plan de cuentas + conceptos), `GET /api/auth/me`. Login page en `/login.html`. Token en localStorage. `authFetch()` wrapper en frontend. Logout en sidebar. Multi-company listo (User.companyId).
 
-### 1.2 CORS abierto
-```ts
-// apps/api/src/main.ts:17
-app.use(cors()); // ← acepta requests de cualquier origen
-```
-- **Recomendación**: Restringir a origins específicos vía variable de entorno.
+### 1.2 CORS abierto ✅ COMPLETADO
+- ~~Acepta requests de cualquier origen.~~
+- **Implementado**: CORS configurable vía `CORS_ORIGIN` en `.env`. Por defecto `*` en desarrollo, restringir en producción. Solo permite GET/POST/PUT/PATCH/DELETE con headers Content-Type y Authorization.
 
 ### 1.3 Rate limiting inexistente ✅ COMPLETADO
 - ~~No hay protección contra fuerza bruta, spam o DoS.~~
 - **Implementado**: `express-rate-limit` con 3 niveles: general (200 req/15min), LLM (15 req/min), OCR/PDF (10 req/min). Archivo: `apps/api/src/main.ts`.
 - **Commit**: (pendiente)
 
-### 1.4 Secretos en el código
-- `docker-compose.yml` expone credenciales de PostgreSQL en texto plano (`contador123`).
-- **Recomendación**: Usar secrets de Docker o al menos `.env` con valores por defecto seguros.
+### 1.4 Secretos en el código ✅ COMPLETADO
+- ~~Credenciales de PostgreSQL en texto plano en docker-compose.yml.~~
+- **Implementado**: Variables `${DB_USER:-contador}`, `${DB_PASSWORD:-contador123}`, `${DB_NAME:-agt_contador}` en docker-compose.yml. `.env.example` con documentación de todas las variables requeridas.
 
 ### 1.5 Sin validación de entrada ✅ COMPLETADO
 - ~~Los endpoints aceptan cualquier JSON sin sanitizar (más allá del parseo de Express).~~
@@ -116,8 +113,9 @@ const allEntries = await req.prisma.journalEntry.findMany({ where, ... });
 ```
 Carga TODOS los asientos y pagina en JavaScript. No escala.
 
-### 3.7 El modelo `AuditLog` nunca se escribe
-Está definido en Prisma pero ningún endpoint crea registros de auditoría.
+### 3.7 El modelo `AuditLog` nunca se escribe ✅ COMPLETADO
+- ~~Está definido en Prisma pero ningún endpoint crea registros de auditoría.~~
+- **Implementado**: Servicio `audit-log.ts` con función `logAudit()`. Integrado en: creación de asiento (JOURNAL_CREATED), revisión (JOURNAL_APPROVED/REJECTED), anulación (JOURNAL_ANNULED). Registra userId, before/after en JSON.
 
 ### 3.8 Workers de OCR nunca se liberan
 ```ts
