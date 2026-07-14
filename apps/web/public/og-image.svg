@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1565c0"/>
+      <stop offset="100%" style="stop-color:#0d47a1"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <!-- Grid pattern -->
+  <g opacity="0.05">
+    <line x1="0" y1="100" x2="1200" y2="100" stroke="#fff" stroke-width="1"/>
+    <line x1="0" y1="200" x2="1200" y2="200" stroke="#fff" stroke-width="1"/>
+    <line x1="0" y1="300" x2="1200" y2="300" stroke="#fff" stroke-width="1"/>
+    <line x1="0" y1="400" x2="1200" y2="400" stroke="#fff" stroke-width="1"/>
+    <line x1="0" y1="500" x2="1200" y2="500" stroke="#fff" stroke-width="1"/>
+  </g>
+  <!-- Calculator icon -->
+  <rect x="80" y="100" width="160" height="200" rx="12" fill="#fff" opacity="0.15"/>
+  <rect x="80" y="100" width="160" height="55" rx="12" fill="#fff" opacity="0.25"/>
+  <text x="160" y="138" text-anchor="middle" font-size="36" font-weight="bold" fill="#fff" font-family="Arial">$</text>
+  <rect x="100" y="170" width="50" height="25" rx="4" fill="#fff" opacity="0.8"/>
+  <rect x="170" y="170" width="50" height="25" rx="4" fill="#fff" opacity="0.8"/>
+  <rect x="100" y="205" width="50" height="25" rx="4" fill="#fff" opacity="0.6"/>
+  <rect x="170" y="205" width="50" height="25" rx="4" fill="#fff" opacity="0.6"/>
+  <rect x="100" y="240" width="50" height="25" rx="4" fill="#fff" opacity="0.4"/>
+  <rect x="170" y="240" width="50" height="25" rx="4" fill="#fff" opacity="0.4"/>
+  <!-- Title -->
+  <text x="300" y="195" font-size="72" font-weight="bold" fill="#fff" font-family="Arial, sans-serif">AgtContador</text>
+  <text x="300" y="260" font-size="32" fill="#90caf9" font-family="Arial, sans-serif">Contabilidad Inteligente para Panamá</text>
+  <!-- Features -->
+  <g font-size="22" fill="#e3f2fd" font-family="Arial, sans-serif">
+    <text x="300" y="320">• 📄 OCR de facturas con DeepSeek IA</text>
+    <text x="300" y="360">• 📊 Asientos contables de partida doble</text>
+    <text x="300" y="400">• 💰 Reportes financieros en Excel/CSV</text>
+    <text x="300" y="440">• 🏢 Multi-empresa para CPAs</text>
+  </g>
+  <!-- URL -->
+  <text x="300" y="520" font-size="28" fill="#64b5f6" font-family="Arial, sans-serif">contador507.com</text>
+</svg>
