@@ -20,6 +20,7 @@ async function main() {
 
   const hashedPassword = await bcrypt.hash('admin123', 10);
 
+  // Usuario admin
   await prisma.user.upsert({
     where: { email: 'admin@demo.com' },
     update: { password: hashedPassword },
@@ -33,13 +34,42 @@ async function main() {
     },
   });
 
-  await prisma.journalLine.deleteMany({ where: { journalEntry: { companyId: company.id } } });
-  await prisma.transaction.deleteMany({ where: { companyId: company.id } });
-  await prisma.journalEntry.deleteMany({ where: { companyId: company.id } });
-  await prisma.accountingRuleEntry.deleteMany();
-  await prisma.accountingRule.deleteMany();
-  await prisma.concept.deleteMany({ where: { companyId: company.id } });
-  await prisma.account.deleteMany({ where: { companyId: company.id } });
+  // Usuario contador
+  await prisma.user.upsert({
+    where: { email: 'contador@demo.com' },
+    update: { password: hashedPassword },
+    create: {
+      email: 'contador@demo.com',
+      name: 'Contador Senior',
+      password: hashedPassword,
+      role: 'contador',
+      companyId: company.id,
+    },
+  });
+
+  // Usuario asistente
+  await prisma.user.upsert({
+    where: { email: 'asistente@demo.com' },
+    update: { password: hashedPassword },
+    create: {
+      email: 'asistente@demo.com',
+      name: 'Asistente Contable',
+      password: hashedPassword,
+      role: 'asistente',
+      companyId: company.id,
+    },
+  });
+
+  console.log('Usuarios: admin@demo.com (admin), contador@demo.com (contador), asistente@demo.com (asistente) — contraseña: admin123');
+
+  // ⚠️ Seed NO destructivo: solo inserta si no hay cuentas para esta empresa
+  const existingAccounts = await prisma.account.count({ where: { companyId: company.id } });
+
+  if (existingAccounts > 0) {
+    console.log(`La empresa ${company.name} ya tiene ${existingAccounts} cuentas. Saltando seed.`);
+    console.log('Seed completado (sin cambios).');
+    return;
+  }
 
   const accounts = [
     // ACTIVOS (1)

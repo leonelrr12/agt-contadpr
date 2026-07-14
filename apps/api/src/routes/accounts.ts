@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { validate } from '../middleware/validate';
+import { requireRole } from '../middleware/auth';
 import { createAccountSchema, updateAccountSchema } from '../validation/schemas';
 
 export const accountsRouter = Router();
@@ -31,7 +32,7 @@ accountsRouter.get('/:id', async (req, res) => {
   res.json(account);
 });
 
-accountsRouter.post('/', validate(createAccountSchema), async (req, res) => {
+accountsRouter.post('/', requireRole('admin'), validate(createAccountSchema), async (req, res) => {
   const { code, name, type, parentId } = req.body;
   const account = await req.prisma.account.create({
     data: { code, name, type, parentId, companyId: req.user!.companyId },
@@ -39,7 +40,7 @@ accountsRouter.post('/', validate(createAccountSchema), async (req, res) => {
   res.status(201).json(account);
 });
 
-accountsRouter.put('/:id', validate(updateAccountSchema), async (req, res) => {
+accountsRouter.put('/:id', requireRole('admin'), validate(updateAccountSchema), async (req, res) => {
   const { name, isActive } = req.body;
   const account = await req.prisma.account.update({
     where: { id: req.params.id },

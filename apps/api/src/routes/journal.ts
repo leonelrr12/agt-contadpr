@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { validate } from '../middleware/validate';
+import { requireRole } from '../middleware/auth';
 import { buildDateFilter } from '../lib/date-filter';
 import { logAudit } from '../services/audit-log';
 import {
@@ -30,7 +31,7 @@ journalRouter.get('/pendientes', async (req, res) => {
   res.json(entries);
 });
 
-journalRouter.post('/:id/review', validate(reviewJournalSchema), async (req, res) => {
+journalRouter.post('/:id/review', requireRole('admin', 'contador'), validate(reviewJournalSchema), async (req, res) => {
   const { action, notes } = req.body;
 
   try {
@@ -203,7 +204,7 @@ journalRouter.patch('/:id/status', validate(updateJournalStatusSchema), async (r
   res.json(updated);
 });
 
-journalRouter.post('/:id/anular', async (req, res) => {
+journalRouter.post('/:id/anular', requireRole('admin', 'contador'), async (req, res) => {
   const entryId = req.params.id;
 
   try {

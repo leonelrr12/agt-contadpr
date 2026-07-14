@@ -13,7 +13,7 @@ import { ocrRouter } from './routes/ocr';
 import { facturaRouter } from './routes/factura';
 import { configRouter } from './routes/config';
 import { authRouter } from './routes/auth';
-import { requireAuth } from './middleware/auth';
+import { requireAuth, requireRole } from './middleware/auth';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -86,7 +86,7 @@ app.use('/api/transactions', transactionsRouter);
 app.use('/api/orchestrate', orchestrateRouter);
 app.use('/api/ocr', ocrRouter);
 app.use('/api/factura', facturaRouter);
-app.use('/api/config', configRouter);
+app.use('/api/config', requireRole('admin'), configRouter);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
