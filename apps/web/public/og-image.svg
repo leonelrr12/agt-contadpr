@@ -25,7 +25,7 @@
   <rect x="100" y="240" width="50" height="25" rx="4" fill="#fff" opacity="0.4"/>
   <rect x="170" y="240" width="50" height="25" rx="4" fill="#fff" opacity="0.4"/>
   <!-- Title -->
-  <text x="300" y="195" font-size="72" font-weight="bold" fill="#fff" font-family="Arial, sans-serif">AgtContador</text>
+  <text x="300" y="195" font-size="72" font-weight="bold" fill="#fff" font-family="Arial, sans-serif">Contador507</text>
   <text x="300" y="260" font-size="32" fill="#90caf9" font-family="Arial, sans-serif">Contabilidad Inteligente para Panamá</text>
   <!-- Features -->
   <g font-size="22" fill="#e3f2fd" font-family="Arial, sans-serif">
