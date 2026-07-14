@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { buildDateFilter } from '../lib/date-filter';
+import { exportReport } from '../services/export';
+import type { ExportFormat } from '../services/export';
 
 export const reportsRouter = Router();
 
@@ -235,4 +237,175 @@ reportsRouter.get('/dashboard', async (req, res) => {
     topGastos,
     topIngresos,
   });
+});
+
+// ── Exportación de reportes ──
+reportsRouter.get('/export/:type', async (req, res) => {
+  const { type } = req.params;
+  const format: ExportFormat = (req.query.format as string) === 'csv' ? 'csv' : 'xlsx';
+  const { startDate, endDate } = req.query;
+
+  try {
+    let data: Record<string, unknown>;
+
+    switch (type) {
+      case 'balance-comprobacion': {
+        const journalEntry: Record<string, unknown> = {
+          companyId: 'demo-company',
+          status: 'CONFIRMADO',
+        };
+        const dateFilter = buildDateFilter(startDate as string, endDate as string);
+        if (dateFilter) journalEntry.date = dateFilter;
+        const lines = await req.prisma.journalLine.findMany({
+          where: { journalEntry },
+          include: { account: true },
+        });
+        const balanceMap = new Map<string, any>();
+        for (const line of lines) {
+          const existing = balanceMap.get(line.accountId) || {
+            account: { code: line.account.code, name: line.account.name, type: line.account.type },
+            totalDebit: 0, totalCredit: 0,
+          };
+          existing.totalDebit += line.debit;
+          existing.totalCredit += line.credit;
+          balanceMap.set(line.accountId, existing);
+        }
+        data = Array.from(balanceMap.values()).map((b) => ({
+          ...b,
+          balance: Math.abs(b.totalDebit - b.totalCredit),
+          balanceType: b.totalDebit > b.totalCredit ? 'DEUDOR' : 'ACREEDOR',
+        })) as unknown as Record<string, unknown>;
+        break;
+      }
+
+      case 'balance-general': {
+        const lines = await req.prisma.journalLine.findMany({
+          where: { journalEntry: { companyId: 'demo-company', status: 'CONFIRMADO' } },
+          include: { account: true },
+        });
+        let totalActivos = 0, totalPasivos = 0, totalPatrimonio = 0;
+        const accountBalances = new Map<string, number>();
+        for (const line of lines) {
+          const bal = (accountBalances.get(line.accountId) || 0) + line.debit - line.credit;
+          accountBalances.set(line.accountId, bal);
+        }
+        for (const [accountId, bal] of accountBalances) {
+          if (bal === 0) continue;
+          // Buscar el tipo de cuenta desde las líneas originales (más eficiente: guardar en el map)
+          const line = lines.find((l) => l.accountId === accountId);
+          if (!line) continue;
+          switch (line.account.type) {
+            case 'ACTIVO': totalActivos += bal; break;
+            case 'PASIVO': totalPasivos += bal; break;
+            case 'PATRIMONIO': totalPatrimonio += bal; break;
+          }
+        }
+        data = {
+          activos: { total: totalActivos },
+          pasivos: { total: totalPasivos },
+          patrimonio: { total: totalPatrimonio },
+          ecuacion: totalActivos === totalPasivos + totalPatrimonio ? 'BALANCEADA' : 'DESBALANCEADA',
+        };
+        break;
+      }
+
+      case 'estado-resultados': {
+        const journalEntry: Record<string, unknown> = {
+          companyId: 'demo-company',
+          status: 'CONFIRMADO',
+        };
+        const dateFilter = buildDateFilter(startDate as string, endDate as string);
+        if (dateFilter) journalEntry.date = dateFilter;
+        const lines = await req.prisma.journalLine.findMany({
+          where: {
+            journalEntry,
+            account: { type: { in: ['INGRESO', 'GASTO', 'COSTO'] } },
+          },
+          include: { account: true },
+        });
+        let totalIngresos = 0, totalGastos = 0, totalCostos = 0;
+        const ingresos: Record<string, number> = {};
+        const gastos: Record<string, number> = {};
+        const costos: Record<string, number> = {};
+        for (const line of lines) {
+          const amount = line.credit - line.debit;
+          switch (line.account.type) {
+            case 'INGRESO':
+              totalIngresos += amount;
+              ingresos[line.account.name] = (ingresos[line.account.name] || 0) + amount;
+              break;
+            case 'GASTO':
+              totalGastos += Math.abs(amount);
+              gastos[line.account.name] = (gastos[line.account.name] || 0) + Math.abs(amount);
+              break;
+            case 'COSTO':
+              totalCostos += Math.abs(amount);
+              costos[line.account.name] = (costos[line.account.name] || 0) + Math.abs(amount);
+              break;
+          }
+        }
+        data = {
+          ingresos: { detalle: ingresos, total: totalIngresos },
+          costos: { detalle: costos, total: totalCostos },
+          gananciaBruta: totalIngresos - totalCostos,
+          gastos: { detalle: gastos, total: totalGastos },
+          utilidadNeta: totalIngresos - totalCostos - totalGastos,
+        };
+        break;
+      }
+
+      case 'flujo-caja': {
+        const lines = await req.prisma.journalLine.findMany({
+          where: {
+            journalEntry: { companyId: 'demo-company', status: 'CONFIRMADO' },
+            account: { code: { startsWith: '1.1.01' } },
+          },
+          include: { journalEntry: { select: { date: true, description: true } } },
+          orderBy: { journalEntry: { date: 'asc' } },
+        });
+        let saldo = 0;
+        const movimientos = lines.map((l) => {
+          saldo += l.debit - l.credit;
+          return { date: l.journalEntry.date, description: l.journalEntry.description, debit: l.debit, credit: l.credit, saldo };
+        });
+        data = { movimientos, saldoActual: saldo };
+        break;
+      }
+
+      case 'diario': {
+        const where: Record<string, unknown> = { companyId: 'demo-company' };
+        const statusParam = req.query.status as string;
+        if (statusParam) where.status = statusParam;
+        const dateFilter = buildDateFilter(startDate as string, endDate as string);
+        if (dateFilter) where.date = dateFilter;
+        const entries = await req.prisma.journalEntry.findMany({
+          where,
+          include: {
+            lines: { include: { account: true } },
+            createdBy: { select: { name: true } },
+          },
+          orderBy: { date: 'desc' },
+        });
+        data = { entries };
+        break;
+      }
+
+      default:
+        res.status(400).json({
+          error: 'Tipo de reporte no soportado',
+          tipos: ['balance-comprobacion', 'balance-general', 'estado-resultados', 'flujo-caja', 'diario'],
+        });
+        return;
+    }
+
+    const { buffer, contentType, filename } = await exportReport(format, type, data);
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  } catch (error: any) {
+    console.error('[Export] Error:', error);
+    res.status(500).json({ error: 'Error al generar el reporte', detail: error?.message });
+  }
 });

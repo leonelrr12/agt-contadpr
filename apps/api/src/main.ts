@@ -11,6 +11,7 @@ import { transactionsRouter } from './routes/transactions';
 import { orchestrateRouter } from './routes/orchestrate';
 import { ocrRouter } from './routes/ocr';
 import { facturaRouter } from './routes/factura';
+import { configRouter } from './routes/config';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -68,6 +69,7 @@ app.use('/api/transactions', transactionsRouter);
 app.use('/api/orchestrate', orchestrateRouter);
 app.use('/api/ocr', ocrRouter);
 app.use('/api/factura', facturaRouter);
+app.use('/api/config', configRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });

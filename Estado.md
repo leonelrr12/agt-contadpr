@@ -137,8 +137,9 @@ Se crean 3 workers de Tesseract que quedan en memoria para siempre.
 
 ## 4. Mejoras Funcionales — 🟢 Sugerencias
 
-### 4.1 Exportación de reportes
-No hay endpoints para exportar a Excel, CSV o PDF. El mercado panameño requiere formatos DGI.
+### 4.1 Exportación de reportes ✅ COMPLETADO
+- ~~No hay endpoints para exportar a Excel, CSV o PDF.~~
+- **Implementado**: Endpoint `GET /api/reports/export/:type?format=xlsx|csv` con soporte para 5 reportes: balance-comprobacion, balance-general, estado-resultados, flujo-caja, diario. Excel (.xlsx) con formato profesional (headers azules, columnas monetarias, auto-ancho). CSV con escaping estándar. Botones de descarga en frontend (📥 Excel / CSV) en paneles Diario, Balance, Resultados y Dashboard.
 
 ### 4.2 Conciliación bancaria
 El agente bancario está en el plan (Fase 2) pero no implementado.
@@ -150,8 +151,14 @@ El agente bancario está en el plan (Fase 2) pero no implementado.
 ### 4.4 Cierre fiscal
 No hay concepto de período fiscal. Los reportes toman rangos de fecha arbitrarios, pero no hay cierre contable con ajustes de cierre.
 
-### 4.5 UI para gestionar cuentas y conceptos
-Las cuentas y conceptos se siembran desde `seed.ts` y se exponen vía API, pero no hay UI para crearlos/editarlos (solo el panel de clasificación cuando falla el match).
+### 4.5 UI para gestionar cuentas y conceptos ✅ COMPLETADO
+- ~~Las cuentas y conceptos se siembran desde seed.ts y se exponen vía API, pero no hay UI para crearlos/editarlos.~~
+- **Implementado**: Panel de Administración completo con:
+  - **Cuentas Contables**: crear nueva cuenta, editar nombre y estado (activa/inactiva), vista jerárquica con botones de edición inline
+  - **Conceptos**: crear nuevo concepto con selector de cuenta, editar nombre/cuenta/estado
+  - **Configuración**: panel para cambiar tasa ITBMS (0-20%) y habilitar/deshabilitar cálculo automático
+  - Sidebar reorganizada con secciones "Reportes" y "Administración"
+  - Endpoint `GET/PUT /api/config` para configuración en memoria
 
 ### 4.6 Notificaciones
 El modelo `User` existe pero no hay emails, notificaciones push ni alertas.

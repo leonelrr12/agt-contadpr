@@ -10,35 +10,20 @@
   <div id="app">
     <aside id="sidebar">
       <div class="sidebar-header">
-        <h2>Resumen</h2>
-      </div>
-      <div id="summary-content">
-        <div class="summary-card">
-          <span class="summary-label">Ventas hoy</span>
-          <span class="summary-value" id="ventas-hoy">$0</span>
-        </div>
-        <div class="summary-card">
-          <span class="summary-label">Gastos hoy</span>
-          <span class="summary-value" id="gastos-hoy">$0</span>
-        </div>
-        <div class="summary-card">
-          <span class="summary-label">Saldo Caja</span>
-          <span class="summary-value" id="saldo-caja">$0</span>
-        </div>
-        <div class="summary-card">
-          <span class="summary-label">Utilidad del Mes</span>
-          <span class="summary-value" id="utilidad-mes">$0</span>
-        </div>
+        <h2>AgtContador</h2>
       </div>
       <nav id="sidebar-nav">
         <button class="nav-link active" data-view="chat">💬 Chat</button>
+        <div class="nav-section-label">Reportes</div>
         <button class="nav-link" data-view="panel-diario">📋 Diario</button>
         <button class="nav-link" data-view="panel-balance">⚖️ Balance</button>
         <button class="nav-link" data-view="panel-resultados">📊 Resultados</button>
         <button class="nav-link" data-view="panel-dashboard">📈 Dashboard</button>
-        <button class="nav-link" data-view="panel-cuentas">🏦 Cuentas</button>
-        <button class="nav-link" data-view="panel-conceptos">📝 Conceptos</button>
         <button class="nav-link" data-view="panel-revision" id="nav-revision">🔍 Revisión <span id="pendientes-badge" class="badge hidden">0</span></button>
+        <div class="nav-section-label">Administración</div>
+        <button class="nav-link" data-view="panel-cuentas-admin">🏦 Cuentas</button>
+        <button class="nav-link" data-view="panel-conceptos-admin">📝 Conceptos</button>
+        <button class="nav-link" data-view="panel-config">⚙️ Configuración</button>
       </nav>
     </aside>
 
@@ -145,14 +130,17 @@
       <h2>Reportes Contables</h2>
       <button onclick="toggleReports()">✕</button>
     </div>
-    <nav class="panel-tabs">
+    <nav class="panel-tabs" id="panel-tabs-reports">
       <button class="active" data-panel="diario">Diario</button>
       <button data-panel="balance">Balance</button>
       <button data-panel="resultados">Resultados</button>
       <button data-panel="dashboard">Dashboard</button>
-      <button data-panel="cuentas">Cuentas</button>
-      <button data-panel="conceptos">Conceptos</button>
       <button data-panel="revision">🔍 Revisión</button>
+    </nav>
+    <nav class="panel-tabs hidden" id="panel-tabs-admin">
+      <button class="active" data-panel="cuentas-admin">🏦 Cuentas</button>
+      <button data-panel="conceptos-admin">📝 Conceptos</button>
+      <button data-panel="config">⚙️ Configuración</button>
     </nav>
     <div class="panel-body">
       <div id="panel-diario" class="panel-tab active">
@@ -169,6 +157,8 @@
           <input type="text" id="filter-diario-provider" placeholder="Proveedor..." style="padding:6px 10px;border:1px solid #e2e4e8;border-radius:6px;font-size:12px;background:#fff;font-family:inherit;color:#333;width:130px">
           <button class="btn-filter" onclick="filterPanelDiario()">Filtrar</button>
           <button class="btn-filter" style="background:#6b7280" onclick="clearDiarioFilters()">Limpiar</button>
+          <button class="btn-filter" style="background:#1565c0;color:#fff" onclick="exportReport('diario')">📥 Excel</button>
+          <button class="btn-filter" style="background:#333;color:#fff" onclick="exportReport('diario','csv')">CSV</button>
         </div>
         <div id="diario-content"></div>
         <div class="pagination" id="diario-pagination"></div>
@@ -179,6 +169,8 @@
           <input type="date" id="filter-balance-to">
           <button class="btn-filter" onclick="loadPanelBalance()">Filtrar</button>
           <button class="btn-filter" style="background:#6b7280" onclick="clearBalanceFilters()">Limpiar</button>
+          <button class="btn-filter" style="background:#1565c0;color:#fff" onclick="exportReport('balance-comprobacion')">📥 Excel</button>
+          <button class="btn-filter" style="background:#333;color:#fff" onclick="exportReport('balance-comprobacion','csv')">CSV</button>
         </div>
         <div id="balance-content"></div>
       </div>
@@ -188,10 +180,19 @@
           <input type="date" id="filter-resultados-to">
           <button class="btn-filter" onclick="loadPanelResultados()">Filtrar</button>
           <button class="btn-filter" style="background:#6b7280" onclick="clearResultadosFilters()">Limpiar</button>
+          <button class="btn-filter" style="background:#1565c0;color:#fff" onclick="exportReport('estado-resultados')">📥 Excel</button>
+          <button class="btn-filter" style="background:#333;color:#fff" onclick="exportReport('estado-resultados','csv')">CSV</button>
         </div>
         <div id="resultados-content"></div>
       </div>
       <div id="panel-dashboard" class="panel-tab">
+        <div class="filter-bar">
+          <span style="font-size:12px;color:#6b7280;margin-right:8px">Exportar:</span>
+          <button class="btn-filter" style="background:#1565c0;color:#fff" onclick="exportReport('balance-general')">📥 Balance General Excel</button>
+          <button class="btn-filter" style="background:#333;color:#fff" onclick="exportReport('balance-general','csv')">CSV</button>
+          <button class="btn-filter" style="background:#1565c0;color:#fff" onclick="exportReport('flujo-caja')">📥 Flujo de Caja Excel</button>
+          <button class="btn-filter" style="background:#333;color:#fff" onclick="exportReport('flujo-caja','csv')">CSV</button>
+        </div>
         <div id="dashboard-content">
           <div class="empty">Cargando dashboard...</div>
         </div>
@@ -201,9 +202,39 @@
           <div class="empty">Cargando catálogo de cuentas...</div>
         </div>
       </div>
-      <div id="panel-conceptos" class="panel-tab">
-        <div id="conceptos-content">
-          <div class="empty">Cargando conceptos...</div>
+      <div id="panel-cuentas-admin" class="panel-tab">
+        <div class="admin-toolbar">
+          <button class="btn-primary" onclick="showCrearCuenta()" style="font-size:13px;padding:8px 16px">＋ Nueva Cuenta</button>
+          <span style="font-size:12px;color:#6b7280;margin-left:8px" id="cuentas-admin-count"></span>
+        </div>
+        <div id="cuentas-admin-form" class="admin-form hidden"></div>
+        <div id="cuentas-admin-content"><div class="empty">Cargando catálogo de cuentas...</div></div>
+      </div>
+      <div id="panel-conceptos-admin" class="panel-tab">
+        <div class="admin-toolbar">
+          <button class="btn-primary" onclick="showCrearConcepto()" style="font-size:13px;padding:8px 16px">＋ Nuevo Concepto</button>
+          <span style="font-size:12px;color:#6b7280;margin-left:8px" id="conceptos-admin-count"></span>
+        </div>
+        <div id="conceptos-admin-form" class="admin-form hidden"></div>
+        <div id="conceptos-admin-content"><div class="empty">Cargando conceptos...</div></div>
+      </div>
+      <div id="panel-config" class="panel-tab">
+        <div id="config-content" style="max-width:500px">
+          <div class="config-card">
+            <h3>⚙️ Configuración General</h3>
+            <label class="config-label">Tasa de ITBMS (%)</label>
+            <input type="number" id="config-itbms-rate" step="0.5" min="0" max="20" style="width:100%;padding:8px 12px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;font-family:inherit">
+            <span style="font-size:11px;color:#6b7280">Actual: 7% (estándar Panamá). Este valor se usa para calcular ITBMS en compras y ventas.</span>
+            <br><br>
+            <label class="config-label">ITBMS habilitado</label>
+            <select id="config-itbms-enabled" style="width:100%;padding:8px 12px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;font-family:inherit;background:#fff">
+              <option value="true">✅ Sí — Calcular ITBMS automáticamente</option>
+              <option value="false">❌ No — No calcular ITBMS</option>
+            </select>
+            <br><br>
+            <button class="btn-primary" onclick="saveConfig()" style="font-size:14px;padding:10px 24px">💾 Guardar Configuración</button>
+            <span id="config-saved-msg" style="display:none;color:#2e7d32;margin-left:10px;font-size:13px">✅ Guardado</span>
+          </div>
         </div>
       </div>
       <div id="panel-revision" class="panel-tab">
