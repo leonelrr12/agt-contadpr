@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { PrismaClient } from '@agt-contador/prisma-schema';
 import { accountsRouter } from './routes/accounts';
 import { journalRouter } from './routes/journal';
@@ -14,8 +15,45 @@ import { facturaRouter } from './routes/factura';
 const app = express();
 const prisma = new PrismaClient();
 
+// Trust proxy — necesario si la API está detrás de nginx o load balancer
+// para que express-rate-limit use la IP real del cliente (X-Forwarded-For)
+app.set('trust proxy', 1);
+
+// Rate limiting general: 200 requests cada 15 minutos por IP
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 200,
+  standardHeaders: true,   // RateLimit-* headers
+  legacyHeaders: false,    // Desactiva X-RateLimit-* (deprecados)
+  message: { error: 'Demasiadas solicitudes. Intente de nuevo en 15 minutos.' },
+});
+
+// Rate limiting estricto para endpoints que invocan LLM (DeepSeek)
+const llmLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas solicitudes al agente. Intente de nuevo en 1 minuto.' },
+});
+
+// Rate limiting para procesamiento pesado (OCR / PDF)
+const heavyLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas solicitudes de procesamiento. Intente de nuevo en 1 minuto.' },
+});
+
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
+
+// Aplica rate limiting por ruta (antes de los routers)
+app.use('/api/', generalLimiter);
+app.use('/api/orchestrate', llmLimiter);
+app.use('/api/ocr', heavyLimiter);
+app.use('/api/factura', heavyLimiter);
 
 app.use((req, _res, next) => {
   req.prisma = prisma;

@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { OrchestratorAgent } from '@agt-contador/agents';
+import { validate } from '../middleware/validate';
+import { orchestrateSchema, orchestrateConfirmSchema } from '../validation/schemas';
 
 export const orchestrateRouter = Router();
 
-orchestrateRouter.post('/', async (req, res) => {
+orchestrateRouter.post('/', validate(orchestrateSchema), async (req, res) => {
   const { input, context } = req.body;
-  if (!input) { res.status(400).json({ error: 'input is required' }); return; }
 
   const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
   const orchestrator = new OrchestratorAgent({
@@ -22,9 +23,8 @@ orchestrateRouter.post('/', async (req, res) => {
   }
 });
 
-orchestrateRouter.post('/confirm', async (req, res) => {
+orchestrateRouter.post('/confirm', validate(orchestrateConfirmSchema), async (req, res) => {
   const { result } = req.body;
-  if (!result) { res.status(400).json({ error: `result required. Got body keys: ${Object.keys(req.body).join(',')}` }); return; }
 
   const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
   const orchestrator = new OrchestratorAgent({

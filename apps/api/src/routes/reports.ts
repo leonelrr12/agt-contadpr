@@ -1,18 +1,19 @@
 import { Router } from 'express';
+import { buildDateFilter } from '../lib/date-filter';
 
 export const reportsRouter = Router();
 
 reportsRouter.get('/balance-comprobacion', async (req, res) => {
   const { startDate, endDate } = req.query;
 
-  const where: Record<string, unknown> = {
-    journalEntry: { companyId: 'demo-company', status: 'CONFIRMADO' },
+  const journalEntry: Record<string, unknown> = {
+    companyId: 'demo-company',
+    status: 'CONFIRMADO',
   };
-  if (startDate || endDate) {
-    where.journalEntry = { ...where.journalEntry as Record<string, unknown>, date: {} };
-    if (startDate) (where.journalEntry as Record<string, unknown>).date = { ...(where.journalEntry as Record<string, unknown>).date as Record<string, unknown>, gte: new Date(startDate as string + 'T00:00:00.000Z') };
-    if (endDate) (where.journalEntry as Record<string, unknown>).date = { ...(where.journalEntry as Record<string, unknown>).date as Record<string, unknown>, lte: new Date(endDate as string + 'T23:59:59.999Z') };
-  }
+  const dateFilter = buildDateFilter(startDate as string, endDate as string);
+  if (dateFilter) journalEntry.date = dateFilter;
+
+  const where = { journalEntry };
 
   const lines = await req.prisma.journalLine.findMany({
     where,
@@ -85,16 +86,17 @@ reportsRouter.get('/balance-general', async (req, res) => {
 
 reportsRouter.get('/estado-resultados', async (req, res) => {
   const { startDate, endDate } = req.query;
+  const journalEntry: Record<string, unknown> = {
+    companyId: 'demo-company',
+    status: 'CONFIRMADO',
+  };
+  const dateFilter = buildDateFilter(startDate as string, endDate as string);
+  if (dateFilter) journalEntry.date = dateFilter;
+
   const where: Record<string, unknown> = {
-    journalEntry: { companyId: 'demo-company', status: 'CONFIRMADO' },
+    journalEntry,
     account: { type: { in: ['INGRESO', 'GASTO', 'COSTO'] } },
   };
-
-  if (startDate || endDate) {
-    where.journalEntry = { ...where.journalEntry as Record<string, unknown>, date: {} };
-    if (startDate) (where.journalEntry as Record<string, unknown>).date = { ...(where.journalEntry as Record<string, unknown>).date as Record<string, unknown>, gte: new Date(startDate as string + 'T00:00:00.000Z') };
-    if (endDate) (where.journalEntry as Record<string, unknown>).date = { ...(where.journalEntry as Record<string, unknown>).date as Record<string, unknown>, lte: new Date(endDate as string + 'T23:59:59.999Z') };
-  }
 
   const lines = await req.prisma.journalLine.findMany({
     where,

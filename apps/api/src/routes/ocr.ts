@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { extractFromImage, saveCorrection } from '../services/ocr';
+import { validate } from '../middleware/validate';
+import { ocrCorrectSchema } from '../validation/schemas';
 
 export const ocrRouter = Router();
 
@@ -35,14 +37,9 @@ ocrRouter.post('/extract', upload.single('image'), async (req, res) => {
   }
 });
 
-ocrRouter.post('/correct', async (req, res) => {
+ocrRouter.post('/correct', validate(ocrCorrectSchema), async (req, res) => {
   try {
     const { rawText, correctedText, total, date, provider, ruc, itbms } = req.body;
-
-    if (!rawText || !correctedText) {
-      res.status(400).json({ error: 'rawText y correctedText son requeridos' });
-      return;
-    }
 
     const example = await saveCorrection(req.prisma, {
       rawText,

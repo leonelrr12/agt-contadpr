@@ -1,4 +1,11 @@
 import { Router } from 'express';
+import { validate } from '../middleware/validate';
+import { buildDateFilter } from '../lib/date-filter';
+import {
+  createJournalEntrySchema,
+  reviewJournalSchema,
+  updateJournalStatusSchema,
+} from '../validation/schemas';
 
 export const journalRouter = Router();
 
@@ -8,11 +15,8 @@ journalRouter.get('/pendientes', async (req, res) => {
     companyId: 'demo-company',
     status: 'BORRADOR',
   };
-  if (startDate || endDate) {
-    where.date = {};
-    if (startDate) (where.date as Record<string, unknown>).gte = new Date(startDate as string + 'T00:00:00.000Z');
-    if (endDate) (where.date as Record<string, unknown>).lte = new Date(endDate as string + 'T23:59:59.999Z');
-  }
+  const dateFilter = buildDateFilter(startDate as string, endDate as string);
+  if (dateFilter) where.date = dateFilter;
 
   const entries = await req.prisma.journalEntry.findMany({
     where,
@@ -25,12 +29,8 @@ journalRouter.get('/pendientes', async (req, res) => {
   res.json(entries);
 });
 
-journalRouter.post('/:id/review', async (req, res) => {
+journalRouter.post('/:id/review', validate(reviewJournalSchema), async (req, res) => {
   const { action, notes } = req.body;
-  if (!action || !['aprobar', 'rechazar'].includes(action)) {
-    res.status(400).json({ error: 'action must be "aprobar" or "rechazar"' });
-    return;
-  }
 
   try {
     const result = await req.prisma.$transaction(async (tx) => {
@@ -77,11 +77,8 @@ journalRouter.get('/', async (req, res) => {
   const { startDate, endDate, status, provider: providerFilter, page: pageStr, pageSize: pageSizeStr } = req.query;
   const where: Record<string, unknown> = { companyId: 'demo-company' };
   if (status) where.status = status;
-  if (startDate || endDate) {
-    where.date = {};
-    if (startDate) (where.date as Record<string, unknown>).gte = new Date(startDate as string + 'T00:00:00.000Z');
-    if (endDate) (where.date as Record<string, unknown>).lte = new Date(endDate as string + 'T23:59:59.999Z');
-  }
+  const dateFilter = buildDateFilter(startDate as string, endDate as string);
+  if (dateFilter) where.date = dateFilter;
 
   const page = Math.max(1, parseInt(pageStr as string) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(pageSizeStr as string) || 50));
@@ -129,7 +126,7 @@ journalRouter.get('/:id', async (req, res) => {
   res.json(entry);
 });
 
-journalRouter.post('/', async (req, res) => {
+journalRouter.post('/', validate(createJournalEntrySchema), async (req, res) => {
   const { date, description, lines } = req.body;
   const totalDebit = lines.reduce((s: number, l: { debit: number }) => s + (l.debit || 0), 0);
   const totalCredit = lines.reduce((s: number, l: { credit: number }) => s + (l.credit || 0), 0);
@@ -158,7 +155,7 @@ journalRouter.post('/', async (req, res) => {
   res.status(201).json(entry);
 });
 
-journalRouter.patch('/:id/status', async (req, res) => {
+journalRouter.patch('/:id/status', validate(updateJournalStatusSchema), async (req, res) => {
   const { status } = req.body;
   const allowedTransitions: Record<string, string[]> = {
     BORRADOR: ['RECHAZADO'],    // solo el creador puede re-enviar tras corrección (future)
@@ -241,12 +238,14 @@ journalRouter.post('/:id/anular', async (req, res) => {
 
 journalRouter.get('/mayor/:accountId', async (req, res) => {
   const { startDate, endDate } = req.query;
+  const journalEntry: Record<string, unknown> = { companyId: 'demo-company' };
+  const dateFilter = buildDateFilter(startDate as string, endDate as string);
+  if (dateFilter) journalEntry.date = dateFilter;
+
   const where: Record<string, unknown> = {
     accountId: req.params.accountId,
-    journalEntry: { companyId: 'demo-company' },
+    journalEntry,
   };
-  if (startDate) where.journalEntry = { ...where.journalEntry as Record<string, unknown>, date: { gte: new Date(startDate as string) } };
-  if (endDate) where.journalEntry = { ...where.journalEntry as Record<string, unknown>, date: { lte: new Date(endDate as string) } };
 
   const lines = await req.prisma.journalLine.findMany({
     where,

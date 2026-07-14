@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { validate } from '../middleware/validate';
+import { createTransactionSchema } from '../validation/schemas';
 
 export const transactionsRouter = Router();
 
@@ -11,7 +13,7 @@ transactionsRouter.get('/', async (req, res) => {
   res.json(transactions);
 });
 
-transactionsRouter.post('/', async (req, res) => {
+transactionsRouter.post('/', validate(createTransactionSchema), async (req, res) => {
   const { type, amount, description, concept, paymentMethod, date, metadata } = req.body;
   const transaction = await req.prisma.transaction.create({
     data: {

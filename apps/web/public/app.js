@@ -539,43 +539,35 @@ function handleLocalProcessing(input) {
 
   if (missingFields.length > 0) {
     response += `\nFalta información:\n${missingFields.join('\n')}`;
+    response += `\n\n⚠️ **El servidor no está disponible.** Completa los datos faltantes y vuelve a enviar cuando se restablezca la conexión.`;
   } else {
-    pendingResult = {
-      dialog: { type, amount, concept, paymentMethod, currency: 'USD', date: new Date().toISOString().split('T')[0], description: input },
-      entry: generateMockEntry(type, concept, amount, paymentMethod)
-    };
+    // Guardamos el input para que el usuario pueda reintentar
+    response += `\n\n⚠️ **El servidor no está disponible en este momento.** Tu mensaje fue entendido pero no se puede registrar ahora. Presiona "Reintentar" cuando vuelva la conexión.`;
   }
 
   addMessage(response, 'assistant');
 
   if (missingFields.length === 0) {
-    showConfirmationModal({
-      needsConfirmation: true,
-      result: pendingResult,
-      prompt: ''
-    });
+    // Mostrar botón de reintentar en lugar del modal de confirmación con IDs inválidos
+    showRetryButton(input);
   }
 }
 
-function generateMockEntry(type, concept, amount, paymentMethod) {
-  const debit = [];
-  const credit = [];
-
-  if (type === 'GASTO' || type === 'COMPRA') {
-    debit.push({ accountId: 'gasto', name: concept || 'Gasto', amount });
-    if (paymentMethod === 'EFECTIVO') credit.push({ accountId: 'caja', name: 'Caja', amount });
-    else if (paymentMethod === 'TARJETA_CREDITO') credit.push({ accountId: 'tarjeta', name: 'Tarjetas de Crédito', amount });
-    else credit.push({ accountId: 'banco', name: 'Bancos', amount });
-  } else if (type === 'VENTA') {
-    if (paymentMethod === 'EFECTIVO') debit.push({ accountId: 'caja', name: 'Caja', amount });
-    else debit.push({ accountId: 'clientes', name: 'Clientes', amount });
-    credit.push({ accountId: 'ventas', name: 'Ventas', amount });
-  } else if (type === 'COBRO_CLIENTE') {
-    debit.push({ accountId: 'caja', name: 'Caja', amount });
-    credit.push({ accountId: 'clientes', name: 'Clientes', amount });
-  }
-
-  return { debit, credit, description: `${type}: ${concept} - $${amount}` };
+function showRetryButton(originalText) {
+  const container = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'message assistant';
+  const btn = document.createElement('button');
+  btn.textContent = '🔄 Reintentar';
+  btn.style.cssText = 'background:#f59e0b;color:#fff;border:none;padding:10px 20px;border-radius:6px;font-size:14px;cursor:pointer;margin-top:4px';
+  btn.onclick = () => {
+    const input = document.getElementById('message-input');
+    input.value = originalText;
+    sendMessage();
+  };
+  div.appendChild(btn);
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
 }
 
 function addMessage(text, role) {

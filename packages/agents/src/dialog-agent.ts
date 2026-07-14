@@ -99,10 +99,17 @@ function parseInput(input: string): {
   const itbms = lower.includes('itbms') || lower.includes('iva') || lower.includes('impuesto') || lower.includes('7%');
 
   let provider: string | null = null;
-  const providerMatch = input.match(/(?:a|proveedor|de)\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ\s]+?)(?:\s+por|\s+con|\s+en|\s+itbms|\s+,\s*|$)/i);
-  if (providerMatch) {
-    const p = providerMatch[1].trim();
-    if (p.length > 1 && p.length < 60) provider = p;
+  // Busca patrón "a [Nombre]", "proveedor [Nombre]", "en [Nombre]" con nombre propio
+  const providerPatterns = [
+    /\b(?:a|proveedor|proveedora|en)\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ\s.,#&-]{1,58}?)(?:\s+por\b|\s+con\b|\s+itbms\b|\s+iva\b|\s*,\s*|\s*$)/,
+    /\b(?:compr[ée])\s+(?:a|en)\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ\s.,#&-]{1,58}?)(?:\s+por\b|\s+con\b|\s+itbms\b|\s*,\s*|\s*$)/i,
+  ];
+  for (const pattern of providerPatterns) {
+    const m = input.match(pattern);
+    if (m) {
+      const p = m[1].trim();
+      if (p.length > 1 && p.length < 60) { provider = p; break; }
+    }
   }
 
   if (!concept) missingFields.push('concept');

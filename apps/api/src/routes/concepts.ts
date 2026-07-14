@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { validate } from '../middleware/validate';
+import { createConceptSchema, updateConceptSchema } from '../validation/schemas';
 
 export const conceptsRouter = Router();
 
@@ -11,7 +13,7 @@ conceptsRouter.get('/', async (req, res) => {
   res.json(concepts);
 });
 
-conceptsRouter.post('/', async (req, res) => {
+conceptsRouter.post('/', validate(createConceptSchema), async (req, res) => {
   const { name, accountId } = req.body;
   const concept = await req.prisma.concept.create({
     data: { name, accountId, companyId: 'demo-company' },
@@ -20,7 +22,7 @@ conceptsRouter.post('/', async (req, res) => {
   res.status(201).json(concept);
 });
 
-conceptsRouter.put('/:id', async (req, res) => {
+conceptsRouter.put('/:id', validate(updateConceptSchema), async (req, res) => {
   const { name, accountId, isActive } = req.body;
   const concept = await req.prisma.concept.update({
     where: { id: req.params.id },
