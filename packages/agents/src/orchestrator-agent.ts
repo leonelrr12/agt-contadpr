@@ -149,6 +149,71 @@ export class OrchestratorAgent {
       },
     });
 
-    return { journalEntry: entryData };
+    // ── Auto-crear cliente o proveedor si aplica ──
+    let autoCreated: { type: string; name: string } | null = null;
+    if (dialog.provider) {
+      autoCreated = await this.autoCreateEntity(dialog, entryData.id);
+    }
+
+    return { journalEntry: entryData, autoCreated };
+  }
+
+  /**
+   * Auto-crea un Client o Supplier según el tipo de transacción.
+   * Si ya existe, lo reutiliza. Crea la factura/cuenta por pagar automáticamente.
+   */
+  private async autoCreateEntity(dialog: any, journalEntryId: string): Promise<{ type: string; name: string } | null> {
+    const name = dialog.provider.trim();
+    if (!name) return null;
+
+    const isCustomer = dialog.type === 'VENTA' || dialog.type === 'COBRO_CLIENTE';
+    const isSupplier = dialog.type === 'GASTO' || dialog.type === 'COMPRA' || dialog.type === 'PAGO_PROVEEDOR';
+
+    try {
+      if (isCustomer) {
+        let client = await this.prisma.client.findFirst({
+          where: { companyId: this.companyId, name: { equals: name, mode: 'insensitive' } },
+        });
+        const isNew = !client;
+        if (!client) {
+          client = await this.prisma.client.create({
+            data: { companyId: this.companyId, name },
+          });
+        }
+        const itbms = dialog.itbmsAmount || (dialog.itbms ? Math.round(dialog.amount * 0.07 * 100) / 100 : 0);
+        await this.prisma.invoice.create({
+          data: {
+            companyId: this.companyId, clientId: client.id,
+            amount: dialog.amount, itbms, total: dialog.amount + itbms,
+            dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            date: new Date(dialog.date), description: dialog.description, journalEntryId,
+          },
+        });
+        return { type: isNew ? 'cliente_nuevo' : 'cliente_existente', name };
+      } else if (isSupplier) {
+        let supplier = await this.prisma.supplier.findFirst({
+          where: { companyId: this.companyId, name: { equals: name, mode: 'insensitive' } },
+        });
+        const isNew = !supplier;
+        if (!supplier) {
+          supplier = await this.prisma.supplier.create({
+            data: { companyId: this.companyId, name },
+          });
+        }
+        const itbms = dialog.itbmsAmount || (dialog.itbms ? Math.round(dialog.amount * 0.07 * 100) / 100 : 0);
+        await this.prisma.bill.create({
+          data: {
+            companyId: this.companyId, supplierId: supplier.id,
+            amount: dialog.amount, itbms, total: dialog.amount + itbms,
+            dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            date: new Date(dialog.date), description: dialog.description, journalEntryId,
+          },
+        });
+        return { type: isNew ? 'proveedor_nuevo' : 'proveedor_existente', name };
+      }
+    } catch (err) {
+      console.error('[Orchestrator] Error auto-creando entidad:', err);
+    }
+    return null;
   }
 }

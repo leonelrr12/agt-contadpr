@@ -48,7 +48,15 @@ Conceptos comunes:
 Para el concepto, usa el nombre más específico posible. Si no reconoces el concepto exacto,
 usa el término que el usuario mencionó (ej: "hosting", "dominio", "fletes").
 
-Proveedor: Si el texto menciona "a [nombre]" (ej: "a Distribuidora XYZ") o "proveedor [nombre]" extrae el nombre del proveedor en el campo "provider". Si no, pon null.
+Proveedor/Cliente: Extrae el nombre del proveedor o cliente SIEMPRE que el texto mencione a quién se compró, a quién se vendió, a quién se pagó, o de quién se cobró. Usa el campo "provider" para el nombre.
+  Ejemplos:
+  - "compré a Distribuidora XYZ" → provider: "Distribuidora XYZ"
+  - "vendí a Clínica San José" → provider: "Clínica San José"
+  - "pagué a Cable & Wireless" → provider: "Cable & Wireless"
+  - "cobré a Inmobiliaria del Este" → provider: "Inmobiliaria del Este"
+  - "compré en Supermercado Rey" → provider: "Supermercado Rey"
+  - "servicios a Juan Pérez" → provider: "Juan Pérez"
+  NO importa si es compra, venta, gasto o cobro. SIEMPRE extrae el nombre si hay una entidad externa mencionada. Si el texto no menciona ninguna entidad externa, pon null.
 
 Moneda: Siempre USD. La fecha debe estar en formato YYYY-MM-DD.
 Hoy es ${today}. Si no se menciona fecha, usa ${today}. Si se menciona "ayer", usa el día anterior a ${today}. Si se menciona "anteayer", usa dos días antes de ${today}.

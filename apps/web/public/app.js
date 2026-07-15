@@ -952,7 +952,13 @@ async function confirmTransaction() {
     if (res.ok) {
       const data = await res.json();
       const entryId = data.journalEntry.id;
-      addMessage(`✅ **Transacción registrada exitosamente**\n\nAsiento #${entryId.slice(0,8)} registrado en el Libro Diario.`, 'assistant');
+      let msg = `✅ **Transacción registrada exitosamente**\n\nAsiento #${entryId.slice(0,8)} registrado en el Libro Diario.`;
+      if (data.autoCreated) {
+        const label = data.autoCreated.type.includes('nuevo') ? '✨ Nuevo' : '📋 Existente';
+        const entity = data.autoCreated.type.startsWith('cliente') ? 'cliente' : 'proveedor';
+        msg += `\n\n${label} ${entity}: **${data.autoCreated.name}** → /${entity}s.html`;
+      }
+      addMessage(msg, 'assistant');
       addUndoButton(entryId);
       updateSummary();
       loadSubscriptionInfo(); // Actualizar contador de movimientos

@@ -99,10 +99,13 @@ function parseInput(input: string): {
   const itbms = lower.includes('itbms') || lower.includes('iva') || lower.includes('impuesto') || lower.includes('7%');
 
   let provider: string | null = null;
-  // Busca patrón "a [Nombre]", "proveedor [Nombre]", "en [Nombre]" con nombre propio
+  // Busca patrón "a [Nombre]", "proveedor [Nombre]", "de [Nombre]" con nombre propio
+  // Cubre compras (compré a X), ventas (vendí a X, cliente X), y gastos (pagué a X)
   const providerPatterns = [
-    /\b(?:a|proveedor|proveedora|en)\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ\s.,#&-]{1,58}?)(?:\s+por\b|\s+con\b|\s+itbms\b|\s+iva\b|\s*,\s*|\s*$)/,
-    /\b(?:compr[ée])\s+(?:a|en)\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ\s.,#&-]{1,58}?)(?:\s+por\b|\s+con\b|\s+itbms\b|\s*,\s*|\s*$)/i,
+    // "a Distribuidora XYZ", "proveedor XYZ", "cliente XYZ" seguido de fin o preposición
+    /\b(?:a|proveedor|proveedora|cliente|de)\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ]{1,58}?(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ]{0,58}){0,3}?)(?:\s+por\b|\s+con\b|\s+itbms\b|\s+iva\b|\s+crédito\b|\s+cr[eé]dito\b|\s*,\s*|\s*$)/,
+    // "compré/vendí/pagué/cobré a/en X"
+    /\b(?:compr[ée]|vend[ií]|pag[uü][ée]|cobr[ée])\s+(?:a|en)\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ\s.,#&-]{1,58}?)(?:\s+por\b|\s+con\b|\s+itbms\b|\s*,\s*|\s*$)/i,
   ];
   for (const pattern of providerPatterns) {
     const m = input.match(pattern);
