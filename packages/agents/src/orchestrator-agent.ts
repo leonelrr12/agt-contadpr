@@ -76,9 +76,18 @@ export class OrchestratorAgent {
     if (dialog.provider) {
       const matches = await this.findEntityMatches(dialog.provider);
       if (matches.length > 0) {
+        // Generar entry también para que el frontend tenga el result completo
+        await this.accountingAgent.init();
+        const raw = this.accountingAgent.generateEntry(dialog, classification);
+        const entry: AccountingEntry = {
+          debit: raw.debit.map((d: any) => ({ ...d, accountId: this.accountingAgent.resolveAlias(d.accountId) })),
+          credit: raw.credit.map((c: any) => ({ ...c, accountId: this.accountingAgent.resolveAlias(c.accountId) })),
+          description: raw.description,
+        };
         return {
           plan,
           entityMatches: matches,
+          result: { dialog, entry, classification },
           prompt: `Encontré estas coincidencias para "${dialog.provider}". ¿Cuál es?`,
           needsConfirmation: false,
         };
