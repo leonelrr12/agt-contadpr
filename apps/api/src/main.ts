@@ -16,6 +16,8 @@ import { authRouter } from './routes/auth';
 import { adminRouter } from './routes/admin';
 import { apiKeysRouter } from './routes/api-keys';
 import { billingRouter } from './routes/billing';
+import { clientsRouter } from './routes/clients';
+import { suppliersRouter } from './routes/suppliers';
 import { planRateLimiter } from './middleware/plan-rate-limit';
 import { requireAuth, requireRole } from './middleware/auth';
 
@@ -94,6 +96,8 @@ app.use('/api/transactions', transactionsRouter);
 app.use('/api/orchestrate', orchestrateRouter);
 app.use('/api/ocr', ocrRouter);
 app.use('/api/factura', facturaRouter);
+app.use('/api/clients', clientsRouter);
+app.use('/api/suppliers', suppliersRouter);
 app.use('/api/config', requireRole('admin'), configRouter);
 app.use('/api/keys', apiKeysRouter);
 app.use('/api/admin', requireRole('admin'), adminRouter);

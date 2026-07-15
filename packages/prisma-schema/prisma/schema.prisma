@@ -26,6 +26,8 @@ model Company {
   journalEntries JournalEntry[]
   subscriptions  Subscription[]
   apiKeys        ApiKey[]
+  clients        Client[]
+  suppliers      Supplier[]
 }
 
 model User {
@@ -258,6 +260,96 @@ model ApiKey {
   @@index([companyId])
   @@index([keyHash])
   @@map("api_key")
+}
+
+model Client {
+  id         String    @id @default(cuid())
+  companyId  String
+  name       String
+  taxId      String?   // RUC
+  phone      String?
+  email      String?
+  address    String?
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  company    Company   @relation(fields: [companyId], references: [id])
+  invoices   Invoice[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("client")
+}
+
+model Supplier {
+  id            String    @id @default(cuid())
+  companyId     String
+  name          String
+  taxId         String?
+  phone         String?
+  email         String?
+  paymentTerms  String?   @default("30") // días de crédito por defecto
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company       Company   @relation(fields: [companyId], references: [id])
+  bills         Bill[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("supplier")
+}
+
+model Invoice {
+  id             String    @id @default(cuid())
+  companyId      String
+  clientId       String
+  number         String?   // Número de factura emitida
+  amount         Float
+  itbms          Float     @default(0)
+  total          Float
+  dueDate        DateTime
+  paidAt         DateTime?
+  status         String    @default("PENDIENTE") // PENDIENTE, VENCIDA, PAGADA
+  date           DateTime  @default(now())
+  description    String?
+  journalEntryId String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  client         Client    @relation(fields: [clientId], references: [id])
+
+  @@index([companyId])
+  @@index([clientId])
+  @@index([status])
+  @@map("invoice")
+}
+
+model Bill {
+  id             String    @id @default(cuid())
+  companyId      String
+  supplierId     String
+  number         String?   // Número de factura del proveedor
+  amount         Float
+  itbms          Float     @default(0)
+  total          Float
+  dueDate        DateTime
+  paidAt         DateTime?
+  status         String    @default("PENDIENTE") // PENDIENTE, VENCIDA, PAGADA
+  date           DateTime  @default(now())
+  description    String?
+  journalEntryId String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  supplier       Supplier  @relation(fields: [supplierId], references: [id])
+
+  @@index([companyId])
+  @@index([supplierId])
+  @@index([status])
+  @@map("bill")
 }
 
 model OCRExample {

@@ -1,0 +1,1 @@
+-- Migration: add clients, suppliers, invoices, bills\n-- Tables already created via prisma db push

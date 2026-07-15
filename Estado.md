@@ -35,7 +35,7 @@ El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones 
 | Fase | Estado |
 |---|---|
 | Fase 1: MVP Motor Contable | ✅ 100% completo |
-| Fase 2: Documentos y Terceros | 🟡 OCR ✅ · Bancario ❌ · Clientes ❌ · Proveedores ❌ · Export ✅ |
+| Fase 2: Documentos y Terceros | 🟡 OCR ✅ · Clientes ✅ · Proveedores ✅ · Bancario ❌ · Export ✅ |
 | Fase 3: Módulos Avanzados | ❌ Inventario, Nómina, Impuestos, Auditor |
 | Fase 4: IA Avanzada | ❌ Predicción, Fraude, Rentabilidad |
 | Seguridad Transversal | ✅ JWT, roles, backups, logs · ❌ Cifrado en reposo |
