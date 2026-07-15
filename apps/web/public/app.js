@@ -691,6 +691,19 @@ async function sendMessage() {
     const data = await res.json();
     removeLoading();
 
+    if (!res.ok) {
+      // Mostrar error amigable del servidor
+      const msg = data.error || 'Error al procesar tu solicitud.';
+      addMessage(`⚠️ ${msg}`, 'assistant');
+      if (data.contactSupport) {
+        addMessage('📞 Contacta a soporte técnico si el problema persiste.', 'assistant');
+      }
+      // Fallback a procesamiento local
+      handleLocalProcessing(text);
+      cancelInput();
+      return;
+    }
+
     if (data.needsConfirmation) {
       dialogContext = null;
       pendingResult = data.result;
@@ -715,6 +728,18 @@ async function sendMessage() {
     }
   } catch (err) {
     removeLoading();
+    // Intentar obtener mensaje amigable del servidor
+    let serverMsg = '';
+    try {
+      if (err.message && err.message !== 'Failed to fetch') serverMsg = err.message;
+    } catch (_) {}
+    if (serverMsg) {
+      addMessage(`⚠️ ${serverMsg}`, 'assistant');
+      if (serverMsg.includes('soporte') || serverMsg.includes('contactar')) {
+        addMessage('📞 Si el problema persiste, contacta a soporte técnico.', 'assistant');
+      }
+    }
+    // Fallback: procesar localmente sin IA
     handleLocalProcessing(text);
     cancelInput();
   }
@@ -932,7 +957,12 @@ async function confirmTransaction() {
       updateSummary();
       loadSubscriptionInfo(); // Actualizar contador de movimientos
     } else {
-      addMessage('❌ Error al registrar. Intenta de nuevo.', 'assistant');
+      const errData = await res.json().catch(() => ({}));
+      const msg = errData.error || 'Error al registrar. Intenta de nuevo.';
+      addMessage(`❌ ${msg}`, 'assistant');
+      if (errData.contactSupport) {
+        addMessage('📞 Contacta a soporte técnico si el problema persiste.', 'assistant');
+      }
     }
   } catch (err) {
     simulateConfirm();
