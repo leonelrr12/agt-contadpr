@@ -163,11 +163,12 @@ export class OrchestratorAgent {
    * Si ya existe, lo reutiliza. Crea la factura/cuenta por pagar automáticamente.
    */
   private async autoCreateEntity(dialog: any, journalEntryId: string): Promise<{ type: string; name: string } | null> {
-    const name = dialog.provider.trim();
+    const name = dialog.provider?.trim();
     if (!name) return null;
 
     const isCustomer = dialog.type === 'VENTA' || dialog.type === 'COBRO_CLIENTE';
     const isSupplier = dialog.type === 'GASTO' || dialog.type === 'COMPRA' || dialog.type === 'PAGO_PROVEEDOR';
+    const isPayment = dialog.type === 'COBRO_CLIENTE' || dialog.type === 'PAGO_PROVEEDOR';
 
     try {
       if (isCustomer) {
@@ -180,16 +181,23 @@ export class OrchestratorAgent {
             data: { companyId: this.companyId, name },
           });
         }
-        const itbms = dialog.itbmsAmount || (dialog.itbms ? Math.round(dialog.amount * 0.07 * 100) / 100 : 0);
-        await this.prisma.invoice.create({
-          data: {
-            companyId: this.companyId, clientId: client.id,
-            amount: dialog.amount, itbms, total: dialog.amount + itbms,
-            dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-            date: new Date(dialog.date), description: dialog.description, journalEntryId,
-          },
-        });
-        return { type: isNew ? 'cliente_nuevo' : 'cliente_existente', name };
+
+        if (isPayment) {
+          // COBRO_CLIENTE: abonar a facturas pendientes (FIFO)
+          await this.applyPaymentToInvoices(client.id, dialog.amount);
+        } else {
+          // VENTA: crear nueva factura por cobrar
+          const itbms = dialog.itbmsAmount || (dialog.itbms ? Math.round(dialog.amount * 0.07 * 100) / 100 : 0);
+          await this.prisma.invoice.create({
+            data: {
+              companyId: this.companyId, clientId: client.id,
+              amount: dialog.amount, itbms, total: dialog.amount + itbms,
+              dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+              date: new Date(dialog.date), description: dialog.description, journalEntryId,
+            },
+          });
+        }
+        return { type: isNew ? 'cliente_nuevo' : isPayment ? 'cliente_abono' : 'cliente_existente', name };
       } else if (isSupplier) {
         let supplier = await this.prisma.supplier.findFirst({
           where: { companyId: this.companyId, name: { equals: name, mode: 'insensitive' } },
@@ -200,20 +208,69 @@ export class OrchestratorAgent {
             data: { companyId: this.companyId, name },
           });
         }
-        const itbms = dialog.itbmsAmount || (dialog.itbms ? Math.round(dialog.amount * 0.07 * 100) / 100 : 0);
-        await this.prisma.bill.create({
-          data: {
-            companyId: this.companyId, supplierId: supplier.id,
-            amount: dialog.amount, itbms, total: dialog.amount + itbms,
-            dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-            date: new Date(dialog.date), description: dialog.description, journalEntryId,
-          },
-        });
-        return { type: isNew ? 'proveedor_nuevo' : 'proveedor_existente', name };
+
+        if (isPayment) {
+          // PAGO_PROVEEDOR: abonar a facturas pendientes (FIFO)
+          await this.applyPaymentToBills(supplier.id, dialog.amount);
+        } else {
+          // COMPRA/GASTO: crear nueva factura por pagar
+          const itbms = dialog.itbmsAmount || (dialog.itbms ? Math.round(dialog.amount * 0.07 * 100) / 100 : 0);
+          await this.prisma.bill.create({
+            data: {
+              companyId: this.companyId, supplierId: supplier.id,
+              amount: dialog.amount, itbms, total: dialog.amount + itbms,
+              dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+              date: new Date(dialog.date), description: dialog.description, journalEntryId,
+            },
+          });
+        }
+        return { type: isNew ? 'proveedor_nuevo' : isPayment ? 'proveedor_abono' : 'proveedor_existente', name };
       }
     } catch (err) {
       console.error('[Orchestrator] Error auto-creando entidad:', err);
     }
     return null;
+  }
+
+  /** Aplica un abono a las facturas pendientes de un cliente (FIFO) */
+  private async applyPaymentToInvoices(clientId: string, amount: number): Promise<void> {
+    const pending = await this.prisma.invoice.findMany({
+      where: { clientId, status: { not: 'PAGADA' } },
+      orderBy: { dueDate: 'asc' },
+    });
+
+    let remaining = amount;
+    for (const inv of pending) {
+      if (remaining <= 0) break;
+      const toPay = Math.min(remaining, inv.total);
+      if (toPay >= inv.total - 0.01) {
+        await this.prisma.invoice.update({
+          where: { id: inv.id },
+          data: { status: 'PAGADA', paidAt: new Date() },
+        });
+      }
+      remaining -= toPay;
+    }
+  }
+
+  /** Aplica un pago a las facturas pendientes de un proveedor (FIFO) */
+  private async applyPaymentToBills(supplierId: string, amount: number): Promise<void> {
+    const pending = await this.prisma.bill.findMany({
+      where: { supplierId, status: { not: 'PAGADA' } },
+      orderBy: { dueDate: 'asc' },
+    });
+
+    let remaining = amount;
+    for (const b of pending) {
+      if (remaining <= 0) break;
+      const toPay = Math.min(remaining, b.total);
+      if (toPay >= b.total - 0.01) {
+        await this.prisma.bill.update({
+          where: { id: b.id },
+          data: { status: 'PAGADA', paidAt: new Date() },
+        });
+      }
+      remaining -= toPay;
+    }
   }
 }

@@ -23,12 +23,18 @@ IMPORTANTE: NO inventes ni infieras el método de pago. Si el texto no menciona 
 Reglas:
 - Si el texto menciona "compré", "pagué", "pague", "gasto" → type: GASTO
 - Si menciona "vendí", "venta", "facturé", "cobré" → type: VENTA
-- Si menciona "cobro", "cliente", "cobre" → type: COBRO_CLIENTE
+  - Si menciona "cobro", "cobre", "me pagaron", "recibi pago", "abono" CON nombre de persona/empresa → type: COBRO_CLIENTE
 - Si menciona "pago a proveedor", "proveedor" → type: PAGO_PROVEEDOR
 - Si menciona "compra de mercancía", "inventario" → type: COMPRA
 - Si menciona "préstamo", "prestamo", "prstamo" → type: PRESTAMO
-- Si menciona "ingreso", "depósito", "abono", "recibí" → type: INGRESO
+  - Si menciona "ingreso", "deposito", "abono bancario", "recibi" SIN nombre de persona/empresa → type: INGRESO
 - Si menciona "itbms", "pago de itbms", "declaración itbms", "dgi" → type: PAGO_ITBMS
+
+	IMPORTANTE para distinguir COBRO_CLIENTE vs INGRESO:
+	- "Abono Clinica San Jose $150" → COBRO_CLIENTE (tiene nombre de cliente, reduce cuenta por cobrar)
+	- "Abono bancario $150" o "Deposito $150" → INGRESO (no tiene cliente, es ingreso general)
+	- "Me pagaron Los Gonzalez $200" → COBRO_CLIENTE
+	- "Recibi $100 de dividendos" → INGRESO
 
 ITBMS: Si la transacción menciona "itbms", "iva", "impuesto", "7%" o "incluye itbms", añade "itbms": true en el JSON. Para compras de inventario y ventas, detecta si el monto incluye o excluye ITBMS.
 
