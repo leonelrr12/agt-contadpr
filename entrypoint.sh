@@ -9,9 +9,9 @@ echo "✅ PostgreSQL ready"
 
 cd /app/packages/prisma-schema
 
-echo "⏳ Pushing schema..."
-npx prisma db push --skip-generate
-echo "✅ Schema pushed"
+echo "⏳ Aplicando migraciones pendientes..."
+npx prisma migrate deploy
+echo "✅ Migraciones aplicadas"
 
 echo "⏳ Seeding data..."
 npx tsx prisma/seed.ts 2>/dev/null && echo "✅ Seed complete" || echo "⚠️ Seed skipped (data may already exist)"

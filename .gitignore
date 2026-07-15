@@ -11,4 +11,6 @@ test-body.json
 claude.sh
 .claude/
 backups/
+*.pub
+xxcc*
 
