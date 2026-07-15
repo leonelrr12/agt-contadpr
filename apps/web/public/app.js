@@ -930,6 +930,7 @@ async function confirmTransaction() {
       addMessage(`✅ **Transacción registrada exitosamente**\n\nAsiento #${entryId.slice(0,8)} registrado en el Libro Diario.`, 'assistant');
       addUndoButton(entryId);
       updateSummary();
+      loadSubscriptionInfo(); // Actualizar contador de movimientos
     } else {
       addMessage('❌ Error al registrar. Intenta de nuevo.', 'assistant');
     }
@@ -1013,6 +1014,7 @@ function anularEntry(id, btn) {
       if (btn) btn.remove();
       addMessage(`↩ **Asiento anulado**\n\nAsiento de reversión #${data.reversal.id.slice(0,8)} creado.`, 'assistant');
       updateSummary();
+      loadSubscriptionInfo(); // Actualizar contador
     } catch (e) {
       alert('Error al anular');
       if (btn) btn.remove();

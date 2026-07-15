@@ -3,6 +3,7 @@ import { validate } from '../middleware/validate';
 import { requireRole } from '../middleware/auth';
 import { buildDateFilter } from '../lib/date-filter';
 import { logAudit } from '../services/audit-log';
+import { requireQuota, incrementUsage } from '../middleware/quota';
 import {
   createJournalEntrySchema,
   reviewJournalSchema,
@@ -138,7 +139,7 @@ journalRouter.get('/:id', async (req, res) => {
   res.json(entry);
 });
 
-journalRouter.post('/', validate(createJournalEntrySchema), async (req, res) => {
+journalRouter.post('/', requireQuota, validate(createJournalEntrySchema), async (req, res) => {
   const { date, description, lines } = req.body;
   const totalDebit = lines.reduce((s: number, l: { debit: number }) => s + (l.debit || 0), 0);
   const totalCredit = lines.reduce((s: number, l: { credit: number }) => s + (l.credit || 0), 0);
@@ -164,6 +165,9 @@ journalRouter.post('/', validate(createJournalEntrySchema), async (req, res) => 
     },
     include: { lines: { include: { account: true } } },
   });
+
+  // Contar como movimiento (asiento contable creado)
+  await incrementUsage(req);
 
   await logAudit(req.prisma, {
     userId: req.user!.userId,

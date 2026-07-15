@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { validate } from '../middleware/validate';
-import { requireQuota, incrementUsage } from '../middleware/quota';
+import { requireQuota } from '../middleware/quota';
 import { createTransactionSchema } from '../validation/schemas';
 
 export const transactionsRouter = Router();
@@ -14,6 +14,8 @@ transactionsRouter.get('/', async (req, res) => {
   res.json(transactions);
 });
 
+// POST /api/transactions — Crea una transacción cruda (borrador).
+// NO cuenta como movimiento. Solo los asientos contables (journal entries) cuentan.
 transactionsRouter.post('/', requireQuota, validate(createTransactionSchema), async (req, res) => {
   const { type, amount, description, concept, paymentMethod, date, metadata } = req.body;
   const transaction = await req.prisma.transaction.create({
@@ -29,9 +31,6 @@ transactionsRouter.post('/', requireQuota, validate(createTransactionSchema), as
       createdById: req.user!.userId,
     },
   });
-
-  // Incrementar contador de uso
-  await incrementUsage(req);
 
   res.status(201).json(transaction);
 });
