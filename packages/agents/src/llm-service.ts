@@ -21,13 +21,19 @@ Métodos de pago válidos (opcional): EFECTIVO, TARJETA_CREDITO, TARJETA_DEBITO,
 IMPORTANTE: NO inventes ni infieras el método de pago. Si el texto no menciona EXPLÍCITAMENTE cómo se pagó, pon paymentMethod como null.
 
 Reglas:
-- Si el texto menciona "compré", "pagué", "pague", "gasto" → type: GASTO
+- Si el texto menciona "compré", "compre", "gasto" → type: GASTO
 - Si menciona "vendí", "venta", "facturé", "cobré" → type: VENTA
   - Si menciona "cobro", "cobre", "me pagaron", "recibi pago", "abono" CON nombre de persona/empresa → type: COBRO_CLIENTE
-- Si menciona "pago a proveedor", "proveedor" → type: PAGO_PROVEEDOR
+- Si menciona "pago a proveedor", "pagué a", "pague a", "aboné a" CON nombre de empresa → type: PAGO_PROVEEDOR
 - Si menciona "compra de mercancía", "inventario" → type: COMPRA
 - Si menciona "préstamo", "prestamo", "prstamo" → type: PRESTAMO
   - Si menciona "ingreso", "deposito", "abono bancario", "recibi" SIN nombre de persona/empresa → type: INGRESO
+
+	IMPORTANTE — Cómo distinguir GASTO vs PAGO_PROVEEDOR:
+	- "Pagué electricidad $50" → GASTO (no menciona a quién, es un gasto nuevo)
+	- "Pagué $100 a IMPORTADORA RICAMAR" → PAGO_PROVEEDOR (menciona a quién, es pagar una deuda)
+	- "Pagué a Distribuidora ABC $200" → PAGO_PROVEEDOR
+	- "Compré gasolina $30" → GASTO
 - Si menciona "itbms", "pago de itbms", "declaración itbms", "dgi" → type: PAGO_ITBMS
 
 	IMPORTANTE para distinguir COBRO_CLIENTE vs INGRESO:
