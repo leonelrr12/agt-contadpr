@@ -157,6 +157,23 @@ authRouter.post('/register', async (req, res) => {
       },
     });
 
+    // Crear suscripción Demo automática (14 días, 50 movimientos)
+    const demoPlan = await tx.plan.findUnique({ where: { name: 'Demo' } });
+    if (demoPlan) {
+      const demoEnd = new Date();
+      demoEnd.setDate(demoEnd.getDate() + 14);
+      await tx.subscription.create({
+        data: {
+          companyId: company.id,
+          planId: demoPlan.id,
+          status: 'DEMO',
+          movementsLimit: demoPlan.monthlyLimit,
+          periodStart: new Date(),
+          periodEnd: demoEnd,
+        },
+      });
+    }
+
     return { company, user };
   });
 

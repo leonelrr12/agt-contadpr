@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Planes — Contador507</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #1e293b;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --accent: #F05323;
+      --gold: #f59e0b;
+      --green: #10b981;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--primary);
+      text-decoration: none;
+    }
+    .logo span { color: var(--accent); }
+    .header-actions a {
+      text-decoration: none;
+      padding: 8px 20px;
+      border-radius: 8px;
+      font-weight: 500;
+      font-size: 14px;
+      margin-left: 8px;
+    }
+    .btn-outline { border: 1px solid var(--border); color: var(--text); }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+
+    /* Hero */
+    .hero {
+      text-align: center;
+      padding: 56px 24px 40px;
+    }
+    .hero h1 { font-size: 36px; font-weight: 800; margin-bottom: 12px; }
+    .hero p { font-size: 18px; color: var(--muted); max-width: 560px; margin: 0 auto; }
+
+    /* Plans Grid */
+    .plans-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      max-width: 1100px;
+      margin: 0 auto 60px;
+      padding: 0 20px;
+    }
+    .plan-card {
+      background: var(--card-bg);
+      border: 2px solid var(--border);
+      border-radius: 14px;
+      padding: 28px 24px;
+      display: flex;
+      flex-direction: column;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      position: relative;
+    }
+    .plan-card:hover {
+      border-color: var(--primary);
+      box-shadow: 0 4px 24px rgba(37,99,235,0.08);
+    }
+    .plan-card.featured {
+      border-color: var(--primary);
+      box-shadow: 0 4px 32px rgba(37,99,235,0.12);
+    }
+    .plan-badge {
+      position: absolute;
+      top: -12px;
+      right: 20px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 14px;
+      border-radius: 100px;
+    }
+    .plan-name {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .plan-price {
+      font-size: 42px;
+      font-weight: 800;
+      margin: 12px 0 4px;
+    }
+    .plan-price.free { color: var(--green); }
+    .plan-price .currency { font-size: 20px; }
+    .plan-price .period { font-size: 14px; color: var(--muted); font-weight: 400; }
+    .plan-desc {
+      color: var(--muted);
+      font-size: 14px;
+      margin-bottom: 16px;
+      line-height: 1.4;
+    }
+    .plan-features {
+      list-style: none;
+      flex: 1;
+      margin-bottom: 20px;
+    }
+    .plan-features li {
+      font-size: 14px;
+      padding: 6px 0;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .plan-features li::before {
+      content: '✓ ';
+      color: var(--green);
+      font-weight: 700;
+    }
+
+    .plan-cta {
+      display: block;
+      width: 100%;
+      text-align: center;
+      padding: 12px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 15px;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+    }
+    .cta-primary { background: var(--primary); color: #fff; }
+    .cta-primary:hover { background: var(--primary-hover); }
+    .cta-outline { background: #fff; color: var(--primary); border: 2px solid var(--primary); }
+    .cta-demo { background: var(--green); color: #fff; }
+    .cta-demo:hover { opacity: 0.9; }
+
+    /* Payment Info */
+    .payment-section {
+      max-width: 800px;
+      margin: 0 auto 60px;
+      padding: 0 20px;
+    }
+    .payment-section h2 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    .payment-methods {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+    .payment-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+    .payment-icon {
+      font-size: 40px;
+      margin-bottom: 8px;
+    }
+    .payment-card h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+    .payment-card p { font-size: 13px; color: var(--muted); line-height: 1.5; }
+    .payment-detail {
+      background: #f1f5f9;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 14px;
+      font-weight: 600;
+      margin-top: 8px;
+      word-break: break-all;
+    }
+
+    /* How it works */
+    .steps {
+      max-width: 700px;
+      margin: 0 auto 60px;
+      padding: 0 20px;
+      text-align: center;
+    }
+    .steps h2 { font-size: 22px; font-weight: 700; margin-bottom: 28px; }
+    .step {
+      display: flex;
+      align-items: flex-start;
+      text-align: left;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .step-num {
+      background: var(--primary);
+      color: #fff;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .step h4 { font-size: 16px; margin-bottom: 4px; }
+    .step p { font-size: 14px; color: var(--muted); }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      padding: 24px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 600px) {
+      .hero h1 { font-size: 26px; }
+      .plan-price { font-size: 32px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <a href="/" class="logo">Contador<span>507</span></a>
+  <div class="header-actions">
+    <a href="/login.html" class="btn-outline">Iniciar Sesión</a>
+    <a href="/login.html#register" class="btn-primary">Comenzar Gratis</a>
+  </div>
+</div>
+
+<div class="hero">
+  <h1>Planes que crecen con tu negocio</h1>
+  <p>Regístrate gratis, paga cuando estés listo. Siempre puedes escalar tu plan cuando tu negocio crezca.</p>
+</div>
+
+<div id="plans-container" class="plans-grid">
+  <!-- Cargado desde /api/plans -->
+  <div class="plan-card" style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">
+    Cargando planes...
+  </div>
+</div>
+
+<div class="payment-section">
+  <h2>💳 Métodos de Pago</h2>
+  <div class="payment-methods">
+    <div class="payment-card">
+      <div class="payment-icon">📱</div>
+      <h3>Yappy</h3>
+      <p>Transfiere desde tu app del Banco General</p>
+      <div class="payment-detail">📞 507-XXXX-XXXX</div>
+    </div>
+    <div class="payment-card">
+      <div class="payment-icon">🏦</div>
+      <h3>Transferencia Bancaria</h3>
+      <p>Banco General · Cuenta Corriente</p>
+      <div class="payment-detail">Cuenta: XXXX-XXXX-XXXX<br>Titular: Contador507, S.A.</div>
+    </div>
+    <div class="payment-card">
+      <div class="payment-icon">📧</div>
+      <h3>Confirmación</h3>
+      <p>Envíanos tu comprobante por WhatsApp o email</p>
+      <div class="payment-detail">📱 +507 XXXX-XXXX<br>📧 pagos@contador507.com</div>
+    </div>
+  </div>
+</div>
+
+<div class="steps">
+  <h2>¿Cómo funciona?</h2>
+  <div class="step">
+    <div class="step-num">1</div>
+    <div>
+      <h4>Regístrate y prueba gratis</h4>
+      <p>Creas tu cuenta con 50 movimientos gratis por 14 días. Sin tarjeta de crédito.</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div>
+      <h4>Elige tu plan</h4>
+      <p>Cuando estés listo, seleccionas el plan que se ajusta a tu volumen de transacciones.</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div>
+      <h4>Realiza tu pago</h4>
+      <p>Transfiere por Yappy o Banco y nos envías tu comprobante por WhatsApp.</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">4</div>
+    <div>
+      <h4>Activamos tu acceso</h4>
+      <p>Verificamos tu pago y activamos tu plan de inmediato. ¡Todo listo!</p>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  © 2026 Contador507 — contabilidad inteligente para Panamá 🇵🇦
+</div>
+
+<script>
+// Cargar planes desde la API
+fetch('/api/plans')
+  .then(r => r.json())
+  .then(plans => {
+    const container = document.getElementById('plans-container');
+    if (!plans.length) {
+      container.innerHTML = '<p style="text-align:center;color:var(--muted);grid-column:1/-1">Planes no disponibles</p>';
+      return;
+    }
+
+    container.innerHTML = plans.map((plan, i) => {
+      const features = JSON.parse(plan.features || '[]');
+      const isFree = plan.price === 0;
+      const isFeatured = i === 2; // Destacar el plan Pyme (índice 2)
+
+      let ctaClass, ctaText, ctaHref;
+      if (isFree) {
+        ctaClass = 'plan-cta cta-demo';
+        ctaText = 'Comenzar Ahora';
+        ctaHref = '/login.html#register';
+      } else if (i === 1) {
+        ctaClass = 'plan-cta cta-primary';
+        ctaText = 'Elegir Plan';
+        ctaHref = '/login.html#register';
+      } else {
+        ctaClass = 'plan-cta cta-primary';
+        ctaText = 'Elegir Plan';
+        ctaHref = '/login.html#register';
+      }
+
+      return `
+        <div class="plan-card ${isFeatured ? 'featured' : ''}">
+          ${isFeatured ? '<div class="plan-badge">Más Popular</div>' : ''}
+          ${isFree ? '<div class="plan-badge" style="background:var(--green)">Gratis</div>' : ''}
+          <div class="plan-name">${plan.name}</div>
+          <div class="plan-price ${isFree ? 'free' : ''}">
+            ${plan.price === 149.99 ? '<span class="currency">$</span>149<sup>.99</sup>' :
+              plan.price === 49.99 ? '<span class="currency">$</span>49<sup>.99</sup>' :
+              plan.price === 19.99 ? '<span class="currency">$</span>19<sup>.99</sup>' :
+              '<span class="currency">$</span>0'}
+            <span class="period">/mes</span>
+          </div>
+          <div class="plan-desc">${plan.description || ''}</div>
+          <ul class="plan-features">
+            ${features.map(f => `<li>${f}</li>`).join('')}
+          </ul>
+          <a href="${ctaHref}" class="${ctaClass}">${ctaText}</a>
+        </div>
+      `;
+    }).join('');
+  })
+  .catch(() => {
+    document.getElementById('plans-container').innerHTML =
+      '<p style="text-align:center;color:var(--muted);grid-column:1/-1">Error al cargar planes. Intenta de nuevo.</p>';
+  });
+</script>
+
+</body>
+</html>

@@ -16,7 +16,7 @@ accountsRouter.get('/', async (req, res) => {
 
 accountsRouter.get('/tree', async (req, res) => {
   const accounts = await req.prisma.account.findMany({
-    where: { companyId: 'demo-company', parentId: null },
+    where: { companyId: req.user!.companyId, parentId: null },
     include: { children: { include: { children: true } } },
     orderBy: { code: 'asc' },
   });
@@ -25,7 +25,7 @@ accountsRouter.get('/tree', async (req, res) => {
 
 accountsRouter.get('/:id', async (req, res) => {
   const account = await req.prisma.account.findFirst({
-    where: { id: req.params.id, companyId: 'demo-company' },
+    where: { id: req.params.id, companyId: req.user!.companyId },
     include: { children: true },
   });
   if (!account) { res.status(404).json({ error: 'Account not found' }); return; }

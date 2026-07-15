@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { validate } from '../middleware/validate';
+import { requireQuota, incrementUsage } from '../middleware/quota';
 import { createTransactionSchema } from '../validation/schemas';
 
 export const transactionsRouter = Router();
@@ -13,7 +14,7 @@ transactionsRouter.get('/', async (req, res) => {
   res.json(transactions);
 });
 
-transactionsRouter.post('/', validate(createTransactionSchema), async (req, res) => {
+transactionsRouter.post('/', requireQuota, validate(createTransactionSchema), async (req, res) => {
   const { type, amount, description, concept, paymentMethod, date, metadata } = req.body;
   const transaction = await req.prisma.transaction.create({
     data: {
@@ -28,5 +29,9 @@ transactionsRouter.post('/', validate(createTransactionSchema), async (req, res)
       createdById: req.user!.userId,
     },
   });
+
+  // Incrementar contador de uso
+  await incrementUsage(req);
+
   res.status(201).json(transaction);
 });

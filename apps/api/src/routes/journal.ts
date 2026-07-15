@@ -37,7 +37,7 @@ journalRouter.post('/:id/review', requireRole('admin', 'contador'), validate(rev
   try {
     const result = await req.prisma.$transaction(async (tx) => {
       const entry = await tx.journalEntry.findFirst({
-        where: { id: req.params.id, companyId: 'demo-company' },
+        where: { id: req.params.id, companyId: req.user!.companyId },
       });
       if (!entry) throw Object.assign(new Error('Asiento no encontrado'), { status: 404 });
 
@@ -87,7 +87,7 @@ journalRouter.post('/:id/review', requireRole('admin', 'contador'), validate(rev
 
 journalRouter.get('/', async (req, res) => {
   const { startDate, endDate, status, provider: providerFilter, page: pageStr, pageSize: pageSizeStr } = req.query;
-  const where: Record<string, unknown> = { companyId: 'demo-company' };
+  const where: Record<string, unknown> = { companyId: req.user!.companyId };
   if (status) where.status = status;
   const dateFilter = buildDateFilter(startDate as string, endDate as string);
   if (dateFilter) where.date = dateFilter;
@@ -127,7 +127,7 @@ journalRouter.get('/', async (req, res) => {
 
 journalRouter.get('/:id', async (req, res) => {
   const entry = await req.prisma.journalEntry.findFirst({
-    where: { id: req.params.id, companyId: 'demo-company' },
+    where: { id: req.params.id, companyId: req.user!.companyId },
     include: {
       lines: { include: { account: true } },
       createdBy: { select: { name: true } },
@@ -184,7 +184,7 @@ journalRouter.patch('/:id/status', validate(updateJournalStatusSchema), async (r
   };
 
   const entry = await req.prisma.journalEntry.findFirst({
-    where: { id: req.params.id, companyId: 'demo-company' },
+    where: { id: req.params.id, companyId: req.user!.companyId },
   });
   if (!entry) { res.status(404).json({ error: 'Asiento no encontrado' }); return; }
 
@@ -210,7 +210,7 @@ journalRouter.post('/:id/anular', requireRole('admin', 'contador'), async (req, 
   try {
     const result = await req.prisma.$transaction(async (tx) => {
       const original = await tx.journalEntry.findFirst({
-        where: { id: entryId, companyId: 'demo-company' },
+        where: { id: entryId, companyId: req.user!.companyId },
         include: { lines: true, transactions: true },
       });
       if (!original) throw Object.assign(new Error('Asiento no encontrado'), { status: 404 });
@@ -268,7 +268,7 @@ journalRouter.post('/:id/anular', requireRole('admin', 'contador'), async (req, 
 
 journalRouter.get('/mayor/:accountId', async (req, res) => {
   const { startDate, endDate } = req.query;
-  const journalEntry: Record<string, unknown> = { companyId: 'demo-company' };
+  const journalEntry: Record<string, unknown> = { companyId: req.user!.companyId };
   const dateFilter = buildDateFilter(startDate as string, endDate as string);
   if (dateFilter) journalEntry.date = dateFilter;
 

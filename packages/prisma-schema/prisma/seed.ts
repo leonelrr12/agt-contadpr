@@ -62,6 +62,109 @@ async function main() {
 
   console.log('Usuarios: admin@demo.com (admin), contador@demo.com (contador), asistente@demo.com (asistente) — contraseña: admin123');
 
+  // ── Planes SaaS ──
+  const plans = [
+    {
+      name: 'Demo',
+      description: 'Prueba gratuita de 14 días — descubre el poder de la contabilidad con IA',
+      monthlyLimit: 50,
+      price: 0,
+      features: JSON.stringify([
+        'Hasta 50 movimientos',
+        'Procesamiento por IA',
+        'Escáner OCR de facturas',
+        'Reportes básicos',
+        'Exportación a Excel',
+        '1 usuario',
+      ]),
+      sortOrder: 0,
+    },
+    {
+      name: 'Emprendedor',
+      description: 'Para profesionales independientes y freelancers',
+      monthlyLimit: 100,
+      price: 19.99,
+      features: JSON.stringify([
+        'Hasta 100 movimientos/mes',
+        'Procesamiento por IA',
+        'Escáner OCR de facturas',
+        'Reportes completos',
+        'Exportación a Excel',
+        '3 usuarios',
+        'Soporte por WhatsApp',
+      ]),
+      sortOrder: 1,
+    },
+    {
+      name: 'Pyme',
+      description: 'Para pequeñas y medianas empresas',
+      monthlyLimit: 500,
+      price: 49.99,
+      features: JSON.stringify([
+        'Hasta 500 movimientos/mes',
+        'Procesamiento por IA avanzado',
+        'Escáner OCR de facturas',
+        'Reportes completos',
+        'Exportación a Excel y PDF',
+        '10 usuarios',
+        'API Key para integraciones',
+        'Soporte prioritario',
+      ]),
+      sortOrder: 2,
+    },
+    {
+      name: 'Despacho',
+      description: 'Para despachos contables con múltiples clientes',
+      monthlyLimit: 2000,
+      price: 149.99,
+      features: JSON.stringify([
+        'Hasta 2,000 movimientos/mes',
+        'Procesamiento por IA avanzado',
+        'Escáner OCR de facturas',
+        'Todos los reportes',
+        'Exportación a Excel y PDF',
+        'Usuarios ilimitados',
+        'Múltiples API Keys',
+        'Soporte dedicado 24/7',
+      ]),
+      sortOrder: 3,
+    },
+  ];
+
+  for (const plan of plans) {
+    await prisma.plan.upsert({
+      where: { name: plan.name },
+      update: {
+        monthlyLimit: plan.monthlyLimit,
+        price: plan.price,
+        features: plan.features,
+        sortOrder: plan.sortOrder,
+      },
+      create: plan,
+    });
+  }
+  console.log(`Planes: ${plans.length} creados/actualizados`);
+
+  // Demo company: asignar suscripción Demo activa (14 días desde ahora)
+  const existingSub = await prisma.subscription.findFirst({
+    where: { companyId: company.id, status: 'DEMO' },
+  });
+  if (!existingSub) {
+    const demoEnd = new Date();
+    demoEnd.setDate(demoEnd.getDate() + 14);
+    await prisma.subscription.create({
+      data: {
+        companyId: company.id,
+        planId: (await prisma.plan.findUnique({ where: { name: 'Demo' } }))!.id,
+        status: 'DEMO',
+        movementsLimit: 50,
+        periodStart: new Date(),
+        periodEnd: demoEnd,
+      },
+    });
+    console.log('Suscripción Demo creada para Empresa Demo');
+  }
+
   // ⚠️ Seed NO destructivo: solo inserta si no hay cuentas para esta empresa
   const existingAccounts = await prisma.account.count({ where: { companyId: company.id } });
 

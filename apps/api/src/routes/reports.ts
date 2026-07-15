@@ -49,7 +49,7 @@ reportsRouter.get('/balance-comprobacion', async (req, res) => {
 
 reportsRouter.get('/balance-general', async (req, res) => {
   const lines = await req.prisma.journalLine.findMany({
-    where: { journalEntry: { companyId: 'demo-company', status: 'CONFIRMADO' } },
+    where: { journalEntry: { companyId: req.user!.companyId, status: 'CONFIRMADO' } },
     include: { account: true },
   });
 
@@ -144,7 +144,7 @@ reportsRouter.get('/estado-resultados', async (req, res) => {
 reportsRouter.get('/flujo-caja', async (req, res) => {
   const lines = await req.prisma.journalLine.findMany({
     where: {
-      journalEntry: { companyId: 'demo-company', status: 'CONFIRMADO' },
+      journalEntry: { companyId: req.user!.companyId, status: 'CONFIRMADO' },
       account: { code: { startsWith: '1.1.01' } },
     },
     include: { journalEntry: { select: { date: true, description: true } } },
@@ -169,7 +169,7 @@ reportsRouter.get('/flujo-caja', async (req, res) => {
 reportsRouter.get('/dashboard', async (req, res) => {
   const lines = await req.prisma.journalLine.findMany({
     where: {
-      journalEntry: { companyId: 'demo-company', status: 'CONFIRMADO' },
+      journalEntry: { companyId: req.user!.companyId, status: 'CONFIRMADO' },
       account: { type: { in: ['INGRESO', 'GASTO', 'COSTO'] } },
     },
     include: { account: true, journalEntry: { select: { date: true, description: true } } },
@@ -284,7 +284,7 @@ reportsRouter.get('/export/:type', async (req, res) => {
 
       case 'balance-general': {
         const lines = await req.prisma.journalLine.findMany({
-          where: { journalEntry: { companyId: 'demo-company', status: 'CONFIRMADO' } },
+          where: { journalEntry: { companyId: req.user!.companyId, status: 'CONFIRMADO' } },
           include: { account: true },
         });
         let totalActivos = 0, totalPasivos = 0, totalPatrimonio = 0;
@@ -361,7 +361,7 @@ reportsRouter.get('/export/:type', async (req, res) => {
       case 'flujo-caja': {
         const lines = await req.prisma.journalLine.findMany({
           where: {
-            journalEntry: { companyId: 'demo-company', status: 'CONFIRMADO' },
+            journalEntry: { companyId: req.user!.companyId, status: 'CONFIRMADO' },
             account: { code: { startsWith: '1.1.01' } },
           },
           include: { journalEntry: { select: { date: true, description: true } } },
@@ -377,7 +377,7 @@ reportsRouter.get('/export/:type', async (req, res) => {
       }
 
       case 'diario': {
-        const where: Record<string, unknown> = { companyId: 'demo-company' };
+        const where: Record<string, unknown> = { companyId: req.user!.companyId };
         const statusParam = req.query.status as string;
         if (statusParam) where.status = statusParam;
         const dateFilter = buildDateFilter(startDate as string, endDate as string);

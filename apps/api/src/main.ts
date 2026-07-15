@@ -13,6 +13,8 @@ import { ocrRouter } from './routes/ocr';
 import { facturaRouter } from './routes/factura';
 import { configRouter } from './routes/config';
 import { authRouter } from './routes/auth';
+import { adminRouter } from './routes/admin';
+import { billingRouter } from './routes/billing';
 import { requireAuth, requireRole } from './middleware/auth';
 
 const app = express();
@@ -73,6 +75,7 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 app.use('/api/auth', authRouter);
+app.use('/api', billingRouter);  // /api/plans (público), /api/subscription (auth interno)
 
 // ── Middleware de autenticación para el resto de rutas ──
 app.use('/api', requireAuth);
@@ -87,6 +90,7 @@ app.use('/api/orchestrate', orchestrateRouter);
 app.use('/api/ocr', ocrRouter);
 app.use('/api/factura', facturaRouter);
 app.use('/api/config', requireRole('admin'), configRouter);
+app.use('/api/admin', requireRole('admin'), adminRouter);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

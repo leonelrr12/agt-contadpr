@@ -19,11 +19,12 @@ model Company {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users        User[]
-  accounts     Account[]
-  concepts     Concept[]
-  transactions Transaction[]
+  users          User[]
+  accounts       Account[]
+  concepts       Concept[]
+  transactions   Transaction[]
   journalEntries JournalEntry[]
+  subscriptions  Subscription[]
 }
 
 model User {
@@ -166,6 +167,77 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
+}
+
+model Plan {
+  id            String   @id @default(cuid())
+  name          String   @unique   // "Demo", "Emprendedor", "Pyme", "Despacho"
+  description   String?           // Descripción visible en la UI
+  monthlyLimit  Int                // Movimientos por período
+  price         Float              // Precio en USD (0 = gratis/demo)
+  features      String   @default("[]") // JSON array de funcionalidades
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)    // Orden en la UI
+  createdAt     DateTime @default(now())
+
+  subscriptions Subscription[]
+  @@map("plan")
+}
+
+enum SubscriptionStatus {
+  DEMO
+  ACTIVE
+  EXPIRED
+  GRACE
+  GRANTED
+}
+
+enum PaymentMethod {
+  YAPPY
+  TRANSFERENCIA
+  EFECTIVO
+  GRANTED
+  OTHER
+}
+
+model Subscription {
+  id              String             @id @default(cuid())
+  companyId       String
+  planId          String
+  status          SubscriptionStatus @default(DEMO)
+  movementsUsed   Int                @default(0)
+  movementsLimit  Int                // Límite del período actual (puede diferir del plan)
+  periodStart     DateTime           @default(now())
+  periodEnd       DateTime
+  grantedBy       String?            // userId del admin que otorgó
+  grantedNote     String?            // Nota del admin
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  company         Company           @relation(fields: [companyId], references: [id])
+  plan            Plan              @relation(fields: [planId], references: [id])
+  payments        PaymentRecord[]
+
+  @@index([companyId])
+  @@index([status])
+  @@map("subscription")
+}
+
+model PaymentRecord {
+  id             String        @id @default(cuid())
+  subscriptionId String
+  amount         Float
+  method         PaymentMethod @default(TRANSFERENCIA)
+  reference      String?       // Número de comprobante / Yappy ID
+  receivedBy     String?       // userId del admin que confirmó
+  note           String?
+  paidAt         DateTime      @default(now())
+  createdAt      DateTime      @default(now())
+
+  subscription   Subscription  @relation(fields: [subscriptionId], references: [id])
+
+  @@index([subscriptionId])
+  @@map("payment_record")
 }
 
 model OCRExample {

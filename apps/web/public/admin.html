@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin · Contador507</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <style>
+    :root {
+      --bg: #f1f5f9; --card: #fff; --text: #1e293b; --muted: #64748b;
+      --border: #e2e8f0; --primary: #2563eb; --primary-hover: #1d4ed8;
+      --accent: #F05323; --green: #10b981; --red: #ef4444; --amber: #f59e0b;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    a { color: var(--primary); text-decoration: none; }
+
+    /* Top bar */
+    .topbar {
+      background: #0f172a; color: #fff; padding: 10px 24px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .topbar h1 { font-size: 16px; font-weight: 600; }
+    .topbar h1 span { color: var(--accent); }
+    .topbar .user-info { font-size: 13px; color: #94a3b8; }
+    .topbar .logout { color: #f87171; cursor: pointer; margin-left: 12px; font-size: 13px; }
+    .topbar .nav-links { display: flex; gap: 16px; }
+    .topbar .nav-links a { color: #94a3b8; font-size: 13px; }
+    .topbar .nav-links a:hover, .topbar .nav-links a.active { color: #fff; }
+
+    /* Layout */
+    .container { max-width: 1200px; margin: 24px auto; padding: 0 20px; }
+
+    /* Stats row */
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 24px; }
+    .stat-card {
+      background: var(--card); border-radius: 12px; padding: 20px;
+      border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .stat-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+    .stat-value { font-size: 28px; font-weight: 800; }
+    .stat-value.green { color: var(--green); }
+    .stat-value.amber { color: var(--amber); }
+    .stat-value.blue { color: var(--primary); }
+
+    /* Panels */
+    .panel {
+      background: var(--card); border-radius: 14px; border: 1px solid var(--border);
+      padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .panel h2 { font-size: 18px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+    /* Search & filter bar */
+    .toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+    .toolbar input, .toolbar select {
+      padding: 8px 14px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 14px; font-family: inherit;
+    }
+    .toolbar input { flex: 1; min-width: 200px; }
+    .btn {
+      padding: 8px 18px; border: none; border-radius: 8px; font-size: 14px;
+      font-weight: 500; cursor: pointer; font-family: inherit; transition: background 0.15s;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-sm { padding: 5px 12px; font-size: 12px; }
+    .btn-success { background: var(--green); color: #fff; }
+    .btn-success:hover { opacity: 0.9; }
+
+    /* Table */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 10px 12px; border-bottom: 2px solid var(--border); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    tr:hover td { background: #f8fafc; }
+
+    .badge {
+      display: inline-block; padding: 3px 10px; border-radius: 100px;
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+    }
+    .badge-active { background: #d1fae5; color: #065f46; }
+    .badge-demo { background: #dbeafe; color: #1e40af; }
+    .badge-expired { background: #fee2e2; color: #991b1b; }
+    .badge-granted { background: #fef3c7; color: #92400e; }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+      display: flex; align-items: center; justify-content: center; z-index: 100;
+    }
+    .modal {
+      background: var(--card); border-radius: 16px; padding: 28px; width: 90%; max-width: 520px;
+      max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    }
+    .modal h3 { font-size: 18px; font-weight: 700; margin-bottom: 16px; }
+    .modal .close {
+      float: right; background: none; border: none; font-size: 22px;
+      cursor: pointer; color: var(--muted); line-height: 1;
+    }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%; padding: 9px 14px; border: 1px solid var(--border);
+      border-radius: 8px; font-size: 14px; font-family: inherit;
+    }
+    .form-group textarea { resize: vertical; }
+
+    .hidden { display: none !important; }
+    .text-muted { color: var(--muted); font-size: 13px; }
+    .loading { text-align: center; padding: 32px; color: var(--muted); }
+  </style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <div style="display:flex;align-items:center;gap:24px">
+    <h1>Contador<span>507</span> · Admin</h1>
+    <div class="nav-links">
+      <a href="/" target="_blank">App →</a>
+      <a href="/planes.html" target="_blank">Planes →</a>
+    </div>
+  </div>
+  <div>
+    <span class="user-info" id="userInfo"></span>
+    <span class="logout" onclick="logout()">Salir</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Stats Row -->
+  <div class="stats" id="statsRow">
+    <div class="stat-card"><div class="stat-label">Empresas</div><div class="stat-value blue" id="statCompanies">—</div></div>
+    <div class="stat-card"><div class="stat-label">Suscripciones Activas</div><div class="stat-value green" id="statActive">—</div></div>
+    <div class="stat-card"><div class="stat-label">Demos por Vencer (≤3 días)</div><div class="stat-value amber" id="statDemos">—</div></div>
+    <div class="stat-card"><div class="stat-label">Ingresos (30 días)</div><div class="stat-value green" id="statRevenue">—</div></div>
+  </div>
+
+  <!-- Subscriptions Panel -->
+  <div class="panel">
+    <h2>📋 Suscripciones</h2>
+    <div class="toolbar">
+      <input type="text" id="searchInput" placeholder="Buscar empresa..." oninput="loadSubscriptions()">
+      <select id="statusFilter" onchange="loadSubscriptions()">
+        <option value="">Todos los estados</option>
+        <option value="DEMO">Demo</option>
+        <option value="ACTIVE">Activo</option>
+        <option value="EXPIRED">Expirado</option>
+        <option value="GRANTED">Otorgado</option>
+      </select>
+      <button class="btn btn-primary" onclick="showNewSubscription()">+ Nueva Suscripción</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Empresa</th><th>Plan</th><th>Estado</th>
+            <th>Uso</th><th>Inicio</th><th>Vence</th><th>Días</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="subsTable"><tr><td colspan="8" class="loading">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Recent Payments Panel -->
+  <div class="panel">
+    <h2>💳 Últimos Pagos</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Empresa</th><th>Plan</th><th>Monto</th><th>Método</th><th>Referencia</th><th>Fecha</th></tr>
+        </thead>
+        <tbody id="paymentsTable"><tr><td colspan="6" class="loading">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal: Nueva Suscripción / Registrar Pago -->
+<div class="modal-overlay hidden" id="modalOverlay">
+  <div class="modal" id="modalContent"></div>
+</div>
+
+<script>
+const API = '/api';
+
+// ── Auth ──
+function getToken() { return localStorage.getItem('agt_token'); }
+function getUser() { try { return JSON.parse(localStorage.getItem('agt_user')); } catch { return null; } }
+
+async function api(url, opts = {}) {
+  const token = getToken();
+  if (!token) { window.location = '/login.html'; return; }
+  const res = await fetch(url, {
+    ...opts,
+    headers: {
+      ...(opts.headers || {}),
+      'Authorization': `Bearer ${token}`,
+      ...(opts.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+    },
+  });
+  if (res.status === 401) { localStorage.clear(); window.location = '/login.html'; return; }
+  return res;
+}
+
+function logout() { localStorage.clear(); window.location = '/login.html'; }
+
+// ── Init ──
+const user = getUser();
+if (!user || user.role !== 'admin') {
+  document.body.innerHTML = `<div style="text-align:center;padding:80px"><h2>Acceso denegado</h2><p>Solo administradores.</p><a href="/">Volver a la app</a></div>`;
+} else {
+  document.getElementById('userInfo').textContent = `${user.name} (${user.email})`;
+  loadStats();
+  loadSubscriptions();
+  loadPayments();
+}
+
+// ── Stats ──
+async function loadStats() {
+  const res = await api(`${API}/admin/stats`);
+  if (!res) return;
+  const d = await res.json();
+  document.getElementById('statCompanies').textContent = d.totalCompanies;
+  document.getElementById('statActive').textContent = d.activeSubscriptions;
+  document.getElementById('statDemos').textContent = d.demosExpiringSoon;
+  document.getElementById('statRevenue').textContent = `$${d.revenueThisMonth.toFixed(2)}`;
+}
+
+// ── Subscriptions ──
+async function loadSubscriptions() {
+  const search = document.getElementById('searchInput').value;
+  const status = document.getElementById('statusFilter').value;
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  if (search) params.set('search', search);
+
+  const res = await api(`${API}/admin/subscriptions?${params}`);
+  if (!res) return;
+  const subs = await res.json();
+
+  const tbody = document.getElementById('subsTable');
+  if (!subs.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted)">Sin resultados</td></tr>';
+    return;
+  }
+
+  const badgeClass = { ACTIVE:'badge-active', DEMO:'badge-demo', EXPIRED:'badge-expired', GRANTED:'badge-granted', GRACE:'badge-demo' };
+  const statusLabel = { ACTIVE:'Activo', DEMO:'Demo', EXPIRED:'Expirado', GRANTED:'Otorgado', GRACE:'Gracia' };
+
+  tbody.innerHTML = subs.map(s => {
+    const end = new Date(s.periodEnd);
+    const daysLeft = Math.max(0, Math.ceil((end - Date.now()) / (1000 * 60 * 60 * 24)));
+    const start = new Date(s.periodStart).toLocaleDateString('es-PA');
+    const vence = end.toLocaleDateString('es-PA');
+    const daysColor = daysLeft <= 3 ? 'var(--red)' : daysLeft <= 7 ? 'var(--amber)' : 'var(--green)';
+
+    return `<tr>
+      <td><strong>${esc(s.company?.name || '—')}</strong><br><span class="text-muted">${esc(s.company?.taxId || '')}</span></td>
+      <td>${esc(s.plan?.name || '—')}</td>
+      <td><span class="badge ${badgeClass[s.status] || ''}">${statusLabel[s.status] || s.status}</span></td>
+      <td>${s.movementsUsed} / ${s.movementsLimit}</td>
+      <td>${start}</td>
+      <td>${vence}</td>
+      <td style="color:${daysColor};font-weight:700">${daysLeft}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-sm btn-primary" onclick="showPayment('${s.id}','${esc(s.company?.name||'')}','${esc(s.plan?.name||'')}',${s.plan?.price||0})">💰 Pago</button>
+        <button class="btn btn-sm btn-success" onclick="showGrant('${s.id}','${esc(s.company?.name||'')}')" style="margin-left:4px">🎁 Extender</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+// ── Payments ──
+async function loadPayments() {
+  const res = await api(`${API}/admin/payments`);
+  if (!res) return;
+  const payments = await res.json();
+
+  const methodLabel = { YAPPY:'📱 Yappy', TRANSFERENCIA:'🏦 Transferencia', EFECTIVO:'💵 Efectivo', GRANTED:'🎁 Otorgado', OTHER:'Otro' };
+  const tbody = document.getElementById('paymentsTable');
+  if (!payments.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">Sin pagos registrados</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = payments.slice(0, 20).map(p => `
+    <tr>
+      <td>${esc(p.subscription?.company?.name || '—')}</td>
+      <td>${esc(p.subscription?.plan?.name || '—')}</td>
+      <td><strong>$${p.amount.toFixed(2)}</strong></td>
+      <td>${methodLabel[p.method] || p.method}</td>
+      <td>${esc(p.reference || '—')}</td>
+      <td>${new Date(p.paidAt).toLocaleDateString('es-PA')}</td>
+    </tr>
+  `).join('');
+}
+
+// ── Modal: Nueva Suscripción ──
+async function showNewSubscription() {
+  const overlay = document.getElementById('modalOverlay');
+  const content = document.getElementById('modalContent');
+
+  // Obtener lista de empresas y planes
+  const [plansRes] = [await api(`${API}/admin/plans`)];
+  const plans = plansRes ? await plansRes.json() : [];
+
+  // Obtener empresas (usamos el endpoint de admin/subscriptions para inferir, o hacemos uno nuevo)
+  // Por ahora pedimos al admin que ingrese el companyId
+
+  content.innerHTML = `
+    <button class="close" onclick="closeModal()">×</button>
+    <h3>➕ Nueva Suscripción</h3>
+    <div class="form-group">
+      <label>ID de la Empresa</label>
+      <input type="text" id="newCompanyId" placeholder="Ej: cmrl1dasg0000kpo9loo4ow72">
+      <span class="text-muted">Busca el ID en la tabla de suscripciones o en la BD</span>
+    </div>
+    <div class="form-group">
+      <label>Plan</label>
+      <select id="newPlanId">
+        ${plans.map(p => `<option value="${p.id}">${p.name} — ${p.monthlyLimit} movs/mes — $${p.price}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Estado</label>
+      <select id="newStatus">
+        <option value="ACTIVE">Activo</option>
+        <option value="DEMO">Demo</option>
+        <option value="GRANTED">Otorgado (cortesía)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Límite de movimientos (opcional — usa el del plan si se deja vacío)</label>
+      <input type="number" id="newLimit" placeholder="Límite del plan por defecto">
+    </div>
+    <div class="form-group">
+      <label>Duración en días</label>
+      <input type="number" id="newDays" value="30" min="1" max="365">
+    </div>
+    <div class="form-group">
+      <label>Nota</label>
+      <textarea id="newNote" rows="2" placeholder="Ej: Cliente referido por..."></textarea>
+    </div>
+    <button class="btn btn-primary" onclick="createSubscription()" style="width:100%">Crear Suscripción</button>
+  `;
+
+  overlay.classList.remove('hidden');
+}
+
+async function createSubscription() {
+  const companyId = document.getElementById('newCompanyId').value.trim();
+  const planId = document.getElementById('newPlanId').value;
+  const status = document.getElementById('newStatus').value;
+  const limit = document.getElementById('newLimit').value;
+  const days = parseInt(document.getElementById('newDays').value) || 30;
+  const note = document.getElementById('newNote').value.trim();
+
+  if (!companyId) { alert('Ingresa el ID de la empresa'); return; }
+
+  const body = { companyId, planId, status, periodDays: days, note };
+  if (limit) body.movementsLimit = parseInt(limit);
+
+  const res = await api(`${API}/admin/subscriptions`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+  if (!res) return;
+  if (!res.ok) {
+    const e = await res.json();
+    alert(`Error: ${e.error}`);
+    return;
+  }
+
+  closeModal();
+  loadStats();
+  loadSubscriptions();
+}
+
+// ── Modal: Registrar Pago ──
+async function showPayment(subId, companyName, planName, planPrice) {
+  const overlay = document.getElementById('modalOverlay');
+  const content = document.getElementById('modalContent');
+
+  content.innerHTML = `
+    <button class="close" onclick="closeModal()">×</button>
+    <h3>💰 Registrar Pago</h3>
+    <p class="text-muted" style="margin-bottom:16px">Empresa: <strong>${esc(companyName)}</strong> — Plan: <strong>${esc(planName)}</strong></p>
+    <div class="form-group">
+      <label>Monto (USD)</label>
+      <input type="number" id="payAmount" value="${planPrice}" step="0.01" min="0">
+    </div>
+    <div class="form-group">
+      <label>Método de pago</label>
+      <select id="payMethod">
+        <option value="YAPPY">📱 Yappy</option>
+        <option value="TRANSFERENCIA" selected>🏦 Transferencia Bancaria</option>
+        <option value="EFECTIVO">💵 Efectivo</option>
+        <option value="OTHER">Otro</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Referencia / Comprobante</label>
+      <input type="text" id="payRef" placeholder="Número de Yappy o transferencia">
+    </div>
+    <div class="form-group">
+      <label>Nota</label>
+      <textarea id="payNote" rows="2" placeholder="Opcional"></textarea>
+    </div>
+    <button class="btn btn-primary" onclick="recordPayment('${subId}')" style="width:100%">
+      Registrar Pago y Renovar Suscripción
+    </button>
+  `;
+
+  overlay.classList.remove('hidden');
+}
+
+async function recordPayment(subId) {
+  const amount = parseFloat(document.getElementById('payAmount').value);
+  const method = document.getElementById('payMethod').value;
+  const reference = document.getElementById('payRef').value.trim();
+  const note = document.getElementById('payNote').value.trim();
+
+  if (!amount || amount <= 0) { alert('Ingresa un monto válido'); return; }
+
+  const res = await api(`${API}/admin/payments`, {
+    method: 'POST',
+    body: JSON.stringify({ subscriptionId: subId, amount, method, reference, note }),
+  });
+
+  if (!res) return;
+  if (!res.ok) {
+    const e = await res.json();
+    alert(`Error: ${e.error}`);
+    return;
+  }
+
+  closeModal();
+  loadStats();
+  loadSubscriptions();
+  loadPayments();
+}
+
+// ── Modal: Extender / Otorgar ──
+async function showGrant(subId, companyName) {
+  const overlay = document.getElementById('modalOverlay');
+  const content = document.getElementById('modalContent');
+
+  content.innerHTML = `
+    <button class="close" onclick="closeModal()">×</button>
+    <h3>🎁 Extender / Otorgar Acceso</h3>
+    <p class="text-muted" style="margin-bottom:16px">Empresa: <strong>${esc(companyName)}</strong></p>
+    <div class="form-group">
+      <label>Nuevo límite de movimientos</label>
+      <input type="number" id="grantLimit" value="50" min="1">
+    </div>
+    <div class="form-group">
+      <label>Extender por (días desde hoy)</label>
+      <input type="number" id="grantDays" value="30" min="1" max="365">
+    </div>
+    <div class="form-group">
+      <label>Nota</label>
+      <textarea id="grantNote" rows="2" placeholder="Ej: Demostración guiada"></textarea>
+    </div>
+    <button class="btn btn-success" onclick="doGrant('${subId}')" style="width:100%">
+      Otorgar Acceso
+    </button>
+  `;
+
+  overlay.classList.remove('hidden');
+}
+
+async function doGrant(subId) {
+  const limit = parseInt(document.getElementById('grantLimit').value) || 50;
+  const days = parseInt(document.getElementById('grantDays').value) || 30;
+  const note = document.getElementById('grantNote').value.trim();
+
+  const endDate = new Date();
+  endDate.setDate(endDate.getDate() + days);
+
+  const res = await api(`${API}/admin/subscriptions/${subId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      status: 'GRANTED',
+      movementsLimit: limit,
+      periodEnd: endDate.toISOString(),
+      note: note || 'Acceso otorgado por admin',
+    }),
+  });
+
+  if (!res) return;
+  if (!res.ok) {
+    const e = await res.json();
+    alert(`Error: ${e.error}`);
+    return;
+  }
+
+  closeModal();
+  loadStats();
+  loadSubscriptions();
+}
+
+// ── Modal helpers ──
+function closeModal() {
+  document.getElementById('modalOverlay').classList.add('hidden');
+}
+document.getElementById('modalOverlay').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeModal();
+});
+</script>
+</body>
+</html>
