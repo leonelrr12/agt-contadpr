@@ -30,7 +30,7 @@ export class OrchestratorAgent {
   constructor(config: ClassificationAgentConfig & { userId?: string }) {
     this.dialogAgent = new DialogAgent(config.deepseekApiKey);
     this.classificationAgent = new ClassificationAgent(config);
-    this.accountingAgent = new AccountingAgent(config.prisma);
+    this.accountingAgent = new AccountingAgent(config.prisma, config.companyId);
     this.prisma = config.prisma;
     this.companyId = config.companyId;
     this.userId = config.userId || 'demo-user';

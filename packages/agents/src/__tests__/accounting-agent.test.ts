@@ -26,7 +26,7 @@ function makePrismaStub() {
 
 describe('AccountingAgent', () => {
   describe('validateEntry', () => {
-    const agent = new AccountingAgent(makePrismaStub());
+    const agent = new AccountingAgent(makePrismaStub(), 'demo-company');
 
     it('accepts a balanced entry', () => {
       const result = agent.validateEntry({
@@ -58,7 +58,7 @@ describe('AccountingAgent', () => {
   });
 
   describe('generateEntry - GASTO', () => {
-    const agent = new AccountingAgent(makePrismaStub());
+    const agent = new AccountingAgent(makePrismaStub(), 'demo-company');
 
     const dialog: DialogResult = {
       type: 'GASTO',
@@ -113,7 +113,7 @@ describe('AccountingAgent', () => {
   });
 
   describe('generateEntry - VENTA', () => {
-    const agent = new AccountingAgent(makePrismaStub());
+    const agent = new AccountingAgent(makePrismaStub(), 'demo-company');
 
     const dialog: DialogResult = {
       type: 'VENTA',
@@ -159,7 +159,7 @@ describe('AccountingAgent', () => {
   });
 
   describe('generateEntry - COMPRA con ITBMS', () => {
-    const agent = new AccountingAgent(makePrismaStub());
+    const agent = new AccountingAgent(makePrismaStub(), 'demo-company');
 
     const dialog: DialogResult = {
       type: 'COMPRA',
@@ -229,7 +229,7 @@ describe('AccountingAgent', () => {
   });
 
   describe('generateEntry - VENTA con ITBMS', () => {
-    const agent = new AccountingAgent(makePrismaStub());
+    const agent = new AccountingAgent(makePrismaStub(), 'demo-company');
 
     const dialog: DialogResult = {
       type: 'VENTA',
@@ -275,7 +275,7 @@ describe('AccountingAgent', () => {
   });
 
   describe('generateEntry - PAGO_ITBMS', () => {
-    const agent = new AccountingAgent(makePrismaStub());
+    const agent = new AccountingAgent(makePrismaStub(), 'demo-company');
 
     const dialog: DialogResult = {
       type: 'PAGO_ITBMS',
@@ -314,14 +314,14 @@ describe('AccountingAgent', () => {
 
   describe('resolveAlias', () => {
     it('resolves known aliases after init', async () => {
-      const agent = new AccountingAgent(makePrismaStub());
+      const agent = new AccountingAgent(makePrismaStub(), 'demo-company');
       await agent.init();
       expect(agent.resolveAlias('caja')).toBe('caja-id');
       expect(agent.resolveAlias('clientes')).toBe('clientes-id');
     });
 
     it('throws for unknown alias', async () => {
-      const agent = new AccountingAgent(makePrismaStub());
+      const agent = new AccountingAgent(makePrismaStub(), 'demo-company');
       await agent.init();
       expect(() => agent.resolveAlias('unknown')).toThrow('Cuenta contable no encontrada');
     });

@@ -47,7 +47,7 @@ export const planRateLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.user?.companyId || req.ip || 'unknown',
+  keyGenerator: (req) => req.user?.companyId || 'unauthenticated',
   message: {
     error: 'Demasiadas solicitudes de escritura. Has excedido el límite de tu plan.',
     code: 'RATE_LIMIT_EXCEEDED',

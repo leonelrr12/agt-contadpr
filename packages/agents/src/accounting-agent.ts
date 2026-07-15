@@ -29,14 +29,19 @@ function getItbmsRate(): number {
 
 export class AccountingAgent {
   private prisma: any;
+  private companyId: string;
   private codeToId: Record<string, string> = {};
 
-  constructor(prisma: any) {
+  constructor(prisma: any, companyId: string) {
     this.prisma = prisma;
+    this.companyId = companyId;
   }
 
   async init(): Promise<void> {
-    const accounts = await this.prisma.account.findMany({ select: { code: true, id: true } });
+    const accounts = await this.prisma.account.findMany({
+      where: { companyId: this.companyId },
+      select: { code: true, id: true },
+    });
     for (const a of accounts) this.codeToId[a.code] = a.id;
   }
 
