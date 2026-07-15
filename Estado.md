@@ -1,8 +1,8 @@
 # Estado del Proyecto — Agente Contable (Panamá)
 
-**Fecha del análisis**: 2026-07-14
+**Fecha del análisis**: 2026-07-15
 **Branch**: `main` (clean)
-**Último commit**: `8302a86` — fix: diferenciar CREDITO de TARJETA_CREDITO en compras
+**Último commit**: `b180f34` — feat: Prisma Migrate — migraciones versionadas para producción
 
 ---
 
@@ -10,7 +10,36 @@
 
 El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones vía chat, procesa facturas por OCR/imagen y PDF (DGI), genera asientos contables de partida doble automáticamente, y tiene un flujo de revisión BORRADOR → CONFIRMADO/RECHAZADO. Tiene **55 tests pasando**, panel de reportes con dashboard, y corre en Docker + nginx + PM2.
 
-**Hay bugs reales y problemas de seguridad que deben atenderse antes de producción.** Las recomendaciones están ordenadas por severidad.
+### 🆕 Novedades desde el último análisis (2026-07-14 → 2026-07-15)
+
+**SaaS implementado (Fases 1-3 completadas):**
+- ✅ Planes y suscripciones: 4 planes (Demo, Emprendedor, Pyme, Despacho)
+- ✅ Panel de admin: `/admin.html` con stats, gestión de suscripciones, registro de pagos (Yappy/Transferencia)
+- ✅ API Keys: generación segura SHA-256, middleware unificado JWT + API Key
+- ✅ Control de cuotas: `requireQuota` + `incrementUsage` en asientos contables
+- ✅ Rate limiting por plan: Demo 5, Emprendedor 10, Pyme 25, Despacho 50 req/s
+- ✅ Página pública de planes: `/planes.html`
+- ✅ Gestión de API Keys: `/api-keys.html` con ejemplos cURL, JS, Zapier
+- ✅ Navegación consolidada entre todas las páginas
+- ✅ Errores amigables en `/api/orchestrate` con `friendlyError()`
+
+**Infraestructura:**
+- ✅ Backup automático diario + disaster recovery semanal (cron)
+- ✅ Prisma Migrate versionado (`prisma migrate deploy` reemplaza `prisma db push`)
+- ✅ Bug multi-tenancy corregido (13 `companyId: 'demo-company'` → `req.user!.companyId`)
+- ✅ `AccountingAgent` con filtro `companyId` (corregía error "Cuenta contable no encontrada")
+- ✅ Rate limiter corregido (sin crash IPv6, solo aplica a escrituras)
+
+**Pendiente del plan original (Plan.md):**
+
+| Fase | Estado |
+|---|---|
+| Fase 1: MVP Motor Contable | ✅ 100% completo |
+| Fase 2: Documentos y Terceros | 🟡 OCR ✅ · Bancario ❌ · Clientes ❌ · Proveedores ❌ · Export ✅ |
+| Fase 3: Módulos Avanzados | ❌ Inventario, Nómina, Impuestos, Auditor |
+| Fase 4: IA Avanzada | ❌ Predicción, Fraude, Rentabilidad |
+| Seguridad Transversal | ✅ JWT, roles, backups, logs · ❌ Cifrado en reposo |
+| DevOps | ✅ Docker, PM2, nginx · ❌ CI/CD |
 
 ---
 
