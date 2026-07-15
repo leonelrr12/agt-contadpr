@@ -1007,10 +1007,6 @@ async function confirmTransaction() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ result }),
     });
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
     if (res.ok) {
       const data = await res.json();
       const entryId = data.journalEntry.id;
