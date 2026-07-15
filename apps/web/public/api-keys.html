@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Keys · Contador507</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <style>
+    :root {
+      --bg: #f8fafc; --card: #fff; --text: #1e293b; --muted: #64748b;
+      --border: #e2e8f0; --primary: #2563eb; --primary-hover: #1d4ed8;
+      --accent: #F05323; --green: #10b981; --red: #ef4444; --amber: #f59e0b;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    a { color: var(--primary); text-decoration: none; }
+    .container { max-width: 720px; margin: 24px auto; padding: 0 20px; }
+
+    /* Header */
+    .header {
+      background: #fff; border-bottom: 1px solid var(--border); padding: 12px 24px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .logo { font-size: 22px; font-weight: 700; color: var(--primary); text-decoration: none; }
+    .logo span { color: var(--accent); }
+    .header-actions a { text-decoration: none; padding: 8px 20px; border-radius: 8px; font-weight: 500; font-size: 14px; margin-left: 8px; }
+    .btn-outline { border: 1px solid var(--border); color: var(--text); background: #fff; }
+    .btn-outline:hover { background: #f1f5f9; }
+
+    /* Panel */
+    .panel {
+      background: var(--card); border-radius: 14px; border: 1px solid var(--border);
+      padding: 28px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .panel h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    .panel .subtitle { font-size: 14px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+    .btn {
+      padding: 9px 20px; border: none; border-radius: 8px; font-size: 14px;
+      font-weight: 500; cursor: pointer; font-family: inherit; transition: background 0.15s;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-danger { background: var(--red); color: #fff; font-size: 12px; padding: 5px 12px; }
+    .btn-danger:hover { opacity: 0.85; }
+    .btn-sm { padding: 5px 12px; font-size: 12px; }
+
+    /* Key card */
+    .key-card {
+      border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px;
+      margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;
+    }
+    .key-info { flex: 1; }
+    .key-name { font-weight: 600; font-size: 15px; margin-bottom: 2px; }
+    .key-meta { font-size: 12px; color: var(--muted); }
+    .key-meta span { margin-right: 16px; }
+    .key-truncated {
+      font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px;
+      color: var(--muted); background: #f1f5f9; padding: 2px 8px; border-radius: 4px;
+    }
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 100px;
+      font-size: 10px; font-weight: 600; text-transform: uppercase;
+    }
+    .badge-active { background: #d1fae5; color: #065f46; }
+    .badge-unused { background: #f1f5f9; color: var(--muted); }
+    .badge-revoked { background: #fee2e2; color: #991b1b; }
+
+    /* New key reveal */
+    .reveal-box {
+      background: #fefce8; border: 2px solid var(--amber); border-radius: 12px;
+      padding: 20px 24px; margin: 16px 0; text-align: center;
+    }
+    .reveal-box .warning { font-size: 13px; color: #92400e; margin-bottom: 12px; font-weight: 600; }
+    .reveal-box .key-full {
+      font-family: 'SF Mono', 'Fira Code', monospace; font-size: 15px; font-weight: 700;
+      background: #fff; padding: 12px; border-radius: 8px; word-break: break-all;
+      border: 1px solid #fde68a; margin-bottom: 10px; user-select: all;
+    }
+    .btn-copy { background: var(--amber); color: #fff; font-size: 13px; }
+
+    /* Form */
+    .form-inline { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 20px; }
+    .form-inline input {
+      flex: 1; padding: 10px 14px; border: 1px solid var(--border);
+      border-radius: 8px; font-size: 14px; font-family: inherit;
+    }
+    .empty { text-align: center; padding: 32px; color: var(--muted); font-size: 14px; }
+
+    /* Usage code block */
+    .code-block {
+      background: #1e293b; color: #e2e8f0; padding: 16px 20px; border-radius: 10px;
+      font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px;
+      margin: 12px 0; overflow-x: auto; white-space: pre;
+    }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <a href="/" class="logo">Contador<span>507</span></a>
+  <div class="header-actions">
+    <a href="/" class="btn-outline">← App</a>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Generate -->
+  <div class="panel">
+    <h2>🔑 Generar API Key</h2>
+    <p class="subtitle">
+      Las API Keys permiten que servicios externos (Zapier, Make.com, tu propio sistema) se conecten a tu cuenta para crear transacciones automáticamente.
+    </p>
+    <div class="form-inline">
+      <input type="text" id="keyName" placeholder="Nombre (ej: Producción, Zapier, Make.com)" maxlength="60">
+      <button class="btn btn-primary" onclick="createKey()">Crear API Key</button>
+    </div>
+    <div id="newKeyReveal" class="hidden"></div>
+  </div>
+
+  <!-- List -->
+  <div class="panel">
+    <h2>📋 Mis API Keys</h2>
+    <div id="keysList"><div class="empty">Cargando…</div></div>
+  </div>
+
+  <!-- Usage examples -->
+  <div class="panel">
+    <h2>📖 Cómo usar tu API Key</h2>
+    <p class="subtitle">Incluye la key en el header <code>Authorization</code> de tus peticiones HTTP.</p>
+
+    <strong style="font-size:13px">cURL</strong>
+    <div class="code-block">curl -X POST https://contador507.com/api/transactions \
+  -H "Authorization: Bearer sk_live_TU_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"GASTO","amount":50,"description":"Gasolina","concept":"Combustible","date":"2026-07-15"}'</div>
+
+    <strong style="font-size:13px">JavaScript / Node.js</strong>
+    <div class="code-block">fetch('https://contador507.com/api/transactions', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer sk_live_TU_API_KEY',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    type: 'GASTO', amount: 50,
+    description: 'Gasolina', concept: 'Combustible',
+    date: '2026-07-15'
+  })
+})</div>
+
+    <strong style="font-size:13px">Zapier / Make.com</strong>
+    <div class="code-block">Header: Authorization
+Value: Bearer sk_live_TU_API_KEY
+Content-Type: application/json</div>
+  </div>
+
+</div>
+
+<script>
+const API = '/api';
+function getToken() { return localStorage.getItem('agt_token'); }
+function authFetch(url, opts = {}) {
+  const token = getToken();
+  if (!token) { window.location = '/login.html'; return Promise.reject(); }
+  return fetch(url, {
+    ...opts,
+    headers: {
+      ...(opts.headers || {}),
+      'Authorization': `Bearer ${token}`,
+      ...(opts.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+    },
+  }).then(r => { if (r.status === 401) { localStorage.clear(); window.location = '/login.html'; } return r; });
+}
+
+// Init
+if (!getToken()) { window.location = '/login.html'; } else { loadKeys(); }
+
+async function loadKeys() {
+  const res = await authFetch(`${API}/keys`);
+  if (!res) return;
+  const keys = await res.json();
+  const el = document.getElementById('keysList');
+
+  if (!keys.length) {
+    el.innerHTML = '<div class="empty">No tienes API Keys. Crea una arriba para empezar.</div>';
+    return;
+  }
+
+  el.innerHTML = keys.map(k => `
+    <div class="key-card">
+      <div class="key-info">
+        <div class="key-name">${esc(k.name)} ${k.isRevoked ? '<span class="badge badge-revoked">Revocada</span>' : k.lastUsedAt ? '<span class="badge badge-active">Activa</span>' : '<span class="badge badge-unused">Sin uso</span>'}</div>
+        <div class="key-meta">
+          <span>Key: <code class="key-truncated">${esc(k.truncated)}</code></span>
+          <span>Creada: ${new Date(k.createdAt).toLocaleDateString('es-PA')}</span>
+          ${k.lastUsedAt ? `<span>Último uso: ${new Date(k.lastUsedAt).toLocaleString('es-PA')}</span>` : ''}
+          ${k.expiresAt ? `<span>Expira: ${new Date(k.expiresAt).toLocaleDateString('es-PA')}</span>` : ''}
+        </div>
+      </div>
+      ${!k.isRevoked ? `<button class="btn btn-danger" onclick="revokeKey('${k.id}','${esc(k.name)}')">Revocar</button>` : ''}
+    </div>
+  `).join('');
+}
+
+async function createKey() {
+  const name = document.getElementById('keyName').value.trim();
+  if (!name) { alert('Ingresa un nombre para la API Key'); return; }
+
+  const res = await authFetch(`${API}/keys`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+  if (!res) return;
+
+  const data = await res.json();
+  if (!res.ok) { alert(data.error); return; }
+
+  // Mostrar la key real (solo esta vez)
+  document.getElementById('newKeyReveal').innerHTML = `
+    <div class="reveal-box">
+      <div class="warning">⚠️ Copia esta API Key ahora. <strong>No se volverá a mostrar.</strong></div>
+      <div class="key-full" id="keyFull">${data.apiKey}</div>
+      <button class="btn btn-copy" onclick="copyKey()">📋 Copiar al portapapeles</button>
+    </div>
+  `;
+  document.getElementById('newKeyReveal').classList.remove('hidden');
+  document.getElementById('keyName').value = '';
+
+  loadKeys();
+}
+
+function copyKey() {
+  const key = document.getElementById('keyFull').textContent;
+  navigator.clipboard.writeText(key).then(() => {
+    const btn = event.target;
+    btn.textContent = '✅ Copiado!';
+    setTimeout(() => btn.textContent = '📋 Copiar al portapapeles', 2000);
+  });
+}
+
+async function revokeKey(id, name) {
+  if (!confirm(`¿Revocar la API Key "${name}"?\n\nLas aplicaciones que la usen dejarán de funcionar inmediatamente.`)) return;
+
+  const res = await authFetch(`${API}/keys/${id}`, { method: 'DELETE' });
+  if (!res) return;
+  if (res.ok) { loadKeys(); }
+}
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+</body>
+</html>

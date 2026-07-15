@@ -25,6 +25,7 @@ model Company {
   transactions   Transaction[]
   journalEntries JournalEntry[]
   subscriptions  Subscription[]
+  apiKeys        ApiKey[]
 }
 
 model User {
@@ -238,6 +239,25 @@ model PaymentRecord {
 
   @@index([subscriptionId])
   @@map("payment_record")
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  companyId  String
+  name       String    // "Producción", "Test", "Zapier"
+  keyHash    String    @unique  // SHA-256 del token completo
+  prefix     String    @default("sk_live_")
+  truncated  String    // "sk_live_8f3a...9b2c" para mostrar en UI
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime?
+  isRevoked  Boolean   @default(false)
+
+  company    Company   @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@index([keyHash])
+  @@map("api_key")
 }
 
 model OCRExample {

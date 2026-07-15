@@ -261,11 +261,11 @@ const plans = [
 
 ---
 
-### Fase 2: API Keys para acceso programático
+### Fase 2: API Keys para acceso programático ✅ IMPLEMENTADO (2026-07-15)
 
-**Duración estimada:** 2 semanas
+**Duración estimada:** 2 semanas | **Duración real:** ~45 minutos
 
-#### 4.2.1 — Modelo Prisma
+#### 4.2.1 — Modelo Prisma ✅ IMPLEMENTADO
 
 ```prisma
 model ApiKey {
@@ -273,7 +273,7 @@ model ApiKey {
   companyId  String
   name       String    // "Producción", "Test", "Zapier"
   keyHash    String    @unique  // SHA-256 del token completo
-  prefix     String    // "sk_live_"
+  prefix     String    @default("sk_live_")
   truncated  String    // "sk_live_8f3a...9b2c" para mostrar
   lastUsedAt DateTime?
   createdAt  DateTime  @default(now())
@@ -284,6 +284,7 @@ model ApiKey {
 
   @@index([companyId])
   @@index([keyHash])
+  @@map("api_key")
 }
 ```
 
@@ -376,13 +377,23 @@ export async function requireAuth(req, res, next) {
 }
 ```
 
-#### 4.2.4 — Endpoints de gestión
+#### 4.2.4 — Endpoints de gestión ✅ IMPLEMENTADO
 
 ```
-GET    /api/keys          — Listar API Keys (truncadas, sin hash)
+GET    /api/keys          — Listar API Keys (truncadas, sin hash, con lastUsedAt)
 POST   /api/keys          — Generar nueva (retorna llave completa UNA VEZ)
-DELETE /api/keys/:id      — Revocar API Key
+DELETE /api/keys/:id      — Revocar API Key (soft-delete con isRevoked)
 ```
+
+#### 4.2.5 — Middleware unificado ✅ IMPLEMENTADO
+
+El middleware `requireAuth` en `middleware/auth.ts` ahora soporta dos modos:
+- **JWT** (sesión web): token de 24h — sin cambios para la app web
+- **API Key** (sk_live_...): SHA-256 hasheado, validado contra la BD, actualiza lastUsedAt
+
+#### 4.2.6 — Frontend ✅ IMPLEMENTADO
+
+- `api-keys.html` — Página completa con: crear, listar, copiar, revocar keys + ejemplos de uso (cURL, JS, Zapier)
 
 ---
 

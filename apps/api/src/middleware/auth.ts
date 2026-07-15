@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'agt-contador-dev-secret-change-in-production';
 
@@ -29,10 +30,13 @@ export function generateToken(user: AuthUser): string {
 }
 
 /**
- * Middleware que verifica el token JWT y adjunta el usuario a req.user.
- * Si no hay token, devuelve 401.
+ * Middleware que verifica:
+ * - JWT (sesión web): token de 24h
+ * - API Key (sk_live_...): acceso programático, SHA-256 hasheado
+ *
+ * Adjunta el usuario a req.user en ambos casos.
  */
-export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Token de acceso requerido. Usa Authorization: Bearer <token>' });
@@ -41,6 +45,65 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 
   const token = authHeader.slice(7);
 
+  // ── Modo 1: API Key (prefijo "sk_live_") ──
+  if (token.startsWith('sk_live_')) {
+    try {
+      const keyHash = crypto.createHash('sha256').update(token).digest('hex');
+
+      const apiKey = await req.prisma.apiKey.findUnique({
+        where: { keyHash },
+        include: {
+          company: {
+            select: {
+              id: true,
+              name: true,
+              users: {
+                where: { role: 'admin' },
+                select: { id: true, email: true, name: true, role: true },
+                take: 1,
+              },
+            },
+          },
+        },
+      });
+
+      // Key no existe o está revocada
+      if (!apiKey || apiKey.isRevoked) {
+        res.status(401).json({ error: 'API Key inválida o revocada.' });
+        return;
+      }
+
+      // Key expirada
+      if (apiKey.expiresAt && apiKey.expiresAt < new Date()) {
+        res.status(401).json({ error: 'API Key expirada.' });
+        return;
+      }
+
+      // Actualizar lastUsedAt (asíncrono, no bloquea la respuesta)
+      req.prisma.apiKey.update({
+        where: { id: apiKey.id },
+        data: { lastUsedAt: new Date() },
+      }).catch(() => {});
+
+      // Construir req.user desde la empresa asociada
+      const adminUser = apiKey.company.users[0];
+      req.user = {
+        userId: adminUser?.id || '',
+        companyId: apiKey.companyId,
+        role: adminUser?.role || 'admin',
+        name: `[API] ${apiKey.company.name}`,
+        email: adminUser?.email || '',
+      };
+
+      next();
+      return;
+    } catch (err: any) {
+      res.status(500).json({ error: 'Error al validar API Key.' });
+      return;
+    }
+  }
+
+  // ── Modo 2: JWT (sesión web) ──
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
     req.user = decoded;
