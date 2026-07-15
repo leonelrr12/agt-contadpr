@@ -159,8 +159,86 @@ export class OrchestratorAgent {
   }
 
   /**
+   * Normaliza un nombre para comparación difusa:
+   * - Elimina sufijos legales (S A, S.A., SA, S DE R L, etc.)
+   * - Elimina puntuación y colapsa espacios
+   */
+  private normalizeName(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/\./g, ' ')                         // S.A. → S A
+      .replace(/\bs\s*a\b/g, '')                   // S A → ''
+      .replace(/\bsa\b/g, '')                      // SA → ''
+      .replace(/\bs\s*de\s*r\s*l\b/g, '')          // S DE R L → ''
+      .replace(/\bc\s*por\s*a\b/g, '')             // C POR A → ''
+      .replace(/\binc\b/g, '')                     // Inc → ''
+      .replace(/\bltda\b/g, '')                    // Ltda → ''
+      .replace(/\bcorp\b/g, '')                    // Corp → ''
+      .replace(/\bco\b/g, '')                      // Co → ''
+      .replace(/[,;]/g, ' ')                       // puntuación → espacio
+      .replace(/\s+/g, ' ')                        // colapsar espacios
+      .trim();
+  }
+
+  /**
+   * Busca un cliente existente por nombre normalizado.
+   */
+  private async findClientByName(name: string): Promise<any> {
+    // 1. Coincidencia exacta case-insensitive
+    let match = await this.prisma.client.findFirst({
+      where: { companyId: this.companyId, name: { equals: name, mode: 'insensitive' } },
+    });
+    if (match) return match;
+
+    // 2. Coincidencia parcial: el nombre normalizado contiene o es contenido
+    const normalized = this.normalizeName(name);
+    if (normalized.length < 3) return null;
+
+    const clients = await this.prisma.client.findMany({
+      where: { companyId: this.companyId },
+      select: { id: true, name: true },
+    });
+
+    for (const c of clients) {
+      const cNorm = this.normalizeName(c.name);
+      if (cNorm === normalized || cNorm.includes(normalized) || normalized.includes(cNorm)) {
+        return c;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Busca un proveedor existente por nombre normalizado.
+   */
+  private async findSupplierByName(name: string): Promise<any> {
+    let match = await this.prisma.supplier.findFirst({
+      where: { companyId: this.companyId, name: { equals: name, mode: 'insensitive' } },
+    });
+    if (match) return match;
+
+    const normalized = this.normalizeName(name);
+    if (normalized.length < 3) return null;
+
+    const suppliers = await this.prisma.supplier.findMany({
+      where: { companyId: this.companyId },
+      select: { id: true, name: true },
+    });
+
+    for (const c of suppliers) {
+      const cNorm = this.normalizeName(c.name);
+      if (cNorm === normalized || cNorm.includes(normalized) || normalized.includes(cNorm)) {
+        return c;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Auto-crea un Client o Supplier según el tipo de transacción.
-   * Si ya existe, lo reutiliza. Crea la factura/cuenta por pagar automáticamente.
+   * Si ya existe (incluso con nombre similar), lo reutiliza.
    */
   private async autoCreateEntity(dialog: any, journalEntryId: string): Promise<{ type: string; name: string } | null> {
     const name = dialog.provider?.trim();
@@ -172,9 +250,7 @@ export class OrchestratorAgent {
 
     try {
       if (isCustomer) {
-        let client = await this.prisma.client.findFirst({
-          where: { companyId: this.companyId, name: { equals: name, mode: 'insensitive' } },
-        });
+        let client = await this.findClientByName(name);
         const isNew = !client;
         if (!client) {
           client = await this.prisma.client.create({
@@ -199,9 +275,7 @@ export class OrchestratorAgent {
         }
         return { type: isNew ? 'cliente_nuevo' : isPayment ? 'cliente_abono' : 'cliente_existente', name };
       } else if (isSupplier) {
-        let supplier = await this.prisma.supplier.findFirst({
-          where: { companyId: this.companyId, name: { equals: name, mode: 'insensitive' } },
-        });
+        let supplier = await this.findSupplierByName(name);
         const isNew = !supplier;
         if (!supplier) {
           supplier = await this.prisma.supplier.create({
