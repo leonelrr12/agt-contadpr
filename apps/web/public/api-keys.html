@@ -93,14 +93,26 @@
       margin: 12px 0; overflow-x: auto; white-space: pre;
     }
     .hidden { display: none !important; }
+    /* Nav */
+    .nav-links { display: flex; gap: 16px; }
+    .nav-links a { color: #64748b; font-size: 14px; font-weight: 500; text-decoration: none; padding: 4px 0; border-bottom: 2px solid transparent; }
+    .nav-links a:hover, .nav-links a.active { color: #1e293b; border-bottom-color: var(--primary); }
   </style>
 </head>
 <body>
 
 <div class="header">
-  <a href="/" class="logo">Contador<span>507</span></a>
+  <div style="display:flex;align-items:center;gap:24px">
+    <a href="/" class="logo">Contador<span>507</span></a>
+    <div class="nav-links">
+      <a href="/">App</a>
+      <a href="/planes.html">Planes</a>
+      <a href="/api-keys.html" class="active">API Keys</a>
+    </div>
+  </div>
   <div class="header-actions">
-    <a href="/" class="btn-outline">← App</a>
+    <span id="userInfo" style="font-size:13px;color:var(--muted)"></span>
+    <a href="#" onclick="logout()" class="btn-outline" style="margin-left:8px">Salir</a>
   </div>
 </div>
 
@@ -175,7 +187,12 @@ function authFetch(url, opts = {}) {
 }
 
 // Init
-if (!getToken()) { window.location = '/login.html'; } else { loadKeys(); }
+function getUser() { try { return JSON.parse(localStorage.getItem('agt_user')); } catch { return null; } }
+if (!getToken()) { window.location = '/login.html'; } else {
+  const u = getUser();
+  if (u) document.getElementById('userInfo').textContent = `${u.name}`;
+  loadKeys();
+}
 
 async function loadKeys() {
   const res = await authFetch(`${API}/keys`);

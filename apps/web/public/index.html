@@ -40,6 +40,23 @@
         <div style="font-size:12px;color:#6b7280;margin-top:2px" id="sidebar-user-company">—</div>
         <button onclick="logout()" class="sidebar-logout-btn">🚪 Cerrar sesión</button>
       </div>
+      <!-- Indicador de suscripción -->
+      <div id="sidebar-subscription" style="display:none;padding:8px 14px;background:#f0f9ff;border-bottom:1px solid #bae6fd;margin-bottom:4px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:12px;font-weight:600;color:#0369a1" id="sub-plan-name"></span>
+          <a href="/planes.html" style="font-size:11px;color:#0284c7;text-decoration:none;font-weight:600">Planes →</a>
+        </div>
+        <div style="background:#e0f2fe;border-radius:6px;height:6px;overflow:hidden;margin:4px 0">
+          <div id="sub-progress-bar" style="background:#0284c7;height:100%;border-radius:6px;transition:width 0.3s;width:0%"></div>
+        </div>
+        <div style="font-size:10px;color:#0369a1;display:flex;justify-content:space-between">
+          <span id="sub-usage-text"></span>
+          <span id="sub-days-text"></span>
+        </div>
+        <div style="margin-top:4px">
+          <a href="/api-keys.html" style="font-size:11px;color:#6366f1;text-decoration:none;font-weight:500">🔑 API Keys</a>
+        </div>
+      </div>
       <nav id="sidebar-nav">
         <button class="nav-link active" data-view="chat">💬 Chat</button>
         <div class="nav-section-label">Reportes</div>

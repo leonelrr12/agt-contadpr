@@ -257,7 +257,10 @@ const plans = [
 #### 4.1.6 — Páginas de frontend ✅ IMPLEMENTADO
 
 - `planes.html` — Grid de 4 tarjetas (Demo, Emprendedor, Pyme, Despacho) con features, precio, instrucciones de pago Yappy/Transferencia
-- Endpoint `/api/subscription` integrado en el backend para mostrar estado en el dashboard
+- `admin.html` — Dashboard de admin integrado con navegación unificada (App | Admin | API Keys | Planes)
+- `api-keys.html` — Gestión de API Keys con navegación unificada (App | Planes | API Keys)
+- `index.html` — Indicador de suscripción en sidebar (plan, % usado, días restantes, link a API Keys)
+- Navegación consolidada entre todas las páginas del ecosistema SaaS
 
 ---
 

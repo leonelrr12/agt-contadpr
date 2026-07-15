@@ -24,6 +24,38 @@ function authFetch(url, options = {}) {
 // Check auth on load
 if (!getToken()) { window.location.href = '/login.html'; }
 
+// ── Subscription Info ──
+async function loadSubscriptionInfo() {
+  try {
+    const res = await authFetch(`${API_URL}/subscription`);
+    if (!res || !res.ok) return;
+    const data = await res.json();
+    const sub = data.subscription;
+    if (!sub) return;
+
+    // Mostrar el indicador
+    const el = document.getElementById('sidebar-subscription');
+    if (el) el.style.display = 'block';
+    const planName = document.getElementById('sub-plan-name');
+    if (planName) planName.textContent = `⚡ ${sub.plan}${sub.status === 'DEMO' ? ' (Demo)' : ''}`;
+    const progressBar = document.getElementById('sub-progress-bar');
+    if (progressBar) progressBar.style.width = `${Math.min(100, sub.usagePercent)}%`;
+    const usageText = document.getElementById('sub-usage-text');
+    if (usageText) usageText.textContent = `${sub.movementsUsed}/${sub.movementsLimit} movs`;
+    const daysText = document.getElementById('sub-days-text');
+    if (daysText) {
+      if (sub.daysLeft <= 3) {
+        daysText.textContent = `⚠️ ${sub.daysLeft} días`;
+        daysText.style.color = '#dc2626';
+      } else {
+        daysText.textContent = `${sub.daysLeft} días`;
+      }
+    }
+  } catch (e) {
+    // Silencioso: si falla, simplemente no muestra el indicador
+  }
+}
+
 let pendingResult = null;
 let currentInput = '';
 let dialogContext = null;
@@ -1851,6 +1883,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('sidebar-user-name').textContent = user.name;
     document.getElementById('sidebar-user-company').textContent = user.company?.name || '';
   }
+
+  // Cargar info de suscripción
+  loadSubscriptionInfo();
 
   addMessage('¡Buenos días! Soy tu agente contable. ¿Qué deseas registrar hoy?', 'assistant');
   addMessage('Puedes escribir algo como:\n• "Compré combustible por $40 con tarjeta"\n• "Vendí $250 en efectivo"\n• "Pagué la electricidad"\n• "Compra de mercancía por $100 con ITBMS a Distribuidora XYZ, crédito"\n• "Vendí $200 en efectivo con ITBMS"\n• "Pago de ITBMS por $150"', 'assistant');
