@@ -614,11 +614,12 @@ function showEntityMatchSelector(data) {
 }
 
 async function selectEntityMatch(entityId, entityType) {
-  // Si es nuevo, entityId es null — el backend lo creará automáticamente
+  // Guardar en dialogContext para que sobreviva al round-trip del método de pago
+  if (!dialogContext) dialogContext = {};
   if (entityId && entityType !== 'nuevo') {
-    // Agregar el ID seleccionado al result para que confirm lo use
-    if (!pendingResult) pendingResult = {};
-    pendingResult.selectedEntityId = entityId;
+    dialogContext.selectedEntityId = entityId;
+  } else {
+    dialogContext.selectedEntityId = null; // crear nuevo
   }
 
   addMessage(`✅ Seleccionaste: ${entityType === 'nuevo' ? 'Crear nuevo' : 'Entidad existente'}`, 'user-message');
@@ -758,7 +759,12 @@ async function sendMessage() {
       showConfirmationModal(data);
       cancelInput();
     } else if (data.prompt) {
+      // Preservar selectedEntityId si ya fue elegido
+      const prevSelectedId = dialogContext?.selectedEntityId;
       dialogContext = data.plan?.dialog || null;
+      if (prevSelectedId && dialogContext) {
+        dialogContext.selectedEntityId = prevSelectedId;
+      }
       const missing = data.plan?.dialog?.missingFields || [];
       if (missing.includes('paymentMethod')) {
         showPaymentMethodSelector();
@@ -992,11 +998,15 @@ async function confirmTransaction() {
   addMessage('✅ Transacción confirmada. Registrando...', 'assistant');
 
   try {
-    const body = { result };
-    if (pendingResult?.selectedEntityId) {
-      result.selectedEntityId = pendingResult.selectedEntityId;
+    // Si el usuario seleccionó una entidad existente, pasar el ID
+    if (dialogContext?.selectedEntityId) {
+      result.selectedEntityId = dialogContext.selectedEntityId;
     }
     const res = await authFetch(`${API_URL}/orchestrate/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ result }),
+    });
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
