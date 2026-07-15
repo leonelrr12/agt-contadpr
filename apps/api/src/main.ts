@@ -16,6 +16,7 @@ import { authRouter } from './routes/auth';
 import { adminRouter } from './routes/admin';
 import { apiKeysRouter } from './routes/api-keys';
 import { billingRouter } from './routes/billing';
+import { planRateLimiter } from './middleware/plan-rate-limit';
 import { requireAuth, requireRole } from './middleware/auth';
 
 const app = express();
@@ -80,6 +81,9 @@ app.use('/api', billingRouter);  // /api/plans (público), /api/subscription (au
 
 // ── Middleware de autenticación para el resto de rutas ──
 app.use('/api', requireAuth);
+
+// ── Rate limiting por plan (después de auth, aplica a todas las rutas protegidas) ──
+app.use('/api', planRateLimiter);
 
 // ── Rutas protegidas ──
 app.use('/api/accounts', accountsRouter);

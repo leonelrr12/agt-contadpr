@@ -397,9 +397,9 @@ El middleware `requireAuth` en `middleware/auth.ts` ahora soporta dos modos:
 
 ---
 
-### Fase 3: Control de Cuotas y Rate Limiting por Plan
+### Fase 3: Control de Cuotas y Rate Limiting por Plan ✅ IMPLEMENTADO (2026-07-15)
 
-**Duración estimada:** 1-2 semanas
+**Duración estimada:** 1-2 semanas | **Duración real:** ~30 minutos
 
 #### 4.3.1 — Middleware de cuota
 
@@ -468,15 +468,23 @@ await req.prisma.usage.upsert({
 });
 ```
 
-#### 4.3.3 — Rate limiting por plan
+#### 4.3.3 — Rate limiting por plan ✅ IMPLEMENTADO
 
-```typescript
-// Modificar apps/api/src/main.ts
-const planRateLimits: Record<string, number> = {
-  'Emprendedor': 5,   // 5 req/s
-  'Pyme': 15,         // 15 req/s
-  'Despacho': 30,     // 30 req/s
-};
+Middleware `planRateLimiter` en `middleware/plan-rate-limit.ts`:
+- Demo / sin plan: 3 req/s
+- Emprendedor: 5 req/s
+- Pyme: 15 req/s
+- Despacho: 30 req/s
+- Aplicado a todas las rutas protegidas después de auth
+- Key: companyId (no IP), permite uso justo entre usuarios de la misma red
+
+#### 4.3.4 — Endpoint de uso detallado ✅ IMPLEMENTADO
+
+`GET /api/subscription` ahora incluye:
+- `usagePercent`: porcentaje de cuota consumida
+- `daysLeft` / `daysTotal`: días restantes en el período
+- `dailyUsage`: desglose diario de movimientos
+- `rateLimit`: límite de requests/segundo del plan
 
 // Middleware dinámico que ajusta el límite según el plan
 app.use('/api/', async (req, res, next) => {
