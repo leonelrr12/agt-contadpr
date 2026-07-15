@@ -104,6 +104,7 @@ export const orchestrateConfirmSchema = z.object({
       description: z.string(),
     }),
     classification: z.record(z.string(), z.unknown()).optional(),
+    selectedEntityId: z.string().optional(),
   }),
 });
 
