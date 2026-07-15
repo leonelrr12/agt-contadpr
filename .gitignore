@@ -10,4 +10,5 @@ test-body.json
 .turbo
 claude.sh
 .claude/
+backups/
 
