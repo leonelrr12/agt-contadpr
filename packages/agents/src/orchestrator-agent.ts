@@ -72,6 +72,19 @@ export class OrchestratorAgent {
       };
     }
 
+    // Buscar coincidencias de proveedor/cliente antes de generar el asiento
+    if (dialog.provider) {
+      const matches = await this.findEntityMatches(dialog.provider);
+      if (matches.length > 0) {
+        return {
+          plan,
+          entityMatches: matches,
+          prompt: `Encontré estas coincidencias para "${dialog.provider}". ¿Cuál es?`,
+          needsConfirmation: false,
+        };
+      }
+    }
+
     await this.accountingAgent.init();
     const raw = this.accountingAgent.generateEntry(dialog, classification);
     const entry: AccountingEntry = {
@@ -118,7 +131,7 @@ export class OrchestratorAgent {
   }
 
   async confirm(result: any): Promise<{ journalEntry: any }> {
-    const { dialog, entry } = result;
+    const { dialog, entry, selectedEntityId } = result;
     const entryData = await this.prisma.journalEntry.create({
       data: {
         date: new Date(dialog.date),
@@ -152,10 +165,49 @@ export class OrchestratorAgent {
     // ── Auto-crear cliente o proveedor si aplica ──
     let autoCreated: { type: string; name: string } | null = null;
     if (dialog.provider) {
-      autoCreated = await this.autoCreateEntity(dialog, entryData.id);
+      autoCreated = await this.autoCreateEntity(dialog, entryData.id, result.selectedEntityId);
     }
 
     return { journalEntry: entryData, autoCreated };
+  }
+
+  /**
+   * Busca coincidencias de un nombre en clientes y proveedores existentes.
+   * Retorna una lista para que el usuario elija, con opción de crear nuevo.
+   */
+  private async findEntityMatches(name: string): Promise<any[]> {
+    const normalized = this.normalizeName(name);
+    if (normalized.length < 3) return [];
+
+    const matches: any[] = [];
+
+    // Buscar clientes
+    const clients = await this.prisma.client.findMany({
+      where: { companyId: this.companyId },
+      select: { id: true, name: true },
+    });
+    for (const c of clients) {
+      const cNorm = this.normalizeName(c.name);
+      if (cNorm === normalized || cNorm.includes(normalized) || normalized.includes(cNorm)) {
+        matches.push({ id: c.id, name: c.name, type: 'cliente' });
+      }
+    }
+
+    // Buscar proveedores
+    const suppliers = await this.prisma.supplier.findMany({
+      where: { companyId: this.companyId },
+      select: { id: true, name: true },
+    });
+    for (const s of suppliers) {
+      const sNorm = this.normalizeName(s.name);
+      if (sNorm === normalized || sNorm.includes(normalized) || normalized.includes(sNorm)) {
+        if (!matches.find(m => m.id === s.id)) {
+          matches.push({ id: s.id, name: s.name, type: 'proveedor' });
+        }
+      }
+    }
+
+    return matches;
   }
 
   /**
@@ -240,7 +292,7 @@ export class OrchestratorAgent {
    * Auto-crea un Client o Supplier según el tipo de transacción.
    * Si ya existe (incluso con nombre similar), lo reutiliza.
    */
-  private async autoCreateEntity(dialog: any, journalEntryId: string): Promise<{ type: string; name: string } | null> {
+  private async autoCreateEntity(dialog: any, journalEntryId: string, selectedEntityId?: string): Promise<{ type: string; name: string } | null> {
     const name = dialog.provider?.trim();
     if (!name) return null;
 
@@ -250,7 +302,10 @@ export class OrchestratorAgent {
 
     try {
       if (isCustomer) {
-        let client = await this.findClientByName(name);
+        // Si el usuario seleccionó una entidad existente, usarla directamente
+        let client = selectedEntityId
+          ? await this.prisma.client.findFirst({ where: { id: selectedEntityId, companyId: this.companyId } })
+          : await this.findClientByName(name);
         const isNew = !client;
         if (!client) {
           client = await this.prisma.client.create({
@@ -275,7 +330,9 @@ export class OrchestratorAgent {
         }
         return { type: isNew ? 'cliente_nuevo' : isPayment ? 'cliente_abono' : 'cliente_existente', name };
       } else if (isSupplier) {
-        let supplier = await this.findSupplierByName(name);
+        let supplier = selectedEntityId
+          ? await this.prisma.supplier.findFirst({ where: { id: selectedEntityId, companyId: this.companyId } })
+          : await this.findSupplierByName(name);
         const isNew = !supplier;
         if (!supplier) {
           supplier = await this.prisma.supplier.create({

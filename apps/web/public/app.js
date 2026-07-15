@@ -590,6 +590,48 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+function showEntityMatchSelector(data) {
+  const matches = data.entityMatches;
+  const providerName = data.plan?.dialog?.provider || '';
+  const dialogData = data.plan?.dialog || {};
+
+  let html = `<div class="classification-box"><strong>🔍 Coincidencias para "${providerName}":</strong><br><br>`;
+
+  for (const m of matches) {
+    const icon = m.type === 'cliente' ? '👤' : '🏭';
+    const label = m.type === 'cliente' ? 'Cliente' : 'Proveedor';
+    html += `<button class="quick-btn" onclick="selectEntityMatch('${m.id}','${m.type}')" style="width:100%;text-align:left;margin-bottom:4px">${icon} ${m.name} <span style="color:#6b7280;font-size:12px">(${label} existente)</span></button>`;
+  }
+
+  // Opción de crear nuevo
+  html += `<button class="quick-btn" onclick="selectEntityMatch(null,'nuevo')" style="width:100%;text-align:left;margin-top:8px;border:2px dashed #d0d5dd">✨ Crear nuevo: "${providerName}"</button>`;
+  html += '</div>';
+
+  addMessage(html, 'assistant-html');
+  // Guardar para usar en confirm
+  pendingResult = data.result;
+  dialogContext = dialogData;
+}
+
+async function selectEntityMatch(entityId, entityType) {
+  // Si es nuevo, entityId es null — el backend lo creará automáticamente
+  if (entityId && entityType !== 'nuevo') {
+    // Agregar el ID seleccionado al result para que confirm lo use
+    if (!pendingResult) pendingResult = {};
+    pendingResult.selectedEntityId = entityId;
+  }
+
+  addMessage(`✅ Seleccionaste: ${entityType === 'nuevo' ? 'Crear nuevo' : 'Entidad existente'}`, 'user-message');
+
+  // Proceder a pedir método de pago o confirmar
+  const missing = dialogContext?.missingFields || [];
+  if (missing.includes('paymentMethod') || !dialogContext?.paymentMethod) {
+    showPaymentMethodSelector();
+  } else {
+    await confirmTransaction();
+  }
+}
+
 function showPaymentMethodSelector() {
   // Mostrar opciones según el tipo de transacción (venta vs gasto)
   const isVenta = dialogContext?.type === 'VENTA' || dialogContext?.type === 'COBRO_CLIENTE';
@@ -706,7 +748,11 @@ async function sendMessage() {
       return;
     }
 
-    if (data.needsConfirmation) {
+    if (data.entityMatches && data.entityMatches.length > 0) {
+      // Mostrar selector de coincidencias de cliente/proveedor
+      showEntityMatchSelector(data);
+      cancelInput();
+    } else if (data.needsConfirmation) {
       dialogContext = null;
       pendingResult = data.result;
       showConfirmationModal(data);
@@ -946,10 +992,14 @@ async function confirmTransaction() {
   addMessage('✅ Transacción confirmada. Registrando...', 'assistant');
 
   try {
+    const body = { result };
+    if (pendingResult?.selectedEntityId) {
+      result.selectedEntityId = pendingResult.selectedEntityId;
+    }
     const res = await authFetch(`${API_URL}/orchestrate/confirm`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ result }),
+      body: JSON.stringify(body),
     });
     if (res.ok) {
       const data = await res.json();
