@@ -64,7 +64,7 @@ billingRouter.get('/subscription', requireAuth, async (req, res) => {
     daysLeft: Math.max(0, Math.ceil((new Date(subscription.periodEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24))),
     daysTotal: Math.ceil((new Date(subscription.periodEnd).getTime() - new Date(subscription.periodStart).getTime()) / (1000 * 60 * 60 * 24)),
     dailyUsage: dailyUsage.map(d => ({ date: d.date.toISOString().split('T')[0], count: d._count.id })),
-    rateLimit: { Demo: 3, Emprendedor: 5, Pyme: 15, Despacho: 30 }[subscription.plan.name] || 3,
+    rateLimit: { Demo: 5, Emprendedor: 10, Pyme: 25, Despacho: 50 }[subscription.plan.name] || 5,
   };
 
   res.json({ subscription: info });
