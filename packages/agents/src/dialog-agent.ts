@@ -163,25 +163,39 @@ export class DialogAgent {
     const missingFields: string[] = [];
 
     if (prev) {
-      if (extracted.missingFields.includes('type') && prev.type) {
-        type = prev.type;
-      }
-      const conceptUnset = extracted.missingFields.includes('concept') || extracted.missingFields.includes('concept_category');
-      const noKeywordMatch = extracted.missingFields.includes('type');
-      if ((conceptUnset || noKeywordMatch) && prev.concept) {
-        concept = prev.concept;
-      }
-      if (extracted.amount === 0 && prev.amount && prev.amount > 0) {
-        amount = prev.amount;
+      // Si es una respuesta corta de follow-up (método de pago), preservar TODO del contexto
+      const inputLower = input.toLowerCase().trim();
+      const isFollowUp = ['crédito','credito','efectivo','cash','tarjeta','tarjeta de crédito','tarjeta de debito','tarjeta crédito','tarjeta débito','transferencia','banco','cheque','yappy'].includes(inputLower);
+
+      if (isFollowUp) {
+        // Preservar completamente el tipo, concepto, monto y proveedor del contexto
+        type = prev.type || type;
+        concept = prev.concept || concept;
+        amount = prev.amount || amount;
+        provider = prev.provider || provider;
+        itbms = prev.itbms || itbms;
+      } else {
+        // Merge normal: solo rellenar lo que falta
+        if (extracted.missingFields.includes('type') && prev.type) {
+          type = prev.type;
+        }
+        const conceptUnset = extracted.missingFields.includes('concept') || extracted.missingFields.includes('concept_category');
+        const noKeywordMatch = extracted.missingFields.includes('type');
+        if ((conceptUnset || noKeywordMatch) && prev.concept) {
+          concept = prev.concept;
+        }
+        if (extracted.amount === 0 && prev.amount && prev.amount > 0) {
+          amount = prev.amount;
+        }
+        if (!extracted.itbms && prev.itbms) {
+          itbms = prev.itbms;
+        }
+        if (!extracted.provider && prev.provider) {
+          provider = prev.provider;
+        }
       }
       if (prev?.paymentMethod) {
         paymentMethod = prev.paymentMethod;
-      }
-      if (!extracted.itbms && prev.itbms) {
-        itbms = prev.itbms;
-      }
-      if (!extracted.provider && prev.provider) {
-        provider = prev.provider;
       }
     }
 
