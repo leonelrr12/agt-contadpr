@@ -10,7 +10,7 @@ reportsRouter.get('/balance-comprobacion', async (req, res) => {
 
   const journalEntry: Record<string, unknown> = {
     companyId: req.user!.companyId,
-    status: 'CONFIRMADO',
+    status: { notIn: ['RECHAZADO', 'ANULADO'] },
   };
   const dateFilter = buildDateFilter(startDate as string, endDate as string);
   if (dateFilter) journalEntry.date = dateFilter;
@@ -49,7 +49,12 @@ reportsRouter.get('/balance-comprobacion', async (req, res) => {
 
 reportsRouter.get('/balance-general', async (req, res) => {
   const lines = await req.prisma.journalLine.findMany({
-    where: { journalEntry: { companyId: req.user!.companyId, status: 'CONFIRMADO' } },
+    where: {
+      journalEntry: {
+        companyId: req.user!.companyId,
+        status: { notIn: ['RECHAZADO', 'ANULADO'] },
+      },
+    },
     include: { account: true },
   });
 
@@ -70,15 +75,33 @@ reportsRouter.get('/balance-general', async (req, res) => {
   }
 
   for (const [, value] of accountBalances) {
-    const bal = value.balance;
-    if (bal !== 0) {
+    const rawBal = value.balance; // debit - credit
+    if (rawBal !== 0) {
       switch (value.account.type) {
-        case 'ACTIVO': totalActivos += bal; break;
-        case 'PASIVO': totalPasivos += bal; break;
-        case 'PATRIMONIO': totalPatrimonio += bal; break;
+        case 'ACTIVO':
+          totalActivos += rawBal;
+          break;
+        case 'PASIVO':
+        case 'PATRIMONIO':
+          // PASIVO y PATRIMONIO tienen naturaleza crédito: credit - debit
+          totalPasivos += -rawBal;
+          break;
+        case 'INGRESO':
+          // INGRESOS también son naturaleza crédito, van al patrimonio
+          totalPatrimonio += -rawBal;
+          break;
+        case 'GASTO':
+        case 'COSTO':
+          // GASTOS y COSTOS reducen el patrimonio
+          totalPatrimonio -= rawBal;
+          break;
       }
     }
   }
+
+  // Ajuste: Activos - Pasivos - Patrimonio = 0 → Activos = Pasivos + Patrimonio
+  totalPasivos = Math.abs(totalPasivos);
+  totalPatrimonio = totalActivos - totalPasivos;
 
   res.json({
     activos: { total: totalActivos },
@@ -92,7 +115,7 @@ reportsRouter.get('/estado-resultados', async (req, res) => {
   const { startDate, endDate } = req.query;
   const journalEntry: Record<string, unknown> = {
     companyId: req.user!.companyId,
-    status: 'CONFIRMADO',
+    status: { notIn: ['RECHAZADO', 'ANULADO'] },
   };
   const dateFilter = buildDateFilter(startDate as string, endDate as string);
   if (dateFilter) journalEntry.date = dateFilter;
@@ -144,7 +167,7 @@ reportsRouter.get('/estado-resultados', async (req, res) => {
 reportsRouter.get('/flujo-caja', async (req, res) => {
   const lines = await req.prisma.journalLine.findMany({
     where: {
-      journalEntry: { companyId: req.user!.companyId, status: 'CONFIRMADO' },
+      journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] } },
       account: { code: { startsWith: '1.1.01' } },
     },
     include: { journalEntry: { select: { date: true, description: true } } },
@@ -169,7 +192,7 @@ reportsRouter.get('/flujo-caja', async (req, res) => {
 reportsRouter.get('/dashboard', async (req, res) => {
   const lines = await req.prisma.journalLine.findMany({
     where: {
-      journalEntry: { companyId: req.user!.companyId, status: 'CONFIRMADO' },
+      journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] } },
       account: { type: { in: ['INGRESO', 'GASTO', 'COSTO'] } },
     },
     include: { account: true, journalEntry: { select: { date: true, description: true } } },
@@ -254,7 +277,7 @@ reportsRouter.get('/export/:type', async (req, res) => {
       case 'balance-comprobacion': {
         const journalEntry: Record<string, unknown> = {
           companyId: req.user!.companyId,
-          status: 'CONFIRMADO',
+          status: { notIn: ['RECHAZADO', 'ANULADO'] },
         };
         const dateFilter = buildDateFilter(startDate as string, endDate as string);
         if (dateFilter) journalEntry.date = dateFilter;
@@ -284,7 +307,7 @@ reportsRouter.get('/export/:type', async (req, res) => {
 
       case 'balance-general': {
         const lines = await req.prisma.journalLine.findMany({
-          where: { journalEntry: { companyId: req.user!.companyId, status: 'CONFIRMADO' } },
+          where: { journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] } } },
           include: { account: true },
         });
         let totalActivos = 0, totalPasivos = 0, totalPatrimonio = 0;
@@ -316,7 +339,7 @@ reportsRouter.get('/export/:type', async (req, res) => {
       case 'estado-resultados': {
         const journalEntry: Record<string, unknown> = {
           companyId: req.user!.companyId,
-          status: 'CONFIRMADO',
+          status: { notIn: ['RECHAZADO', 'ANULADO'] },
         };
         const dateFilter = buildDateFilter(startDate as string, endDate as string);
         if (dateFilter) journalEntry.date = dateFilter;
@@ -361,7 +384,7 @@ reportsRouter.get('/export/:type', async (req, res) => {
       case 'flujo-caja': {
         const lines = await req.prisma.journalLine.findMany({
           where: {
-            journalEntry: { companyId: req.user!.companyId, status: 'CONFIRMADO' },
+            journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] } },
             account: { code: { startsWith: '1.1.01' } },
           },
           include: { journalEntry: { select: { date: true, description: true } } },
