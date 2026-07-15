@@ -591,11 +591,13 @@ function escapeHtml(str) {
 }
 
 function showPaymentMethodSelector() {
+  // Mostrar opciones según el tipo de transacción (venta vs gasto)
+  const isVenta = dialogContext?.type === 'VENTA' || dialogContext?.type === 'COBRO_CLIENTE';
   const methods = [
     { value: 'EFECTIVO', label: '💵 Efectivo' },
     { value: 'TARJETA_CREDITO', label: '💳 Tarjeta Crédito' },
     { value: 'TARJETA_DEBITO', label: '💳 Tarjeta Débito' },
-    { value: 'CREDITO', label: '📋 Crédito Proveedor' },
+    { value: isVenta ? 'CREDITO' : 'CREDITO', label: isVenta ? '📋 Crédito (por cobrar)' : '📋 Crédito (por pagar)' },
     { value: 'TRANSFERENCIA', label: '🏦 Transferencia' },
     { value: 'CHEQUE', label: '📄 Cheque' },
   ];
