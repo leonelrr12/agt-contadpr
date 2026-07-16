@@ -24,6 +24,19 @@ function authFetch(url, options = {}) {
 // Check auth on load
 if (!getToken()) { window.location.href = '/login.html'; }
 
+// ── Hamburguesa móvil ──
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+}
+// Cerrar el drawer al hacer clic en cualquier opción del menú
+document.addEventListener('click', function(e) {
+  const sidebar = document.getElementById('sidebar');
+  if (!sidebar || !sidebar.classList.contains('open')) return;
+  if (e.target.closest('#sidebar .nav-link') || e.target.closest('#sidebar a')) {
+    sidebar.classList.remove('open');
+  }
+});
+
 // ── Subscription Info ──
 async function loadSubscriptionInfo() {
   try {
