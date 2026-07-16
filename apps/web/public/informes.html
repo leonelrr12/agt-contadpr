@@ -260,7 +260,7 @@ async function loadResultados(){
     const r = await api(`${API}/reports/estado-resultados?${params}`);
     if(!r||!r.ok){ el.innerHTML='<div class="empty">Error</div>'; return; }
     const d = await r.json();
-    const items = (obj) => Object.entries(obj).map(([k,v]) => `<tr><td>${k}</td><td style="text-align:right;font-weight:600">$${(v as number).toLocaleString()}</td></tr>`).join('');
+    const items = (obj) => Object.entries(obj).map(([k,v]) => `<tr><td>${k}</td><td style="text-align:right;font-weight:600">$${Number(v).toLocaleString()}</td></tr>`).join('');
     el.innerHTML = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div><h3 style="font-size:14px;color:#065f46">Ingresos</h3><table>${items(d.ingresos.detalle)}<tfoot><tr style="border-top:2px solid #1a1a2e"><td><strong>Total Ingresos</strong></td><td style="text-align:right"><strong>$${d.ingresos.total.toLocaleString()}</strong></td></tr></tfoot></table></div>
