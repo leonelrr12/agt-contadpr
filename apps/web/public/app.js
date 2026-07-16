@@ -24,6 +24,38 @@ function authFetch(url, options = {}) {
 // Check auth on load
 if (!getToken()) { window.location.href = '/login.html'; }
 
+// ── Custom Dialogs (reemplazan alert/confirm nativos) ──
+function showAlert(msg) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div'); overlay.className = 'app-dialog-overlay';
+    overlay.innerHTML = `<div class="app-dialog">
+      <div class="app-dialog-icon">⚠️</div>
+      <div class="app-dialog-msg">${msg}</div>
+      <div class="app-dialog-buttons">
+        <button class="app-dialog-btn primary" id="dialog-ok">Aceptar</button>
+      </div></div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#dialog-ok').onclick = () => { overlay.remove(); resolve(true); };
+    overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); resolve(false); } });
+  });
+}
+function showConfirm(msg) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div'); overlay.className = 'app-dialog-overlay';
+    overlay.innerHTML = `<div class="app-dialog">
+      <div class="app-dialog-icon">🤔</div>
+      <div class="app-dialog-msg">${msg}</div>
+      <div class="app-dialog-buttons">
+        <button class="app-dialog-btn secondary" id="dialog-no">Cancelar</button>
+        <button class="app-dialog-btn danger" id="dialog-yes">Confirmar</button>
+      </div></div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#dialog-yes').onclick = () => { overlay.remove(); resolve(true); };
+    overlay.querySelector('#dialog-no').onclick = () => { overlay.remove(); resolve(false); };
+    overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); resolve(false); } });
+  });
+}
+
 // ── Hamburguesa móvil ──
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
@@ -226,7 +258,7 @@ async function processOCRFile(file) {
     document.getElementById('ocr-loading').classList.add('hidden');
     document.getElementById('ocr-preview').classList.add('hidden');
     document.getElementById('ocr-capture-actions').classList.remove('hidden');
-    alert('Error: ' + err.message);
+    await showAlert('Error: ' + err.message);
   }
 }
 
@@ -373,7 +405,7 @@ async function processPDFFile(file) {
   } catch (err) {
     document.getElementById('pdf-loading').classList.add('hidden');
     document.getElementById('pdf-actions').classList.remove('hidden');
-    alert('Error: ' + err.message);
+    await showAlert('Error: ' + err.message);
   }
 }
 
@@ -392,7 +424,7 @@ function hideDGIMenu() {
 /* ── QR Scanner ── */
 let qrScannerInstance = null;
 
-function showQRScanner() {
+async function showQRScanner() {
   hideDGIMenu();
   document.getElementById('qr-scanner').classList.remove('hidden');
   document.getElementById('qr-reader-status').textContent = 'Iniciando cámara...';
@@ -424,7 +456,7 @@ function showQRScanner() {
         document.getElementById('qr-result').classList.add('hidden');
         document.getElementById('quick-actions').classList.add('hidden');
       } else {
-        alert('El QR no contiene una URL válida. Contenido: ' + decodedText.substring(0, 100));
+        await showAlert('El QR no contiene una URL válida. Contenido: ' + decodedText.substring(0, 100));
         showQRScanner(); // reintentar
       }
     },
@@ -470,7 +502,7 @@ let qrData = null;
 
 async function processQRUrl() {
   const url = document.getElementById('qr-url-input').value.trim();
-  if (!url) { alert('Pega la URL del PDF (puedes escanear un QR)'); return; }
+  if (!url) { await showAlert('Pega la URL del PDF (puedes escanear un QR)'); return; }
 
   document.getElementById('qr-actions').classList.add('hidden');
   document.getElementById('qr-loading').classList.remove('hidden');
@@ -509,7 +541,7 @@ async function processQRUrl() {
   } catch (err) {
     document.getElementById('qr-loading').classList.add('hidden');
     document.getElementById('qr-actions').classList.remove('hidden');
-    alert('Error: ' + err.message);
+    await showAlert('Error: ' + err.message);
   }
 }
 
@@ -703,7 +735,7 @@ async function showClassificationUI(concept) {
 async function submitClassification() {
   const select = document.getElementById('classify-account');
   const accountId = select.value;
-  if (!accountId) { alert('Selecciona una cuenta'); return; }
+  if (!accountId) { await showAlert('Selecciona una cuenta'); return; }
 
   const { concept, input } = pendingClassification;
   pendingClassification = null;
@@ -1088,7 +1120,7 @@ async function showRecentEntries() {
 
 let confirmCallback = null;
 
-function showConfirm(msg, okLabel, cb) {
+function showConfirmModal(msg, okLabel, cb) {
   document.getElementById('confirm-msg').textContent = msg;
   document.getElementById('confirm-icon').textContent = '⚠️';
   const okBtn = document.getElementById('confirm-ok-btn');
@@ -1111,19 +1143,19 @@ document.getElementById('confirm-ok-btn').addEventListener('click', () => {
   if (cb) cb();
 });
 
-function anularEntry(id, btn) {
-  showConfirm('¿Estás seguro de anular este asiento?\nSe creará un asiento de reversión.', 'Sí, anular', async () => {
+async function anularEntry(id, btn) {
+  showConfirmModal('¿Estás seguro de anular este asiento?\nSe creará un asiento de reversión.', 'Sí, anular', async () => {
     if (btn) { btn.disabled = true; btn.textContent = 'Anulando...'; btn.style.opacity = '0.6'; }
     try {
       const res = await authFetch(`${API_URL}/journal/${id}/anular`, { method: 'POST' });
-      if (!res.ok) { const e = await res.json(); alert(e.error); if (btn) btn.remove(); return; }
+      if (!res.ok) { const e = await res.json(); await showAlert(e.error); if (btn) btn.remove(); return; }
       const data = await res.json();
       if (btn) btn.remove();
       addMessage(`↩ **Asiento anulado**\n\nAsiento de reversión #${data.reversal.id.slice(0,8)} creado.`, 'assistant');
       updateSummary();
       loadSubscriptionInfo(); // Actualizar contador
     } catch (e) {
-      alert('Error al anular');
+      await showAlert('Error al anular');
       if (btn) btn.remove();
     }
   });
@@ -1681,17 +1713,17 @@ async function saveCuenta() {
       });
     } else {
       // Crear
-      if (!code || !name || !type) { alert('Código, Nombre y Tipo son requeridos'); return; }
+      if (!code || !name || !type) { await showAlert('Código, Nombre y Tipo son requeridos'); return; }
       res = await authFetch(`${API_URL}/accounts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, name, type, parentId }),
       });
     }
-    if (!res.ok) { const e = await res.json(); alert(e.error || 'Error'); return; }
+    if (!res.ok) { const e = await res.json(); await showAlert(e.error || 'Error'); return; }
     cancelCuentaForm();
     loadPanelCuentasAdmin();
-  } catch (e) { alert('Error de conexión'); }
+  } catch (e) { await showAlert('Error de conexión'); }
 }
 
 function cancelCuentaForm() {
@@ -1780,7 +1812,7 @@ async function saveConcepto() {
   const accountId = document.getElementById('concepto-account')?.value;
   const isActive = document.getElementById('concepto-active')?.value;
 
-  if (!name) { alert('Nombre requerido'); return; }
+  if (!name) { await showAlert('Nombre requerido'); return; }
 
   try {
     let res;
@@ -1791,17 +1823,17 @@ async function saveConcepto() {
         body: JSON.stringify({ name, accountId: accountId || undefined, isActive: isActive === 'true' }),
       });
     } else {
-      if (!accountId) { alert('Selecciona una cuenta contable'); return; }
+      if (!accountId) { await showAlert('Selecciona una cuenta contable'); return; }
       res = await authFetch(`${API_URL}/concepts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, accountId }),
       });
     }
-    if (!res.ok) { const e = await res.json(); alert(e.error || 'Error'); return; }
+    if (!res.ok) { const e = await res.json(); await showAlert(e.error || 'Error'); return; }
     cancelConceptoForm();
     loadPanelConceptosAdmin();
-  } catch (e) { alert('Error de conexión'); }
+  } catch (e) { await showAlert('Error de conexión'); }
 }
 
 function cancelConceptoForm() {
@@ -1823,7 +1855,7 @@ async function saveConfig() {
   const rate = parseFloat(document.getElementById('config-itbms-rate').value);
   const enabled = document.getElementById('config-itbms-enabled').value === 'true';
 
-  if (isNaN(rate) || rate < 0 || rate > 20) { alert('Tasa ITBMS debe estar entre 0 y 20'); return; }
+  if (isNaN(rate) || rate < 0 || rate > 20) { await showAlert('Tasa ITBMS debe estar entre 0 y 20'); return; }
 
   try {
     const res = await authFetch(`${API_URL}/config`, {
@@ -1831,11 +1863,11 @@ async function saveConfig() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ itbmsRate: rate / 100, itbmsEnabled: enabled }),
     });
-    if (!res.ok) { const e = await res.json(); alert(e.error); return; }
+    if (!res.ok) { const e = await res.json(); await showAlert(e.error); return; }
     const msg = document.getElementById('config-saved-msg');
     msg.style.display = 'inline';
     setTimeout(() => { msg.style.display = 'none'; }, 2000);
-  } catch (e) { alert('Error de conexión'); }
+  } catch (e) { await showAlert('Error de conexión'); }
 }
 
 /* ── Revisión de Asientos (Contador Senior) ── */
@@ -1906,12 +1938,12 @@ async function aprobarAsiento(id) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'aprobar' }),
     });
-    if (!res.ok) { const err = await res.json(); alert(err.error); return; }
+    if (!res.ok) { const err = await res.json(); await showAlert(err.error); return; }
     loadPanelRevision();
     updateSummary();
     addMessage(`✅ Asiento #${id.slice(0,8)} aprobado por Contador Senior.`, 'assistant');
   } catch (e) {
-    alert('Error al aprobar');
+    await showAlert('Error al aprobar');
     loadPanelRevision();
   }
 }
@@ -1929,11 +1961,11 @@ async function rechazarAsiento(id) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'rechazar', notes: notes || '' }),
     });
-    if (!res.ok) { const err = await res.json(); alert(err.error); return; }
+    if (!res.ok) { const err = await res.json(); await showAlert(err.error); return; }
     loadPanelRevision();
     addMessage(`❌ Asiento #${id.slice(0,8)} **rechazado**${notes ? ' — Motivo: ' + notes : ''}\n\nPuedes corregir la transacción y volver a enviarla. El creador verá el asiento como **RECHAZADO** en el Diario y podrá re-enviarlo.`, 'assistant');
   } catch (e) {
-    alert('Error al rechazar');
+    await showAlert('Error al rechazar');
     loadPanelRevision();
   }
 }
@@ -1960,7 +1992,7 @@ async function exportReport(reportType, format = 'xlsx') {
     const res = await authFetch(url);
     if (!res.ok) {
       const err = await res.json();
-      alert('Error al exportar: ' + (err.error || 'Error desconocido'));
+      await showAlert('Error al exportar: ' + (err.error || 'Error desconocido'));
       return;
     }
     const blob = await res.blob();
@@ -1975,12 +2007,12 @@ async function exportReport(reportType, format = 'xlsx') {
     a.remove();
     window.URL.revokeObjectURL(downloadUrl);
   } catch (e) {
-    alert('Error de conexión al exportar');
+    await showAlert('Error de conexión al exportar');
   }
 }
 
-function logout() {
-  if (!confirm('¿Cerrar sesión? Se perderá cualquier transacción no guardada.')) return;
+async function logout() {
+  if (!await showConfirm('¿Cerrar sesión? Se perderá cualquier transacción no guardada.')) return;
   localStorage.removeItem('agt_token');
   localStorage.removeItem('agt_user');
   window.location.href = '/login.html';

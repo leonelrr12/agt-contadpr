@@ -171,6 +171,9 @@ Content-Type: application/json</div>
 </div>
 
 <script>
+function showAlert(msg){return new Promise(r=>{const o=document.createElement("div");o.className="app-dialog-overlay";o.innerHTML=`<div class="app-dialog"><div class="app-dialog-icon">⚠️</div><div class="app-dialog-msg">${msg}</div><div class="app-dialog-buttons"><button class="app-dialog-btn primary">Aceptar</button></div></div>`;document.body.appendChild(o);o.querySelector("button").onclick=()=>{o.remove();r(true)};o.addEventListener("click",e=>{if(e.target===o){o.remove();r(false)}})});}
+function showConfirm(msg){return new Promise(r=>{const o=document.createElement("div");o.className="app-dialog-overlay";o.innerHTML=`<div class="app-dialog"><div class="app-dialog-icon">🤔</div><div class="app-dialog-msg">${msg}</div><div class="app-dialog-buttons"><button class="app-dialog-btn secondary">Cancelar</button><button class="app-dialog-btn danger">Confirmar</button></div></div>`;document.body.appendChild(o);o.querySelectorAll("button")[1].onclick=()=>{o.remove();r(true)};o.querySelectorAll("button")[0].onclick=()=>{o.remove();r(false)};o.addEventListener("click",e=>{if(e.target===o){o.remove();r(false)}})});}
+
 const API = '/api';
 function getToken() { return localStorage.getItem('agt_token'); }
 function authFetch(url, opts = {}) {
@@ -223,7 +226,7 @@ async function loadKeys() {
 
 async function createKey() {
   const name = document.getElementById('keyName').value.trim();
-  if (!name) { alert('Ingresa un nombre para la API Key'); return; }
+  if (!name) { await showAlert('Ingresa un nombre para la API Key'); return; }
 
   const res = await authFetch(`${API}/keys`, {
     method: 'POST',
@@ -232,7 +235,7 @@ async function createKey() {
   if (!res) return;
 
   const data = await res.json();
-  if (!res.ok) { alert(data.error); return; }
+  if (!res.ok) { await showAlert(data.error); return; }
 
   // Mostrar la key real (solo esta vez)
   document.getElementById('newKeyReveal').innerHTML = `
@@ -258,7 +261,7 @@ function copyKey() {
 }
 
 async function revokeKey(id, name) {
-  if (!confirm(`¿Revocar la API Key "${name}"?\n\nLas aplicaciones que la usen dejarán de funcionar inmediatamente.`)) return;
+  if (!await showConfirm(`¿Revocar la API Key "${name}"?\n\nLas aplicaciones que la usen dejarán de funcionar inmediatamente.`)) return;
 
   const res = await authFetch(`${API}/keys/${id}`, { method: 'DELETE' });
   if (!res) return;

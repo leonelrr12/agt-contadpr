@@ -999,3 +999,29 @@ body {
   background: #fee2e2;
   transform: scale(0.98);
 }
+
+/* ── Custom Dialog (reemplaza alert/confirm nativos) ── */
+.app-dialog-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999; animation: fadeIn 0.15s ease;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.app-dialog {
+  background: #fff; border-radius: 16px; padding: 28px 24px 20px;
+  width: 90%; max-width: 400px; box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  text-align: center; animation: slideUp 0.2s ease;
+}
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.app-dialog-icon { font-size: 40px; margin-bottom: 12px; }
+.app-dialog-msg { font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5; }
+.app-dialog-buttons { display: flex; gap: 10px; justify-content: center; }
+.app-dialog-btn {
+  padding: 10px 24px; border-radius: 8px; font-size: 14px; font-weight: 600;
+  cursor: pointer; border: none; transition: opacity 0.1s;
+}
+.app-dialog-btn:hover { opacity: 0.85; }
+.app-dialog-btn:active { transform: scale(0.97); }
+.app-dialog-btn.primary { background: #2563eb; color: #fff; }
+.app-dialog-btn.danger { background: #ef4444; color: #fff; }
+.app-dialog-btn.secondary { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }

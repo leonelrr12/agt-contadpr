@@ -189,7 +189,10 @@
   <div class="modal" id="modalContent"></div>
 </div>
 
-<script>
+<script> 
+function showAlert(msg){return new Promise(r=>{const o=document.createElement("div");o.className="app-dialog-overlay";o.innerHTML=`<div class="app-dialog"><div class="app-dialog-icon">⚠️</div><div class="app-dialog-msg">${msg}</div><div class="app-dialog-buttons"><button class="app-dialog-btn primary">Aceptar</button></div></div>`;document.body.appendChild(o);o.querySelector("button").onclick=()=>{o.remove();r(true)};o.addEventListener("click",e=>{if(e.target===o){o.remove();r(false)}})});}
+function showConfirm(msg){return new Promise(r=>{const o=document.createElement("div");o.className="app-dialog-overlay";o.innerHTML=`<div class="app-dialog"><div class="app-dialog-icon">🤔</div><div class="app-dialog-msg">${msg}</div><div class="app-dialog-buttons"><button class="app-dialog-btn secondary">Cancelar</button><button class="app-dialog-btn danger">Confirmar</button></div></div>`;document.body.appendChild(o);o.querySelectorAll("button")[1].onclick=()=>{o.remove();r(true)};o.querySelectorAll("button")[0].onclick=()=>{o.remove();r(false)};o.addEventListener("click",e=>{if(e.target===o){o.remove();r(false)}})});}
+
 const API = '/api';
 
 // ── Auth ──
@@ -366,7 +369,7 @@ async function createSubscription() {
   const days = parseInt(document.getElementById('newDays').value) || 30;
   const note = document.getElementById('newNote').value.trim();
 
-  if (!companyId) { alert('Ingresa el ID de la empresa'); return; }
+  if (!companyId) { await showAlert('Ingresa el ID de la empresa'); return; }
 
   const body = { companyId, planId, status, periodDays: days, note };
   if (limit) body.movementsLimit = parseInt(limit);
@@ -379,7 +382,7 @@ async function createSubscription() {
   if (!res) return;
   if (!res.ok) {
     const e = await res.json();
-    alert(`Error: ${e.error}`);
+    await showAlert(`Error: ${e.error}`);
     return;
   }
 
@@ -432,7 +435,7 @@ async function recordPayment(subId) {
   const reference = document.getElementById('payRef').value.trim();
   const note = document.getElementById('payNote').value.trim();
 
-  if (!amount || amount <= 0) { alert('Ingresa un monto válido'); return; }
+  if (!amount || amount <= 0) { await showAlert('Ingresa un monto válido'); return; }
 
   const res = await api(`${API}/admin/payments`, {
     method: 'POST',
@@ -442,7 +445,7 @@ async function recordPayment(subId) {
   if (!res) return;
   if (!res.ok) {
     const e = await res.json();
-    alert(`Error: ${e.error}`);
+    await showAlert(`Error: ${e.error}`);
     return;
   }
 
@@ -502,7 +505,7 @@ async function doGrant(subId) {
   if (!res) return;
   if (!res.ok) {
     const e = await res.json();
-    alert(`Error: ${e.error}`);
+    await showAlert(`Error: ${e.error}`);
     return;
   }
 

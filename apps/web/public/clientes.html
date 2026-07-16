@@ -73,6 +73,9 @@
 <div class="modal-overlay hidden" id="modalOverlay"><div class="modal" id="modalContent"></div></div>
 
 <script>
+function showAlert(msg){return new Promise(r=>{const o=document.createElement("div");o.className="app-dialog-overlay";o.innerHTML=`<div class="app-dialog"><div class="app-dialog-icon">⚠️</div><div class="app-dialog-msg">${msg}</div><div class="app-dialog-buttons"><button class="app-dialog-btn primary">Aceptar</button></div></div>`;document.body.appendChild(o);o.querySelector("button").onclick=()=>{o.remove();r(true)};o.addEventListener("click",e=>{if(e.target===o){o.remove();r(false)}})});}
+function showConfirm(msg){return new Promise(r=>{const o=document.createElement("div");o.className="app-dialog-overlay";o.innerHTML=`<div class="app-dialog"><div class="app-dialog-icon">🤔</div><div class="app-dialog-msg">${msg}</div><div class="app-dialog-buttons"><button class="app-dialog-btn secondary">Cancelar</button><button class="app-dialog-btn danger">Confirmar</button></div></div>`;document.body.appendChild(o);o.querySelectorAll("button")[1].onclick=()=>{o.remove();r(true)};o.querySelectorAll("button")[0].onclick=()=>{o.remove();r(false)};o.addEventListener("click",e=>{if(e.target===o){o.remove();r(false)}})});}
+
 const API='/api'; function getToken(){return localStorage.getItem('agt_token')}
 async function api(url,opts={}){const t=getToken();if(!t){window.location='/login.html';return} const r=await fetch(url,{...opts,headers:{...(opts.headers||{}),'Authorization':`Bearer ${t}`,...(opts.body instanceof FormData?{}:{'Content-Type':'application/json'})}});if(r.status===401){localStorage.clear();window.location='/login.html'} return r}
 
@@ -120,7 +123,7 @@ function showNewClient(){
   `;document.getElementById('modalOverlay').classList.remove('hidden')
 }
 async function createClient(){
-  const name=document.getElementById('newName').value.trim();if(!name){alert('Nombre requerido');return}
+  const name=document.getElementById('newName').value.trim();if(!name){await showAlert('Nombre requerido');return}
   const r=await api(`${API}/clients`,{method:'POST',body:JSON.stringify({name,taxId:document.getElementById('newTaxId').value,phone:document.getElementById('newPhone').value,email:document.getElementById('newEmail').value})})
   if(r&&r.ok){closeModal();loadClients();loadStats()}
 }
@@ -136,7 +139,7 @@ function showNewInvoice(clientId,clientName){
   `;document.getElementById('modalOverlay').classList.remove('hidden')
 }
 async function createInvoice(clientId){
-  const amount=parseFloat(document.getElementById('invAmount').value);if(!amount){alert('Monto requerido');return}
+  const amount=parseFloat(document.getElementById('invAmount').value);if(!amount){await showAlert('Monto requerido');return}
   const r=await api(`${API}/clients/${clientId}/invoices`,{method:'POST',body:JSON.stringify({number:document.getElementById('invNumber').value,amount,itbms:parseFloat(document.getElementById('invItbms').value)||0,dueDate:document.getElementById('invDue').value,description:document.getElementById('invDesc').value})})
   if(r&&r.ok){closeModal();loadClients();loadStats()}
 }
@@ -149,7 +152,7 @@ async function showInvoices(clientId,clientName){
   `;document.getElementById('modalOverlay').classList.remove('hidden')
 }
 async function payInvoice(clientId,invId){
-  if(!confirm('¿Marcar esta factura como pagada?'))return
+  if(!await showConfirm('¿Marcar esta factura como pagada?'))return
   const r=await api(`${API}/clients/${clientId}/invoices/${invId}/pay`,{method:'PATCH'})
   if(r&&r.ok){showInvoices(clientId,document.querySelector('#modalContent h3')?.textContent?.replace('📋 Facturas — ','')||'');loadClients();loadStats()}
 }
