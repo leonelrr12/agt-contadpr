@@ -456,8 +456,9 @@ async function showQRScanner() {
         document.getElementById('qr-result').classList.add('hidden');
         document.getElementById('quick-actions').classList.add('hidden');
       } else {
-        await showAlert('El QR no contiene una URL válida. Contenido: ' + decodedText.substring(0, 100));
-        showQRScanner(); // reintentar
+        showAlert('El QR no contiene una URL válida. Contenido: ' + decodedText.substring(0, 100)).then(() => {
+          showQRScanner(); // reintentar
+        });
       }
     },
     () => {
