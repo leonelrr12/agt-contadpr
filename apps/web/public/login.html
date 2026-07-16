@@ -154,6 +154,11 @@
   </div>
 
   <script>
+    // Si ya tiene sesión activa, redirigir al chat
+    if (localStorage.getItem('agt_token')) {
+      window.location.href = '/';
+    }
+
     const API_URL = window.location.origin + '/api';
 
     function showError(msg) {

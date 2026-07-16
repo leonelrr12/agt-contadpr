@@ -1980,6 +1980,7 @@ async function exportReport(reportType, format = 'xlsx') {
 }
 
 function logout() {
+  if (!confirm('¿Cerrar sesión? Se perderá cualquier transacción no guardada.')) return;
   localStorage.removeItem('agt_token');
   localStorage.removeItem('agt_user');
   window.location.href = '/login.html';
