@@ -753,10 +753,29 @@ body {
     padding: 16px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.5);
   }
-  #sidebar.open #sidebar-user,
+  #sidebar.open #sidebar-user {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 0 !important;
+    border-bottom: 1px solid rgba(255,255,255,0.15);
+    margin-bottom: 8px;
+  }
+  #sidebar.open .sidebar-logout-btn {
+    width: auto;
+    margin-top: 6px;
+    padding: 6px 14px;
+    font-size: 12px;
+    align-self: flex-start;
+  }
   #sidebar.open #sidebar-subscription,
   #sidebar.open #sidebar-nav,
   #sidebar.open #summary-content { display: flex; }
+  #sidebar.open #sidebar-nav { flex-direction: column; }
+  #sidebar.open #sidebar-nav .nav-link {
+    padding: 10px 14px;
+    font-size: 15px;
+  }
   #sidebar.open #sidebar-nav { flex-direction: column; }
   #sidebar.open .hamburger-btn { position: absolute; top: 8px; right: 8px; }
 
