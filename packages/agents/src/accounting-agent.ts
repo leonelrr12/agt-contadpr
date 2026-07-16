@@ -18,9 +18,8 @@ const ALIAS_TO_CODE: Record<string, string> = {
   'prestamos-lp': '2.2.01',
   ventas: '4.01.01',
   gasto: '6.06.01',
-  'itbms-por-cobrar': '1.1.05',
-  'itbms-por-pagar': '2.1.05',
-  'itbms-gastado': '6.05.01',
+  'itbms-por-pagar': '2.1.05',  // Cuenta única de ITBMS (pasivo) — neteo
+  'itbms-gastado': '6.05.01',   // ITBMS no recuperable (gasto)
 };
 
 function getItbmsRate(): number {
@@ -96,7 +95,7 @@ export class AccountingAgent {
         const netAmount = dialog.amount;
         entry.debit.push({ accountId: 'inventario-mercancia', name: 'Inventario de Mercancía', amount: netAmount });
         if (itbmsAmount > 0) {
-          entry.debit.push({ accountId: 'itbms-por-cobrar', name: 'ITBMS por Cobrar', amount: itbmsAmount });
+          entry.debit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: itbmsAmount });
           entry.description = `${dialog.type}: ${dialog.concept} - $${netAmount} + ITBMS $${itbmsAmount}`;
         }
         const totalAmount = netAmount + itbmsAmount;
