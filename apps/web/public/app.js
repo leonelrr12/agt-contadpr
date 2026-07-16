@@ -1191,42 +1191,21 @@ function toggleReports() {
 }
 
 /* ── Sidebar navigation ── */
-document.querySelectorAll('.nav-link').forEach(btn => {
+document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
   btn.addEventListener('click', () => {
     const view = btn.dataset.view;
-    document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
 
     if (view === 'chat') {
-      toggleReportsClose();
+      document.getElementById('panel-tabs-admin').classList.add('hidden');
       return;
     }
 
-    toggleReportsOpen();
-
-    // Determinar si es panel de admin o de reportes
-    const isAdmin = view.includes('admin') || view.includes('config');
-    const tabsReports = document.getElementById('panel-tabs-reports');
-    const tabsAdmin = document.getElementById('panel-tabs-admin');
-
-    if (isAdmin) {
-      tabsReports.classList.add('hidden');
-      tabsAdmin.classList.remove('hidden');
-      // Cargar datos admin
-      if (view === 'panel-cuentas-admin') { loadPanelCuentasAdmin(); clickAdminTab('cuentas-admin'); }
-      else if (view === 'panel-conceptos-admin') { loadPanelConceptosAdmin(); clickAdminTab('conceptos-admin'); }
-      else if (view === 'panel-config') { loadPanelConfig(); clickAdminTab('config'); }
-    } else {
-      tabsReports.classList.remove('hidden');
-      tabsAdmin.classList.add('hidden');
-      const panelBtn = document.querySelector(`#panel-tabs-reports button[data-panel="${view.replace('panel-', '')}"]`);
-      if (panelBtn) panelBtn.click();
-      else {
-        // Fallback: activar diario
-        const firstBtn = document.querySelector('#panel-tabs-reports button[data-panel="diario"]');
-        if (firstBtn) firstBtn.click();
-      }
-    }
+    // Admin panels
+    if (view === 'panel-cuentas-admin') { loadPanelCuentasAdmin(); }
+    else if (view === 'panel-conceptos-admin') { loadPanelConceptosAdmin(); }
+    else if (view === 'panel-config') { loadPanelConfig(); }
   });
 });
 
@@ -2025,6 +2004,14 @@ document.addEventListener('DOMContentLoaded', () => {
   if (user) {
     document.getElementById('sidebar-user-name').textContent = user.name;
     document.getElementById('sidebar-user-company').textContent = user.company?.name || '';
+
+    // Mostrar admin solo a admins
+    if (user.role === 'admin') {
+      document.getElementById('admin-section-label').style.display = 'block';
+      document.getElementById('nav-cuentas-admin').style.display = 'block';
+      document.getElementById('nav-conceptos-admin').style.display = 'block';
+      document.getElementById('nav-config').style.display = 'block';
+    }
   }
 
   // Cargar info de suscripción

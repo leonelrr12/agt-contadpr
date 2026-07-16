@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Informes · Contador507</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="styles.css?v=8">
+  <style>
+    .informes-layout { display: flex; height: 100dvh; }
+    .informes-sidebar {
+      width: 200px; background: #0f172a; color: #fff; padding: 16px 0;
+      display: flex; flex-direction: column; flex-shrink: 0;
+    }
+    .informes-sidebar .logo { font-size: 18px; font-weight: 700; padding: 0 16px 16px; color: #fff; text-decoration: none; }
+    .informes-sidebar .logo span { color: #F05323; }
+    .informes-sidebar a { display: block; padding: 8px 16px; color: #94a3b8; text-decoration: none; font-size: 13px; border-left: 3px solid transparent; }
+    .informes-sidebar a:hover, .informes-sidebar a.active { color: #fff; background: rgba(255,255,255,0.06); border-left-color: #2563eb; }
+    .informes-sidebar .section { font-size: 10px; color: #64748b; text-transform: uppercase; padding: 16px 16px 4px; letter-spacing: 1px; }
+    .informes-main { flex: 1; overflow-y: auto; padding: 24px; background: #f8fafc; }
+    .report-card {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+      padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .filter-bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+    .filter-bar input, .filter-bar select { padding: 6px 10px; border: 1px solid #e2e4e8; border-radius: 6px; font-size: 12px; background: #fff; font-family: inherit; }
+    .btn-filter { padding: 6px 14px; border: 1px solid #d0d5dd; border-radius: 6px; font-size: 12px; cursor: pointer; background: #fff; font-family: inherit; }
+    .btn-filter:hover { background: #f1f5f9; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #e2e4e8; font-size: 11px; color: #64748b; text-transform: uppercase; }
+    td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; }
+    .empty { text-align: center; padding: 40px; color: #94a3b8; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 100px; font-size: 10px; font-weight: 600; }
+    .badge-confirmado { background: #d1fae5; color: #065f46; }
+    .badge-borrador { background: #fef3c7; color: #92400e; }
+    .badge-rechazado { background: #fee2e2; color: #991b1b; }
+    .badge-anulado { background: #f1f5f9; color: #64748b; text-decoration: line-through; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 10px; margin-bottom: 16px; }
+    .stat-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; }
+    .stat-label { font-size: 10px; color: #64748b; text-transform: uppercase; margin-bottom: 4px; }
+    .stat-value { font-size: 22px; font-weight: 700; }
+    @media (max-width: 768px) {
+      .informes-layout { flex-direction: column; }
+      .informes-sidebar { width: 100%; flex-direction: row; overflow-x: auto; padding: 8px; }
+      .informes-sidebar .logo { display: none; }
+      .informes-sidebar a { border-left: none; border-bottom: 3px solid transparent; white-space: nowrap; padding: 8px 12px; }
+      .informes-sidebar .section { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="informes-layout">
+  <aside class="informes-sidebar">
+    <a href="/" class="logo">Contador<span>507</span></a>
+    <div class="section">Contables</div>
+    <a href="#diario" class="active" onclick="showSection('diario')">📋 Diario</a>
+    <a href="#balance" onclick="showSection('balance')">⚖️ Balance</a>
+    <a href="#resultados" onclick="showSection('resultados')">📊 Resultados</a>
+    <a href="#dashboard" onclick="showSection('dashboard')">📈 Dashboard</a>
+    <a href="#auxiliar" onclick="showSection('auxiliar')">📒 Auxiliar</a>
+    <div class="section">Gestión</div>
+    <a href="#clientes" onclick="showSection('clientes')">👥 Clientes</a>
+    <a href="#proveedores" onclick="showSection('proveedores')">🏭 Proveedores</a>
+    <a href="#revision" onclick="showSection('revision')">🔍 Revisión</a>
+    <div class="section">Navegar</div>
+    <a href="/">💬 Chat</a>
+    <a href="/api-keys.html">🔑 API Keys</a>
+  </aside>
+
+  <main class="informes-main" id="informesMain">
+    <!-- Diario -->
+    <div id="sec-diario" class="report-card">
+      <h2 style="margin:0 0 12px">📋 Libro Diario</h2>
+      <div class="filter-bar">
+        <input type="date" id="diario-from"><input type="date" id="diario-to">
+        <select id="diario-status"><option value="">Todos</option><option value="CONFIRMADO">Aprobados</option><option value="BORRADOR">Pendientes</option></select>
+        <button class="btn-filter" onclick="loadDiario()">🔍 Buscar</button>
+        <button class="btn-filter" style="background:#1565c0;color:#fff" onclick="exportDiario('xlsx')">📥 Excel</button>
+        <button class="btn-filter" style="background:#333;color:#fff" onclick="exportDiario('csv')">CSV</button>
+      </div>
+      <div id="diario-content"><div class="empty">Cargando...</div></div>
+      <div id="diario-pagination" style="text-align:center;margin-top:12px"></div>
+    </div>
+
+    <!-- Balance -->
+    <div id="sec-balance" class="report-card" style="display:none">
+      <h2 style="margin:0 0 12px">⚖️ Balance de Comprobación</h2>
+      <div class="filter-bar">
+        <input type="date" id="balance-from"><input type="date" id="balance-to">
+        <button class="btn-filter" onclick="loadBalance()">🔍 Buscar</button>
+        <button class="btn-filter" style="background:#1565c0;color:#fff" onclick="exportReport('balance-comprobacion','xlsx')">📥 Excel</button>
+        <button class="btn-filter" style="background:#333;color:#fff" onclick="exportReport('balance-comprobacion','csv')">CSV</button>
+      </div>
+      <div id="balance-content"><div class="empty">Cargando...</div></div>
+    </div>
+
+    <!-- Resultados -->
+    <div id="sec-resultados" class="report-card" style="display:none">
+      <h2 style="margin:0 0 12px">📊 Estado de Resultados</h2>
+      <div class="filter-bar">
+        <input type="date" id="resultados-from"><input type="date" id="resultados-to">
+        <button class="btn-filter" onclick="loadResultados()">🔍 Buscar</button>
+        <button class="btn-filter" style="background:#1565c0;color:#fff" onclick="exportReport('estado-resultados','xlsx')">📥 Excel</button>
+        <button class="btn-filter" style="background:#333;color:#fff" onclick="exportReport('estado-resultados','csv')">CSV</button>
+      </div>
+      <div id="resultados-content"><div class="empty">Cargando...</div></div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="sec-dashboard" class="report-card" style="display:none">
+      <h2 style="margin:0 0 12px">📈 Dashboard Financiero</h2>
+      <div id="dashboard-content"><div class="empty">Cargando...</div></div>
+    </div>
+
+    <!-- Auxiliar -->
+    <div id="sec-auxiliar" class="report-card" style="display:none">
+      <h2 style="margin:0 0 12px">📒 Auxiliar de Cuenta</h2>
+      <div class="filter-bar">
+        <select id="aux-account" style="min-width:280px"><option value="">Selecciona una cuenta...</option></select>
+        <input type="date" id="aux-from"><input type="date" id="aux-to">
+        <button class="btn-filter" onclick="loadAuxiliar()">🔍 Buscar</button>
+        <button class="btn-filter" style="background:#1565c0;color:#fff" onclick="exportAuxiliar()">📥 CSV</button>
+      </div>
+      <div id="auxiliar-content"><div class="empty">Selecciona una cuenta</div></div>
+    </div>
+
+    <!-- Clientes -->
+    <div id="sec-clientes" class="report-card" style="display:none">
+      <h2 style="margin:0 0 12px">👥 Clientes — Cuentas por Cobrar</h2>
+      <div class="stats" id="clientes-stats"></div>
+      <div class="filter-bar">
+        <input type="text" id="clientes-search" placeholder="Buscar..." oninput="loadClientes()">
+        <button class="btn-filter" style="background:#1565c0;color:#fff" onclick="window.open('/clientes.html')">📋 Ver todos</button>
+      </div>
+      <div id="clientes-content"><div class="empty">Cargando...</div></div>
+    </div>
+
+    <!-- Proveedores -->
+    <div id="sec-proveedores" class="report-card" style="display:none">
+      <h2 style="margin:0 0 12px">🏭 Proveedores — Cuentas por Pagar</h2>
+      <div class="stats" id="proveedores-stats"></div>
+      <div class="filter-bar">
+        <input type="text" id="proveedores-search" placeholder="Buscar..." oninput="loadProveedores()">
+        <button class="btn-filter" style="background:#1565c0;color:#fff" onclick="window.open('/proveedores.html')">📋 Ver todos</button>
+      </div>
+      <div id="proveedores-content"><div class="empty">Cargando...</div></div>
+    </div>
+
+    <!-- Revisión -->
+    <div id="sec-revision" class="report-card" style="display:none">
+      <h2 style="margin:0 0 12px">🔍 Revisión de Asientos</h2>
+      <div id="revision-content"><div class="empty">Cargando...</div></div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+const API = '/api';
+function getToken(){ return localStorage.getItem('agt_token'); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function api(url, opts={}){
+  const t = getToken();
+  if(!t){ window.location='/login.html'; return; }
+  const r = await fetch(url, { ...opts, headers: { ...(opts.headers||{}), 'Authorization': `Bearer ${t}`, ...(opts.body instanceof FormData ? {} : {'Content-Type':'application/json'}) } });
+  if(r.status === 401){ localStorage.clear(); window.location='/login.html'; }
+  return r;
+}
+
+// Init
+if(!getToken()){ window.location='/login.html'; }
+loadDiario(); loadAuxAccounts();
+
+// ── Navegación ──
+function showSection(name){
+  document.querySelectorAll('.informes-sidebar a').forEach(a => a.classList.remove('active'));
+  document.querySelector(`a[href="#${name}"]`)?.classList.add('active');
+  document.querySelectorAll('[id^="sec-"]').forEach(s => s.style.display = 'none');
+  const sec = document.getElementById('sec-' + name);
+  if(sec) sec.style.display = 'block';
+
+  // Cargar al cambiar
+  if(name === 'diario') loadDiario();
+  else if(name === 'balance') loadBalance();
+  else if(name === 'resultados') loadResultados();
+  else if(name === 'dashboard') loadDashboard();
+  else if(name === 'clientes') loadClientes();
+  else if(name === 'proveedores') loadProveedores();
+  else if(name === 'revision') loadRevision();
+}
+
+// ── Diario ──
+let _diarioPage = 1;
+async function loadDiario(page = 1){
+  _diarioPage = page;
+  const from = document.getElementById('diario-from')?.value || '';
+  const to = document.getElementById('diario-to')?.value || '';
+  const status = document.getElementById('diario-status')?.value || '';
+  const params = new URLSearchParams({ page: String(page), pageSize: '30' });
+  if(from) params.set('startDate', from);
+  if(to) params.set('endDate', to);
+  if(status) params.set('status', status);
+
+  const el = document.getElementById('diario-content');
+  try {
+    const r = await api(`${API}/journal?${params}`);
+    if(!r||!r.ok){ el.innerHTML='<div class="empty">Error</div>'; return; }
+    const d = await r.json();
+    el.innerHTML = d.entries.length ? `<table><thead><tr><th>Fecha</th><th>Descripción</th><th>Estado</th><th>Líneas</th></tr></thead><tbody>
+      ${d.entries.map(e => `<tr>
+        <td style="white-space:nowrap">${new Date(e.date).toLocaleDateString('es-PA')}</td>
+        <td>${esc(e.description?.substring(0,80)||'')}</td>
+        <td><span class="badge badge-${(e.status||'').toLowerCase()}">${e.status}</span></td>
+        <td>${e.lines?.length||0}</td>
+      </tr>`).join('')}</tbody></table>` : '<div class="empty">Sin asientos</div>';
+
+    const pag = document.getElementById('diario-pagination');
+    if(pag && d.totalPages > 1){
+      pag.innerHTML = Array.from({length: d.totalPages}, (_,i) => i+1).map(i =>
+        `<button onclick="loadDiario(${i})" style="margin:2px;padding:4px 10px;border:1px solid #d0d5dd;border-radius:4px;background:${i===page?'#2563eb':'#fff'};color:${i===page?'#fff':'#333'};cursor:pointer;font-size:12px">${i}</button>`
+      ).join('');
+    }
+  }catch(e){ el.innerHTML='<div class="empty">Error de conexión</div>'; }
+}
+
+// ── Balance ──
+async function loadBalance(){
+  const from = document.getElementById('balance-from')?.value || '';
+  const to = document.getElementById('balance-to')?.value || '';
+  const params = new URLSearchParams();
+  if(from) params.set('startDate', from);
+  if(to) params.set('endDate', to);
+
+  const el = document.getElementById('balance-content');
+  try {
+    const r = await api(`${API}/reports/balance-comprobacion?${params}`);
+    if(!r||!r.ok){ el.innerHTML='<div class="empty">Error</div>'; return; }
+    const data = await r.json();
+    el.innerHTML = data.length ? `<table><thead><tr><th>Código</th><th>Cuenta</th><th>Tipo</th><th style="text-align:right">Débito</th><th style="text-align:right">Crédito</th><th style="text-align:right">Saldo</th></tr></thead><tbody>
+      ${data.map(b => `<tr>
+        <td>${b.account.code}</td><td>${b.account.name}</td><td style="font-size:11px;color:#64748b">${b.account.type}</td>
+        <td style="text-align:right">${b.totalDebit ? '$'+b.totalDebit.toLocaleString() : '—'}</td>
+        <td style="text-align:right">${b.totalCredit ? '$'+b.totalCredit.toLocaleString() : '—'}</td>
+        <td style="text-align:right;font-weight:600;color:${b.balanceType==='DEUDOR'?'#065f46':'#991b1b'}">$${b.balance.toLocaleString()} <span style="font-size:10px">${b.balanceType==='DEUDOR'?'D':'A'}</span></td>
+      </tr>`).join('')}</tbody></table>` : '<div class="empty">Sin datos</div>';
+  }catch(e){ el.innerHTML='<div class="empty">Error de conexión</div>'; }
+}
+
+// ── Resultados ──
+async function loadResultados(){
+  const from = document.getElementById('resultados-from')?.value || '';
+  const to = document.getElementById('resultados-to')?.value || '';
+  const params = new URLSearchParams();
+  if(from) params.set('startDate', from);
+  if(to) params.set('endDate', to);
+
+  const el = document.getElementById('resultados-content');
+  try {
+    const r = await api(`${API}/reports/estado-resultados?${params}`);
+    if(!r||!r.ok){ el.innerHTML='<div class="empty">Error</div>'; return; }
+    const d = await r.json();
+    const items = (obj) => Object.entries(obj).map(([k,v]) => `<tr><td>${k}</td><td style="text-align:right;font-weight:600">$${(v as number).toLocaleString()}</td></tr>`).join('');
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div><h3 style="font-size:14px;color:#065f46">Ingresos</h3><table>${items(d.ingresos.detalle)}<tfoot><tr style="border-top:2px solid #1a1a2e"><td><strong>Total Ingresos</strong></td><td style="text-align:right"><strong>$${d.ingresos.total.toLocaleString()}</strong></td></tr></tfoot></table></div>
+        <div><h3 style="font-size:14px;color:#991b1b">Gastos</h3><table>${items(d.gastos.detalle)}<tfoot><tr style="border-top:2px solid #1a1a2e"><td><strong>Total Gastos</strong></td><td style="text-align:right"><strong>$${d.gastos.total.toLocaleString()}</strong></td></tr></tfoot></table></div>
+      </div>
+      <div style="margin-top:16px;padding:12px;background:#f0f9ff;border-radius:8px;text-align:center;font-size:16px;font-weight:700">
+        Ganancia Bruta: $${d.gananciaBruta.toLocaleString()} &nbsp;|&nbsp; Utilidad Neta: $${d.utilidadNeta.toLocaleString()}
+      </div>`;
+  }catch(e){ el.innerHTML='<div class="empty">Error de conexión</div>'; }
+}
+
+// ── Dashboard ──
+let _dashboardChart = null;
+async function loadDashboard(){
+  const el = document.getElementById('dashboard-content');
+  try {
+    const r = await api(`${API}/reports/dashboard`);
+    if(!r||!r.ok){ el.innerHTML='<div class="empty">Error</div>'; return; }
+    const d = await r.json();
+    el.innerHTML = `
+      <div class="stats">
+        <div class="stat-card"><div class="stat-label">Ingresos</div><div class="stat-value" style="color:#065f46">$${d.resumen.totalIngresos.toLocaleString()}</div></div>
+        <div class="stat-card"><div class="stat-label">Gastos</div><div class="stat-value" style="color:#991b1b">$${d.resumen.totalGastos.toLocaleString()}</div></div>
+        <div class="stat-card"><div class="stat-label">Utilidad Neta</div><div class="stat-value" style="color:${d.resumen.utilidadNeta>=0?'#065f46':'#991b1b'}">$${d.resumen.utilidadNeta.toLocaleString()}</div></div>
+        <div class="stat-card"><div class="stat-label">Períodos</div><div class="stat-value">${d.resumen.meses}</div></div>
+      </div>
+      <canvas id="dashboardChart" height="200"></canvas>`;
+    // Chart
+    if(_dashboardChart) _dashboardChart.destroy();
+    const ctx = document.getElementById('dashboardChart');
+    if(ctx && d.monthly?.length){
+      _dashboardChart = new Chart(ctx, {
+        type: 'bar', data: {
+          labels: d.monthly.map(m=>m.month),
+          datasets: [
+            { label:'Ingresos', data:d.monthly.map(m=>m.ingresos), backgroundColor:'#10b981' },
+            { label:'Gastos', data:d.monthly.map(m=>m.gastos), backgroundColor:'#ef4444' }
+          ]
+        }, options: { responsive:true, plugins:{legend:{position:'bottom'}} }
+      });
+    }
+  }catch(e){ el.innerHTML='<div class="empty">Error de conexión</div>'; }
+}
+
+// ── Auxiliar ──
+let _auxAccounts = [];
+async function loadAuxAccounts(){
+  try {
+    const r = await api(`${API}/accounts`);
+    if(!r||!r.ok) return;
+    const all = await r.json();
+    _auxAccounts = all.filter(a => a.code.split('.').length >= 2).sort((a,b)=>a.code.localeCompare(b.code,undefined,{numeric:true}));
+    const sel = document.getElementById('aux-account');
+    if(sel) sel.innerHTML = '<option value="">Selecciona una cuenta...</option>' + _auxAccounts.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
+  }catch(e){}
+}
+async function loadAuxiliar(){
+  const id = document.getElementById('aux-account')?.value;
+  const from = document.getElementById('aux-from')?.value || '';
+  const to = document.getElementById('aux-to')?.value || '';
+  if(!id){ alert('Selecciona una cuenta'); return; }
+  const params = new URLSearchParams();
+  if(from) params.set('startDate', from);
+  if(to) params.set('endDate', to);
+  const el = document.getElementById('auxiliar-content');
+  try {
+    const r = await api(`${API}/journal/mayor/${id}?${params}`);
+    if(!r||!r.ok){ el.innerHTML='<div class="empty">Error</div>'; return; }
+    const d = await r.json();
+    if(!d.detail?.length){ el.innerHTML='<div class="empty">Sin movimientos</div>'; return; }
+    const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    el.innerHTML = `<div style="margin-bottom:8px"><strong>${d.account.code} — ${d.account.name}</strong></div>
+      <table><thead><tr><th>Fecha</th><th>Detalle</th><th style="text-align:right">Débito</th><th style="text-align:right">Crédito</th><th style="text-align:right">Saldo</th></tr></thead><tbody>
+      ${d.detail.map(m=>`<tr><td>${new Date(m.date).toLocaleDateString('es-PA')}</td><td>${esc(m.description?.substring(0,80)||'')}</td><td style="text-align:right">${fmt(m.debit)}</td><td style="text-align:right">${fmt(m.credit)}</td><td style="text-align:right;font-weight:600">${fmt(m.balance)}</td></tr>`).join('')}
+      <tfoot><tr style="border-top:2px solid #1a1a2e;font-weight:700"><td colspan="2">TOTALES</td><td style="text-align:right">${fmt(d.totals.totalDebit)}</td><td style="text-align:right">${fmt(d.totals.totalCredit)}</td><td style="text-align:right">${fmt(d.totals.finalBalance)}</td></tr></tfoot></table>`;
+  }catch(e){ el.innerHTML='<div class="empty">Error de conexión</div>'; }
+}
+async function exportAuxiliar(){
+  const id = document.getElementById('aux-account')?.value;
+  if(!id){ alert('Selecciona una cuenta'); return; }
+  const params = new URLSearchParams();
+  const from = document.getElementById('aux-from')?.value, to = document.getElementById('aux-to')?.value;
+  if(from) params.set('startDate', from);
+  if(to) params.set('endDate', to);
+  try {
+    const r = await api(`${API}/journal/mayor/${id}?${params}`);
+    if(!r||!r.ok) return;
+    const d = await r.json();
+    let csv = `"${d.account.code} — ${d.account.name}"\nFecha,Detalle,Débito,Crédito,Saldo\n`;
+    for(const m of d.detail) csv += `"${new Date(m.date).toLocaleDateString('es-PA')}","${(m.description||'').replace(/"/g,'""')}",${m.debit},${m.credit},${m.balance}\n`;
+    const blob = new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+    const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`auxiliar_${d.account.code.replace(/\./g,'_')}.csv`; a.click();
+  }catch(e){}
+}
+
+// ── Clientes / Proveedores ──
+async function loadClientes(){
+  const elc = document.getElementById('clientes-content'), els = document.getElementById('clientes-stats');
+  try {
+    const [rc, rs] = await Promise.all([api(`${API}/clients`), api(`${API}/clients/report/summary`)]);
+    if(!rc||!rc.ok||!rs||!rs.ok) return;
+    const clients = await rc.json(), sum = await rs.json();
+    els.innerHTML = `<div class="stat-card"><div class="stat-label">Clientes</div><div class="stat-value">${sum.totalClients}</div></div>
+      <div class="stat-card"><div class="stat-label">Por Cobrar</div><div class="stat-value" style="color:#f59e0b">$${sum.totalDue.toLocaleString()}</div></div>
+      <div class="stat-card"><div class="stat-label">Vencidas</div><div class="stat-value" style="color:#ef4444">${sum.overdueInvoices}</div></div>`;
+    elc.innerHTML = clients.length ? `<table><thead><tr><th>Cliente</th><th>RUC</th><th style="text-align:right">Pendiente</th><th>Facturas</th></tr></thead><tbody>
+      ${clients.filter(c=>c.totalDue>0).map(c=>`<tr><td><strong>${esc(c.name)}</strong></td><td>${esc(c.taxId||'—')}</td><td style="text-align:right;color:#991b1b;font-weight:600">$${c.totalDue.toLocaleString()}</td><td>${c.invoiceCount}</td></tr>`).join('')}
+    </tbody></table>` : '<div class="empty">Sin clientes</div>';
+  }catch(e){}
+}
+async function loadProveedores(){
+  const elc = document.getElementById('proveedores-content'), els = document.getElementById('proveedores-stats');
+  try {
+    const [rc, rs] = await Promise.all([api(`${API}/suppliers`), api(`${API}/suppliers/report/summary`)]);
+    if(!rc||!rc.ok||!rs||!rs.ok) return;
+    const supps = await rc.json(), sum = await rs.json();
+    els.innerHTML = `<div class="stat-card"><div class="stat-label">Proveedores</div><div class="stat-value">${sum.totalSuppliers}</div></div>
+      <div class="stat-card"><div class="stat-label">Por Pagar</div><div class="stat-value" style="color:#f59e0b">$${sum.totalOwed.toLocaleString()}</div></div>
+      <div class="stat-card"><div class="stat-label">Vencidas</div><div class="stat-value" style="color:#ef4444">${sum.overdueBills}</div></div>`;
+    elc.innerHTML = supps.length ? `<table><thead><tr><th>Proveedor</th><th>RUC</th><th style="text-align:right">Pendiente</th><th>Facturas</th></tr></thead><tbody>
+      ${supps.filter(s=>s.totalOwed>0).map(s=>`<tr><td><strong>${esc(s.name)}</strong></td><td>${esc(s.taxId||'—')}</td><td style="text-align:right;color:#991b1b;font-weight:600">$${s.totalOwed.toLocaleString()}</td><td>${s.billCount}</td></tr>`).join('')}
+    </tbody></table>` : '<div class="empty">Sin proveedores</div>';
+  }catch(e){}
+}
+
+// ── Revisión ──
+async function loadRevision(){
+  const el = document.getElementById('revision-content');
+  try {
+    const r = await api(`${API}/journal/pendientes`);
+    if(!r||!r.ok){ el.innerHTML='<div class="empty">Error</div>'; return; }
+    const entries = await r.json();
+    el.innerHTML = entries.length ? `<table><thead><tr><th>Fecha</th><th>Descripción</th><th>Creado por</th><th>Líneas</th><th></th></tr></thead><tbody>
+      ${entries.map(e => `<tr><td>${new Date(e.date).toLocaleDateString('es-PA')}</td><td>${esc(e.description?.substring(0,60)||'')}</td><td>${esc(e.createdBy?.name||'')}</td><td>${e.lines?.length||0}</td><td>
+        <button onclick="revisarAsiento('${e.id}','aprobar')" style="background:#10b981;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;margin-right:4px">✓ Aprobar</button>
+        <button onclick="revisarAsiento('${e.id}','rechazar')" style="background:#ef4444;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px">✕ Rechazar</button>
+      </td></tr>`).join('')}</tbody></table>` : '<div class="empty">Sin asientos pendientes de revisión 🎉</div>';
+  }catch(e){ el.innerHTML='<div class="empty">Error de conexión</div>'; }
+}
+async function revisarAsiento(id, action){
+  const notes = action === 'rechazar' ? prompt('Motivo del rechazo (opcional):') : null;
+  const r = await api(`${API}/journal/${id}/review`, { method:'POST', body: JSON.stringify({ action, notes }) });
+  if(r?.ok){ loadRevision(); }
+}
+
+// ── Export ──
+async function exportDiario(format='xlsx'){
+  const from = document.getElementById('diario-from')?.value || '', to = document.getElementById('diario-to')?.value || '';
+  const params = new URLSearchParams({ format });
+  if(from) params.set('startDate', from);
+  if(to) params.set('endDate', to);
+  window.open(`${API}/reports/export/diario?${params}`);
+}
+async function exportReport(type, format='xlsx'){
+  const prefix = type === 'balance-comprobacion' ? 'balance' : type === 'estado-resultados' ? 'resultados' : '';
+  const fromId = prefix ? document.getElementById(`${prefix}-from`) : null;
+  const toId = prefix ? document.getElementById(`${prefix}-to`) : null;
+  const params = new URLSearchParams({ format });
+  if(fromId?.value) params.set('startDate', fromId.value);
+  if(toId?.value) params.set('endDate', toId.value);
+  window.open(`${API}/reports/export/${type}?${params}`);
+}
+</script>
+</body>
+</html>
