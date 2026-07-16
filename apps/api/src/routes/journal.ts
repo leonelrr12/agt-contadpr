@@ -272,7 +272,10 @@ journalRouter.post('/:id/anular', requireRole('admin', 'contador'), async (req, 
 
 journalRouter.get('/mayor/:accountId', async (req, res) => {
   const { startDate, endDate } = req.query;
-  const journalEntry: Record<string, unknown> = { companyId: req.user!.companyId };
+  const journalEntry: Record<string, unknown> = {
+    companyId: req.user!.companyId,
+    status: { notIn: ['RECHAZADO', 'ANULADO'] },
+  };
   const dateFilter = buildDateFilter(startDate as string, endDate as string);
   if (dateFilter) journalEntry.date = dateFilter;
 
@@ -283,8 +286,44 @@ journalRouter.get('/mayor/:accountId', async (req, res) => {
 
   const lines = await req.prisma.journalLine.findMany({
     where,
-    include: { journalEntry: { select: { date: true, description: true } } },
+    include: {
+      journalEntry: {
+        select: { id: true, date: true, description: true, status: true },
+      },
+      account: { select: { code: true, name: true, type: true } },
+    },
     orderBy: { journalEntry: { date: 'asc' } },
   });
-  res.json(lines);
+
+  // Calcular saldo acumulado
+  let balance = 0;
+  const detail = lines.map(l => {
+    const isNatureDebit = ['ACTIVO', 'GASTO', 'COSTO'].includes(l.account.type);
+    // Para cuentas de naturaleza débito: débito suma, crédito resta
+    // Para cuentas de naturaleza crédito: crédito suma, débito resta
+    if (isNatureDebit) {
+      balance += l.debit - l.credit;
+    } else {
+      balance += l.credit - l.debit;
+    }
+    return {
+      id: l.journalEntry.id,
+      date: l.journalEntry.date,
+      description: l.journalEntry.description,
+      debit: l.debit,
+      credit: l.credit,
+      balance: Math.round(balance * 100) / 100,
+      status: l.journalEntry.status,
+    };
+  });
+
+  res.json({
+    account: lines[0]?.account || null,
+    detail,
+    totals: {
+      totalDebit: Math.round(detail.reduce((s, d) => s + d.debit, 0) * 100) / 100,
+      totalCredit: Math.round(detail.reduce((s, d) => s + d.credit, 0) * 100) / 100,
+      finalBalance: Math.round(balance * 100) / 100,
+    },
+  });
 });

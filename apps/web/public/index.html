@@ -64,6 +64,7 @@
         <button class="nav-link" data-view="panel-balance">⚖️ Balance</button>
         <button class="nav-link" data-view="panel-resultados">📊 Resultados</button>
         <button class="nav-link" data-view="panel-dashboard">📈 Dashboard</button>
+        <button class="nav-link" data-view="panel-auxiliar">📒 Auxiliar de Cta.</button>
         <button class="nav-link" data-view="panel-revision" id="nav-revision">🔍 Revisión <span id="pendientes-badge" class="badge hidden">0</span></button>
         <div class="nav-section-label">Clientes y Proveedores</div>
         <a href="/clientes.html" class="nav-link" style="display:block;text-decoration:none">👥 Clientes</a>
@@ -215,6 +216,7 @@
       <button data-panel="balance">Balance</button>
       <button data-panel="resultados">Resultados</button>
       <button data-panel="dashboard">Dashboard</button>
+      <button data-panel="auxiliar">📒 Auxiliar</button>
       <button data-panel="revision">🔍 Revisión</button>
     </nav>
     <nav class="panel-tabs hidden" id="panel-tabs-admin">
@@ -275,6 +277,20 @@
         </div>
         <div id="dashboard-content">
           <div class="empty">Cargando dashboard...</div>
+        </div>
+      </div>
+      <div id="panel-auxiliar" class="panel-tab">
+        <div class="filter-bar">
+          <select id="auxiliar-account" style="padding:6px 10px;border:1px solid #e2e4e8;border-radius:6px;font-size:13px;background:#fff;font-family:inherit;min-width:300px">
+            <option value="">Selecciona una cuenta...</option>
+          </select>
+          <input type="date" id="auxiliar-from">
+          <input type="date" id="auxiliar-to">
+          <button class="btn-filter" onclick="loadAuxiliar()">🔍 Buscar</button>
+          <button class="btn-filter" style="background:#1565c0;color:#fff" onclick="exportAuxiliar()">📥 Excel</button>
+        </div>
+        <div id="auxiliar-content">
+          <div class="empty">Selecciona una cuenta para ver su auxiliar</div>
         </div>
       </div>
       <div id="panel-cuentas" class="panel-tab">

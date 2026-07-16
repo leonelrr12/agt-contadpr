@@ -2033,4 +2033,147 @@ document.addEventListener('DOMContentLoaded', () => {
   addMessage('¡Buenos días! Soy tu agente contable. ¿Qué deseas registrar hoy?', 'assistant');
   addMessage('Puedes escribir algo como:\n• "Compré combustible por $40 con tarjeta"\n• "Vendí $250 en efectivo"\n• "Pagué la electricidad"\n• "Compra de mercancía por $100 con ITBMS a Distribuidora XYZ, crédito"\n• "Vendí $200 en efectivo con ITBMS"\n• "Pago de ITBMS por $150"', 'assistant');
   updateSummary();
+
+  // Cargar cuentas para el selector del Auxiliar
+  loadAuxiliarAccounts();
 });
+
+// ── Auxiliar de Cuenta ──
+let _auxiliarAccounts = [];
+
+async function loadAuxiliarAccounts() {
+  try {
+    const res = await authFetch(`${API_URL}/accounts`);
+    if (!res || !res.ok) return;
+    const accounts = await res.json();
+    _auxiliarAccounts = accounts.filter(a => {
+      // Solo cuentas de detalle (las que tienen hijos normalmente, o las de movimiento)
+      const code = a.code;
+      const parts = code.split('.');
+      return parts.length >= 2; // excluir cuentas raíz (1, 2, 3, 4, 5, 6)
+    }).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+
+    const sel = document.getElementById('auxiliar-account');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Selecciona una cuenta...</option>' +
+      _auxiliarAccounts.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
+  } catch (e) {
+    console.error('Error cargando cuentas:', e);
+  }
+}
+
+async function loadAuxiliar() {
+  const accountId = document.getElementById('auxiliar-account').value;
+  const from = document.getElementById('auxiliar-from').value;
+  const to = document.getElementById('auxiliar-to').value;
+
+  if (!accountId) {
+    await showAlert('Selecciona una cuenta contable');
+    return;
+  }
+
+  const el = document.getElementById('auxiliar-content');
+  el.innerHTML = '<div class="empty">Cargando...</div>';
+
+  try {
+    const params = new URLSearchParams();
+    if (from) params.set('startDate', from);
+    if (to) params.set('endDate', to);
+    const qs = params.toString();
+
+    const res = await authFetch(`${API_URL}/journal/mayor/${accountId}${qs ? `?${qs}` : ''}`);
+    if (!res || !res.ok) { el.innerHTML = '<div class="empty">Error al cargar</div>'; return; }
+
+    const data = await res.json();
+    if (!data.detail || !data.detail.length) {
+      el.innerHTML = '<div class="empty">Sin movimientos en este período</div>';
+      return;
+    }
+
+    const account = data.account;
+    const fmt = (n) => n === 0 ? '—' : '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    el.innerHTML = `
+      <div style="margin-bottom:12px">
+        <strong style="font-size:16px">${account.code} — ${account.name}</strong>
+        <span style="color:#6b7280;font-size:13px;margin-left:8px">(${account.type})</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="border-bottom:2px solid #e2e4e8">
+              <th style="text-align:left;padding:8px 12px;color:#6b7280;font-size:11px">FECHA</th>
+              <th style="text-align:left;padding:8px 12px;color:#6b7280;font-size:11px">DETALLE</th>
+              <th style="text-align:right;padding:8px 12px;color:#6b7280;font-size:11px">DÉBITO</th>
+              <th style="text-align:right;padding:8px 12px;color:#6b7280;font-size:11px">CRÉDITO</th>
+              <th style="text-align:right;padding:8px 12px;color:#6b7280;font-size:11px">SALDO</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.detail.map(d => `
+              <tr style="border-bottom:1px solid #f0f0f0">
+                <td style="padding:8px 12px;white-space:nowrap">${new Date(d.date).toLocaleDateString('es-PA')}</td>
+                <td style="padding:8px 12px;max-width:300px;overflow:hidden;text-overflow:ellipsis" title="${escHtml(d.description)}">${escHtml(d.description?.substring(0, 80) || '')}</td>
+                <td style="text-align:right;padding:8px 12px;white-space:nowrap">${fmt(d.debit)}</td>
+                <td style="text-align:right;padding:8px 12px;white-space:nowrap">${fmt(d.credit)}</td>
+                <td style="text-align:right;padding:8px 12px;white-space:nowrap;font-weight:600;color:${d.balance >= 0 ? '#065f46' : '#991b1b'}">${fmt(d.balance)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="border-top:2px solid #1a1a2e;font-weight:700">
+              <td colspan="2" style="padding:8px 12px">TOTALES</td>
+              <td style="text-align:right;padding:8px 12px">${fmt(data.totals.totalDebit)}</td>
+              <td style="text-align:right;padding:8px 12px">${fmt(data.totals.totalCredit)}</td>
+              <td style="text-align:right;padding:8px 12px;color:${data.totals.finalBalance >= 0 ? '#065f46' : '#991b1b'}">${fmt(data.totals.finalBalance)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `;
+  } catch (e) {
+    el.innerHTML = '<div class="empty">Error de conexión</div>';
+  }
+}
+
+async function exportAuxiliar() {
+  const accountId = document.getElementById('auxiliar-account').value;
+  const from = document.getElementById('auxiliar-from').value;
+  const to = document.getElementById('auxiliar-to').value;
+
+  if (!accountId) { await showAlert('Selecciona una cuenta'); return; }
+
+  try {
+    const params = new URLSearchParams();
+    if (from) params.set('startDate', from);
+    if (to) params.set('endDate', to);
+    const qs = params.toString();
+
+    const res = await authFetch(`${API_URL}/journal/mayor/${accountId}${qs ? `?${qs}` : ''}`);
+    if (!res || !res.ok) { await showAlert('Error al exportar'); return; }
+
+    const data = await res.json();
+    if (!data.detail || !data.detail.length) { await showAlert('Sin datos para exportar'); return; }
+
+    // Generar CSV
+    const account = data.account;
+    let csv = `"${account.code} — ${account.name} (${account.type})"\n`;
+    csv += 'Fecha,Detalle,Débito,Crédito,Saldo\n';
+    for (const d of data.detail) {
+      csv += `"${new Date(d.date).toLocaleDateString('es-PA')}","${(d.description || '').replace(/"/g, '""')}",${d.debit},${d.credit},${d.balance}\n`;
+    }
+    csv += `"TOTALES",,${data.totals.totalDebit},${data.totals.totalCredit},${data.totals.finalBalance}\n`;
+
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `auxiliar_${account.code.replace(/\./g, '_')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    await showAlert('Error al exportar');
+  }
+}
+
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
