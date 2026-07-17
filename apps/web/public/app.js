@@ -110,7 +110,10 @@ let pendingClassification = null;
 
 function showInput(mode) {
   stopQRScanner();
-  document.getElementById('quick-actions').classList.add('hidden');
+  // PDF no oculta quick-actions (el diálogo de archivo es nativo, si cancela vuelve)
+  if (mode !== 'pdf') {
+    document.getElementById('quick-actions').classList.add('hidden');
+  }
   document.getElementById('dgi-menu').classList.add('hidden');
   document.getElementById('qr-upload').classList.add('hidden');
   document.getElementById('ocr-upload').classList.add('hidden');
@@ -133,8 +136,9 @@ function showInput(mode) {
     document.getElementById('pdf-result-text').innerHTML = '';
     document.getElementById('pdf-file-input').value = '';
     pdfData = null;
-    // Abrir directamente el explorador de archivos, sin mostrar pantalla intermedia
+    // Abrir explorador sin ocultar quick-actions (se oculta al seleccionar archivo)
     document.getElementById('pdf-file-input').click();
+    // Si el usuario cancela, no pasa nada y quick-actions sigue visible
     return;
   }
   const input = document.getElementById('text-input');
@@ -348,12 +352,7 @@ function openPDFPicker() {
 }
 
 document.getElementById('pdf-file-input').addEventListener('change', (e) => {
-  if (e.target.files[0]) {
-    handlePDFFile(e.target.files[0]);
-  } else {
-    // Usuario canceló el diálogo de archivos — restaurar quick-actions
-    document.getElementById('quick-actions').classList.remove('hidden');
-  }
+  if (e.target.files[0]) handlePDFFile(e.target.files[0]);
 });
 
 function handlePDFFile(file) {
