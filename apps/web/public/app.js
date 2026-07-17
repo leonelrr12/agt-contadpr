@@ -2965,7 +2965,7 @@ async function loadAuxCxC(el) {
       `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Vencidas</div><div style="font-size:20px;font-weight:700;color:#ef4444">${sum.overdueInvoices}</div></div>`+
     '</div>';
     html += clients.filter(c => c.totalDue > 0).length
-      ? buildInformesTable(['Cliente','RUC','Pendiente','Facturas'], clients.filter(c => c.totalDue > 0).map(c => [escHtml(c.name), escHtml(c.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${c.totalDue.toLocaleString()}</span>`, c.invoiceCount||'—']))
+      ? buildInformesTable(['Cliente','RUC','Pendiente','Facturas',''], clients.filter(c => c.totalDue > 0).map(c => [escHtml(c.name), escHtml(c.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${c.totalDue.toLocaleString()}</span>`, c.invoiceCount||'—', `<button onclick="toggleFacturas('${c.id}','invoices')" style="padding:4px 10px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📋 Ver</button><div id="detalle-${c.id}" class="hidden" style="margin-top:8px"></div>`]))
       : '<div style="text-align:center;padding:24px;color:#6b7280">Sin clientes con saldo pendiente</div>';
     el.innerHTML = html;
   } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; }
@@ -2981,10 +2981,37 @@ async function loadAuxCxP(el) {
       `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Vencidas</div><div style="font-size:20px;font-weight:700;color:#ef4444">${sum.overdueBills}</div></div>`+
     '</div>';
     html += supps.filter(s => s.totalOwed > 0).length
-      ? buildInformesTable(['Proveedor','RUC','Pendiente','Facturas'], supps.filter(s => s.totalOwed > 0).map(s => [escHtml(s.name), escHtml(s.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${s.totalOwed.toLocaleString()}</span>`, s.billCount||'—']))
+      ? buildInformesTable(['Proveedor','RUC','Pendiente','Facturas',''], supps.filter(s => s.totalOwed > 0).map(s => [escHtml(s.name), escHtml(s.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${s.totalOwed.toLocaleString()}</span>`, s.billCount||'—', `<button onclick="toggleFacturas('${s.id}','bills')" style="padding:4px 10px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📋 Ver</button><div id="detalle-${s.id}" class="hidden" style="margin-top:8px"></div>`]))
       : '<div style="text-align:center;padding:24px;color:#6b7280">Sin proveedores con saldo pendiente</div>';
     el.innerHTML = html;
   } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; }
+}
+
+async function toggleFacturas(entityId, type) {
+  const det = document.getElementById('detalle-' + entityId);
+  if (!det.classList.contains('hidden')) { det.classList.add('hidden'); return; }
+  det.classList.remove('hidden');
+  det.innerHTML = '<div style="text-align:center;padding:12px;color:#6b7280">Cargando...</div>';
+  const url = type === 'invoices' ? `${API_URL}/clients/${entityId}/invoices` : `${API_URL}/suppliers/${entityId}/bills`;
+  try {
+    const res = await authFetch(url);
+    const items = await res.json();
+    if (!items || !items.length) { det.innerHTML = '<div style="text-align:center;padding:12px;color:#6b7280">Sin facturas</div>'; return; }
+    const fmt = n => '$'+n.toLocaleString('en-US',{minimumFractionDigits:2});
+    const rows = items.map(f => {
+      const statusLabel = { PENDIENTE: '⏳ Pendiente', VENCIDA: '🔴 Vencida', PAGADA: '✅ Pagada' };
+      const statusColor = { PENDIENTE: '#f59e0b', VENCIDA: '#dc2626', PAGADA: '#059669' };
+      return [
+        f.number || '—',
+        new Date(f.date).toLocaleDateString('es-PA'),
+        new Date(f.dueDate).toLocaleDateString('es-PA'),
+        fmt(f.amount || f.total || 0),
+        `<span style="color:${statusColor[f.status]||'#6b7280'};font-weight:600;font-size:11px">${statusLabel[f.status]||f.status}</span>`
+      ];
+    });
+    det.innerHTML = '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:12px;margin-top:4px">'+
+      buildInformesTable(['N° Factura','Fecha','Vence','Monto','Estado'], rows)+'</div>';
+  } catch(e) { det.innerHTML = '<div style="color:#dc2626;padding:8px">Error al cargar</div>'; }
 }
 
 function buildInformesTable(headers, rows) {
