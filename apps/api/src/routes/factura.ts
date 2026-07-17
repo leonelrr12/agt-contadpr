@@ -55,10 +55,10 @@ facturaRouter.post('/extract-url', async (req, res) => {
     }
 
     let buffer = Buffer.from(await response.arrayBuffer());
-    const header = buffer.slice(0, 15).toString();
+    const headStr = buffer.slice(0, 200).toString();
 
     // Detectar si es visor web DGI (FacturasPorQR) → extraer facturaXML y descargar PDF real
-    if (header.startsWith('<!DOCTYPE') || header.startsWith('<html')) {
+    if (headStr.includes('facturaXML') || headStr.includes('<!DOCTYPE') || headStr.includes('<html')) {
       const html = buffer.toString();
 
       if (html.includes('facturaXML') && html.includes('DescargarFacturaPDF')) {
