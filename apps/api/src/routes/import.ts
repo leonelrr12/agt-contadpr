@@ -280,6 +280,23 @@ importRouter.post('/execute-all', requireQuota, upload.single('file'), async (re
       return;
     }
 
+    // Verificar cuota: ¿hay cupo suficiente para todas las filas?
+    const sub = (req as any).subscription;
+    if (sub) {
+      const remaining = sub.movementsLimit - sub.movementsUsed;
+      if (rows.length > remaining) {
+        res.status(429).json({
+          error: `No tienes suficientes movimientos disponibles. Tu plan permite ${sub.movementsLimit} por período y has usado ${sub.movementsUsed}. Te quedan ${remaining} pero necesitas ${rows.length}.`,
+          code: 'QUOTA_EXCEEDED',
+          limit: sub.movementsLimit,
+          used: sub.movementsUsed,
+          remaining,
+          required: rows.length,
+        });
+        return;
+      }
+    }
+
     // Ejecutar usando la misma lógica
     const results = await executeImportRows(
       rows, req.prisma, req.user!.companyId, req.user!.userId,
