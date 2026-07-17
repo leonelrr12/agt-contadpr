@@ -1208,6 +1208,9 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
       document.querySelector('#reports-panel .panel-header')?.classList.add('hidden');
       document.getElementById('panel-recurring-content').classList.add('hidden');
       document.getElementById('recurring-form').classList.add('hidden');
+      document.getElementById('panel-import-content').classList.add('hidden');
+      document.getElementById('panel-conciliacion-content').classList.add('hidden');
+      document.getElementById('panel-taxcalendar-content').classList.add('hidden');
       document.getElementById('panel-whatsapp-content').classList.add('hidden');
       // Ocultar admin contents
       ['cuentas-admin-content','cuentas-admin-actions','cuentas-admin-form','conceptos-admin-content','conceptos-admin-actions','conceptos-admin-form','config-content'].forEach(id => {
@@ -1220,6 +1223,15 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
 
     // Recurring panel
     if (view === 'panel-recurring') { loadPanelRecurring(); return; }
+
+    // Import panel
+    if (view === 'panel-import') { loadPanelImport(); return; }
+
+    // Conciliacion panel
+    if (view === 'panel-conciliacion') { loadPanelConciliacion(); return; }
+
+    // Tax Calendar panel
+    if (view === 'panel-taxcalendar') { loadPanelTaxCalendar(); return; }
 
     // WhatsApp panel
     if (view === 'panel-whatsapp') { loadPanelWhatsApp(); return; }
@@ -2572,4 +2584,210 @@ async function unlinkWhatsApp(id) {
   } catch (e) {
     await showAlert('Error al desvincular');
   }
+}
+
+/* ── Panel: Importar (inline) ── */
+let importInlineFile = null;
+let importInlinePreview = null;
+
+function loadPanelImport() {
+  document.getElementById('chat-messages').classList.add('hidden');
+  document.getElementById('input-area').classList.add('hidden');
+  document.getElementById('panel-import-content').classList.remove('hidden');
+  // Inicializar fecha por defecto
+  const dateInput = document.getElementById('import-inline-date');
+  if (!dateInput.value) dateInput.value = new Date().toISOString().split('T')[0];
+  // Drag & drop + file input
+  const zone = document.getElementById('import-inline-zone');
+  const fileInput = document.getElementById('import-inline-file');
+  zone.onclick = () => fileInput.click();
+  zone.ondragover = e => { e.preventDefault(); e.stopPropagation(); };
+  zone.ondrop = e => {
+    e.preventDefault(); e.stopPropagation();
+    const f = e.dataTransfer.files[0];
+    if (f) handleImportInlineFile(f);
+  };
+  fileInput.onchange = e => {
+    const f = e.target.files[0];
+    if (f) handleImportInlineFile(f);
+  };
+}
+
+async function handleImportInlineFile(file) {
+  importInlineFile = file;
+  document.getElementById('import-inline-file-name').textContent = `📎 ${file.name}`;
+  document.getElementById('import-inline-loading').classList.remove('hidden');
+  document.getElementById('import-inline-loading-text').textContent = 'Analizando archivo...';
+
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const res = await authFetch(`${API_URL}/import/preview`, { method: 'POST', body: formData });
+    if (!res.ok) { const e = await res.json(); await showAlert(e.error || 'Error'); resetImportInline(); return; }
+    importInlinePreview = await res.json();
+    document.getElementById('import-inline-loading').classList.add('hidden');
+    renderImportInlinePreview();
+  } catch (e) { await showAlert('Error de conexión'); resetImportInline(); }
+}
+
+function renderImportInlinePreview() {
+  if (!importInlinePreview) return;
+  const { totalRows, previewRows } = importInlinePreview;
+  document.getElementById('import-inline-total').textContent = totalRows;
+  const errs = previewRows.filter(r => !r.date || !r.amount || r.amount <= 0);
+  document.getElementById('import-inline-ok').textContent = Math.max(0, previewRows.length - errs.length) + (totalRows > 20 ? '+' : '');
+  document.getElementById('import-inline-err').textContent = errs.length;
+  document.getElementById('import-inline-summary').classList.remove('hidden');
+
+  // Tabla preview (primeras 20 filas)
+  const thead = document.getElementById('import-inline-thead');
+  thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Concepto</th><th>Cuenta</th><th>Conf</th></tr>';
+  let html = '';
+  previewRows.forEach((r, i) => {
+    const conf = r.classification;
+    html += `<tr>
+      <td>${i+1}</td><td>${r.date||'—'}</td><td>${escHtml(r.description||'')}</td>
+      <td>${r.amount?'$'+r.amount.toFixed(2):'—'}</td><td>${escHtml(r.concept||'')}</td>
+      <td>${conf?escHtml(conf.concept):'—'}</td>
+      <td>${conf?Math.round(conf.confidence*100)+'%':'—'}</td></tr>`;
+  });
+  document.getElementById('import-inline-tbody').innerHTML = html;
+  document.getElementById('import-inline-preview').classList.remove('hidden');
+  document.getElementById('import-inline-execute').classList.remove('hidden');
+}
+
+async function executeImportInline() {
+  if (!importInlineFile) return;
+  const total = importInlinePreview.totalRows;
+  const importDate = document.getElementById('import-inline-date').value;
+  const dateLabel = new Date(importDate+'T12:00:00').toLocaleDateString('es-PA',{year:'numeric',month:'long',day:'numeric'});
+
+  const ok = await showConfirm(`¿Importar ${total} transacciones?\n\n📅 Fecha: ${dateLabel}\n\n⚠️ Verifica la fecha. Los asientos se crearán como BORRADOR.`);
+  if (!ok) return;
+
+  document.getElementById('import-inline-loading').classList.remove('hidden');
+  document.getElementById('import-inline-execute').classList.add('hidden');
+  document.getElementById('import-inline-loading-text').textContent = `Importando ${total} transacciones...`;
+
+  const formData = new FormData();
+  formData.append('file', importInlineFile);
+  formData.append('importDate', importDate);
+
+  try {
+    const res = await authFetch(`${API_URL}/import/execute-all`, { method: 'POST', body: formData });
+    document.getElementById('import-inline-loading').classList.add('hidden');
+    const result = await res.json();
+    if (res.ok) {
+      await showAlert(`✅ Importación completada: ${result.success} de ${result.total} exitosas.${result.errors.length ? `\n${result.errors.length} errores.` : ''}`);
+    } else {
+      await showAlert(`❌ ${result.error || 'Error'}`);
+    }
+    resetImportInline();
+  } catch (e) { await showAlert('Error de conexión'); resetImportInline(); }
+}
+
+function resetImportInline() {
+  importInlineFile = null;
+  importInlinePreview = null;
+  document.getElementById('import-inline-file').value = '';
+  document.getElementById('import-inline-file-name').textContent = '';
+  document.getElementById('import-inline-preview').classList.add('hidden');
+  document.getElementById('import-inline-summary').classList.add('hidden');
+  document.getElementById('import-inline-execute').classList.add('hidden');
+  document.getElementById('import-inline-loading').classList.add('hidden');
+}
+
+/* ── Panel: Conciliación (inline) ── */
+function loadPanelConciliacion() {
+  document.getElementById('chat-messages').classList.add('hidden');
+  document.getElementById('input-area').classList.add('hidden');
+  document.getElementById('panel-conciliacion-content').classList.remove('hidden');
+  loadConciliacionList();
+}
+
+async function loadConciliacionList() {
+  const el = document.getElementById('conciliacion-inline-list');
+  try {
+    const res = await authFetch(`${API_URL}/reconcile`);
+    if (!res.ok) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar</div>'; return; }
+    const statements = await res.json();
+    if (!statements.length) {
+      el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">No hay extractos bancarios. Sube uno para comenzar.</div>';
+      return;
+    }
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>Archivo</th><th>Fecha subida</th><th>Estado</th><th>Filas</th><th></th></tr></thead><tbody>';
+    for (const s of statements) {
+      html += `<tr>
+        <td><strong>${escHtml(s.fileName||'Extracto')}</strong></td>
+        <td>${new Date(s.uploadDate).toLocaleDateString('es-PA')}</td>
+        <td>${s.status}</td>
+        <td>${s._count?.rows||'—'}</td>
+        <td><button class="btn-sm" onclick="window.open('/conciliacion.html','_blank')">🔍 Abrir</button></td>
+      </tr>`;
+    }
+    el.innerHTML = html + '</tbody></table>';
+  } catch (e) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar</div>'; }
+}
+
+function showConciliacionUpload() {
+  const el = document.getElementById('conciliacion-inline-upload');
+  el.classList.remove('hidden');
+  const fileInput = document.getElementById('conciliacion-inline-file');
+  el.onclick = () => fileInput.click();
+  el.ondragover = e => { e.preventDefault(); e.stopPropagation(); };
+  el.ondrop = e => {
+    e.preventDefault(); e.stopPropagation();
+    const f = e.dataTransfer.files[0];
+    if (f) uploadConciliacionFile(f);
+  };
+  fileInput.onchange = e => { const f = e.target.files[0]; if (f) uploadConciliacionFile(f); };
+}
+
+async function uploadConciliacionFile(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const res = await authFetch(`${API_URL}/reconcile/upload`, { method: 'POST', body: formData });
+    if (res.ok) { await showAlert('✅ Extracto subido. Redirigiendo a conciliación...'); window.open('/conciliacion.html','_blank'); }
+    else { const e = await res.json(); await showAlert(e.error || 'Error al subir'); }
+  } catch (e) { await showAlert('Error de conexión'); }
+  document.getElementById('conciliacion-inline-upload').classList.add('hidden');
+  loadConciliacionList();
+}
+
+/* ── Panel: Calendario Fiscal (inline) ── */
+function loadPanelTaxCalendar() {
+  document.getElementById('chat-messages').classList.add('hidden');
+  document.getElementById('input-area').classList.add('hidden');
+  document.getElementById('panel-taxcalendar-content').classList.remove('hidden');
+  loadTaxCalendarInline();
+}
+
+async function loadTaxCalendarInline() {
+  const el = document.getElementById('taxcalendar-inline-list');
+  el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Cargando...</div>';
+  try {
+    const res = await authFetch(`${API_URL}/tax-calendar`);
+    if (!res.ok) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar</div>'; return; }
+    const data = await res.json();
+    const obligations = [...(data.overdue || []), ...(data.upcoming || [])];
+    if (!obligations.length) {
+      el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">✅ No hay obligaciones pendientes</div>';
+      return;
+    }
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>Obligación</th><th>Tipo</th><th>Vence</th><th>Estado</th><th>Monto</th></tr></thead><tbody>';
+    for (const o of obligations) {
+      const due = new Date(o.dueDate);
+      const dias = Math.ceil((due - Date.now())/(86400000));
+      const color = dias < 0 ? '#dc2626' : dias <= 5 ? '#f59e0b' : '#059669';
+      html += `<tr>
+        <td><strong>${escHtml(o.label)}</strong></td>
+        <td>${o.type}</td>
+        <td style="color:${color};font-weight:600">${due.toLocaleDateString('es-PA')} (${dias < 0 ? 'vencida' : dias+' días'})</td>
+        <td>${o.status === 'COMPLETED' ? '✅' : '⏳'} ${o.status}</td>
+        <td>${o.estimatedAmount ? '$'+o.estimatedAmount.toFixed(2) : '—'}</td>
+      </tr>`;
+    }
+    el.innerHTML = html + '</tbody></table>';
+  } catch (e) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar</div>'; }
 }

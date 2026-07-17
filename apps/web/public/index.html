@@ -65,6 +65,9 @@
         <a href="/calendario-fiscal.html" class="nav-link" style="display:block;text-decoration:none">📅 Calendario Fiscal</a>
         <div class="nav-section-label" id="admin-section-label" style="display:none">Administración</div>
         <button class="nav-link" data-view="panel-recurring" id="nav-recurring-link">🔄 Recurrentes</button>
+        <button class="nav-link" data-view="panel-import" id="nav-import-link">📥 Importar</button>
+        <button class="nav-link" data-view="panel-conciliacion" id="nav-conciliacion-link">🏦 Conciliar</button>
+        <button class="nav-link" data-view="panel-taxcalendar" id="nav-taxcalendar-link">📅 Calendario</button>
         <button class="nav-link" data-view="panel-cuentas-admin" id="nav-cuentas-admin" style="display:none">🏦 Cuentas</button>
         <button class="nav-link" data-view="panel-conceptos-admin" id="nav-conceptos-admin" style="display:none">📝 Conceptos</button>
         <button class="nav-link" data-view="panel-config" id="nav-config" style="display:none">⚙️ Configuración</button>
@@ -272,6 +275,77 @@
           <div id="wa-links-list"></div>
         </div>
       </div>
+
+      <!-- Panel de Importación -->
+      <div id="panel-import-content" class="hidden" style="padding:24px;max-width:900px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+          <div>
+            <h2 style="margin:0;color:#1a1a2e">📥 Importar Transacciones</h2>
+            <p style="margin:4px 0 0 0;color:#6b7280;font-size:13px">Sube tu archivo CSV o Excel con transacciones históricas. La IA clasificará cada concepto.</p>
+          </div>
+        </div>
+        <div id="import-inline-zone" style="border:2px dashed #d0d5dd;border-radius:12px;padding:32px 24px;text-align:center;background:#f9fafb;cursor:pointer;margin-bottom:16px">
+          <div style="font-size:36px;margin-bottom:8px">📂</div>
+          <h3 style="margin:0 0 8px 0;color:#1a1a2e">Arrastra tu archivo aquí o haz clic</h3>
+          <p style="margin:0;color:#6b7280;font-size:13px">Formatos aceptados: CSV, XLSX (máx. 10MB)</p>
+          <input type="file" id="import-inline-file" accept=".csv,.xlsx" style="display:none">
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+          <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap">📅 Fecha por defecto:</label>
+          <input type="date" id="import-inline-date" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;width:160px">
+          <span id="import-inline-file-name" style="font-size:13px;color:#6b7280"></span>
+        </div>
+        <div id="import-inline-preview" class="hidden" style="overflow-x:auto;margin-bottom:16px">
+          <table style="width:100%;border-collapse:collapse;font-size:12px" id="import-inline-table">
+            <thead id="import-inline-thead"></thead>
+            <tbody id="import-inline-tbody"></tbody>
+          </table>
+        </div>
+        <div id="import-inline-summary" class="hidden" style="display:flex;gap:14px;margin-bottom:16px">
+          <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700" id="import-inline-total">0</div><div style="font-size:11px;color:#6b7280">Filas totales</div></div>
+          <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:#059669" id="import-inline-ok">0</div><div style="font-size:11px;color:#6b7280">Listas</div></div>
+          <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:#dc2626" id="import-inline-err">0</div><div style="font-size:11px;color:#6b7280">Errores</div></div>
+        </div>
+        <button id="import-inline-execute" class="btn-primary hidden" onclick="executeImportInline()" style="padding:10px 20px;font-size:14px">✅ Importar transacciones</button>
+        <div id="import-inline-loading" class="hidden" style="text-align:center;padding:24px;color:#6b7280">
+          <div style="display:inline-block;width:24px;height:24px;border:3px solid #e5e7eb;border-top-color:#1565c0;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:8px"></div>
+          <p id="import-inline-loading-text">Procesando...</p>
+        </div>
+      </div>
+
+      <!-- Panel de Conciliación -->
+      <div id="panel-conciliacion-content" class="hidden" style="padding:24px;max-width:900px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+          <div>
+            <h2 style="margin:0;color:#1a1a2e">🏦 Conciliación Bancaria</h2>
+            <p style="margin:4px 0 0 0;color:#6b7280;font-size:13px">Sube un extracto bancario y concilia contra tus asientos contables</p>
+          </div>
+          <button class="btn-primary" onclick="showConciliacionUpload()" style="padding:10px 20px;font-size:14px">+ Subir extracto</button>
+        </div>
+        <div id="conciliacion-inline-list">
+          <div style="text-align:center;padding:32px;color:#6b7280">Cargando extractos...</div>
+        </div>
+        <div id="conciliacion-inline-upload" class="hidden" style="border:2px dashed #d0d5dd;border-radius:12px;padding:32px 24px;text-align:center;background:#f9fafb;cursor:pointer;margin-bottom:16px">
+          <div style="font-size:36px;margin-bottom:8px">🏦</div>
+          <h3 style="margin:0 0 8px 0">Arrastra tu extracto (CSV/PDF)</h3>
+          <p style="margin:0;color:#6b7280;font-size:13px">Formatos aceptados: CSV, PDF del banco</p>
+          <input type="file" id="conciliacion-inline-file" accept=".csv,.pdf" style="display:none">
+        </div>
+      </div>
+
+      <!-- Panel de Calendario Fiscal -->
+      <div id="panel-taxcalendar-content" class="hidden" style="padding:24px;max-width:900px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+          <div>
+            <h2 style="margin:0;color:#1a1a2e">📅 Calendario Fiscal</h2>
+            <p style="margin:4px 0 0 0;color:#6b7280;font-size:13px">Próximas obligaciones fiscales para tu empresa en Panamá</p>
+          </div>
+          <button class="btn-primary" onclick="loadTaxCalendarInline()" style="padding:10px 20px;font-size:14px">🔄 Actualizar</button>
+        </div>
+        <div id="taxcalendar-inline-list">
+          <div style="text-align:center;padding:32px;color:#6b7280">Cargando calendario...</div>
+        </div>
+      </div>
     </main>
   </div>
 
@@ -354,7 +428,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="app.js?v=21"></script>
+  <script src="app.js?v=22"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </body>
 </html>

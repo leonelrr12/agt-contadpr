@@ -651,6 +651,7 @@ body {
 }
 .dash-chart-card canvas {
   width: 100% !important;
+  max-width: 100% !important;
   height: 220px !important;
 }
 
@@ -1035,3 +1036,25 @@ body {
 .app-dialog-btn.primary { background: #2563eb; color: #fff; }
 .app-dialog-btn.danger { background: #ef4444; color: #fff; }
 .app-dialog-btn.secondary { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+
+/* ── Desktop: Dashboard y Reportes con padding razonable ── */
+@media (min-width: 1024px) {
+  .dash-chart-card { padding: 20px 24px; }
+  .dash-chart-card canvas { max-height: 260px !important; }
+  .dash-grid { gap: 16px; }
+  .dash-summary { gap: 12px; }
+  #reports-panel { width: 580px; right: -600px; }
+  #reports-panel .panel-body { padding: 20px 28px; }
+  .panel-body .summary-grid { gap: 14px; }
+  .panel-body .card { padding: 16px 18px; }
+  .panel-body .line-item { padding: 8px 4px; }
+  /* Paneles inline tipo Recurrente — margen lateral en desktop */
+  #panel-recurring-content,
+  #panel-conciliacion-content,
+  #panel-import-content,
+  #panel-taxcalendar-content,
+  #panel-whatsapp-content {
+    padding-left: 32px !important;
+    padding-right: 32px !important;
+  }
+}
