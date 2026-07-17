@@ -2733,7 +2733,7 @@ function clickInformeTab(informe) {
   const active = document.querySelector(`#panel-tabs-informes button[data-informe="${informe}"]`);
   if (active) { active.classList.add('active'); active.style.color = '#1a1a2e'; active.style.borderBottomColor = '#1565c0'; }
   showInformesLoading();
-  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard, auxiliar: loadReportAuxiliar, cxc: loadReportClientes, cxp: loadReportProveedores, revision: loadReportRevision };
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard, auxiliares: loadReportAuxiliares, revision: loadReportRevision };
   if (loaders[informe]) loaders[informe]();
 }
 
@@ -2745,10 +2745,37 @@ async function loadReportDiario()       { const el = document.getElementById('in
 async function loadReportBalance()     { const el = document.getElementById('informes-inline-result'); try { const res = await authFetch(`${API_URL}/reports/balance`); const d = await res.json(); const rows = (d.accounts||[]).map(a => [escHtml(a.code), escHtml(a.name), a.debit?.toFixed(2)||'—', a.credit?.toFixed(2)||'—', a.balance?.toFixed(2)||'—']); el.innerHTML = buildInformesTable(['Código','Cuenta','Débito','Crédito','Saldo'], rows); } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; } }
 async function loadReportResultados()  { const el = document.getElementById('informes-inline-result'); try { const res = await authFetch(`${API_URL}/reports/estado-resultados`); const d = await res.json(); el.innerHTML = '<div class="summary-grid">'+`<div class="card"><h3>Ingresos</h3><div class="value pos">$${(d.ingresos?.total||0).toFixed(2)}</div></div>`+`<div class="card"><h3>Costos</h3><div class="value neg">$${(d.costos?.total||0).toFixed(2)}</div></div>`+`<div class="card"><h3>Ganancia Bruta</h3><div class="value ${(d.gananciaBruta||0)>=0?'pos':'neg'}">$${(d.gananciaBruta||0).toFixed(2)}</div></div>`+`<div class="card"><h3>Gastos</h3><div class="value neg">$${(d.gastos?.total||0).toFixed(2)}</div></div>`+`<div class="card"><h3>Utilidad Neta</h3><div class="value ${(d.utilidadNeta||0)>=0?'pos':'neg'}">$${(d.utilidadNeta||0).toFixed(2)}</div></div>`+'</div>'; } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; } }
 function loadReportDashboard()         { const el = document.getElementById('informes-inline-result'); el.innerHTML = '<div style="text-align:center;padding:24px"><p style="color:#6b7280;margin-bottom:12px">Dashboard disponible en el panel de reportes</p><button class="btn-primary" onclick="toggleReportsOpen()" style="padding:8px 18px">📈 Abrir Dashboard</button></div>'; }
-function loadReportAuxiliar()          { const el = document.getElementById('informes-inline-result'); el.innerHTML = '<div style="background:#fff;border-radius:8px;padding:20px"><p style="margin:0 0 8px 0;font-weight:600">Selecciona una cuenta</p><select id="informes-aux-select" onchange="loadAuxiliarData()" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"><option value="">—</option></select><div id="informes-aux-data" style="margin-top:12px"></div></div>'; loadAuxiliarAccounts().then(accounts => { const sel = document.getElementById('informes-aux-select'); if (sel && accounts) accounts.forEach(a => { sel.innerHTML += `<option value="${a.id}">${a.code} — ${a.name}</option>`; }); }); }
-async function loadAuxiliarData() { const id = document.getElementById('informes-aux-select')?.value; if (!id) return; const el = document.getElementById('informes-aux-data'); el.innerHTML = 'Cargando...'; try { const res = await authFetch(`${API_URL}/reports/auxiliar/${id}`); const d = await res.json(); const rows = (d.entries||[]).map(e => [new Date(e.date).toLocaleDateString('es-PA'), escHtml(e.description||''), e.debit?.toFixed(2)||'—', e.credit?.toFixed(2)||'—', e.balance?.toFixed(2)||'—']); el.innerHTML = buildInformesTable(['Fecha','Descripción','Débito','Crédito','Saldo'], rows); } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; } }
-async function loadReportClientes()    { const el = document.getElementById('informes-inline-result'); try { const res = await authFetch(`${API_URL}/clients`); const d = await res.json(); el.innerHTML = buildInformesTable(['Cliente','RUC','Email','Teléfono'], (d||[]).map(c => [escHtml(c.name), escHtml(c.taxId||'—'), escHtml(c.email||'—'), escHtml(c.phone||'—')])); } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; } }
-async function loadReportProveedores() { const el = document.getElementById('informes-inline-result'); try { const res = await authFetch(`${API_URL}/suppliers`); const d = await res.json(); el.innerHTML = buildInformesTable(['Proveedor','RUC','Email','Teléfono'], (d||[]).map(p => [escHtml(p.name), escHtml(p.taxId||'—'), escHtml(p.email||'—'), escHtml(p.phone||'—')])); } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; } }
+function loadReportAuxiliares() {
+  const el = document.getElementById('informes-inline-result');
+  el.innerHTML = `
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <button class="btn-primary active" onclick="switchAuxTab('cuenta',this)" style="padding:8px 16px;font-size:13px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer">📒 Cuenta</button>
+      <button class="btn-secondary" onclick="switchAuxTab('cxc',this)" style="padding:8px 16px;font-size:13px;background:#e5e7eb;color:#374151;border:none;border-radius:6px;cursor:pointer">👥 CxC</button>
+      <button class="btn-secondary" onclick="switchAuxTab('cxp',this)" style="padding:8px 16px;font-size:13px;background:#e5e7eb;color:#374151;border:none;border-radius:6px;cursor:pointer">🏭 CxP</button>
+    </div>
+    <div id="aux-sub-content"></div>`;
+  switchAuxTab('cuenta');
+}
+
+function switchAuxTab(tab, btn) {
+  if (btn) {
+    document.querySelectorAll('#informes-inline-result button').forEach(b => { b.style.background = '#e5e7eb'; b.style.color = '#374151'; });
+    btn.style.background = '#1565c0'; btn.style.color = '#fff';
+  }
+  const sub = document.getElementById('aux-sub-content');
+  sub.innerHTML = '<div style="text-align:center;padding:24px;color:#6b7280">Cargando...</div>';
+  if (tab === 'cuenta') loadAuxCuenta(sub);
+  else if (tab === 'cxc') loadAuxCxC(sub);
+  else if (tab === 'cxp') loadAuxCxP(sub);
+}
+
+async function loadAuxCuenta(el) {
+  el.innerHTML = '<div style="background:#fff;border-radius:8px;padding:20px"><p style="margin:0 0 8px 0;font-weight:600">Selecciona una cuenta</p><select id="informes-aux-select" onchange="loadAuxiliarData()" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"><option value="">—</option></select><div id="informes-aux-data" style="margin-top:12px"></div></div>';
+  try { const res = await authFetch(`${API_URL}/accounts`); const accounts = await res.json(); const sel = document.getElementById('informes-aux-select'); if (sel) accounts.forEach(a => { sel.innerHTML += `<option value="${a.id}">${a.code} — ${a.name}</option>`; }); } catch(e) {}
+}
+async function loadAuxiliarData() { const id = document.getElementById('informes-aux-select')?.value; if (!id) return; const el = document.getElementById('informes-aux-data'); el.innerHTML = 'Cargando...'; try { const res = await authFetch(`${API_URL}/reports/auxiliar/${id}`); const d = await res.json(); el.innerHTML = buildInformesTable(['Fecha','Descripción','Débito','Crédito','Saldo'], (d.entries||[]).map(e => [new Date(e.date).toLocaleDateString('es-PA'), escHtml(e.description||''), e.debit?.toFixed(2)||'—', e.credit?.toFixed(2)||'—', e.balance?.toFixed(2)||'—'])); } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; } }
+async function loadAuxCxC(el)  { try { const res = await authFetch(`${API_URL}/clients`); const d = await res.json(); el.innerHTML = buildInformesTable(['Cliente','RUC','Email','Teléfono'], (d||[]).map(c => [escHtml(c.name), escHtml(c.taxId||'—'), escHtml(c.email||'—'), escHtml(c.phone||'—')])); } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; } }
+async function loadAuxCxP(el)  { try { const res = await authFetch(`${API_URL}/suppliers`); const d = await res.json(); el.innerHTML = buildInformesTable(['Proveedor','RUC','Email','Teléfono'], (d||[]).map(p => [escHtml(p.name), escHtml(p.taxId||'—'), escHtml(p.email||'—'), escHtml(p.phone||'—')])); } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; } }
 async function loadReportRevision()    { const el = document.getElementById('informes-inline-result'); try { const res = await authFetch(`${API_URL}/journal/pendientes`); const d = await res.json(); if (!d||!d.length) { el.innerHTML = '<div style="text-align:center;padding:24px;color:#059669">✅ No hay asientos pendientes de revisión</div>'; return; } el.innerHTML = buildInformesTable(['Fecha','Descripción','Estado','Creado por'], d.map(e => [new Date(e.date).toLocaleDateString('es-PA'), escHtml(e.description||''), e.status||'—', e.createdBy?.name||'—'])); } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; } }
 
 function buildInformesTable(headers, rows) {
