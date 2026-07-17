@@ -2782,15 +2782,29 @@ async function loadRevisionList() {
     let html = '';
     for (const e of d) {
       const date = new Date(e.date).toLocaleDateString('es-PA');
-      html += `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:10px;display:flex;align-items:center;gap:14px">
-        <div style="font-size:24px">📝</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:14px">${escHtml(e.description||'Sin descripción')}</div>
-          <div style="font-size:12px;color:#6b7280;margin-top:4px">📅 ${date} · 👤 ${escHtml(e.createdBy?.name||'—')} · ${e.lines?.length||0} líneas</div>
-        </div>
-        <div>
-          <button class="btn-sm" onclick="reviewApprove('${e.id}')" style="padding:6px 14px;font-size:12px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-right:6px">✅ Aprobar</button>
-          <button class="btn-sm" onclick="reviewReject('${e.id}')" style="padding:6px 14px;font-size:12px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer">❌ Rechazar</button>
+      let lineasHtml = '';
+      if (e.lines && e.lines.length) {
+        lineasHtml = '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px"><thead><tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280">Cuenta</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280">Débito</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280">Crédito</th></tr></thead><tbody>';
+        for (const l of e.lines) {
+          lineasHtml += `<tr>
+            <td style="padding:4px 8px;border-bottom:1px solid #f0f0f0">${escHtml(l.account?.code||'')} — ${escHtml(l.account?.name||'')}</td>
+            <td style="text-align:right;padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#2e7d32;font-weight:600">${l.debit ? '$'+l.debit.toFixed(2) : '—'}</td>
+            <td style="text-align:right;padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#c62828;font-weight:600">${l.credit ? '$'+l.credit.toFixed(2) : '—'}</td>
+          </tr>`;
+        }
+        lineasHtml += '</tbody></table>';
+      }
+      html += `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:10px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:14px">${escHtml(e.description||'Sin descripción')}</div>
+            <div style="font-size:12px;color:#6b7280;margin-top:4px">📅 ${date} · 👤 ${escHtml(e.createdBy?.name||'—')} · ${e.lines?.length||0} líneas</div>
+            ${lineasHtml}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+            <button onclick="reviewApprove('${e.id}')" style="padding:6px 14px;font-size:12px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✅ Aprobar</button>
+            <button onclick="reviewReject('${e.id}')" style="padding:6px 14px;font-size:12px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">❌ Rechazar</button>
+          </div>
         </div>
       </div>`;
     }
