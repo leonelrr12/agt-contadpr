@@ -606,6 +606,8 @@ body {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin-bottom: 16px;
+  max-width: 100%;
+  overflow: hidden;
 }
 .dash-card {
   background: #fff;
@@ -628,9 +630,13 @@ body {
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin-bottom: 12px;
+  max-width: 100%;
+  overflow: hidden;
 }
 .dash-chart-card {
   background: #fff;
+  min-width: 0;
+  overflow: hidden;
   border-radius: 8px;
   padding: 14px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
@@ -944,6 +950,10 @@ body {
   cursor: pointer;
   font-size: 13px;
 }
+
+.btn-danger.btn-sm { background: #c62828; color: #fff; border-color: #b71c1c; }
+.btn-primary.btn-sm { background: #059669; color: #fff; border-color: #047857; }
+.btn-secondary.btn-sm { background: #e5e7eb; color: #374151; border-color: #d0d5dd; }
 
 .btn-sm:hover {
   background: #f0f0f0;

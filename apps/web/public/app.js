@@ -1198,14 +1198,58 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
     btn.classList.add('active');
 
     if (view === 'chat') {
+      // Cerrar panel lateral
+      const panel = document.getElementById('reports-panel');
+      panel.classList.remove('open');
+      document.getElementById('reports-overlay').classList.add('hidden');
+      document.body.style.overflow = '';
+      // Ocultar admin
       document.getElementById('panel-tabs-admin').classList.add('hidden');
+      document.querySelector('#reports-panel .panel-header')?.classList.add('hidden');
+      document.getElementById('panel-recurring-content').classList.add('hidden');
+      document.getElementById('recurring-form').classList.add('hidden');
+      document.getElementById('panel-whatsapp-content').classList.add('hidden');
+      // Ocultar admin contents
+      ['cuentas-admin-content','cuentas-admin-actions','cuentas-admin-form','conceptos-admin-content','conceptos-admin-actions','conceptos-admin-form','config-content'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.classList.add('hidden');
+      });
+      document.getElementById('chat-messages').classList.remove('hidden');
+      document.getElementById('input-area').classList.remove('hidden');
       return;
     }
 
-    // Admin panels
-    if (view === 'panel-cuentas-admin') { loadPanelCuentasAdmin(); }
-    else if (view === 'panel-conceptos-admin') { loadPanelConceptosAdmin(); }
-    else if (view === 'panel-config') { loadPanelConfig(); }
+    // Recurring panel
+    if (view === 'panel-recurring') { loadPanelRecurring(); return; }
+
+    // WhatsApp panel
+    if (view === 'panel-whatsapp') { loadPanelWhatsApp(); return; }
+
+    // Admin panels — abrir el panel lateral y mostrar contenido
+    if (view === 'panel-cuentas-admin' || view === 'panel-conceptos-admin' || view === 'panel-config') {
+      // Abrir el panel lateral
+      const panel = document.getElementById('reports-panel');
+      const overlay = document.getElementById('reports-overlay');
+      panel.classList.add('open');
+      overlay.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+      // Mostrar tabs y panel header
+      document.getElementById('panel-tabs-admin').classList.remove('hidden');
+      document.querySelector('#reports-panel .panel-header')?.classList.remove('hidden');
+      // Cerrar panel lateral al hacer clic en overlay
+      overlay.onclick = () => { closeAdminPanel(); };
+    }
+    if (view === 'panel-cuentas-admin') {
+      document.getElementById('cuentas-admin-content').classList.remove('hidden');
+      document.getElementById('cuentas-admin-actions').classList.remove('hidden');
+      clickAdminTab('cuentas-admin');
+    } else if (view === 'panel-conceptos-admin') {
+      document.getElementById('conceptos-admin-content').classList.remove('hidden');
+      document.getElementById('conceptos-admin-actions').classList.remove('hidden');
+      clickAdminTab('conceptos-admin');
+    } else if (view === 'panel-config') {
+      document.getElementById('config-content').classList.remove('hidden');
+      clickAdminTab('config');
+    }
   });
 });
 
@@ -1234,31 +1278,65 @@ function toggleReportsClose() {
   document.body.style.overflow = '';
 }
 
+function closeAdminPanel() {
+  const panel = document.getElementById('reports-panel');
+  const overlay = document.getElementById('reports-overlay');
+  panel.classList.remove('open');
+  overlay.classList.add('hidden');
+  document.body.style.overflow = '';
+  // Ocultar contenido admin
+  ['cuentas-admin-content','cuentas-admin-actions','cuentas-admin-form',
+   'conceptos-admin-content','conceptos-admin-actions','conceptos-admin-form',
+   'config-content','panel-tabs-admin'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.classList.add('hidden');
+  });
+  document.querySelector('#reports-panel .panel-header')?.classList.add('hidden');
+  // Volver a vista chat
+  document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(b => b.classList.remove('active'));
+  const chatBtn = document.querySelector('#sidebar-nav .nav-link[data-view="chat"]');
+  if (chatBtn) chatBtn.classList.add('active');
+}
+
 document.querySelectorAll('.panel-tabs button').forEach(btn => {
   btn.addEventListener('click', () => {
-    // Solo desactivar botones dentro del mismo grupo de tabs
     const parentTabs = btn.closest('.panel-tabs');
     parentTabs.querySelectorAll('button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
     const target = document.getElementById('panel-' + btn.dataset.panel);
     if (target) target.classList.add('active');
-    else {
-      // intentar con sufijo (cuentas-admin, etc.)
-      const alt = document.getElementById('panel-' + btn.dataset.panel);
-      if (alt) alt.classList.add('active');
-    }
     if (btn.dataset.panel === 'diario') diarioPage = 1;
-    // Cargar datos del panel admin si aplica
-    if (btn.dataset.panel === 'cuentas-admin') loadPanelCuentasAdmin();
-    if (btn.dataset.panel === 'conceptos-admin') loadPanelConceptosAdmin();
-    if (btn.dataset.panel === 'config') loadPanelConfig();
-    // Cargar datos de reportes si aplica
     if (btn.dataset.panel === 'diario') loadPanelDiario();
     if (btn.dataset.panel === 'balance') loadPanelBalance();
     if (btn.dataset.panel === 'resultados') loadPanelResultados();
     if (btn.dataset.panel === 'dashboard') loadPanelDashboard();
     if (btn.dataset.panel === 'revision') loadPanelRevision();
+  });
+});
+
+// Admin panel tabs
+document.querySelectorAll('#panel-tabs-admin button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const parentTabs = btn.closest('#panel-tabs-admin');
+    parentTabs.querySelectorAll('button').forEach(b => { b.classList.remove('active'); b.style.color = '#6b7280'; b.style.borderBottomColor = 'transparent'; });
+    btn.classList.add('active');
+    btn.style.color = '#1a1a2e';
+    btn.style.borderBottomColor = '#1565c0';
+    // Mostrar/ocultar secciones
+    const contentIds = {
+      'cuentas-admin': ['cuentas-admin-content', 'cuentas-admin-actions', 'cuentas-admin-form'],
+      'conceptos-admin': ['conceptos-admin-content', 'conceptos-admin-actions', 'conceptos-admin-form'],
+      'config': ['config-content'],
+    };
+    // Ocultar todo
+    document.querySelectorAll('#cuentas-admin-content, #cuentas-admin-actions, #cuentas-admin-form, #conceptos-admin-content, #conceptos-admin-actions, #conceptos-admin-form, #config-content').forEach(el => el.classList.add('hidden'));
+    // Mostrar lo relevante
+    const ids = contentIds[btn.dataset.panel] || [];
+    ids.forEach(id => { const el = document.getElementById(id); if (el) el.classList.remove('hidden'); });
+    // Cargar datos
+    if (btn.dataset.panel === 'cuentas-admin') loadPanelCuentasAdmin();
+    if (btn.dataset.panel === 'conceptos-admin') loadPanelConceptosAdmin();
+    if (btn.dataset.panel === 'config') loadPanelConfig();
   });
 });
 
@@ -1928,9 +2006,33 @@ async function aprobarAsiento(id) {
   }
 }
 
-async function rechazarAsiento(id) {
-  const notes = prompt('Motivo del rechazo (opcional):');
-  if (notes === null) return;
+function showRejectDialog(id) {
+  const overlay = document.createElement('div'); overlay.className = 'app-dialog-overlay';
+  overlay.innerHTML = `<div class="app-dialog" style="max-width:420px">
+    <div class="app-dialog-icon">❌</div>
+    <div class="app-dialog-msg">¿Rechazar este asiento?</div>
+    <div style="margin:8px 0">
+      <label style="font-size:12px;color:#6b7280;display:block;margin-bottom:4px">Motivo del rechazo (opcional):</label>
+      <input id="reject-notes-input" placeholder="Ej: Monto incorrecto, cuenta equivocada..." style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px;box-sizing:border-box">
+    </div>
+    <div class="app-dialog-buttons">
+      <button class="app-dialog-btn secondary" id="reject-cancel">Cancelar</button>
+      <button class="app-dialog-btn danger" id="reject-confirm">Rechazar</button>
+    </div></div>`;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('#reject-cancel').onclick = close;
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+  overlay.querySelector('#reject-confirm').onclick = async () => {
+    const notes = document.getElementById('reject-notes-input').value.trim();
+    overlay.remove();
+    await doRechazarAsiento(id, notes);
+  };
+}
+
+async function doRechazarAsiento(id, notes) {
   const card = document.querySelector(`.revision-card[data-id="${id}"]`);
   if (card) {
     card.querySelector('.rev-actions').innerHTML = '<span style="color:#c62828;font-weight:600">RECHAZANDO...</span>';
@@ -1943,11 +2045,15 @@ async function rechazarAsiento(id) {
     });
     if (!res.ok) { const err = await res.json(); await showAlert(err.error); return; }
     loadPanelRevision();
-    addMessage(`❌ Asiento #${id.slice(0,8)} **rechazado**${notes ? ' — Motivo: ' + notes : ''}\n\nPuedes corregir la transacción y volver a enviarla. El creador verá el asiento como **RECHAZADO** en el Diario y podrá re-enviarlo.`, 'assistant');
+    addMessage(`❌ Asiento #${id.slice(0,8)} **rechazado**${notes ? ' — Motivo: ' + notes : ''}\n\nPuedes corregir la transacción y volver a enviarla.`, 'assistant');
   } catch (e) {
     await showAlert('Error al rechazar');
     loadPanelRevision();
   }
+}
+
+async function rechazarAsiento(id) {
+  showRejectDialog(id);
 }
 
 document.getElementById('message-input').addEventListener('keydown', (e) => {
@@ -2164,3 +2270,306 @@ async function exportAuxiliar() {
 }
 
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Recurring Transactions Panel ──
+let editingRecurringId = null;
+
+async function loadPanelRecurring() {
+  document.getElementById('chat-messages').classList.add('hidden');
+  document.getElementById('input-area').classList.add('hidden');
+  document.getElementById('recurring-form').classList.add('hidden');
+  document.getElementById('panel-recurring-content').classList.remove('hidden');
+
+  try {
+    const res = await authFetch(`${API_URL}/recurring`);
+    if (!res.ok) throw new Error('Error al cargar');
+    const data = await res.json();
+    const templates = data.templates || [];
+
+    // Pending review
+    const pendingDiv = document.getElementById('recurring-pending');
+    const pendingCount = document.getElementById('recurring-pending-count');
+    if (data.pendingReview > 0) {
+      pendingDiv.style.display = 'block';
+      pendingCount.textContent = data.pendingReview;
+    } else {
+      pendingDiv.style.display = 'none';
+    }
+
+    let html = '';
+    if (templates.length === 0) {
+      html = '<div class="empty" style="padding:32px;text-align:center;color:#6b7280">No hay transacciones recurrentes. Crea una para automatizar tus registros.</div>';
+    } else {
+      html = '<div style="display:flex;flex-direction:column;gap:12px">';
+      for (const t of templates) {
+        const freqLabel = { DAILY: 'Diario', WEEKLY: 'Semanal', MONTHLY: 'Mensual', YEARLY: 'Anual' }[t.frequency] || t.frequency;
+        const nextRun = new Date(t.nextRunAt).toLocaleDateString('es-PA');
+        const activeBadge = t.isActive
+          ? '<span class="badge badge-ok">Activo</span>'
+          : '<span class="badge badge-err">Pausado</span>';
+        const lastRun = t.lastRunAt ? new Date(t.lastRunAt).toLocaleDateString('es-PA') : '—';
+        html += `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px">
+          <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">
+            <div>
+              <strong style="font-size:15px">${escHtml(t.description)}</strong>
+              <div style="font-size:13px;color:#6b7280;margin-top:2px">${escHtml(t.concept || '')} • ${freqLabel} • $${t.amount.toFixed(2)}</div>
+            </div>
+            ${activeBadge}
+          </div>
+          <div style="display:flex;gap:16px;font-size:12px;color:#6b7280;margin-bottom:12px">
+            <span>📅 Próximo: ${nextRun}</span>
+            <span>📌 Último: ${lastRun}</span>
+            <span>${t.requireConfirmation ? '🔍 Requiere confirmación' : '✅ Auto-confirmado'}</span>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn-secondary btn-sm" onclick="editRecurring('${t.id}')">✏️ Editar</button>
+            <button class="btn-secondary btn-sm" onclick="toggleRecurring('${t.id}', ${!t.isActive})">${t.isActive ? '⏸ Pausar' : '▶️ Reanudar'}</button>
+            <button class="btn-primary btn-sm" onclick="runRecurring('${t.id}')" style="background:#1565c0">▶️ Ejecutar ahora</button>
+            <button class="btn-danger btn-sm" onclick="deleteRecurring('${t.id}')">🗑 Eliminar</button>
+          </div>
+        </div>`;
+      }
+      html += '</div>';
+    }
+    document.getElementById('recurring-list').innerHTML = html;
+  } catch (e) {
+    document.getElementById('recurring-list').innerHTML = '<div class="empty">Error al cargar</div>';
+  }
+}
+
+function showCreateRecurring() {
+  editingRecurringId = null;
+  document.getElementById('recurring-form-title').textContent = 'Nueva Transacción Recurrente';
+  document.getElementById('rec-desc').value = '';
+  document.getElementById('rec-amount').value = '';
+  document.getElementById('rec-concept').value = '';
+  document.getElementById('rec-type').value = 'GASTO';
+  document.getElementById('rec-payment').value = '';
+  document.getElementById('rec-freq').value = 'MONTHLY';
+  document.getElementById('rec-day').value = '1';
+  document.getElementById('rec-confirm').checked = true;
+  document.getElementById('rec-save-btn').textContent = 'Guardar';
+  toggleRecDayFields();
+  document.getElementById('recurring-form').classList.remove('hidden');
+}
+
+function hideRecurringForm() {
+  document.getElementById('recurring-form').classList.add('hidden');
+  editingRecurringId = null;
+}
+
+async function editRecurring(id) {
+  try {
+    const res = await authFetch(`${API_URL}/recurring`);
+    const data = await res.json();
+    const t = (data.templates || []).find(t => t.id === id);
+    if (!t) return;
+
+    editingRecurringId = id;
+    document.getElementById('recurring-form-title').textContent = 'Editar Transacción Recurrente';
+    document.getElementById('rec-desc').value = t.description;
+    document.getElementById('rec-amount').value = t.amount;
+    document.getElementById('rec-concept').value = t.concept || '';
+    document.getElementById('rec-type').value = t.type;
+    document.getElementById('rec-payment').value = t.paymentMethod || '';
+    document.getElementById('rec-freq').value = t.frequency;
+    document.getElementById('rec-day').value = t.dayOfMonth || 1;
+    document.getElementById('rec-confirm').checked = t.requireConfirmation;
+    document.getElementById('rec-save-btn').textContent = 'Actualizar';
+    toggleRecDayFields();
+    document.getElementById('recurring-form').classList.remove('hidden');
+  } catch (e) {
+    await showAlert('Error al cargar plantilla');
+  }
+}
+
+async function saveRecurring() {
+  const body = {
+    description: document.getElementById('rec-desc').value.trim(),
+    amount: parseFloat(document.getElementById('rec-amount').value) || 0,
+    concept: document.getElementById('rec-concept').value.trim() || undefined,
+    type: document.getElementById('rec-type').value,
+    paymentMethod: document.getElementById('rec-payment').value || null,
+    frequency: document.getElementById('rec-freq').value,
+    dayOfMonth: parseInt(document.getElementById('rec-day').value) || 1,
+    requireConfirmation: document.getElementById('rec-confirm').checked,
+  };
+
+  if (!body.description || body.amount <= 0) {
+    await showAlert('Descripción y monto son requeridos');
+    return;
+  }
+
+  try {
+    const url = editingRecurringId
+      ? `${API_URL}/recurring/${editingRecurringId}`
+      : `${API_URL}/recurring`;
+    const method = editingRecurringId ? 'PUT' : 'POST';
+
+    const res = await authFetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) { const e = await res.json(); await showAlert(e.error || 'Error'); return; }
+
+    hideRecurringForm();
+    await loadPanelRecurring();
+  } catch (e) {
+    await showAlert('Error al guardar');
+  }
+}
+
+async function runRecurring(id) {
+  const ok = await showConfirm('¿Ejecutar esta transacción recurrente ahora? Se creará un asiento contable.');
+  if (!ok) return;
+  try {
+    const res = await authFetch(`${API_URL}/recurring/${id}/run`, { method: 'POST' });
+    if (!res.ok) { const e = await res.json(); await showAlert(e.error || 'Error'); return; }
+    const data = await res.json();
+    if (data.executed) {
+      await showAlert('✅ Asiento generado correctamente. Revisa el Diario.');
+    } else {
+      await showAlert('❌ ' + (data.error || 'No se pudo ejecutar'));
+    }
+    await loadPanelRecurring();
+  } catch (e) {
+    await showAlert('Error al ejecutar');
+  }
+}
+
+async function toggleRecurring(id, isActive) {
+  try {
+    await authFetch(`${API_URL}/recurring/${id}/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isActive }),
+    });
+    await loadPanelRecurring();
+  } catch (e) {
+    await showAlert('Error al cambiar estado');
+  }
+}
+
+async function deleteRecurring(id) {
+  const ok = await showConfirm('¿Eliminar esta transacción recurrente?');
+  if (!ok) return;
+  try {
+    await authFetch(`${API_URL}/recurring/${id}`, { method: 'DELETE' });
+    await loadPanelRecurring();
+  } catch (e) {
+    await showAlert('Error al eliminar');
+  }
+}
+
+function toggleRecDayFields() {
+  const freq = document.getElementById('rec-freq').value;
+  const container = document.getElementById('rec-day-container');
+  if (freq === 'MONTHLY' || freq === 'YEARLY') {
+    container.style.display = 'block';
+    document.querySelector('#rec-day-container label').textContent = 'Día del mes';
+    document.getElementById('rec-day').min = 1;
+    document.getElementById('rec-day').max = 31;
+  } else if (freq === 'WEEKLY') {
+    container.style.display = 'block';
+    document.querySelector('#rec-day-container label').textContent = 'Día de semana (0=Dom)';
+    document.getElementById('rec-day').min = 0;
+    document.getElementById('rec-day').max = 6;
+  } else {
+    container.style.display = 'none';
+  }
+}
+
+// ── WhatsApp Panel ──
+async function loadPanelWhatsApp() {
+  document.getElementById('chat-messages').classList.add('hidden');
+  document.getElementById('input-area').classList.add('hidden');
+  document.getElementById('panel-recurring-content').classList.add('hidden');
+  document.getElementById('recurring-form').classList.add('hidden');
+  document.getElementById('panel-whatsapp-content').classList.remove('hidden');
+
+  // Mostrar el número del bot de WhatsApp
+  const botNumber = document.getElementById('wa-bot-number');
+  // Intentar obtener de la config o usar default
+  try {
+    const res = await authFetch(`${API_URL}/config`);
+    if (res.ok) {
+      const config = await res.json();
+      if (config.whatsappPhone) botNumber.textContent = config.whatsappPhone;
+    }
+  } catch {}
+
+  await loadWhatsAppLinks();
+}
+
+async function loadWhatsAppLinks() {
+  try {
+    const res = await authFetch(`${API_URL}/whatsapp/links`);
+    if (!res.ok) throw new Error('Error');
+    const links = await res.json();
+
+    const el = document.getElementById('wa-links-list');
+    if (!links.length) {
+      el.innerHTML = '<div style="color:#6b7280;text-align:center;padding:16px;background:#f9fafb;border-radius:8px">No hay números vinculados aún. Vincula tu WhatsApp para empezar.</div>';
+      return;
+    }
+
+    let html = '<div style="display:flex;flex-direction:column;gap:8px">';
+    for (const l of links) {
+      const verified = l.verifiedAt ? '✅' : '⏳';
+      const date = l.verifiedAt ? new Date(l.verifiedAt).toLocaleDateString('es-PA') : 'Pendiente';
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px">
+        <div>
+          <strong>${verified} ${l.phoneNumber}</strong>
+          <span style="font-size:11px;color:#6b7280;margin-left:8px">${l.label || ''}</span>
+          <div style="font-size:11px;color:#6b7280">Vinculado: ${date}</div>
+        </div>
+        <button class="btn-danger btn-sm" onclick="unlinkWhatsApp('${l.id}')">🗑 Desvincular</button>
+      </div>`;
+    }
+    html += '</div>';
+    el.innerHTML = html;
+  } catch (e) {
+    document.getElementById('wa-links-list').innerHTML = '<div style="color:#dc2626">Error al cargar</div>';
+  }
+}
+
+async function verifyWhatsAppCode() {
+  const phone = document.getElementById('wa-phone').value.trim();
+  const code = document.getElementById('wa-code').value.trim();
+
+  if (!phone || !code) {
+    await showAlert('Ingresa tu número de WhatsApp y el código de 6 dígitos.');
+    return;
+  }
+
+  try {
+    const res = await authFetch(`${API_URL}/whatsapp/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber: phone, code }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) { await showAlert(data.error || 'Error al verificar'); return; }
+
+    await showAlert(data.message);
+    document.getElementById('wa-code').value = '';
+    document.getElementById('wa-phone').value = '';
+    await loadWhatsAppLinks();
+  } catch (e) {
+    await showAlert('Error de conexión');
+  }
+}
+
+async function unlinkWhatsApp(id) {
+  const ok = await showConfirm('¿Desvincular este número de WhatsApp?');
+  if (!ok) return;
+  try {
+    await authFetch(`${API_URL}/whatsapp/links/${id}`, { method: 'DELETE' });
+    await loadWhatsAppLinks();
+  } catch (e) {
+    await showAlert('Error al desvincular');
+  }
+}
