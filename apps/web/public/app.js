@@ -1231,30 +1231,17 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
     if (view === 'panel-taxcalendar') { hideAllPanels(); loadPanelTaxCalendar(); return; }
     if (view === 'panel-whatsapp') { hideAllPanels(); loadPanelWhatsApp(); return; }
 
-    // Admin panels — slide-out lateral
-    if (view === 'panel-cuentas-admin' || view === 'panel-conceptos-admin' || view === 'panel-config') {
+    // Admin panel — slide-out lateral unificado
+    if (view === 'panel-admin') {
       hideAllPanels();
       document.getElementById('reports-panel').classList.add('open');
       document.getElementById('reports-overlay').classList.remove('hidden');
       document.querySelector('#reports-panel .panel-header')?.classList.remove('hidden');
       document.getElementById('panel-tabs-admin').classList.remove('hidden');
-      document.body.style.overflow = 'hidden';
-    }
-    if (view === 'panel-cuentas-admin') {
       document.getElementById('cuentas-admin-content').classList.remove('hidden');
       document.getElementById('cuentas-admin-actions').classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
       clickAdminTab('cuentas-admin');
-      return;
-    }
-    if (view === 'panel-conceptos-admin') {
-      document.getElementById('conceptos-admin-content').classList.remove('hidden');
-      document.getElementById('conceptos-admin-actions').classList.remove('hidden');
-      clickAdminTab('conceptos-admin');
-      return;
-    }
-    if (view === 'panel-config') {
-      document.getElementById('config-content').classList.remove('hidden');
-      clickAdminTab('config');
       return;
     }
   });
@@ -2120,10 +2107,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Mostrar admin solo a admins
     if (user.role === 'admin') {
-      document.getElementById('admin-section-label').style.display = 'block';
-      document.getElementById('nav-cuentas-admin').style.display = 'block';
-      document.getElementById('nav-conceptos-admin').style.display = 'block';
-      document.getElementById('nav-config').style.display = 'block';
+      document.getElementById('nav-admin-link').style.display = 'block';
     }
   }
 
