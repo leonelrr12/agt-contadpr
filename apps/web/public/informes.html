@@ -168,6 +168,12 @@ async function api(url, opts={}){
   return r;
 }
 
+// ── State (DEBE ir antes de Init para evitar TDZ) ──
+let _diarioPage = 1;
+let _pendingPage = 1;
+let _auxStartDate = '';
+let _auxEndDate = '';
+
 // Init
 if(!getToken()){ window.location='/login.html'; }
 loadDiario(); loadAuxAccounts();
@@ -191,7 +197,6 @@ function showSection(name){
 }
 
 // ── Diario ──
-let _diarioPage = 1;
 async function loadDiario(page = 1){
   _diarioPage = page;
   const from = document.getElementById('diario-from')?.value || '';
@@ -401,9 +406,34 @@ async function loadRevision(){
   }catch(e){ el.innerHTML='<div class="empty">Error de conexión</div>'; }
 }
 async function revisarAsiento(id, action){
-  const notes = action === 'rechazar' ? prompt('Motivo del rechazo (opcional):') : null;
-  const r = await api(`${API}/journal/${id}/review`, { method:'POST', body: JSON.stringify({ action, notes }) });
+  if (action === 'rechazar') {
+    showRejectDialog(id); return;
+  }
+  const r = await api(`${API}/journal/${id}/review`, { method:'POST', body: JSON.stringify({ action, notes: null }) });
   if(r?.ok){ loadRevision(); }
+}
+function showRejectDialog(id) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000';
+  overlay.innerHTML = `<div style="background:#fff;border-radius:12px;padding:24px;max-width:400px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
+    <div style="text-align:center;font-size:32px;margin-bottom:8px">❌</div>
+    <div style="text-align:center;font-weight:600;margin-bottom:12px;color:#1a1a2e">¿Rechazar este asiento?</div>
+    <label style="font-size:12px;color:#6b7280;display:block;margin-bottom:4px">Motivo del rechazo (opcional):</label>
+    <input id="reject-notes" placeholder="Ej: Monto incorrecto, cuenta equivocada..." style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px;margin-bottom:16px;box-sizing:border-box">
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button id="reject-cancel" style="padding:8px 16px;border:1px solid #d0d5dd;border-radius:6px;background:#fff;cursor:pointer;font-size:13px">Cancelar</button>
+      <button id="reject-confirm" style="padding:8px 16px;border:none;border-radius:6px;background:#c62828;color:#fff;cursor:pointer;font-size:13px;font-weight:600">Rechazar</button>
+    </div></div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.querySelector('#reject-cancel').onclick = close;
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  overlay.querySelector('#reject-confirm').onclick = async () => {
+    const notes = document.getElementById('reject-notes').value.trim();
+    overlay.remove();
+    const r = await api(`${API}/journal/${id}/review`, { method:'POST', body: JSON.stringify({ action: 'rechazar', notes: notes || '' }) });
+    if(r?.ok){ loadRevision(); }
+  };
 }
 
 // ── Export ──

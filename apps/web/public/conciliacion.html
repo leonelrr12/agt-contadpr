@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conciliación Bancaria — Contador507</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="styles.css?v=7">
+  <style>
+    .reconcile-container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    .reconcile-header { margin-bottom: 24px; }
+    .reconcile-header h1 { font-size: 24px; color: #1a1a2e; margin: 0 0 8px 0; }
+    .reconcile-header p { color: #6b7280; margin: 0; font-size: 14px; }
+    .upload-zone {
+      border: 2px dashed #d0d5dd; border-radius: 12px; padding: 48px 24px;
+      text-align: center; background: #f9fafb; transition: all 0.2s;
+      cursor: pointer; margin-bottom: 24px;
+    }
+    .upload-zone:hover, .upload-zone.dragover { border-color: #1565c0; background: #f0f7ff; }
+    .upload-zone-icon { font-size: 48px; margin-bottom: 12px; }
+    .upload-zone h3 { margin: 0 0 8px 0; color: #1a1a2e; }
+    .summary-cards { display: flex; gap: 16px; margin-bottom: 24px; }
+    .summary-card { flex: 1; background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); text-align: center; }
+    .summary-card .num { font-size: 28px; font-weight: 700; }
+    .summary-card .label { font-size: 12px; color: #6b7280; margin-top: 4px; }
+    .summary-card.ok .num { color: #059669; }
+    .summary-card.warn .num { color: #d97706; }
+    .summary-card.err .num { color: #dc2626; }
+    .section { margin-bottom: 24px; }
+    .section-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; padding: 8px 12px; border-radius: 6px; }
+    .section-matched { background: #d1fae5; color: #065f46; }
+    .section-unmatched { background: #fee2e2; color: #991b1b; }
+    .section-book { background: #fef3c7; color: #92400e; }
+    .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .data-table th { background: #f0f0f0; padding: 8px 10px; text-align: left; font-weight: 600; border-bottom: 2px solid #d0d5dd; }
+    .data-table td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; }
+    .data-table tr:hover td { background: #f9fafb; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .badge-ok { background: #d1fae5; color: #065f46; }
+    .badge-warn { background: #fef3c7; color: #92400e; }
+    .badge-err { background: #fee2e2; color: #991b1b; }
+    .badge-neutral { background: #e5e7eb; color: #374151; }
+    .btn { padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; }
+    .btn-primary { background: #059669; color: #fff; }
+    .btn-primary:hover { background: #047857; }
+    .btn-primary:disabled { background: #9ca3af; cursor: not-allowed; }
+    .btn-secondary { background: #e5e7eb; color: #374151; }
+    .btn-danger { background: #dc2626; color: #fff; }
+    .btn-sm { padding: 4px 10px; font-size: 11px; }
+    .hidden { display: none !important; }
+    .loading { text-align: center; padding: 32px; color: #6b7280; }
+    .spinner { display: inline-block; width: 32px; height: 32px; border: 3px solid #e5e7eb; border-top-color: #1565c0; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .actions-bar { display: flex; gap: 12px; align-items: center; margin-top: 16px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+    .form-grid label { font-size: 12px; color: #6b7280; display: block; margin-bottom: 2px; }
+    .form-grid input, .form-grid select { width: 100%; padding: 8px; border: 1px solid #d0d5dd; border-radius: 6px; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+<div class="reconcile-container">
+  <div class="reconcile-header">
+    <h1>🏦 Conciliación Bancaria</h1>
+    <p>Sube tu extracto bancario CSV. El sistema matchea automáticamente contra los asientos registrados en tus cuentas de banco.</p>
+    <p style="margin-top:8px"><a href="/index.html" style="color:#1565c0;text-decoration:none;font-size:14px">← Volver al Chat</a></p>
+  </div>
+
+  <!-- Paso 1: Seleccionar cuenta y subir -->
+  <div id="step-upload">
+    <div class="form-grid" style="margin-bottom:16px">
+      <div style="grid-column:1/-1">
+        <label>🏦 Cuenta bancaria</label>
+        <select id="bank-account-select">
+          <option value="">Cargando cuentas...</option>
+        </select>
+      </div>
+    </div>
+    <div class="upload-zone" id="drop-zone">
+      <div class="upload-zone-icon">🏦</div>
+      <h3>Arrastra tu extracto CSV aquí o haz clic para seleccionar</h3>
+      <p>Formatos aceptados: CSV del banco (Banco General, Banistmo, etc.)</p>
+      <input type="file" id="file-input" accept=".csv" style="display:none">
+    </div>
+  </div>
+
+  <!-- Paso 2: Loading -->
+  <div id="step-loading" class="loading hidden">
+    <div class="spinner"></div>
+    <p>Procesando extracto y buscando coincidencias...</p>
+  </div>
+
+  <!-- Paso 3: Detalle de conciliación -->
+  <div id="step-detail" class="hidden">
+    <div class="summary-cards" id="summary-cards"></div>
+
+    <div class="section">
+      <div class="section-title section-matched">✅ Partidas Conciliadas</div>
+      <div style="overflow-x:auto">
+        <table class="data-table" id="matched-table">
+          <thead><tr><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Asiento</th><th>Confianza</th><th></th></tr></thead>
+          <tbody id="matched-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title section-unmatched">❌ Sin Conciliar — Extracto Bancario</div>
+      <div style="overflow-x:auto">
+        <table class="data-table" id="unmatched-table">
+          <thead><tr><th>Fecha</th><th>Descripción</th><th>Ref</th><th>Débito</th><th>Crédito</th><th></th></tr></thead>
+          <tbody id="unmatched-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title section-book">📋 Sin Conciliar — Libros Contables (no en extracto)</div>
+      <div style="overflow-x:auto">
+        <table class="data-table" id="book-table">
+          <thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th></tr></thead>
+          <tbody id="book-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="actions-bar">
+      <button class="btn btn-secondary" onclick="resetView()">🔄 Nueva conciliación</button>
+      <a href="/index.html" class="btn btn-secondary" style="text-decoration:none">💬 Ir al Chat</a>
+    </div>
+  </div>
+
+  <!-- Statement history -->
+  <div id="step-history" style="margin-top:40px">
+    <h3 style="margin-bottom:16px">📋 Conciliaciones anteriores</h3>
+    <div id="history-list"></div>
+  </div>
+</div>
+
+<script>
+const API_URL = '/api';
+
+function getToken() { return localStorage.getItem('agt_token'); }
+function authFetch(url, options = {}) {
+  const token = getToken();
+  if (!token) { window.location.href = '/login.html'; return Promise.reject('No auth'); }
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      'Authorization': `Bearer ${token}`,
+      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+    },
+  }).then(res => {
+    if (res.status === 401) { localStorage.clear(); window.location.href = '/login.html'; }
+    return res;
+  });
+}
+
+if (!getToken()) { window.location.href = '/login.html'; }
+
+let currentStatement = null;
+
+// Load bank accounts
+async function loadBankAccounts() {
+  const select = document.getElementById('bank-account-select');
+  try {
+    const res = await authFetch(`${API_URL}/accounts`);
+    const accounts = await res.json();
+    const banks = accounts.filter(a => a.code && a.code.startsWith('1.1.02') && !a.code.endsWith('.02') && a.code !== '1.1.02'); // solo cuentas hoja
+    if (banks.length === 0) {
+      // fallback: mostrar todas las 1.1.02.*
+      const allBanks = accounts.filter(a => a.code && a.code.startsWith('1.1.02'));
+      select.innerHTML = allBanks.length > 0
+        ? allBanks.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('')
+        : '<option value="">No hay cuentas bancarias configuradas</option>';
+    } else {
+      select.innerHTML = banks.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
+    }
+  } catch (e) {
+    select.innerHTML = '<option value="">Error al cargar cuentas</option>';
+  }
+}
+
+// Load history
+async function loadHistory() {
+  try {
+    const res = await authFetch(`${API_URL}/reconcile`);
+    if (!res.ok) return;
+    const statements = await res.json();
+
+    if (!statements.length) {
+      document.getElementById('history-list').innerHTML = '<div style="color:#6b7280;text-align:center;padding:16px">No hay conciliaciones anteriores</div>';
+      return;
+    }
+
+    let html = '<div style="display:flex;flex-direction:column;gap:8px">';
+    for (const s of statements) {
+      const pct = s.totalRows > 0 ? Math.round(s.matchedCount / s.totalRows * 100) : 0;
+      html += `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="loadStatement('${s.id}')">
+        <div>
+          <strong>${esc(s.bankAccount?.name || 'Banco')}</strong>
+          <span style="color:#6b7280;font-size:12px;margin-left:8px">${s.fileName || 'CSV'}</span>
+          <div style="font-size:12px;color:#6b7280;margin-top:2px">${new Date(s.uploadDate).toLocaleDateString('es-PA')} • ${s.matchedCount}/${s.totalRows} conciliados (${pct}%)</div>
+        </div>
+        <span class="badge ${pct === 100 ? 'badge-ok' : pct > 50 ? 'badge-warn' : 'badge-err'}">${pct}%</span>
+      </div>`;
+    }
+    html += '</div>';
+    document.getElementById('history-list').innerHTML = html;
+  } catch (e) { /* silent */ }
+}
+
+// Upload zone
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) uploadFile(file);
+});
+fileInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (file) uploadFile(file);
+});
+
+async function uploadFile(file) {
+  const bankAccountId = document.getElementById('bank-account-select').value;
+  if (!bankAccountId) { alert('Selecciona una cuenta bancaria primero'); return; }
+
+  document.getElementById('step-upload').classList.add('hidden');
+  document.getElementById('step-detail').classList.add('hidden');
+  document.getElementById('step-loading').classList.remove('hidden');
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('bankAccountId', bankAccountId);
+
+  try {
+    const res = await authFetch(`${API_URL}/reconcile/upload`, { method: 'POST', body: formData });
+    if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+    const data = await res.json();
+
+    document.getElementById('step-loading').classList.add('hidden');
+    renderDetail(data);
+  } catch (e) {
+    alert('Error: ' + e.message);
+    resetView();
+  }
+}
+
+async function loadStatement(id) {
+  document.getElementById('step-upload').classList.add('hidden');
+  document.getElementById('step-loading').classList.remove('hidden');
+
+  try {
+    const res = await authFetch(`${API_URL}/reconcile/${id}`);
+    const data = await res.json();
+    document.getElementById('step-loading').classList.add('hidden');
+    renderDetail(data);
+  } catch (e) {
+    alert('Error al cargar: ' + e.message);
+    resetView();
+  }
+}
+
+function renderDetail(data) {
+  const { statement, unmatchedBooks, summary } = data;
+  currentStatement = statement;
+
+  document.getElementById('step-detail').classList.remove('hidden');
+
+  // Summary
+  document.getElementById('summary-cards').innerHTML = `
+    <div class="summary-card ok"><div class="num">${summary.matched}</div><div class="label">Conciliados ✅</div></div>
+    <div class="summary-card err"><div class="num">${summary.unmatched}</div><div class="label">Sin conciliar (extracto)</div></div>
+    <div class="summary-card warn"><div class="num">${summary.unmatchedBookCount}</div><div class="label">Sin conciliar (libros)</div></div>
+    <div class="summary-card"><div class="num">${summary.total}</div><div class="label">Total extracto</div></div>
+  `;
+
+  // Matched
+  const matchedRows = statement.rows.filter(r => r.status === 'MATCHED');
+  let mHtml = '';
+  if (matchedRows.length === 0) {
+    mHtml = '<tr><td colspan="6" style="text-align:center;color:#6b7280;padding:16px">No hay partidas conciliadas</td></tr>';
+  } else {
+    for (const r of matchedRows) {
+      mHtml += `<tr>
+        <td>${new Date(r.date).toLocaleDateString('es-PA')}</td>
+        <td>${esc(r.description)}</td>
+        <td>${r.debit > 0 ? '$' + r.debit.toFixed(2) : r.credit > 0 ? '$' + r.credit.toFixed(2) : '—'}</td>
+        <td style="font-size:11px">${r.matchedEntry ? r.matchedEntry.id.slice(0, 8) + '...' : '—'}</td>
+        <td><span class="badge badge-ok">${(r.matchConfidence * 100).toFixed(0)}%</span></td>
+        <td><button class="btn btn-secondary btn-sm" onclick="unmatchRow('${r.id}')">Desvincular</button></td>
+      </tr>`;
+    }
+  }
+  document.getElementById('matched-tbody').innerHTML = mHtml;
+
+  // Unmatched bank
+  const unmatchedRows = statement.rows.filter(r => r.status !== 'MATCHED');
+  let uHtml = '';
+  if (unmatchedRows.length === 0) {
+    uHtml = '<tr><td colspan="6" style="text-align:center;color:#6b7280;padding:16px">¡Todas las partidas conciliadas!</td></tr>';
+  } else {
+    for (const r of unmatchedRows) {
+      uHtml += `<tr>
+        <td>${new Date(r.date).toLocaleDateString('es-PA')}</td>
+        <td>${esc(r.description)}</td>
+        <td>${r.reference || '—'}</td>
+        <td>${r.debit > 0 ? '$' + r.debit.toFixed(2) : '—'}</td>
+        <td>${r.credit > 0 ? '$' + r.credit.toFixed(2) : '—'}</td>
+        <td><button class="btn btn-primary btn-sm" onclick="createEntryFromRow('${r.id}', ${r.debit > 0 ? r.debit : r.credit}, '${esc(r.description)}')">+ Crear asiento</button></td>
+      </tr>`;
+    }
+  }
+  document.getElementById('unmatched-tbody').innerHTML = uHtml;
+
+  // Unmatched books
+  let bHtml = '';
+  if (unmatchedBooks.length === 0) {
+    bHtml = '<tr><td colspan="5" style="text-align:center;color:#6b7280;padding:16px">No hay partidas de libro sin conciliar en este período</td></tr>';
+  } else {
+    for (const e of unmatchedBooks.slice(0, 20)) {
+      const bankLine = e.lines[0];
+      bHtml += `<tr>
+        <td>${new Date(e.date).toLocaleDateString('es-PA')}</td>
+        <td>${esc(e.description)}</td>
+        <td>${bankLine?.account?.name || '—'}</td>
+        <td>${bankLine?.debit > 0 ? '$' + bankLine.debit.toFixed(2) : '—'}</td>
+        <td>${bankLine?.credit > 0 ? '$' + bankLine.credit.toFixed(2) : '—'}</td>
+      </tr>`;
+    }
+    if (unmatchedBooks.length > 20) {
+      bHtml += `<tr><td colspan="5" style="text-align:center;color:#6b7280">... y ${unmatchedBooks.length - 20} más</td></tr>`;
+    }
+  }
+  document.getElementById('book-tbody').innerHTML = bHtml;
+
+  // Scroll to detail
+  document.getElementById('step-detail').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function unmatchRow(rowId) {
+  try {
+    await authFetch(`${API_URL}/reconcile/${currentStatement.id}/match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rowId, entryId: null }),
+    });
+    await loadStatement(currentStatement.id);
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+function createEntryFromRow(rowId, amount, description) {
+  // Pedir cuentas al usuario
+  const debitAccount = prompt('Cuenta de débito (código o ID):', '');
+  if (!debitAccount) return;
+  const creditAccount = prompt('Cuenta de crédito (código o ID):', '1.1.02.01'); // default: banco general
+  if (!creditAccount) return;
+
+  createEntry(rowId, amount, description, debitAccount, creditAccount);
+}
+
+async function createEntry(rowId, amount, description, debitAccountId, creditAccountId) {
+  try {
+    const res = await authFetch(`${API_URL}/reconcile/${currentStatement.id}/create-entry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rowId, amount, description, debitAccountId, creditAccountId }),
+    });
+    if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+    await loadStatement(currentStatement.id);
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+function resetView() {
+  currentStatement = null;
+  document.getElementById('step-upload').classList.remove('hidden');
+  document.getElementById('step-detail').classList.add('hidden');
+  document.getElementById('step-loading').classList.add('hidden');
+  fileInput.value = '';
+}
+
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+}
+
+// Init
+loadBankAccounts();
+loadHistory();
+</script>
+</body>
+</html>

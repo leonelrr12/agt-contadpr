@@ -2821,7 +2821,7 @@ function clickInformeTab(informe) {
   const active = document.querySelector(`#panel-tabs-informes button[data-informe="${informe}"]`);
   if (active) { active.classList.add('active'); active.style.color = '#1a1a2e'; active.style.borderBottomColor = '#1565c0'; }
   showInformesLoading();
-  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard, revision: loadReportRevision };
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard };
   if (loaders[informe]) loaders[informe]();
 }
 

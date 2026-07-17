@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calendario Fiscal — Contador507</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="styles.css?v=8">
+  <style>
+    .fiscal-container { max-width: 1000px; margin: 0 auto; padding: 24px; }
+    .fiscal-header { margin-bottom: 24px; }
+    .fiscal-header h1 { font-size: 24px; color: #1a1a2e; margin: 0 0 8px 0; }
+    .fiscal-header p { color: #6b7280; margin: 0; font-size: 14px; }
+    .stats-row { display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+    .stat-card { flex: 1; min-width: 140px; background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); text-align: center; }
+    .stat-card .num { font-size: 28px; font-weight: 700; }
+    .stat-card .label { font-size: 12px; color: #6b7280; margin-top: 2px; }
+    .stat-card.red .num { color: #dc2626; }
+    .stat-card.amber .num { color: #d97706; }
+    .stat-card.green .num { color: #059669; }
+    .stat-card.blue .num { color: #1565c0; }
+    .section { margin-bottom: 28px; }
+    .section-title { font-size: 17px; font-weight: 700; color: #1a1a2e; margin: 0 0 12px 0; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb; }
+    .obligation-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+    .obligation-card.overdue { border-left: 4px solid #dc2626; }
+    .obligation-card.due-soon { border-left: 4px solid #d97706; }
+    .obligation-card.completed { border-left: 4px solid #059669; opacity: 0.75; }
+    .obl-info { flex: 1; }
+    .obl-type { font-weight: 600; font-size: 15px; }
+    .obl-period { font-size: 12px; color: #6b7280; }
+    .obl-due { font-size: 13px; margin-top: 4px; }
+    .obl-due strong { color: #dc2626; }
+    .obl-amount { font-size: 13px; color: #6b7280; }
+    .obl-actions { display: flex; gap: 6px; align-items: center; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+    .badge-pending { background: #fef3c7; color: #92400e; }
+    .badge-overdue { background: #fee2e2; color: #991b1b; }
+    .badge-done { background: #d1fae5; color: #065f46; }
+    .month-marker { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-right: 8px; background: #f0f0f0; color: #6b7280; }
+    .btn { padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; }
+    .btn-primary { background: #059669; color: #fff; }
+    .btn-secondary { background: #e5e7eb; color: #374151; }
+    .btn-sm { padding: 4px 10px; font-size: 11px; }
+    .empty { text-align: center; padding: 32px; color: #6b7280; }
+    .legend { display: flex; gap: 16px; margin-bottom: 16px; font-size: 12px; }
+    .legend-item { display: flex; align-items: center; gap: 4px; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+  </style>
+</head>
+<body>
+<div class="fiscal-container">
+  <div class="fiscal-header">
+    <h1>📅 Calendario Fiscal Panameño</h1>
+    <p>Próximas obligaciones tributarias. La IA calcula el ITBMS estimado según tus transacciones registradas.</p>
+    <p style="margin-top:8px"><a href="/index.html" style="color:#1565c0;text-decoration:none;font-size:14px">← Volver al Chat</a></p>
+  </div>
+
+  <div class="stats-row" id="stats-row"></div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#dc2626"></div> Vencida</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#d97706"></div> Próxima (≤7 días)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#059669"></div> Completada</div>
+  </div>
+
+  <div class="section" id="section-overdue" style="display:none">
+    <div class="section-title">🔴 Vencidas</div>
+    <div id="overdue-list"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">📋 Próximas obligaciones</div>
+    <div id="upcoming-list"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">✅ Completadas recientemente</div>
+    <div id="completed-list"></div>
+  </div>
+</div>
+
+<script>
+const API_URL = '/api';
+function getToken() { return localStorage.getItem('agt_token'); }
+function authFetch(url, options = {}) {
+  const token = getToken();
+  if (!token) { window.location.href = '/login.html'; return Promise.reject('No auth'); }
+  return fetch(url, {
+    ...options,
+    headers: { ...(options.headers || {}), 'Authorization': `Bearer ${token}`, ...(options.body instanceof FormData ? {} : {'Content-Type':'application/json'}) },
+  }).then(res => { if (res.status === 401) { localStorage.clear(); window.location.href = '/login.html'; } return res; });
+}
+if (!getToken()) { window.location.href = '/login.html'; }
+
+const TYPE_EMOJI = { ITBMS: '🧾', CSS: '🏥', ISR: '💰', AVISO: '📢', TASA_UNICA: '📄' };
+const TYPE_LABEL = { ITBMS: 'Declaración ITBMS', CSS: 'Cuota CSS', ISR: 'Declaración de Renta', AVISO: 'Aviso de Operación', TASA_UNICA: 'Tasa Única' };
+
+let allObligations = [];
+
+async function loadCalendar() {
+  try {
+    const res = await authFetch(`${API_URL}/tax-calendar`);
+    if (!res.ok) throw new Error('Error');
+    const data = await res.json();
+
+    // Stats
+    document.getElementById('stats-row').innerHTML = `
+      <div class="stat-card red"><div class="num">${data.stats.overdue}</div><div class="label">Vencidas</div></div>
+      <div class="stat-card amber"><div class="num">${data.stats.upcoming}</div><div class="label">Próximos 30 días</div></div>
+      <div class="stat-card green"><div class="num">${data.stats.completed}</div><div class="label">Completadas</div></div>
+      <div class="stat-card blue"><div class="num">${data.nextDeadline ? daysUntil(data.nextDeadline.dueDate) : '—'}</div><div class="label">Días próx. vencimiento</div></div>
+    `;
+
+    // Overdue
+    const overdue = data.overdue || [];
+    const overdueSection = document.getElementById('section-overdue');
+    if (overdue.length > 0) {
+      overdueSection.style.display = 'block';
+      document.getElementById('overdue-list').innerHTML = overdue.map(o => renderObligation(o, 'overdue')).join('');
+    } else {
+      overdueSection.style.display = 'none';
+    }
+
+    // Upcoming
+    const upcoming = data.upcoming || [];
+    document.getElementById('upcoming-list').innerHTML = upcoming.length > 0
+      ? upcoming.map(o => renderObligation(o, o.status === 'OVERDUE' ? 'overdue' : 'due-soon')).join('')
+      : '<div class="empty">🎉 No hay obligaciones en los próximos 30 días</div>';
+
+    // Completed
+    allObligations = [...overdue, ...upcoming];
+    loadCompleted();
+  } catch (e) {
+    document.getElementById('upcoming-list').innerHTML = '<div class="empty">Error al cargar</div>';
+  }
+}
+
+async function loadCompleted() {
+  // Las completadas vienen del summary inicial si hay
+  try {
+    // Volver a obtener para incluir completadas recientes
+    const res = await authFetch(`${API_URL}/tax-calendar`);
+    const data = await res.json();
+    // Filtrar completadas de los próximos 30 días que ya fueron completadas
+    const completed = [...(data.upcoming || []), ...(data.overdue || [])].filter(o => o.status === 'COMPLETED');
+    document.getElementById('completed-list').innerHTML = completed.length > 0
+      ? completed.map(o => renderObligation(o, 'completed')).join('')
+      : '<div class="empty">Completa tus obligaciones para verlas aquí</div>';
+  } catch {}
+}
+
+function renderObligation(o, cssClass) {
+  const emoji = TYPE_EMOJI[o.type] || '📋';
+  const dueDate = new Date(o.dueDate).toLocaleDateString('es-PA', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  const daysLeft = daysUntil(o.dueDate);
+  const urgency = o.status === 'OVERDUE'
+    ? '<strong style="color:#dc2626">¡VENCIDA!</strong>'
+    : daysLeft <= 7
+      ? `<strong style="color:#d97706">⚠️ ${daysLeft} días</strong>`
+      : `<span style="color:#6b7280">${daysLeft} días</span>`;
+
+  const estimated = o.estimatedAmount != null ? `$${o.estimatedAmount.toFixed(2)} estimado` : '';
+  const actual = o.actualAmount != null ? `$${o.actualAmount.toFixed(2)} pagado` : '';
+
+  const badge = o.status === 'COMPLETED' ? '<span class="badge badge-done">✓ Completada</span>'
+    : o.status === 'OVERDUE' ? '<span class="badge badge-overdue">Vencida</span>'
+    : '<span class="badge badge-pending">Pendiente</span>';
+
+  return `<div class="obligation-card ${cssClass}">
+    <div class="obl-info">
+      <div class="obl-type">${emoji} ${TYPE_LABEL[o.type] || o.label}</div>
+      <div class="obl-period">${o.period}</div>
+      <div class="obl-due">📅 ${dueDate} — ${urgency}</div>
+      ${estimated || actual ? `<div class="obl-amount">${actual || estimated}</div>` : ''}
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+      ${badge}
+      ${o.status !== 'COMPLETED' ? `
+      <div class="obl-actions">
+        <button class="btn btn-primary btn-sm" onclick="markDone('${o.id}')">✓ Marcar pagada</button>
+      </div>` : `<button class="btn btn-secondary btn-sm" onclick="markPending('${o.id}')">Desmarcar</button>`}
+    </div>
+  </div>`;
+}
+
+function daysUntil(dateStr) {
+  const now = new Date(); now.setHours(0,0,0,0);
+  const due = new Date(dateStr); due.setHours(0,0,0,0);
+  return Math.ceil((due - now) / 86400000);
+}
+
+async function markDone(id) {
+  try {
+    await authFetch(`${API_URL}/tax-calendar/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'COMPLETED' }),
+    });
+    await loadCalendar();
+  } catch (e) { alert('Error'); }
+}
+
+async function markPending(id) {
+  try {
+    await authFetch(`${API_URL}/tax-calendar/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'PENDING', completedAt: null }),
+    });
+    await loadCalendar();
+  } catch (e) { alert('Error'); }
+}
+
+loadCalendar();
+</script>
+</body>
+</html>
