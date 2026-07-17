@@ -2829,15 +2829,18 @@ function showInformesLoading() {
   document.getElementById('informes-inline-result').innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Cargando reporte...</div>';
 }
 
+let _informesChart = null;
+
 async function loadReportDiario() {
   const el = document.getElementById('informes-inline-result');
   try {
     const res = await authFetch(`${API_URL}/journal?limit=20`);
     const d = await res.json();
+    const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
     const rows = (d.entries||[]).map(e => {
-      const debit = e.lines?.reduce((s,l) => s + (l.debit||0), 0) || 0;
-      const credit = e.lines?.reduce((s,l) => s + (l.credit||0), 0) || 0;
-      return [new Date(e.date).toLocaleDateString('es-PA'), escHtml(e.description||''), debit > 0 ? '$'+debit.toFixed(2) : '—', credit > 0 ? '$'+credit.toFixed(2) : '—'];
+      const debit = e.lines?.reduce((s,l)=>s+(l.debit||0),0)||0;
+      const credit = e.lines?.reduce((s,l)=>s+(l.credit||0),0)||0;
+      return [new Date(e.date).toLocaleDateString('es-PA'), escHtml(e.description||''), `<span style="color:#2e7d32">${fmt(debit)}</span>`, `<span style="color:#c62828">${fmt(credit)}</span>`];
     });
     el.innerHTML = buildInformesTable(['Fecha','Descripción','Débito','Crédito'], rows);
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
@@ -2847,7 +2850,13 @@ async function loadReportBalance() {
   try {
     const res = await authFetch(`${API_URL}/reports/balance-comprobacion`);
     const d = await res.json();
-    const rows = (d||[]).map(a => [escHtml(a.account?.code), escHtml(a.account?.name), '$'+a.totalDebit?.toFixed(2), '$'+a.totalCredit?.toFixed(2), (a.balanceType==='DEUDOR'?'+':'−')+'$'+Math.abs(a.balance||0).toFixed(2)]);
+    const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const rows = (d||[]).map(a => [
+      escHtml(a.account?.code), escHtml(a.account?.name),
+      `<span style="color:#2e7d32">${fmt(a.totalDebit||0)}</span>`,
+      `<span style="color:#c62828">${fmt(a.totalCredit||0)}</span>`,
+      `<strong style="color:${a.balanceType==='DEUDOR'?'#2e7d32':'#c62828'}">${a.balanceType==='DEUDOR'?'+':'−'}${fmt(Math.abs(a.balance||0)).replace('$','')}</strong>`
+    ]);
     el.innerHTML = buildInformesTable(['Código','Cuenta','Débito','Crédito','Saldo'], rows);
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
@@ -2857,11 +2866,11 @@ async function loadReportResultados() {
     const res = await authFetch(`${API_URL}/reports/estado-resultados`);
     const d = await res.json();
     el.innerHTML = '<div class="summary-grid">'+
-      `<div class="card"><h3>Ingresos</h3><div class="value pos">$${(d.ingresos?.total||0).toFixed(2)}</div></div>`+
-      `<div class="card"><h3>Costos</h3><div class="value neg">$${(d.costos?.total||0).toFixed(2)}</div></div>`+
-      `<div class="card"><h3>Ganancia Bruta</h3><div class="value ${(d.gananciaBruta||0)>=0?'pos':'neg'}">$${(d.gananciaBruta||0).toFixed(2)}</div></div>`+
-      `<div class="card"><h3>Gastos</h3><div class="value neg">$${(d.gastos?.total||0).toFixed(2)}</div></div>`+
-      `<div class="card"><h3>Utilidad Neta</h3><div class="value ${(d.utilidadNeta||0)>=0?'pos':'neg'}">$${(d.utilidadNeta||0).toFixed(2)}</div></div>`+
+      `<div class="card"><h3>Ingresos</h3><div class="value pos">$${(d.ingresos?.total||0).toLocaleString()}</div></div>`+
+      `<div class="card"><h3>Costos</h3><div class="value neg">$${(d.costos?.total||0).toLocaleString()}</div></div>`+
+      `<div class="card"><h3>Ganancia Bruta</h3><div class="value ${(d.gananciaBruta||0)>=0?'pos':'neg'}">$${(d.gananciaBruta||0).toLocaleString()}</div></div>`+
+      `<div class="card"><h3>Gastos</h3><div class="value neg">$${(d.gastos?.total||0).toLocaleString()}</div></div>`+
+      `<div class="card"><h3>Utilidad Neta</h3><div class="value ${(d.utilidadNeta||0)>=0?'pos':'neg'}">$${(d.utilidadNeta||0).toLocaleString()}</div></div>`+
     '</div>';
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
@@ -2869,20 +2878,33 @@ async function loadReportDashboard() {
   const el = document.getElementById('informes-inline-result');
   try {
     const res = await authFetch(`${API_URL}/reports/dashboard`);
+    if (!res || !res.ok) { el.innerHTML = '<div class="empty">Error</div>'; return; }
     const d = await res.json();
     const r = d.resumen || {};
-    el.innerHTML = '<div class="summary-grid">'+
-      `<div class="card"><h3>Ingresos Totales</h3><div class="value pos">$${(r.totalIngresos||0).toFixed(2)}</div></div>`+
-      `<div class="card"><h3>Gastos Totales</h3><div class="value neg">$${(r.totalGastos||0).toFixed(2)}</div></div>`+
-      `<div class="card"><h3>Costos Totales</h3><div class="value neg">$${(r.totalCostos||0).toFixed(2)}</div></div>`+
-      `<div class="card"><h3>Utilidad Neta</h3><div class="value ${(r.utilidadNeta||0)>=0?'pos':'neg'}">$${(r.utilidadNeta||0).toFixed(2)}</div></div>`+
-      `<div class="card"><h3>Período</h3><div class="value" style="font-size:18px">${r.meses||'—'} meses</div></div>`+
-    '</div>';
-    if (d.topGastos && d.topGastos.length) {
-      el.innerHTML += '<h3 style="margin-top:16px;font-size:14px">🔝 Top Gastos</h3>';
-      el.innerHTML += buildInformesTable(['Cuenta','Monto'], d.topGastos.map(g => [escHtml(g.name||g.accountName||'—'), '$'+g.total?.toFixed(2)]));
+    el.innerHTML = `
+      <div class="stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">
+        <div style="background:#fff;border-radius:8px;padding:14px;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:4px">Ingresos</div><div style="font-size:20px;font-weight:700;color:#2e7d32">$${r.totalIngresos.toLocaleString()}</div></div>
+        <div style="background:#fff;border-radius:8px;padding:14px;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:4px">Gastos</div><div style="font-size:20px;font-weight:700;color:#c62828">$${r.totalGastos.toLocaleString()}</div></div>
+        <div style="background:#fff;border-radius:8px;padding:14px;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:4px">Utilidad Neta</div><div style="font-size:20px;font-weight:700;color:${r.utilidadNeta>=0?'#2e7d32':'#c62828'}">$${r.utilidadNeta.toLocaleString()}</div></div>
+        <div style="background:#fff;border-radius:8px;padding:14px;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:4px">Meses</div><div style="font-size:20px;font-weight:700;color:#1a1a2e">${r.meses||'—'}</div></div>
+      </div>
+      <canvas id="dashboardChart" height="200"></canvas>`;
+    if (_informesChart) _informesChart.destroy();
+    const ctx = document.getElementById('dashboardChart');
+    if (ctx && d.monthly && d.monthly.length && typeof Chart !== 'undefined') {
+      _informesChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: d.monthly.map(m => m.month),
+          datasets: [
+            { label: 'Ingresos', data: d.monthly.map(m => m.ingresos), backgroundColor: '#10b981' },
+            { label: 'Gastos', data: d.monthly.map(m => m.gastos), backgroundColor: '#ef4444' }
+          ]
+        },
+        options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+      });
     }
-  } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
+  } catch(e) { el.innerHTML = '<div class="empty">Error de conexión</div>'; }
 }
 function loadReportAuxiliares() {
   const el = document.getElementById('informes-inline-result');
@@ -2909,13 +2931,61 @@ function switchAuxTab(tab, btn) {
 }
 
 async function loadAuxCuenta(el) {
-  el.innerHTML = '<div style="background:#fff;border-radius:8px;padding:20px"><p style="margin:0 0 8px 0;font-weight:600">Selecciona una cuenta</p><select id="informes-aux-select" onchange="loadAuxiliarData()" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"><option value="">—</option></select><div id="informes-aux-data" style="margin-top:12px"></div></div>';
-  try { const res = await authFetch(`${API_URL}/accounts`); const accounts = await res.json(); const sel = document.getElementById('informes-aux-select'); if (sel) accounts.forEach(a => { sel.innerHTML += `<option value="${a.id}">${a.code} — ${a.name}</option>`; }); } catch(e) {}
+  el.innerHTML = '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center"><select id="informes-aux-select" onchange="loadAuxiliarData()" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;min-width:280px"><option value="">Selecciona una cuenta...</option></select><input type="date" id="aux-from" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px"><input type="date" id="aux-to" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px"><button onclick="loadAuxiliarData()" style="padding:8px 14px;border:1px solid #1565c0;border-radius:6px;background:#1565c0;color:#fff;cursor:pointer;font-size:12px">🔍 Buscar</button></div><div id="informes-aux-data"><div style="text-align:center;padding:32px;color:#6b7280">Selecciona una cuenta</div></div>';
+  try { const res = await authFetch(`${API_URL}/accounts`); const accounts = await res.json(); const sel = document.getElementById('informes-aux-select'); const sorted = accounts.filter(a => a.code.split('.').length >= 2).sort((a,b) => a.code.localeCompare(b.code, undefined, {numeric:true})); if (sel) sorted.forEach(a => { sel.innerHTML += `<option value="${a.id}">${a.code} — ${a.name}</option>`; }); } catch(e) {}
 }
-async function loadAuxiliarData() { const id = document.getElementById('informes-aux-select')?.value; if (!id) return; const el = document.getElementById('informes-aux-data'); el.innerHTML = 'Cargando...'; try { const res = await authFetch(`${API_URL}/reports/auxiliar/${id}`); const d = await res.json(); el.innerHTML = buildInformesTable(['Fecha','Descripción','Débito','Crédito','Saldo'], (d.entries||[]).map(e => [new Date(e.date).toLocaleDateString('es-PA'), escHtml(e.description||''), e.debit?.toFixed(2)||'—', e.credit?.toFixed(2)||'—', e.balance?.toFixed(2)||'—'])); } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; } }
-async function loadAuxCxC(el)  { try { const res = await authFetch(`${API_URL}/clients`); const d = await res.json(); el.innerHTML = buildInformesTable(['Cliente','RUC','Email','Teléfono'], (d||[]).map(c => [escHtml(c.name), escHtml(c.taxId||'—'), escHtml(c.email||'—'), escHtml(c.phone||'—')])); } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; } }
-async function loadAuxCxP(el)  { try { const res = await authFetch(`${API_URL}/suppliers`); const d = await res.json(); el.innerHTML = buildInformesTable(['Proveedor','RUC','Email','Teléfono'], (d||[]).map(p => [escHtml(p.name), escHtml(p.taxId||'—'), escHtml(p.email||'—'), escHtml(p.phone||'—')])); } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; } }
-async function loadReportRevision()    { const el = document.getElementById('informes-inline-result'); try { const res = await authFetch(`${API_URL}/journal/pendientes`); const d = await res.json(); if (!d||!d.length) { el.innerHTML = '<div style="text-align:center;padding:24px;color:#059669">✅ No hay asientos pendientes de revisión</div>'; return; } el.innerHTML = buildInformesTable(['Fecha','Descripción','Estado','Creado por'], d.map(e => [new Date(e.date).toLocaleDateString('es-PA'), escHtml(e.description||''), e.status||'—', e.createdBy?.name||'—'])); } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; } }
+async function loadAuxiliarData() {
+  const id = document.getElementById('informes-aux-select')?.value;
+  if (!id) return;
+  const from = document.getElementById('aux-from')?.value || '';
+  const to = document.getElementById('aux-to')?.value || '';
+  const params = new URLSearchParams();
+  if (from) params.set('startDate', from);
+  if (to) params.set('endDate', to);
+  const el = document.getElementById('informes-aux-data');
+  el.innerHTML = 'Cargando...';
+  try {
+    const res = await authFetch(`${API_URL}/journal/mayor/${id}?${params}`);
+    const d = await res.json();
+    if (!d.detail || !d.detail.length) { el.innerHTML = '<div style="text-align:center;padding:24px;color:#6b7280">Sin movimientos</div>'; return; }
+    const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    el.innerHTML = `<div style="margin-bottom:8px;font-weight:600">${d.account.code} — ${d.account.name}</div>` +
+      buildInformesTable(['Fecha','Detalle','Débito','Crédito','Saldo'],
+        d.detail.map(e => [new Date(e.date).toLocaleDateString('es-PA'), escHtml(e.description||''), `<span style="color:#2e7d32">${fmt(e.debit||0)}</span>`, `<span style="color:#c62828">${fmt(e.credit||0)}</span>`, `<strong>${fmt(e.balance||0)}</strong>`]));
+  } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; }
+}
+async function loadAuxCxC(el) {
+  try {
+    const [rc, rs] = await Promise.all([authFetch(`${API_URL}/clients`), authFetch(`${API_URL}/clients/report/summary`)]);
+    if (!rc || !rs) { el.innerHTML = '<div class="empty">Error</div>'; return; }
+    const clients = await rc.json(), sum = await rs.json();
+    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">'+
+      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Clientes</div><div style="font-size:20px;font-weight:700">${sum.totalClients}</div></div>`+
+      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Por Cobrar</div><div style="font-size:20px;font-weight:700;color:#f59e0b">$${sum.totalDue.toLocaleString()}</div></div>`+
+      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Vencidas</div><div style="font-size:20px;font-weight:700;color:#ef4444">${sum.overdueInvoices}</div></div>`+
+    '</div>';
+    html += clients.filter(c => c.totalDue > 0).length
+      ? buildInformesTable(['Cliente','RUC','Pendiente','Facturas'], clients.filter(c => c.totalDue > 0).map(c => [escHtml(c.name), escHtml(c.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${c.totalDue.toLocaleString()}</span>`, c.invoiceCount||'—']))
+      : '<div style="text-align:center;padding:24px;color:#6b7280">Sin clientes con saldo pendiente</div>';
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; }
+}
+async function loadAuxCxP(el) {
+  try {
+    const [rc, rs] = await Promise.all([authFetch(`${API_URL}/suppliers`), authFetch(`${API_URL}/suppliers/report/summary`)]);
+    if (!rc || !rs) { el.innerHTML = '<div class="empty">Error</div>'; return; }
+    const supps = await rc.json(), sum = await rs.json();
+    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">'+
+      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Proveedores</div><div style="font-size:20px;font-weight:700">${sum.totalSuppliers}</div></div>`+
+      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Por Pagar</div><div style="font-size:20px;font-weight:700;color:#f59e0b">$${sum.totalOwed.toLocaleString()}</div></div>`+
+      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Vencidas</div><div style="font-size:20px;font-weight:700;color:#ef4444">${sum.overdueBills}</div></div>`+
+    '</div>';
+    html += supps.filter(s => s.totalOwed > 0).length
+      ? buildInformesTable(['Proveedor','RUC','Pendiente','Facturas'], supps.filter(s => s.totalOwed > 0).map(s => [escHtml(s.name), escHtml(s.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${s.totalOwed.toLocaleString()}</span>`, s.billCount||'—']))
+      : '<div style="text-align:center;padding:24px;color:#6b7280">Sin proveedores con saldo pendiente</div>';
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; }
+}
 
 function buildInformesTable(headers, rows) {
   let h = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>';
