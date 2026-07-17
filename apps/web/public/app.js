@@ -2610,7 +2610,7 @@ function renderImportInlinePreview() {
   });
   document.getElementById('import-inline-tbody').innerHTML = html;
   document.getElementById('import-inline-preview').classList.remove('hidden');
-  document.getElementById('import-inline-execute').classList.remove('hidden');
+  document.getElementById('import-inline-actions').classList.remove('hidden');
 }
 
 async function executeImportInline() {
@@ -2623,7 +2623,7 @@ async function executeImportInline() {
   if (!ok) return;
 
   document.getElementById('import-inline-loading').classList.remove('hidden');
-  document.getElementById('import-inline-execute').classList.add('hidden');
+  document.getElementById('import-inline-actions').classList.add('hidden');
   document.getElementById('import-inline-loading-text').textContent = `Importando ${total} transacciones...`;
 
   const formData = new FormData();
@@ -2651,7 +2651,7 @@ function resetImportInline() {
   document.getElementById('import-inline-zone').classList.remove('hidden');
   document.getElementById('import-inline-preview').classList.add('hidden');
   document.getElementById('import-inline-summary').classList.add('hidden');
-  document.getElementById('import-inline-execute').classList.add('hidden');
+  document.getElementById('import-inline-actions').classList.add('hidden');
   document.getElementById('import-inline-loading').classList.add('hidden');
 }
 

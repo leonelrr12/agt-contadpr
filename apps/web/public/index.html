@@ -302,7 +302,10 @@
           <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:#059669" id="import-inline-ok">0</div><div style="font-size:11px;color:#6b7280">Listas</div></div>
           <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:#dc2626" id="import-inline-err">0</div><div style="font-size:11px;color:#6b7280">Errores</div></div>
         </div>
-        <button id="import-inline-execute" class="btn-primary hidden" onclick="executeImportInline()" style="padding:10px 20px;font-size:14px">✅ Importar transacciones</button>
+        <div id="import-inline-actions" class="hidden" style="display:flex;gap:10px;align-items:center">
+          <button id="import-inline-execute" class="btn-primary" onclick="executeImportInline()" style="padding:10px 20px;font-size:14px">✅ Importar transacciones</button>
+          <button class="btn-secondary" onclick="resetImportInline()" style="padding:10px 20px;font-size:14px;background:#e5e7eb;color:#374151;border:none;border-radius:8px;cursor:pointer">↩ Cancelar</button>
+        </div>
         <div id="import-inline-loading" class="hidden" style="text-align:center;padding:24px;color:#6b7280">
           <div style="display:inline-block;width:24px;height:24px;border:3px solid #e5e7eb;border-top-color:#1565c0;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:8px"></div>
           <p id="import-inline-loading-text">Procesando...</p>
