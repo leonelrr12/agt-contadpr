@@ -147,12 +147,28 @@ Convertir una venta registrada en factura profesional:
 ### 🔮 Fase 4 — Largo plazo (expansión)
 
 #### 11. Módulo de Nómina Simple ❌ Pendiente
+- [ ] Registrar empleados con salarios, cargos, descuentos
+- [ ] Generar asientos de nómina (salario bruto, descuentos, neto a pagar)
+- [ ] Recordatorios de pago de cuotas obrero-patronales (CSS)
+- [ ] Acumulados para décimo tercer mes y liquidaciones
 
 #### 12. Presupuestos y Proyecciones ❌ Pendiente
+- [ ] Presupuesto mensual/anual por cuenta o categoría
+- [ ] Comparativa real vs presupuestado con variaciones
+- [ ] Proyección de flujo de caja a 3/6/12 meses
+- [ ] Alertas de desviación significativa
 
 #### 13. Módulo de Inventario ❌ Pendiente
+- [ ] Control de existencias con costo promedio
+- [ ] Entradas (compras) y salidas (ventas) automáticas desde asientos
+- [ ] Alertas de stock mínimo
+- [ ] Valoración de inventario
 
 #### 14. Agente Multi-Empresa para Despachos Contables ❌ Pendiente
+- [ ] Vista unificada de todos los clientes del despacho
+- [ ] Tablero de tareas pendientes por empresa
+- [ ] Cambio rápido entre empresas
+- [ ] Reportes consolidados del despacho
 
 ---
 
