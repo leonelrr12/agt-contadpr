@@ -4,6 +4,9 @@ import OpenAI from 'openai';
 import { PrismaClient } from '@agt-contador/prisma-schema';
 
 let workers: { worker: any; psm: any }[] | null = null;
+let lastUsed = 0;
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutos de inactividad → liberar workers
 
 function getLLMClient(): OpenAI | null {
   const key = process.env.DEEPSEEK_API_KEY;
@@ -26,8 +29,43 @@ async function getWorkers(): Promise<{ worker: any; psm: number }[]> {
         return { worker, psm };
       }),
     );
+    console.log(`[OCR] ${workers.length} Tesseract workers inicializados`);
   }
+  // Marcar actividad y posponer terminación por inactividad
+  lastUsed = Date.now();
+  scheduleIdleTermination();
   return workers;
+}
+
+/** Programa la terminación de workers tras IDLE_TIMEOUT_MS de inactividad */
+function scheduleIdleTermination(): void {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    const idle = Date.now() - lastUsed;
+    if (idle >= IDLE_TIMEOUT_MS && workers) {
+      terminateWorkers().catch(() => {});
+    }
+  }, IDLE_TIMEOUT_MS);
+}
+
+/** Libera todos los workers de Tesseract explícitamente */
+export async function terminateWorkers(): Promise<void> {
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+  if (!workers) return;
+
+  const count = workers.length;
+  await Promise.all(workers.map(w => w.worker.terminate().catch(() => {})));
+  workers = null;
+  console.log(`[OCR] ${count} Tesseract workers liberados (memoria recuperada)`);
+}
+
+// Liberar workers en shutdown del proceso (solo una vez)
+let shutdownRegistered = false;
+if (!shutdownRegistered) {
+  shutdownRegistered = true;
+  const cleanup = () => { terminateWorkers().catch(() => {}); };
+  process.once('SIGTERM', cleanup);
+  process.once('SIGINT', cleanup);
 }
 
 async function preprocessImage(buffer: Buffer): Promise<Buffer> {
