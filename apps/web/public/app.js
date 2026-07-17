@@ -1201,16 +1201,10 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
     function hideAllPanels() {
       ['panel-recurring-content','recurring-form','panel-import-content',
        'panel-conciliacion-content','panel-taxcalendar-content','panel-whatsapp-content',
-       'cuentas-admin-content','cuentas-admin-actions','cuentas-admin-form',
-       'conceptos-admin-content','conceptos-admin-actions','conceptos-admin-form',
-       'config-content','panel-tabs-admin'].forEach(id => {
+       'panel-admin-content'].forEach(id => {
         const el = document.getElementById(id); if (el) el.classList.add('hidden');
       });
       const rp = document.getElementById('reports-panel');
-      if (rp) { rp.classList.remove('open'); }
-      const ro = document.getElementById('reports-overlay');
-      if (ro) ro.classList.add('hidden');
-      document.querySelector('#reports-panel .panel-header')?.classList.add('hidden');
       document.body.style.overflow = '';
     }
 
@@ -1231,16 +1225,12 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
     if (view === 'panel-taxcalendar') { hideAllPanels(); loadPanelTaxCalendar(); return; }
     if (view === 'panel-whatsapp') { hideAllPanels(); loadPanelWhatsApp(); return; }
 
-    // Admin panel — slide-out lateral unificado
+    // Admin panel — inline con tabs
     if (view === 'panel-admin') {
       hideAllPanels();
-      document.getElementById('reports-panel').classList.add('open');
-      document.getElementById('reports-overlay').classList.remove('hidden');
-      document.querySelector('#reports-panel .panel-header')?.classList.remove('hidden');
-      document.getElementById('panel-tabs-admin').classList.remove('hidden');
+      document.getElementById('panel-admin-content').classList.remove('hidden');
       document.getElementById('cuentas-admin-content').classList.remove('hidden');
       document.getElementById('cuentas-admin-actions').classList.remove('hidden');
-      document.body.style.overflow = 'hidden';
       clickAdminTab('cuentas-admin');
       return;
     }
@@ -1270,25 +1260,6 @@ function toggleReportsClose() {
   panel.classList.remove('open');
   overlay.classList.add('hidden');
   document.body.style.overflow = '';
-}
-
-function closeAdminPanel() {
-  const panel = document.getElementById('reports-panel');
-  const overlay = document.getElementById('reports-overlay');
-  panel.classList.remove('open');
-  overlay.classList.add('hidden');
-  document.body.style.overflow = '';
-  // Ocultar contenido admin
-  ['cuentas-admin-content','cuentas-admin-actions','cuentas-admin-form',
-   'conceptos-admin-content','conceptos-admin-actions','conceptos-admin-form',
-   'config-content','panel-tabs-admin'].forEach(id => {
-    const el = document.getElementById(id); if (el) el.classList.add('hidden');
-  });
-  document.querySelector('#reports-panel .panel-header')?.classList.add('hidden');
-  // Volver a vista chat
-  document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(b => b.classList.remove('active'));
-  const chatBtn = document.querySelector('#sidebar-nav .nav-link[data-view="chat"]');
-  if (chatBtn) chatBtn.classList.add('active');
 }
 
 document.querySelectorAll('.panel-tabs button').forEach(btn => {

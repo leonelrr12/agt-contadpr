@@ -340,6 +340,54 @@
           <div style="text-align:center;padding:32px;color:#6b7280">Cargando calendario...</div>
         </div>
       </div>
+
+      <!-- Panel de Administración -->
+      <div id="panel-admin-content" class="hidden" style="padding:24px;max-width:1000px">
+        <h2 style="margin:0 0 4px 0;color:#1a1a2e">⚙️ Administración</h2>
+        <p style="margin:0 0 20px 0;color:#6b7280;font-size:13px">Gestiona cuentas contables, conceptos y configuración de tu empresa</p>
+        <div id="panel-tabs-admin" style="display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap;border-bottom:2px solid #e5e7eb;padding-bottom:0">
+          <button class="panel-tab-btn active" data-panel="cuentas-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#1a1a2e;border-bottom:2px solid #1565c0;margin-bottom:-2px">🏦 Cuentas</button>
+          <button class="panel-tab-btn" data-panel="conceptos-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📝 Conceptos</button>
+          <button class="panel-tab-btn" data-panel="config" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚙️ Configuración</button>
+        </div>
+        <!-- Cuentas Admin -->
+        <div id="cuentas-admin-content"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px" class="hidden" id="cuentas-admin-actions">
+          <span id="cuentas-admin-count" style="font-size:12px;color:#6b7280"></span>
+          <button class="btn-primary btn-sm" onclick="showCrearCuenta()" style="padding:6px 14px;font-size:12px">+ Nueva cuenta</button>
+        </div>
+        <div id="cuentas-admin-form" class="hidden"></div>
+        <!-- Conceptos Admin -->
+        <div id="conceptos-admin-content" class="hidden"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px" class="hidden" id="conceptos-admin-actions">
+          <span id="conceptos-admin-count" style="font-size:12px;color:#6b7280"></span>
+          <button class="btn-primary btn-sm" onclick="showCrearConcepto()" style="padding:6px 14px;font-size:12px">+ Nuevo concepto</button>
+        </div>
+        <div id="conceptos-admin-form" class="hidden"></div>
+        <!-- Config Admin -->
+        <div id="config-content" class="hidden">
+          <div class="admin-form-card">
+            <h4>⚙️ Configuración de la Empresa</h4>
+            <div class="form-grid">
+              <div>
+                <label>Tasa de ITBMS (%)</label>
+                <input type="number" id="config-itbms-rate" value="7" step="0.1" min="0" max="20" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit">
+              </div>
+              <div>
+                <label>ITBMS habilitado en transacciones</label>
+                <select id="config-itbms-enabled" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit">
+                  <option value="true">✅ Sí</option>
+                  <option value="false">❌ No</option>
+                </select>
+              </div>
+            </div>
+            <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
+              <button class="btn-primary" onclick="saveConfig()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar Configuración</button>
+              <span id="config-saved-msg" style="display:none;color:#059669;font-size:13px;font-weight:600">✅ Guardado</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 
@@ -371,58 +419,11 @@
   </div>
 
   <div id="reports-overlay" class="hidden" onclick="toggleReports()"></div>
-  <div id="reports-panel">
-    <div class="panel-header hidden">
-      <h2>Administración</h2>
-    </div>
-    <!-- Admin Tabs -->
-    <div id="panel-tabs-admin" class="hidden" style="display:flex;gap:4px;margin-bottom:16px;flex-wrap:wrap;border-bottom:2px solid #e5e7eb;padding-bottom:0">
-      <button class="panel-tab-btn active" data-panel="cuentas-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🏦 Cuentas</button>
-      <button class="panel-tab-btn" data-panel="conceptos-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📝 Conceptos</button>
-      <button class="panel-tab-btn" data-panel="config" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚙️ Configuración</button>
-    </div>
-    <!-- Cuentas Admin -->
-    <div id="cuentas-admin-content" class="hidden"></div>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px" class="hidden" id="cuentas-admin-actions">
-      <span id="cuentas-admin-count" style="font-size:12px;color:#6b7280"></span>
-      <button class="btn-primary btn-sm" onclick="showCrearCuenta()" style="padding:6px 14px;font-size:12px">+ Nueva cuenta</button>
-    </div>
-    <div id="cuentas-admin-form" class="hidden"></div>
-    <!-- Conceptos Admin -->
-    <div id="conceptos-admin-content" class="hidden"></div>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px" class="hidden" id="conceptos-admin-actions">
-      <span id="conceptos-admin-count" style="font-size:12px;color:#6b7280"></span>
-      <button class="btn-primary btn-sm" onclick="showCrearConcepto()" style="padding:6px 14px;font-size:12px">+ Nuevo concepto</button>
-    </div>
-    <div id="conceptos-admin-form" class="hidden"></div>
-    <!-- Config Admin -->
-    <div id="config-content" class="hidden">
-      <div class="admin-form-card">
-        <h4>⚙️ Configuración de la Empresa</h4>
-        <div class="form-grid">
-          <div>
-            <label>Tasa de ITBMS (%)</label>
-            <input type="number" id="config-itbms-rate" value="7" step="0.1" min="0" max="20" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit">
-          </div>
-          <div>
-            <label>ITBMS habilitado en transacciones</label>
-            <select id="config-itbms-enabled" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit">
-              <option value="true">✅ Sí</option>
-              <option value="false">❌ No</option>
-            </select>
-          </div>
-        </div>
-        <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
-          <button class="btn-primary" onclick="saveConfig()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar Configuración</button>
-          <span id="config-saved-msg" style="display:none;color:#059669;font-size:13px;font-weight:600">✅ Guardado</span>
-        </div>
-      </div>
-    </div>
-  </div>
+  <div id="reports-panel"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="app.js?v=26"></script>
+  <script src="app.js?v=27"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </body>
 </html>
