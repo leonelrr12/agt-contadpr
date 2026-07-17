@@ -129,13 +129,14 @@ function showInput(mode) {
     return;
   }
   if (mode === 'pdf') {
-    document.getElementById('pdf-actions').classList.remove('hidden');
     document.getElementById('pdf-loading').classList.add('hidden');
     document.getElementById('pdf-result').classList.add('hidden');
     document.getElementById('pdf-result-text').innerHTML = '';
     document.getElementById('pdf-file-input').value = '';
     pdfData = null;
     document.getElementById('pdf-upload').classList.remove('hidden');
+    // Abrir directamente el explorador de archivos
+    document.getElementById('pdf-file-input').click();
     return;
   }
   const input = document.getElementById('text-input');
@@ -2817,11 +2818,17 @@ document.querySelectorAll('#panel-tabs-informes button').forEach(btn => {
   });
 });
 
+let _currentInformeTab = 'diario';
+
 function clickInformeTab(informe) {
   const btns = document.querySelectorAll('#panel-tabs-informes button');
   btns.forEach(b => { b.classList.remove('active'); b.style.color = '#6b7280'; b.style.borderBottomColor = 'transparent'; });
   const active = document.querySelector(`#panel-tabs-informes button[data-informe="${informe}"]`);
   if (active) { active.classList.add('active'); active.style.color = '#1a1a2e'; active.style.borderBottomColor = '#1565c0'; }
+  _currentInformeTab = informe;
+  // Mostrar filtro de fecha solo para reportes que lo soportan
+  const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'resultados');
+  document.getElementById('informes-date-filter').classList.toggle('hidden', !showFilter);
   showInformesLoading();
   const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard };
   if (loaders[informe]) loaders[informe]();
@@ -2836,7 +2843,8 @@ let _informesChart = null;
 async function loadReportDiario() {
   const el = document.getElementById('informes-inline-result');
   try {
-    const res = await authFetch(`${API_URL}/journal?limit=20`);
+    const params = getInformesDateParams(); params.set('limit','30');
+    const res = await authFetch(`${API_URL}/journal?${params}`);
     const d = await res.json();
     const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
     const rows = (d.entries||[]).map(e => {
@@ -2850,7 +2858,8 @@ async function loadReportDiario() {
 async function loadReportBalance() {
   const el = document.getElementById('informes-inline-result');
   try {
-    const res = await authFetch(`${API_URL}/reports/balance-comprobacion`);
+    const params = getInformesDateParams();
+    const res = await authFetch(`${API_URL}/reports/balance-comprobacion?${params}`);
     const d = await res.json();
     const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
     const rows = (d||[]).map(a => [
@@ -2865,7 +2874,8 @@ async function loadReportBalance() {
 async function loadReportResultados() {
   const el = document.getElementById('informes-inline-result');
   try {
-    const res = await authFetch(`${API_URL}/reports/estado-resultados`);
+    const params = getInformesDateParams();
+    const res = await authFetch(`${API_URL}/reports/estado-resultados?${params}`);
     const d = await res.json();
     const items = (obj) => Object.entries(obj||{}).map(([k,v]) => `<tr><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb">${escHtml(k)}</td><td style="text-align:right;padding:6px 10px;border-bottom:1px solid #e5e7eb;font-weight:600">$${Number(v).toLocaleString()}</td></tr>`).join('');
     el.innerHTML = getInformesExportBar('estado-resultados') + `
@@ -3034,6 +3044,19 @@ async function toggleFacturas(entityId, type) {
 }
 
 /* ── Export helpers ── */
+function getInformesDateParams() {
+  const from = document.getElementById('informes-filter-from')?.value || '';
+  const to = document.getElementById('informes-filter-to')?.value || '';
+  const params = new URLSearchParams();
+  if (from) params.set('startDate', from);
+  if (to) params.set('endDate', to);
+  return params;
+}
+function loadCurrentInformeTab() {
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard };
+  if (loaders[_currentInformeTab]) loaders[_currentInformeTab]();
+}
+
 function getInformesExportBar(type) {
   return `<div style="display:flex;gap:6px;margin-bottom:12px">
     <button onclick="exportInforme('${type}','xlsx')" style="padding:5px 12px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📥 Excel</button>
