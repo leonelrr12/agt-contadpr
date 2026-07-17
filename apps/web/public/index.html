@@ -345,10 +345,18 @@
       <div id="panel-informes-content" class="hidden" style="padding:24px;max-width:1000px">
         <h2 style="margin:0 0 4px 0;color:#1a1a2e">📊 Informes</h2>
         <p style="margin:0 0 20px 0;color:#6b7280;font-size:13px">Reportes financieros, contables y de gestión para tu empresa</p>
-        <div id="informes-inline-area">
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px" id="informes-cards">
-          </div>
-          <div id="informes-inline-result" style="margin-top:20px"></div>
+        <div id="panel-tabs-informes" style="display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap;border-bottom:2px solid #e5e7eb;padding-bottom:0">
+          <button class="panel-tab-btn active" data-informe="diario" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#1a1a2e;border-bottom:2px solid #1565c0;margin-bottom:-2px">📋 Diario</button>
+          <button class="panel-tab-btn" data-informe="balance" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚖️ Balance</button>
+          <button class="panel-tab-btn" data-informe="resultados" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📊 Resultados</button>
+          <button class="panel-tab-btn" data-informe="dashboard" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📈 Dashboard</button>
+          <button class="panel-tab-btn" data-informe="auxiliar" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📒 Auxiliar</button>
+          <button class="panel-tab-btn" data-informe="cxc" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">👥 CxC</button>
+          <button class="panel-tab-btn" data-informe="cxp" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🏭 CxP</button>
+          <button class="panel-tab-btn" data-informe="revision" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🔍 Revisión</button>
+        </div>
+        <div id="informes-inline-result">
+          <div style="text-align:center;padding:32px;color:#6b7280">Selecciona un reporte para comenzar</div>
         </div>
       </div>
 
@@ -434,7 +442,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="app.js?v=28"></script>
+  <script src="app.js?v=29"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </body>
 </html>
