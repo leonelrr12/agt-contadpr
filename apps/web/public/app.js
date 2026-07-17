@@ -2582,6 +2582,7 @@ async function handleImportInlineFile(file) {
     if (!res.ok) { const e = await res.json(); await showAlert(e.error || 'Error'); resetImportInline(); return; }
     importInlinePreview = await res.json();
     document.getElementById('import-inline-loading').classList.add('hidden');
+    document.getElementById('import-inline-zone').classList.add('hidden');
     renderImportInlinePreview();
   } catch (e) { await showAlert('Error de conexión'); resetImportInline(); }
 }
@@ -2647,6 +2648,7 @@ function resetImportInline() {
   importInlinePreview = null;
   document.getElementById('import-inline-file').value = '';
   document.getElementById('import-inline-file-name').textContent = '';
+  document.getElementById('import-inline-zone').classList.remove('hidden');
   document.getElementById('import-inline-preview').classList.add('hidden');
   document.getElementById('import-inline-summary').classList.add('hidden');
   document.getElementById('import-inline-execute').classList.add('hidden');
