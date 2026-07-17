@@ -2865,13 +2865,30 @@ async function loadReportResultados() {
   try {
     const res = await authFetch(`${API_URL}/reports/estado-resultados`);
     const d = await res.json();
-    el.innerHTML = '<div class="summary-grid">'+
-      `<div class="card"><h3>Ingresos</h3><div class="value pos">$${(d.ingresos?.total||0).toLocaleString()}</div></div>`+
-      `<div class="card"><h3>Costos</h3><div class="value neg">$${(d.costos?.total||0).toLocaleString()}</div></div>`+
-      `<div class="card"><h3>Ganancia Bruta</h3><div class="value ${(d.gananciaBruta||0)>=0?'pos':'neg'}">$${(d.gananciaBruta||0).toLocaleString()}</div></div>`+
-      `<div class="card"><h3>Gastos</h3><div class="value neg">$${(d.gastos?.total||0).toLocaleString()}</div></div>`+
-      `<div class="card"><h3>Utilidad Neta</h3><div class="value ${(d.utilidadNeta||0)>=0?'pos':'neg'}">$${(d.utilidadNeta||0).toLocaleString()}</div></div>`+
-    '</div>';
+    const items = (obj) => Object.entries(obj||{}).map(([k,v]) => `<tr><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb">${escHtml(k)}</td><td style="text-align:right;padding:6px 10px;border-bottom:1px solid #e5e7eb;font-weight:600">$${Number(v).toLocaleString()}</td></tr>`).join('');
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <h3 style="font-size:14px;color:#2e7d32;margin:0 0 8px 0">📈 Ingresos</h3>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.06)">
+            ${items(d.ingresos?.detalle||{})}
+            <tfoot><tr style="border-top:2px solid #1a1a2e;background:#f0fdf4"><td style="padding:8px 10px"><strong>Total Ingresos</strong></td><td style="text-align:right;padding:8px 10px"><strong style="color:#2e7d32">$${d.ingresos?.total?.toLocaleString()||'0'}</strong></td></tr></tfoot>
+          </table>
+        </div>
+        <div>
+          <h3 style="font-size:14px;color:#c62828;margin:0 0 8px 0">📉 Gastos</h3>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.06)">
+            ${items(d.gastos?.detalle||{})}
+            <tfoot><tr style="border-top:2px solid #1a1a2e;background:#fef2f2"><td style="padding:8px 10px"><strong>Total Gastos</strong></td><td style="text-align:right;padding:8px 10px"><strong style="color:#c62828">$${d.gastos?.total?.toLocaleString()||'0'}</strong></td></tr></tfoot>
+          </table>
+        </div>
+      </div>
+      ${d.costos?.total ? `<div style="margin-top:8px"><h3 style="font-size:14px;color:#e65100;margin:0 0 8px 0">🏭 Costos</h3><table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.06)">${items(d.costos?.detalle||{})}<tfoot><tr style="border-top:2px solid #1a1a2e"><td style="padding:8px 10px"><strong>Total Costos</strong></td><td style="text-align:right;padding:8px 10px"><strong style="color:#e65100">$${d.costos?.total?.toLocaleString()||'0'}</strong></td></tr></tfoot></table></div>` : ''}
+      <div style="margin-top:16px;padding:14px;background:#f0f9ff;border-radius:8px;text-align:center;font-size:16px;font-weight:700;color:#1a1a2e">
+        💰 Ganancia Bruta: <span style="color:${(d.gananciaBruta||0)>=0?'#2e7d32':'#c62828'}">$${(d.gananciaBruta||0).toLocaleString()}</span>
+        &nbsp;|&nbsp;
+        📊 Utilidad Neta: <span style="color:${(d.utilidadNeta||0)>=0?'#2e7d32':'#c62828'}">$${(d.utilidadNeta||0).toLocaleString()}</span>
+      </div>`;
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
 async function loadReportDashboard() {
