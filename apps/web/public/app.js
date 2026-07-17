@@ -1211,12 +1211,14 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
 
     if (view === 'chat') {
       hideAllPanels();
+      document.getElementById('chat-header').classList.remove('hidden');
       document.getElementById('chat-messages').classList.remove('hidden');
       document.getElementById('input-area').classList.remove('hidden');
       return;
     }
 
     // Ocultar chat para cualquier panel que no sea chat
+    document.getElementById('chat-header').classList.add('hidden');
     document.getElementById('chat-messages').classList.add('hidden');
     document.getElementById('input-area').classList.add('hidden');
 
