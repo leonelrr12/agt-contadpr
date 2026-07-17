@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Importar — Contador507</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="styles.css?v=7">
+  <style>
+    .import-container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    .import-header { margin-bottom: 24px; }
+    .import-header h1 { font-size: 24px; color: #1a1a2e; margin: 0 0 8px 0; }
+    .import-header p { color: #6b7280; margin: 0; font-size: 14px; }
+    .upload-zone {
+      border: 2px dashed #d0d5dd; border-radius: 12px; padding: 48px 24px;
+      text-align: center; background: #f9fafb; transition: all 0.2s;
+      cursor: pointer; margin-bottom: 24px;
+    }
+    .upload-zone:hover, .upload-zone.dragover {
+      border-color: #1565c0; background: #f0f7ff;
+    }
+    .upload-zone-icon { font-size: 48px; margin-bottom: 12px; }
+    .upload-zone h3 { margin: 0 0 8px 0; color: #1a1a2e; }
+    .upload-zone p { margin: 0; color: #6b7280; font-size: 13px; }
+    .preview-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
+    .preview-table th { background: #f0f0f0; padding: 10px 8px; text-align: left; font-weight: 600; border-bottom: 2px solid #d0d5dd; white-space: nowrap; }
+    .preview-table td { padding: 8px; border-bottom: 1px solid #e5e7eb; }
+    .preview-table tr:hover td { background: #f9fafb; }
+    .preview-table .mapping-select { font-size: 12px; padding: 2px 4px; border: 1px solid #d0d5dd; border-radius: 4px; background: #fff; width: 100%; }
+    .preview-table .row-error { background: #fef2f2 !important; }
+    .preview-table .row-warn { background: #fffbeb !important; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .badge-ok { background: #d1fae5; color: #065f46; }
+    .badge-warn { background: #fef3c7; color: #92400e; }
+    .badge-err { background: #fee2e2; color: #991b1b; }
+    .summary-cards { display: flex; gap: 16px; margin-bottom: 24px; }
+    .summary-card { flex: 1; background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); text-align: center; }
+    .summary-card .num { font-size: 28px; font-weight: 700; }
+    .summary-card .label { font-size: 12px; color: #6b7280; margin-top: 4px; }
+    .summary-card.ok .num { color: #059669; }
+    .summary-card.err .num { color: #dc2626; }
+    .summary-card.total .num { color: #1a1a2e; }
+    .actions-bar { display: flex; gap: 12px; align-items: center; margin-top: 16px; }
+    .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; }
+    .btn-primary { background: #059669; color: #fff; }
+    .btn-primary:hover { background: #047857; }
+    .btn-primary:disabled { background: #9ca3af; cursor: not-allowed; }
+    .btn-secondary { background: #e5e7eb; color: #374151; }
+    .btn-secondary:hover { background: #d1d5db; }
+    .btn-danger { background: #dc2626; color: #fff; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+    .loading { text-align: center; padding: 32px; color: #6b7280; }
+    .loading .spinner { display: inline-block; width: 32px; height: 32px; border: 3px solid #e5e7eb; border-top-color: #1565c0; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hidden { display: none !important; }
+    .error-list { margin-top: 16px; background: #fef2f2; border-radius: 8px; padding: 16px; }
+    .error-list h4 { color: #991b1b; margin: 0 0 8px 0; }
+    .error-list ul { margin: 0; padding-left: 20px; color: #7f1d1d; font-size: 13px; }
+    .progress-bar { width: 100%; height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; margin: 8px 0; }
+    .progress-bar-fill { height: 100%; background: #059669; border-radius: 4px; transition: width 0.3s; }
+    .template-link { margin-top: 16px; font-size: 13px; color: #6b7280; }
+    .template-link a { color: #1565c0; }
+  </style>
+</head>
+<body>
+  <div class="import-container">
+    <div class="import-header">
+      <h1>📥 Importar Transacciones</h1>
+      <p>Sube tu archivo CSV o Excel con transacciones históricas. La IA clasificará cada concepto y generarás los asientos en lote.</p>
+      <p style="margin-top:8px"><a href="/index.html" style="color:#1565c0;text-decoration:none;font-size:14px">← Volver al Chat</a></p>
+    </div>
+
+    <!-- Paso 1: Upload -->
+    <div id="step-upload">
+      <div class="upload-zone" id="drop-zone">
+        <div class="upload-zone-icon">📂</div>
+        <h3>Arrastra tu archivo aquí o haz clic para seleccionar</h3>
+        <p>Formatos aceptados: CSV, XLSX (máx. 10MB)</p>
+        <input type="file" id="file-input" accept=".csv,.xlsx" style="display:none">
+      </div>
+
+      <div class="template-link">
+        💡 ¿No tienes un archivo? <a href="#" id="download-template">Descarga nuestra plantilla CSV de ejemplo</a>
+      </div>
+    </div>
+
+    <!-- Paso 2: Preview -->
+    <div id="step-preview" class="hidden">
+      <div class="summary-cards">
+        <div class="summary-card total"><div class="num" id="stat-total">0</div><div class="label">Filas totales</div></div>
+        <div class="summary-card ok"><div class="num" id="stat-ok">0</div><div class="label">Listas para importar</div></div>
+        <div class="summary-card err"><div class="num" id="stat-err">0</div><div class="label">Con errores</div></div>
+      </div>
+
+      <div style="overflow-x:auto">
+        <table class="preview-table" id="preview-table">
+          <thead id="preview-thead"></thead>
+          <tbody id="preview-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="actions-bar">
+        <div style="display:flex;align-items:center;gap:8px;flex:1">
+          <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap">📅 Fecha para asientos sin fecha:</label>
+          <input type="date" id="import-date" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;width:160px">
+        </div>
+        <button class="btn btn-secondary" onclick="resetImport()">🔄 Cancelar</button>
+        <button class="btn btn-primary" id="btn-execute" onclick="executeImport()">✅ Importar transacciones</button>
+      </div>
+      <p style="font-size:12px;color:#6b7280;margin-top:8px">
+        Los asientos se crearán en estado <strong>BORRADOR</strong>. Podrás revisarlos en el Diario antes de confirmarlos.
+      </p>
+    </div>
+
+    <!-- Paso 3: Resultado -->
+    <div id="step-result" class="hidden">
+      <div class="summary-cards" id="result-cards"></div>
+      <div id="error-list-container"></div>
+      <div class="actions-bar">
+        <button class="btn btn-secondary" onclick="resetImport()">📤 Nueva importación</button>
+        <a href="/index.html" class="btn btn-secondary" style="text-decoration:none">💬 Ir al Chat</a>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="step-loading" class="loading hidden">
+      <div class="spinner"></div>
+      <p id="loading-text">Procesando archivo...</p>
+      <div class="progress-bar"><div class="progress-bar-fill" id="progress-fill" style="width:0%"></div></div>
+    </div>
+
+    <!-- Modal de confirmación -->
+    <div id="confirm-overlay" class="hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:1000;display:flex;align-items:center;justify-content:center">
+      <div style="background:#fff;border-radius:12px;padding:28px;max-width:440px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.2)">
+        <h3 style="margin:0 0 12px 0;font-size:18px;color:#1a1a2e" id="confirm-title">Confirmar importación</h3>
+        <div id="confirm-body" style="font-size:14px;color:#374151;line-height:1.6;margin-bottom:20px"></div>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+          <button class="btn btn-secondary" onclick="closeConfirmModal(false)" style="width:auto">Cancelar</button>
+          <button class="btn btn-primary" id="confirm-ok-btn" onclick="closeConfirmModal(true)" style="width:auto">✅ Confirmar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const API_URL = '/api';
+
+function getToken() { return localStorage.getItem('agt_token'); }
+function authFetch(url, options = {}) {
+  const token = getToken();
+  if (!token) { window.location.href = '/login.html'; return Promise.reject('No auth'); }
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      'Authorization': `Bearer ${token}`,
+      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+    },
+  }).then(res => {
+    if (res.status === 401) { localStorage.clear(); window.location.href = '/login.html'; }
+    return res;
+  });
+}
+
+// Auth check
+if (!getToken()) { window.location.href = '/login.html'; }
+
+let previewData = null;
+let fileToUpload = null;
+
+// Prevenir que el navegador abra el archivo al soltarlo
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+  document.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); }, false);
+});
+
+// ── Upload Zone ──
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', e => { e.preventDefault(); e.stopPropagation(); dropZone.classList.remove('dragover'); });
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  e.stopPropagation();
+  dropZone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+fileInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (file) handleFile(file);
+});
+
+function showLoading(msg) {
+  document.getElementById('step-upload').classList.add('hidden');
+  document.getElementById('step-preview').classList.add('hidden');
+  document.getElementById('step-result').classList.add('hidden');
+  document.getElementById('step-loading').classList.remove('hidden');
+  document.getElementById('loading-text').textContent = msg;
+  document.getElementById('progress-fill').style.width = '0%';
+}
+
+function setProgress(pct) {
+  document.getElementById('progress-fill').style.width = pct + '%';
+}
+
+async function handleFile(file) {
+  fileToUpload = file;
+  showLoading('Analizando archivo...');
+  setProgress(20);
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await authFetch(`${API_URL}/import/preview`, {
+      method: 'POST',
+      body: formData,
+    });
+    setProgress(80);
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Error al analizar el archivo');
+    }
+
+    previewData = await res.json();
+    setProgress(100);
+    renderPreview();
+  } catch (e) {
+    alert('Error: ' + e.message);
+    resetImport();
+  }
+}
+
+function renderPreview() {
+  if (!previewData) return;
+  const { headers, detectedMapping, previewRows, totalRows } = previewData;
+
+  document.getElementById('step-loading').classList.add('hidden');
+  document.getElementById('step-upload').classList.add('hidden');
+  document.getElementById('step-preview').classList.remove('hidden');
+  document.getElementById('step-result').classList.add('hidden');
+
+  // Fijar fecha por defecto = hoy en el date picker
+  const dateInput = document.getElementById('import-date');
+  if (!dateInput.value) {
+    dateInput.value = new Date().toISOString().split('T')[0];
+  }
+
+  // Stats
+  const errors = previewRows.filter(r => !r.date || !r.amount || !r.amount > 0 || (r.classification && r.classification.confidence < 0.3));
+  document.getElementById('stat-total').textContent = totalRows;
+  document.getElementById('stat-ok').textContent = Math.max(0, previewRows.length - errors.length) + (totalRows > 20 ? '+' : '');
+  document.getElementById('stat-err').textContent = errors.length;
+
+  // Table header
+  const thead = document.getElementById('preview-thead');
+  thead.innerHTML = '<tr>' +
+    '<th>#</th>' +
+    '<th>Fecha</th>' +
+    '<th>Descripción</th>' +
+    '<th>Monto</th>' +
+    '<th>Tipo</th>' +
+    '<th>Concepto</th>' +
+    '<th>Cuenta sugerida</th>' +
+    '<th>Confianza</th>' +
+    '</tr>';
+
+  // Table body
+  const tbody = document.getElementById('preview-tbody');
+  let html = '';
+  previewRows.forEach((r, i) => {
+    const hasError = !r.date || !r.amount || r.amount <= 0;
+    const lowConf = r.classification && r.classification.confidence < 0.5;
+    const rowClass = hasError ? 'row-error' : lowConf ? 'row-warn' : '';
+    const confClass = r.classification
+      ? (r.classification.confidence >= 0.8 ? 'badge-ok' : r.classification.confidence >= 0.5 ? 'badge-warn' : 'badge-err')
+      : 'badge-err';
+
+    html += `<tr class="${rowClass}">
+      <td>${i + 1}</td>
+      <td>${r.date || '<span style="color:#dc2626">—</span>'}</td>
+      <td>${esc(r.description || '')}</td>
+      <td>${r.amount ? '$' + r.amount.toFixed(2) : '<span style="color:#dc2626">—</span>'}</td>
+      <td>${r.type || 'GASTO'}</td>
+      <td>${esc(r.concept || r.description || '')}</td>
+      <td>${r.classification ? esc(r.classification.concept) : '<span style="color:#dc2626">No clasificado</span>'}</td>
+      <td>${r.classification ? `<span class="badge ${confClass}">${(r.classification.confidence * 100).toFixed(0)}%</span>` : '<span class="badge badge-err">—</span>'}</td>
+    </tr>`;
+  });
+
+  if (totalRows > 20) {
+    html += `<tr><td colspan="8" style="text-align:center;color:#6b7280;padding:12px">
+      Mostrando 20 de ${totalRows} filas. Las ${totalRows - 20} restantes se importarán también.
+    </td></tr>`;
+  }
+
+  tbody.innerHTML = html;
+}
+
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ── Modal de confirmación ──
+let confirmResolve = null;
+
+function showConfirmModal(title, bodyHtml) {
+  document.getElementById('confirm-title').textContent = title;
+  document.getElementById('confirm-body').innerHTML = bodyHtml;
+  const overlay = document.getElementById('confirm-overlay');
+  overlay.classList.remove('hidden');
+  overlay.style.display = 'flex';
+  return new Promise(resolve => { confirmResolve = resolve; });
+}
+function closeConfirmModal(ok) {
+  const overlay = document.getElementById('confirm-overlay');
+  overlay.classList.add('hidden');
+  overlay.style.display = 'none';
+  if (confirmResolve) { confirmResolve(ok); confirmResolve = null; }
+}
+
+async function executeImport() {
+  if (!previewData || !fileToUpload) return;
+
+  const total = previewData.totalRows;
+  const importDate = document.getElementById('import-date').value;
+  const dateLabel = new Date(importDate + 'T12:00:00').toLocaleDateString('es-PA', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  // Advertencia si son muchas filas
+  if (total > 500) {
+    const ok = await showConfirmModal('⚠️ Archivo grande',
+      `<p>El archivo tiene <strong>${total} filas</strong>. ¿Estás seguro de importar todas?</p>`);
+    if (!ok) return;
+  }
+
+  // Confirmación principal con la fecha
+  const ok = await showConfirmModal('📥 Confirmar importación',
+    `<p>Se importarán <strong>${total} transacciones</strong>.</p>
+     <p>📅 <strong>Fecha para asientos sin fecha:</strong><br><span style="font-size:16px;color:#1565c0">${dateLabel}</span></p>
+     <p style="color:#dc2626;font-size:13px">⚠️ Verifica que la fecha sea la correcta antes de continuar.</p>
+     <p style="color:#6b7280;font-size:13px">Los asientos se crearán como <strong>BORRADOR</strong> para revisión.</p>`);
+  if (!ok) return;
+
+  showLoading(`Importando ${total} transacciones...`);
+
+  // Ejecutar importación
+  const formData = new FormData();
+  formData.append('file', fileToUpload);
+  formData.append('importDate', importDate);
+
+  try {
+    const res = await authFetch(`${API_URL}/import/execute-all`, {
+      method: 'POST',
+      body: formData,
+    });
+    setProgress(90);
+
+    const result = await res.json();
+    setProgress(100);
+
+    renderResult(result, total);
+  } catch (e) {
+    alert('Error: ' + e.message);
+    resetImport();
+  }
+}
+
+function renderResult(result, total) {
+  document.getElementById('step-loading').classList.add('hidden');
+  document.getElementById('step-upload').classList.add('hidden');
+  document.getElementById('step-preview').classList.add('hidden');
+  document.getElementById('step-result').classList.remove('hidden');
+
+  const cards = document.getElementById('result-cards');
+  cards.innerHTML = `
+    <div class="summary-card total"><div class="num">${total}</div><div class="label">Total procesadas</div></div>
+    <div class="summary-card ok"><div class="num">${result.success}</div><div class="label">Importadas con éxito ✅</div></div>
+    <div class="summary-card err"><div class="num">${result.errors.length}</div><div class="label">Con error ❌</div></div>
+  `;
+
+  const errContainer = document.getElementById('error-list-container');
+  if (result.errors.length > 0) {
+    let errHtml = '<div class="error-list"><h4>⚠️ Errores encontrados</h4><ul>';
+    result.errors.forEach(e => {
+      errHtml += `<li><strong>Fila ${e.row}:</strong> ${esc(e.error)}</li>`;
+    });
+    errHtml += '</ul></div>';
+    errContainer.innerHTML = errHtml;
+  } else {
+    errContainer.innerHTML = '';
+  }
+}
+
+function resetImport() {
+  previewData = null;
+  fileToUpload = null;
+  fileInput.value = '';
+  document.getElementById('step-upload').classList.remove('hidden');
+  document.getElementById('step-preview').classList.add('hidden');
+  document.getElementById('step-result').classList.add('hidden');
+  document.getElementById('step-loading').classList.add('hidden');
+}
+
+// ── Template download ──
+document.getElementById('download-template').addEventListener('click', e => {
+  e.preventDefault();
+  const csv = 'Fecha,Descripción,Monto,Tipo,Concepto,Método de Pago\n' +
+    '2026-01-15,Compra de gasolina,40.00,GASTO,Combustible,EFECTIVO\n' +
+    '2026-01-16,Pago de internet,65.00,GASTO,Internet,TRANSFERENCIA\n' +
+    '2026-01-17,Venta de productos,250.00,VENTA,Ventas,EFECTIVO\n' +
+    '2026-01-18,Alquiler oficina,800.00,GASTO,Alquiler,TRANSFERENCIA\n' +
+    '2026-01-19,Compra mercancía,1200.00,COMPRA,Compra de mercancía,CREDITO\n';
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'plantilla_importacion.csv'; a.click();
+  URL.revokeObjectURL(url);
+});
+</script>
+</body>
+</html>

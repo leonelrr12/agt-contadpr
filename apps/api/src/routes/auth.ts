@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { generateToken, requireAuth } from '../middleware/auth';
 
 export const authRouter = Router();
@@ -83,12 +84,14 @@ authRouter.post('/register', async (req, res) => {
 
   const hashed = await bcrypt.hash(password, 10);
 
-  // Crear empresa + usuario admin en una transacción
-  const result = await req.prisma.$transaction(async (tx: any) => {
+  try {
+    // Crear empresa + usuario admin en una transacción
+    const result = await req.prisma.$transaction(async (tx: any) => {
     const company = await tx.company.create({
       data: {
         name: companyName,
-        taxId: companyTaxId || 'N/A',
+        taxId: companyTaxId || `SIN-RUC-${crypto.randomUUID()}`,
+
         country: 'PA',
         currency: 'USD',
       },
@@ -199,6 +202,14 @@ authRouter.post('/register', async (req, res) => {
       },
     },
   });
+  } catch (err: any) {
+    console.error('[Register] Error:', err.message);
+    if (err.code === 'P2002') {
+      res.status(409).json({ error: 'Ya existe una empresa con ese RUC. Si no proporcionaste uno, intenta de nuevo.' });
+      return;
+    }
+    res.status(500).json({ error: 'Error al crear la empresa. Por favor intenta de nuevo.' });
+  }
 });
 
 /**
