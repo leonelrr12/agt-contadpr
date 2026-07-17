@@ -160,6 +160,7 @@ export class OrchestratorAgent {
 
     const metadata: Record<string, unknown> = {};
     if (dialog.provider) metadata.provider = dialog.provider;
+    if (dialog.ruc) metadata.ruc = dialog.ruc;
 
     await this.prisma.transaction.create({
       data: {
@@ -318,7 +319,7 @@ export class OrchestratorAgent {
         const isNew = !client;
         if (!client) {
           client = await this.prisma.client.create({
-            data: { companyId: this.companyId, name },
+            data: { companyId: this.companyId, name, taxId: dialog.ruc || null },
           });
         }
 
@@ -345,7 +346,7 @@ export class OrchestratorAgent {
         const isNew = !supplier;
         if (!supplier) {
           supplier = await this.prisma.supplier.create({
-            data: { companyId: this.companyId, name },
+            data: { companyId: this.companyId, name, taxId: dialog.ruc || null },
           });
         }
 
