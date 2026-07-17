@@ -2346,8 +2346,8 @@ function recurringFormHTML(title, values = {}) {
 }
 
 function showCreateRecurring() {
-  editingRecurringId = null;
   hideRecurringForm();
+  editingRecurringId = null;
   const list = document.getElementById('recurring-list');
   const form = recurringFormHTML('➕ Nueva Transacción Recurrente');
   list.insertAdjacentHTML('afterbegin', form);
@@ -2363,8 +2363,8 @@ function editRecurring(id) {
   const t = (window._recurringTemplates || []).find(t => t.id === id);
   if (!t) return;
 
-  editingRecurringId = id;
   hideRecurringForm();
+  editingRecurringId = id;
   const card = document.querySelector(`[data-recurring-id="${id}"]`);
   if (card) {
     const form = recurringFormHTML('✏️ Editar Transacción Recurrente', t);
