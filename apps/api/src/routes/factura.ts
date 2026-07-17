@@ -47,26 +47,57 @@ facturaRouter.post('/extract-url', async (req, res) => {
     // Validar que sea una URL válida
     new URL(url);
 
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(30000),
-    });
+    const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
 
     if (!response.ok) {
-      res.status(400).json({ error: `No se pudo descargar el PDF: HTTP ${response.status}` });
+      res.status(400).json({ error: `No se pudo acceder a la URL: HTTP ${response.status}` });
       return;
     }
 
-    const buffer = Buffer.from(await response.arrayBuffer());
+    let buffer = Buffer.from(await response.arrayBuffer());
+    const header = buffer.slice(0, 15).toString();
 
-    // Verificar que sea un PDF válido (magic bytes %PDF)
-    const header = buffer.slice(0, 5).toString();
-    if (!header.startsWith('%PDF')) {
-      const contentType = response.headers.get('content-type') || '';
-      if (contentType.includes('html') || contentType.includes('text/')) {
-        res.status(400).json({ error: 'El QR de la DGI abre un visor web, no un PDF directo. Usa la opción de escanear factura con OCR (toma captura de pantalla del visor).' });
+    // Detectar si es visor web DGI (FacturasPorQR) → extraer facturaXML y descargar PDF real
+    if (header.startsWith('<!DOCTYPE') || header.startsWith('<html')) {
+      const html = buffer.toString();
+
+      if (html.includes('facturaXML') && html.includes('DescargarFacturaPDF')) {
+        const match = html.match(/id="facturaXML"[^>]*value="([^"]*)"/);
+        if (!match || !match[1]) {
+          res.status(400).json({ error: 'No se pudo extraer el XML de la factura del visor DGI.' });
+          return;
+        }
+        const facturaXML = match[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+
+        const baseUrl = new URL(url);
+        const descargarUrl = `${baseUrl.protocol}//${baseUrl.host}/Consultas/DescargarFacturaPDF`;
+
+        const pdfResponse = await fetch(descargarUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Referer': url,
+          },
+          body: `facturaXML=${encodeURIComponent(facturaXML)}`,
+          signal: AbortSignal.timeout(30000),
+        });
+
+        if (!pdfResponse.ok) {
+          res.status(400).json({ error: `No se pudo descargar el PDF de la DGI: HTTP ${pdfResponse.status}` });
+          return;
+        }
+
+        buffer = Buffer.from(await pdfResponse.arrayBuffer());
+      } else {
+        res.status(400).json({ error: 'La URL abrió una página web, no un PDF. Usa OCR con captura de pantalla.' });
         return;
       }
-      res.status(400).json({ error: 'El archivo descargado no es un PDF válido. La URL no parece apuntar a un documento PDF.' });
+    }
+
+    // Verificar que sea un PDF válido (magic bytes %PDF)
+    const pdfHeader = buffer.slice(0, 5).toString();
+    if (!pdfHeader.startsWith('%PDF')) {
+      res.status(400).json({ error: 'El archivo descargado no es un PDF válido.' });
       return;
     }
 
