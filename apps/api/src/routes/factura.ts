@@ -56,13 +56,20 @@ facturaRouter.post('/extract-url', async (req, res) => {
       return;
     }
 
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('pdf') && !url.toLowerCase().endsWith('.pdf')) {
-      res.status(400).json({ error: 'La URL no parece apuntar a un archivo PDF' });
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    // Verificar que sea un PDF válido (magic bytes %PDF)
+    const header = buffer.slice(0, 5).toString();
+    if (!header.startsWith('%PDF')) {
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('html') || contentType.includes('text/')) {
+        res.status(400).json({ error: 'La URL devolvió una página web, no un PDF. Verifica el QR escaneado.' });
+        return;
+      }
+      res.status(400).json({ error: 'El archivo descargado no es un PDF válido. La URL no parece apuntar a un documento PDF.' });
       return;
     }
 
-    const buffer = Buffer.from(await response.arrayBuffer());
     const result = await extractFromPDF(buffer, req.prisma);
     res.json(result);
   } catch (error: any) {
