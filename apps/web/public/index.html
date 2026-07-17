@@ -468,11 +468,34 @@
   </div>
 
   <div id="reports-overlay" class="hidden" onclick="toggleReports()"></div>
-  <div id="reports-panel"></div>
+  <div id="reports-panel">
+    <div class="panel-header"><h2>Reportes</h2><button onclick="toggleReportsClose()">✕</button></div>
+    <div class="panel-tabs" style="display:flex;gap:4px;padding:12px 20px 0;flex-wrap:wrap;border-bottom:2px solid #e2e8f0">
+      <button class="active" data-panel="diario">📋 Diario</button>
+      <button data-panel="balance">⚖️ Balance</button>
+      <button data-panel="resultados">📊 Resultados</button>
+      <button data-panel="dashboard">📈 Dashboard</button>
+      <button data-panel="revision">🔍 Revisión</button>
+    </div>
+    <div class="panel-body">
+      <div id="diario-content"></div>
+      <div id="balance-content" class="hidden"></div>
+      <div id="resultados-content" class="hidden"></div>
+      <div id="dashboard-content" class="hidden"></div>
+      <div id="revision-content" class="hidden"></div>
+      <div id="diario-pagination"></div>
+    </div>
+    <!-- Filtros -->
+    <div style="display:none">
+      <input type="date" id="filter-diario-from"><input type="date" id="filter-diario-to">
+      <select id="filter-diario-status"><option value="">Todos</option></select>
+      <input type="text" id="filter-diario-provider">
+    </div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="app.js?v=37"></script>
+  <script src="app.js?v=38"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </body>
 </html>

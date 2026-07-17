@@ -2877,13 +2877,28 @@ async function loadReportDiario() {
     const params = getInformesDateParams(); params.set('limit','30');
     const res = await authFetch(`${API_URL}/journal?${params}`);
     const d = await res.json();
+    if (!d.entries || !d.entries.length) { el.innerHTML = '<div class="empty">No hay asientos registrados</div>'; return; }
     const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-    const rows = (d.entries||[]).map(e => {
-      const debit = e.lines?.reduce((s,l)=>s+(l.debit||0),0)||0;
-      const credit = e.lines?.reduce((s,l)=>s+(l.credit||0),0)||0;
-      return [new Date(e.date).toLocaleDateString('es-PA'), escHtml(e.description||''), `<span style="color:#2e7d32">${fmt(debit)}</span>`, `<span style="color:#c62828">${fmt(credit)}</span>`];
-    });
-    el.innerHTML = buildInformesTable(['Fecha','Descripción','Débito','Crédito'], rows);
+    let html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th><th>Estado</th></tr></thead><tbody>';
+    for (const e of d.entries) {
+      const date = new Date(e.date).toLocaleDateString('es-PA');
+      const desc = escHtml(e.description||'');
+      const statusClass = { BORRADOR: 'tag-draft', CONFIRMADO: 'tag-conf', RECHAZADO: 'tag-rejected', ANULADO: 'tag-void' };
+      const statusHtml = `<span class="tag ${statusClass[e.status]||''}">${e.status}</span>`;
+      for (let i = 0; i < e.lines.length; i++) {
+        const l = e.lines[i];
+        html += `<tr>
+          <td>${i===0 ? date : ''}</td>
+          <td>${i===0 ? desc : ''}</td>
+          <td>${escHtml(l.account?.code||'')} — ${escHtml(l.account?.name||'')}</td>
+          <td style="color:#2e7d32;font-weight:600">${l.debit ? fmt(l.debit) : '—'}</td>
+          <td style="color:#c62828;font-weight:600">${l.credit ? fmt(l.credit) : '—'}</td>
+          <td>${i===0 ? statusHtml : ''}</td>
+        </tr>`;
+      }
+    }
+    html += '</tbody></table></div>';
+    el.innerHTML = html;
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
 async function loadReportBalance() {
