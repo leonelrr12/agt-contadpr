@@ -2269,6 +2269,7 @@ async function loadPanelRecurring() {
     if (!res.ok) throw new Error('Error al cargar');
     const data = await res.json();
     const templates = data.templates || [];
+    window._recurringTemplates = templates;
 
     // Pending review
     const pendingDiv = document.getElementById('recurring-pending');
@@ -2358,24 +2359,17 @@ function hideRecurringForm() {
   editingRecurringId = null;
 }
 
-async function editRecurring(id) {
-  try {
-    const res = await authFetch(`${API_URL}/recurring`);
-    const data = await res.json();
-    const t = (data.templates || []).find(t => t.id === id);
-    if (!t) return;
+function editRecurring(id) {
+  const t = (window._recurringTemplates || []).find(t => t.id === id);
+  if (!t) return;
 
-    editingRecurringId = id;
-    hideRecurringForm();
-    // Insertar formulario justo después de la tarjeta clickeada
-    const card = document.querySelector(`[data-recurring-id="${id}"]`);
-    if (card) {
-      const form = recurringFormHTML('✏️ Editar Transacción Recurrente', t);
-      card.insertAdjacentHTML('afterend', form);
-      toggleRecDayFields();
-    }
-  } catch (e) {
-    await showAlert('Error al cargar plantilla');
+  editingRecurringId = id;
+  hideRecurringForm();
+  const card = document.querySelector(`[data-recurring-id="${id}"]`);
+  if (card) {
+    const form = recurringFormHTML('✏️ Editar Transacción Recurrente', t);
+    card.insertAdjacentHTML('afterend', form);
+    toggleRecDayFields();
   }
 }
 
