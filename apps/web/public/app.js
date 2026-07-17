@@ -2714,15 +2714,26 @@ function loadPanelAuxiliares() {
   document.getElementById('chat-messages').classList.add('hidden');
   document.getElementById('input-area').classList.add('hidden');
   document.getElementById('panel-auxiliares-content').classList.remove('hidden');
-  switchAuxSidebarTab('cuenta');
+  clickAuxTab('cuenta');
 }
 
-function switchAuxSidebarTab(tab, btn) {
-  if (btn) {
-    const parent = btn.parentElement;
-    parent.querySelectorAll('button').forEach(b => { b.style.background = '#e5e7eb'; b.style.color = '#374151'; });
-    btn.style.background = '#1565c0'; btn.style.color = '#fff';
-  }
+// Tabs de Auxiliares
+document.querySelectorAll('#panel-tabs-auxiliares button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const parentTabs = btn.closest('#panel-tabs-auxiliares');
+    parentTabs.querySelectorAll('button').forEach(b => { b.classList.remove('active'); b.style.color = '#6b7280'; b.style.borderBottomColor = 'transparent'; });
+    btn.classList.add('active');
+    btn.style.color = '#1a1a2e';
+    btn.style.borderBottomColor = '#1565c0';
+    clickAuxTab(btn.dataset.aux);
+  });
+});
+
+function clickAuxTab(tab) {
+  const btns = document.querySelectorAll('#panel-tabs-auxiliares button');
+  btns.forEach(b => { b.classList.remove('active'); b.style.color = '#6b7280'; b.style.borderBottomColor = 'transparent'; });
+  const active = document.querySelector(`#panel-tabs-auxiliares button[data-aux="${tab}"]`);
+  if (active) { active.classList.add('active'); active.style.color = '#1a1a2e'; active.style.borderBottomColor = '#1565c0'; }
   const sub = document.getElementById('aux-sidebar-content');
   sub.innerHTML = '<div style="text-align:center;padding:24px;color:#6b7280">Cargando...</div>';
   if (tab === 'cuenta') loadAuxCuenta(sub);
@@ -2808,7 +2819,7 @@ function clickInformeTab(informe) {
   const active = document.querySelector(`#panel-tabs-informes button[data-informe="${informe}"]`);
   if (active) { active.classList.add('active'); active.style.color = '#1a1a2e'; active.style.borderBottomColor = '#1565c0'; }
   showInformesLoading();
-  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard, auxiliares: loadReportAuxiliares, revision: loadReportRevision };
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard, revision: loadReportRevision };
   if (loaders[informe]) loaders[informe]();
 }
 
