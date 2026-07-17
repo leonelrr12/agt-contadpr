@@ -1215,7 +1215,7 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
 
     // Helpers
     function hideAllPanels() {
-      ['panel-recurring-content','recurring-form','panel-import-content',
+      ['panel-recurring-content','panel-import-content',
        'panel-conciliacion-content','panel-taxcalendar-content','panel-whatsapp-content',
        'panel-auxiliares-content','panel-revision-content',
        'panel-informes-content','panel-admin-content'].forEach(id => {
@@ -2261,7 +2261,7 @@ let editingRecurringId = null;
 async function loadPanelRecurring() {
   document.getElementById('chat-messages').classList.add('hidden');
   document.getElementById('input-area').classList.add('hidden');
-  document.getElementById('recurring-form').classList.add('hidden');
+  hideRecurringForm();
   document.getElementById('panel-recurring-content').classList.remove('hidden');
 
   try {
@@ -2292,7 +2292,7 @@ async function loadPanelRecurring() {
           ? '<span class="badge badge-ok">Activo</span>'
           : '<span class="badge badge-err">Pausado</span>';
         const lastRun = t.lastRunAt ? new Date(t.lastRunAt).toLocaleDateString('es-PA') : '—';
-        html += `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px">
+        html += `<div data-recurring-id="${t.id}" style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px">
           <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">
             <div>
               <strong style="font-size:15px">${escHtml(t.description)}</strong>
@@ -2321,24 +2321,40 @@ async function loadPanelRecurring() {
   }
 }
 
+function recurringFormHTML(title, values = {}) {
+  return `<div class="recurring-inline-form" style="background:#f8fafc;border:1px solid #bfdbfe;border-radius:10px;padding:18px;margin-top:12px">
+    <h4 style="margin:0 0 12px 0;font-size:15px;color:#1a1a2e">${title}</h4>
+    <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div style="grid-column:1/-1"><label style="font-size:12px;color:#6b7280">Descripción</label><input id="rec-desc" value="${escHtml(values.description||'')}" placeholder="Ej: Alquiler oficina" style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px"></div>
+      <div><label style="font-size:12px;color:#6b7280">Monto</label><input id="rec-amount" type="number" step="0.01" value="${values.amount||''}" placeholder="0.00" style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px"></div>
+      <div><label style="font-size:12px;color:#6b7280">Concepto</label><input id="rec-concept" value="${escHtml(values.concept||'')}" placeholder="Opcional" style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px"></div>
+      <div><label style="font-size:12px;color:#6b7280">Tipo</label><select id="rec-type" style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px">
+        <option value="GASTO" ${values.type==='GASTO'?'selected':''}>Gasto</option><option value="INGRESO" ${values.type==='INGRESO'?'selected':''}>Ingreso</option><option value="COMPRA" ${values.type==='COMPRA'?'selected':''}>Compra</option><option value="VENTA" ${values.type==='VENTA'?'selected':''}>Venta</option></select></div>
+      <div><label style="font-size:12px;color:#6b7280">Método de pago</label><select id="rec-payment" style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px">
+        <option value="" ${!values.paymentMethod?'selected':''}>—</option><option value="EFECTIVO" ${values.paymentMethod==='EFECTIVO'?'selected':''}>Efectivo</option><option value="TRANSFERENCIA" ${values.paymentMethod==='TRANSFERENCIA'?'selected':''}>Transferencia</option><option value="TARJETA_CREDITO" ${values.paymentMethod==='TARJETA_CREDITO'?'selected':''}>T. Crédito</option><option value="TARJETA_DEBITO" ${values.paymentMethod==='TARJETA_DEBITO'?'selected':''}>T. Débito</option></select></div>
+      <div><label style="font-size:12px;color:#6b7280">Frecuencia</label><select id="rec-freq" onchange="toggleRecDayFields()" style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px">
+        <option value="DAILY" ${values.frequency==='DAILY'?'selected':''}>Diario</option><option value="WEEKLY" ${values.frequency==='WEEKLY'?'selected':''}>Semanal</option><option value="MONTHLY" ${values.frequency==='MONTHLY'?'selected':''}>Mensual</option><option value="YEARLY" ${values.frequency==='YEARLY'?'selected':''}>Anual</option></select></div>
+      <div id="rec-day-group"><label style="font-size:12px;color:#6b7280">Día del mes</label><input id="rec-day" type="number" min="1" max="31" value="${values.dayOfMonth||1}" style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px"></div>
+      <div style="grid-column:1/-1"><label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" id="rec-confirm" ${values.requireConfirmation!==false?'checked':''}> Requiere confirmación antes de ejecutar</label></div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn-primary" id="rec-save-btn" onclick="saveRecurring()" style="padding:8px 20px;font-size:13px">${values.id ? 'Actualizar' : 'Guardar'}</button>
+      <button class="btn-secondary" onclick="hideRecurringForm()" style="padding:8px 20px;font-size:13px">Cancelar</button>
+    </div>
+  </div>`;
+}
+
 function showCreateRecurring() {
   editingRecurringId = null;
-  document.getElementById('recurring-form-title').textContent = 'Nueva Transacción Recurrente';
-  document.getElementById('rec-desc').value = '';
-  document.getElementById('rec-amount').value = '';
-  document.getElementById('rec-concept').value = '';
-  document.getElementById('rec-type').value = 'GASTO';
-  document.getElementById('rec-payment').value = '';
-  document.getElementById('rec-freq').value = 'MONTHLY';
-  document.getElementById('rec-day').value = '1';
-  document.getElementById('rec-confirm').checked = true;
-  document.getElementById('rec-save-btn').textContent = 'Guardar';
+  hideRecurringForm();
+  const list = document.getElementById('recurring-list');
+  const form = recurringFormHTML('➕ Nueva Transacción Recurrente');
+  list.insertAdjacentHTML('afterbegin', form);
   toggleRecDayFields();
-  document.getElementById('recurring-form').classList.remove('hidden');
 }
 
 function hideRecurringForm() {
-  document.getElementById('recurring-form').classList.add('hidden');
+  document.querySelectorAll('.recurring-inline-form').forEach(el => el.remove());
   editingRecurringId = null;
 }
 
@@ -2350,18 +2366,14 @@ async function editRecurring(id) {
     if (!t) return;
 
     editingRecurringId = id;
-    document.getElementById('recurring-form-title').textContent = 'Editar Transacción Recurrente';
-    document.getElementById('rec-desc').value = t.description;
-    document.getElementById('rec-amount').value = t.amount;
-    document.getElementById('rec-concept').value = t.concept || '';
-    document.getElementById('rec-type').value = t.type;
-    document.getElementById('rec-payment').value = t.paymentMethod || '';
-    document.getElementById('rec-freq').value = t.frequency;
-    document.getElementById('rec-day').value = t.dayOfMonth || 1;
-    document.getElementById('rec-confirm').checked = t.requireConfirmation;
-    document.getElementById('rec-save-btn').textContent = 'Actualizar';
-    toggleRecDayFields();
-    document.getElementById('recurring-form').classList.remove('hidden');
+    hideRecurringForm();
+    // Insertar formulario justo después de la tarjeta clickeada
+    const card = document.querySelector(`[data-recurring-id="${id}"]`);
+    if (card) {
+      const form = recurringFormHTML('✏️ Editar Transacción Recurrente', t);
+      card.insertAdjacentHTML('afterend', form);
+      toggleRecDayFields();
+    }
   } catch (e) {
     await showAlert('Error al cargar plantilla');
   }
@@ -2470,7 +2482,7 @@ async function loadPanelWhatsApp() {
   document.getElementById('chat-messages').classList.add('hidden');
   document.getElementById('input-area').classList.add('hidden');
   document.getElementById('panel-recurring-content').classList.add('hidden');
-  document.getElementById('recurring-form').classList.add('hidden');
+  hideRecurringForm();
   document.getElementById('panel-whatsapp-content').classList.remove('hidden');
 
   // Mostrar el número del bot de WhatsApp
