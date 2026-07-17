@@ -348,7 +348,12 @@ function openPDFPicker() {
 }
 
 document.getElementById('pdf-file-input').addEventListener('change', (e) => {
-  handlePDFFile(e.target.files[0]);
+  if (e.target.files[0]) {
+    handlePDFFile(e.target.files[0]);
+  } else {
+    // Usuario canceló el diálogo de archivos — restaurar quick-actions
+    document.getElementById('quick-actions').classList.remove('hidden');
+  }
 });
 
 function handlePDFFile(file) {
