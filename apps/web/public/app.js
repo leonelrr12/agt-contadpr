@@ -136,9 +136,18 @@ function showInput(mode) {
     document.getElementById('pdf-result-text').innerHTML = '';
     document.getElementById('pdf-file-input').value = '';
     pdfData = null;
-    // Abrir explorador sin ocultar quick-actions (se oculta al seleccionar archivo)
+    // Detectar si el usuario cancela el diálogo de archivos
+    const onFocus = () => {
+      window.removeEventListener('focus', onFocus);
+      setTimeout(() => {
+        if (!pdfData && document.getElementById('pdf-file-input').files.length === 0) {
+          // Usuario canceló — restaurar menú DGI
+          document.getElementById('dgi-menu').classList.remove('hidden');
+        }
+      }, 300);
+    };
+    window.addEventListener('focus', onFocus);
     document.getElementById('pdf-file-input').click();
-    // Si el usuario cancela, no pasa nada y quick-actions sigue visible
     return;
   }
   const input = document.getElementById('text-input');
@@ -581,6 +590,7 @@ async function sendQRResult() {
   if (provider) message += `Compra a ${provider}`;
   else message += 'Compra';
   if (total) message += ` por $${total}`;
+  if (ruc) message += ` RUC ${ruc}`;
   if (invoiceNumber) message += `, factura ${invoiceNumber}`;
   if (hasItbms && subtotal) message += ` (subtotal $${subtotal}, ITBMS $${itbms})`;
 
@@ -623,6 +633,7 @@ async function sendPDFResult() {
   if (provider) message += `Compra a ${provider}`;
   else message += 'Compra';
   if (total) message += ` por $${total}`;
+  if (ruc) message += ` RUC ${ruc}`;
   if (invoiceNumber) message += `, factura ${invoiceNumber}`;
   if (hasItbms && subtotal) message += ` (subtotal $${subtotal}, ITBMS $${itbms})`;
 
