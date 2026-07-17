@@ -2842,7 +2842,7 @@ async function loadReportDiario() {
       const credit = e.lines?.reduce((s,l)=>s+(l.credit||0),0)||0;
       return [new Date(e.date).toLocaleDateString('es-PA'), escHtml(e.description||''), `<span style="color:#2e7d32">${fmt(debit)}</span>`, `<span style="color:#c62828">${fmt(credit)}</span>`];
     });
-    el.innerHTML = buildInformesTable(['Fecha','Descripción','Débito','Crédito'], rows);
+    el.innerHTML = getInformesExportBar('diario') + buildInformesTable(['Fecha','Descripción','Débito','Crédito'], rows);
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
 async function loadReportBalance() {
@@ -2857,7 +2857,7 @@ async function loadReportBalance() {
       `<span style="color:#c62828">${fmt(a.totalCredit||0)}</span>`,
       `<strong style="color:${a.balanceType==='DEUDOR'?'#2e7d32':'#c62828'}">${a.balanceType==='DEUDOR'?'+':'−'}${fmt(Math.abs(a.balance||0)).replace('$','')}</strong>`
     ]);
-    el.innerHTML = buildInformesTable(['Código','Cuenta','Débito','Crédito','Saldo'], rows);
+    el.innerHTML = getInformesExportBar('balance-comprobacion') + buildInformesTable(['Código','Cuenta','Débito','Crédito','Saldo'], rows);
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
 async function loadReportResultados() {
@@ -2866,7 +2866,7 @@ async function loadReportResultados() {
     const res = await authFetch(`${API_URL}/reports/estado-resultados`);
     const d = await res.json();
     const items = (obj) => Object.entries(obj||{}).map(([k,v]) => `<tr><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb">${escHtml(k)}</td><td style="text-align:right;padding:6px 10px;border-bottom:1px solid #e5e7eb;font-weight:600">$${Number(v).toLocaleString()}</td></tr>`).join('');
-    el.innerHTML = `
+    el.innerHTML = getInformesExportBar('estado-resultados') + `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div>
           <h3 style="font-size:14px;color:#2e7d32;margin:0 0 8px 0">📈 Ingresos</h3>
@@ -3029,6 +3029,17 @@ async function toggleFacturas(entityId, type) {
     det.innerHTML = '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:12px;margin-top:4px">'+
       buildInformesTable(['N° Factura','Fecha','Vence','Monto','Estado'], rows)+'</div>';
   } catch(e) { det.innerHTML = '<div style="color:#dc2626;padding:8px">Error al cargar</div>'; }
+}
+
+/* ── Export helpers ── */
+function getInformesExportBar(type) {
+  return `<div style="display:flex;gap:6px;margin-bottom:12px">
+    <button onclick="exportInforme('${type}','xlsx')" style="padding:5px 12px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📥 Excel</button>
+    <button onclick="exportInforme('${type}','csv')" style="padding:5px 12px;font-size:11px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer">CSV</button>
+  </div>`;
+}
+function exportInforme(type, format) {
+  window.open(`${API_URL}/reports/export/${type}?format=${format}`, '_blank');
 }
 
 function buildInformesTable(headers, rows) {
