@@ -60,6 +60,8 @@
       <nav id="sidebar-nav">
         <button class="nav-link active" data-view="chat">💬 Chat</button>
         <button class="nav-link" data-view="panel-informes" id="nav-informes-link">📊 Informes</button>
+        <button class="nav-link" data-view="panel-auxiliares" id="nav-auxiliares-link">📒 Auxiliares</button>
+        <button class="nav-link" data-view="panel-revision" id="nav-revision-link">🔍 Revisión</button>
         <button class="nav-link" data-view="panel-import" id="nav-import-link">📥 Importar</button>
         <button class="nav-link" data-view="panel-conciliacion" id="nav-conciliacion-link">🏦 Conciliar</button>
         <button class="nav-link" data-view="panel-taxcalendar" id="nav-taxcalendar-link">📅 Calendario Fiscal</button>
@@ -341,6 +343,27 @@
         </div>
       </div>
 
+      <!-- Panel de Auxiliares -->
+      <div id="panel-auxiliares-content" class="hidden" style="padding:24px;max-width:1000px">
+        <h2 style="margin:0 0 4px 0;color:#1a1a2e">📒 Auxiliares</h2>
+        <p style="margin:0 0 20px 0;color:#6b7280;font-size:13px">Consulta detallada de cuentas, clientes y proveedores</p>
+        <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
+          <button onclick="switchAuxSidebarTab('cuenta',this)" style="padding:8px 16px;font-size:13px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600">📒 Cuenta</button>
+          <button onclick="switchAuxSidebarTab('cxc',this)" style="padding:8px 16px;font-size:13px;background:#e5e7eb;color:#374151;border:none;border-radius:6px;cursor:pointer;font-weight:600">👥 CxC</button>
+          <button onclick="switchAuxSidebarTab('cxp',this)" style="padding:8px 16px;font-size:13px;background:#e5e7eb;color:#374151;border:none;border-radius:6px;cursor:pointer;font-weight:600">🏭 CxP</button>
+        </div>
+        <div id="aux-sidebar-content"></div>
+      </div>
+
+      <!-- Panel de Revisión -->
+      <div id="panel-revision-content" class="hidden" style="padding:24px;max-width:1000px">
+        <h2 style="margin:0 0 4px 0;color:#1a1a2e">🔍 Revisión de Asientos</h2>
+        <p style="margin:0 0 20px 0;color:#6b7280;font-size:13px">Asientos pendientes de revisión por el contador</p>
+        <div id="revision-inline-list">
+          <div style="text-align:center;padding:32px;color:#6b7280">Cargando...</div>
+        </div>
+      </div>
+
       <!-- Panel de Informes -->
       <div id="panel-informes-content" class="hidden" style="padding:24px;max-width:1000px">
         <h2 style="margin:0 0 4px 0;color:#1a1a2e">📊 Informes</h2>
@@ -440,7 +463,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="app.js?v=30"></script>
+  <script src="app.js?v=31"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </body>
 </html>

@@ -1201,6 +1201,7 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
     function hideAllPanels() {
       ['panel-recurring-content','recurring-form','panel-import-content',
        'panel-conciliacion-content','panel-taxcalendar-content','panel-whatsapp-content',
+       'panel-auxiliares-content','panel-revision-content',
        'panel-informes-content','panel-admin-content'].forEach(id => {
         const el = document.getElementById(id); if (el) el.classList.add('hidden');
       });
@@ -1223,6 +1224,8 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
     if (view === 'panel-import') { hideAllPanels(); loadPanelImport(); return; }
     if (view === 'panel-conciliacion') { hideAllPanels(); loadPanelConciliacion(); return; }
     if (view === 'panel-taxcalendar') { hideAllPanels(); loadPanelTaxCalendar(); return; }
+    if (view === 'panel-auxiliares') { hideAllPanels(); loadPanelAuxiliares(); return; }
+    if (view === 'panel-revision') { hideAllPanels(); loadPanelRevision(); return; }
     if (view === 'panel-informes') { hideAllPanels(); loadPanelInformes(); return; }
     if (view === 'panel-whatsapp') { hideAllPanels(); loadPanelWhatsApp(); return; }
 
@@ -2704,6 +2707,78 @@ async function uploadConciliacionFile(file) {
   } catch (e) { await showAlert('Error de conexión'); }
   document.getElementById('conciliacion-inline-upload').classList.add('hidden');
   loadConciliacionList();
+}
+
+/* ── Panel: Auxiliares (sidebar) ── */
+function loadPanelAuxiliares() {
+  document.getElementById('chat-messages').classList.add('hidden');
+  document.getElementById('input-area').classList.add('hidden');
+  document.getElementById('panel-auxiliares-content').classList.remove('hidden');
+  switchAuxSidebarTab('cuenta');
+}
+
+function switchAuxSidebarTab(tab, btn) {
+  if (btn) {
+    const parent = btn.parentElement;
+    parent.querySelectorAll('button').forEach(b => { b.style.background = '#e5e7eb'; b.style.color = '#374151'; });
+    btn.style.background = '#1565c0'; btn.style.color = '#fff';
+  }
+  const sub = document.getElementById('aux-sidebar-content');
+  sub.innerHTML = '<div style="text-align:center;padding:24px;color:#6b7280">Cargando...</div>';
+  if (tab === 'cuenta') loadAuxCuenta(sub);
+  else if (tab === 'cxc') loadAuxCxC(sub);
+  else if (tab === 'cxp') loadAuxCxP(sub);
+}
+
+/* ── Panel: Revisión (sidebar) ── */
+function loadPanelRevision() {
+  document.getElementById('chat-messages').classList.add('hidden');
+  document.getElementById('input-area').classList.add('hidden');
+  document.getElementById('panel-revision-content').classList.remove('hidden');
+  loadRevisionList();
+}
+
+async function loadRevisionList() {
+  const el = document.getElementById('revision-inline-list');
+  el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Cargando...</div>';
+  try {
+    const res = await authFetch(`${API_URL}/journal/pendientes`);
+    const d = await res.json();
+    if (!d || !d.length) {
+      el.innerHTML = '<div style="text-align:center;padding:48px;color:#059669;font-size:15px">✅ No hay asientos pendientes de revisión</div>';
+      return;
+    }
+    let html = '';
+    for (const e of d) {
+      const date = new Date(e.date).toLocaleDateString('es-PA');
+      html += `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:10px;display:flex;align-items:center;gap:14px">
+        <div style="font-size:24px">📝</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:14px">${escHtml(e.description||'Sin descripción')}</div>
+          <div style="font-size:12px;color:#6b7280;margin-top:4px">📅 ${date} · 👤 ${escHtml(e.createdBy?.name||'—')} · ${e.lines?.length||0} líneas</div>
+        </div>
+        <div>
+          <button class="btn-sm" onclick="reviewApprove('${e.id}')" style="padding:6px 14px;font-size:12px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-right:6px">✅ Aprobar</button>
+          <button class="btn-sm" onclick="reviewReject('${e.id}')" style="padding:6px 14px;font-size:12px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer">❌ Rechazar</button>
+        </div>
+      </div>`;
+    }
+    el.innerHTML = html;
+  } catch (e) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar</div>'; }
+}
+
+async function reviewApprove(id) {
+  try {
+    const res = await authFetch(`${API_URL}/journal/${id}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'aprobar' }) });
+    if (res.ok) { loadRevisionList(); await showAlert('✅ Asiento aprobado'); }
+  } catch (e) { await showAlert('Error'); }
+}
+
+async function reviewReject(id) {
+  try {
+    const res = await authFetch(`${API_URL}/journal/${id}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'rechazar' }) });
+    if (res.ok) { loadRevisionList(); }
+  } catch (e) { await showAlert('Error'); }
 }
 
 /* ── Panel: Informes (inline) ── */
