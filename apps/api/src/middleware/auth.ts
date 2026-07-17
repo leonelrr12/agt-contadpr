@@ -38,12 +38,16 @@ export function generateToken(user: AuthUser): string {
  */
 export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  // Permitir token por query param (para exports que abren nueva pestaña)
+  let token: string | undefined;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.slice(7);
+  } else if (req.query.token) {
+    token = req.query.token as string;
+  } else {
     res.status(401).json({ error: 'Token de acceso requerido. Usa Authorization: Bearer <token>' });
     return;
   }
-
-  const token = authHeader.slice(7);
 
   // ── Modo 1: API Key (prefijo "sk_live_") ──
   if (token.startsWith('sk_live_')) {

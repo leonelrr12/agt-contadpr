@@ -3039,7 +3039,8 @@ function getInformesExportBar(type) {
   </div>`;
 }
 function exportInforme(type, format) {
-  window.open(`${API_URL}/reports/export/${type}?format=${format}`, '_blank');
+  const token = getToken();
+  window.open(`${API_URL}/reports/export/${type}?format=${format}&token=${encodeURIComponent(token)}`, '_blank');
 }
 
 function buildInformesTable(headers, rows) {
