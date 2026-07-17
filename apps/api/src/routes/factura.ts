@@ -63,7 +63,7 @@ facturaRouter.post('/extract-url', async (req, res) => {
     if (!header.startsWith('%PDF')) {
       const contentType = response.headers.get('content-type') || '';
       if (contentType.includes('html') || contentType.includes('text/')) {
-        res.status(400).json({ error: 'La URL devolvió una página web, no un PDF. Verifica el QR escaneado.' });
+        res.status(400).json({ error: 'El QR de la DGI abre un visor web, no un PDF directo. Usa la opción de escanear factura con OCR (toma captura de pantalla del visor).' });
         return;
       }
       res.status(400).json({ error: 'El archivo descargado no es un PDF válido. La URL no parece apuntar a un documento PDF.' });
