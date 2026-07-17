@@ -2829,10 +2829,61 @@ function showInformesLoading() {
   document.getElementById('informes-inline-result').innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Cargando reporte...</div>';
 }
 
-async function loadReportDiario()       { const el = document.getElementById('informes-inline-result'); try { const res = await authFetch(`${API_URL}/reports/journal?limit=20`); const d = await res.json(); el.innerHTML = buildInformesTable(['Fecha','Descripción','Débito','Crédito'], (d.entries||[]).map(e => [new Date(e.date).toLocaleDateString('es-PA'), escHtml(e.description||''), e.lines?.reduce((s,l)=>s+(l.debit||0),0).toFixed(2)||'—', e.lines?.reduce((s,l)=>s+(l.credit||0),0).toFixed(2)||'—'])); } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; } }
-async function loadReportBalance()     { const el = document.getElementById('informes-inline-result'); try { const res = await authFetch(`${API_URL}/reports/balance`); const d = await res.json(); const rows = (d.accounts||[]).map(a => [escHtml(a.code), escHtml(a.name), a.debit?.toFixed(2)||'—', a.credit?.toFixed(2)||'—', a.balance?.toFixed(2)||'—']); el.innerHTML = buildInformesTable(['Código','Cuenta','Débito','Crédito','Saldo'], rows); } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; } }
-async function loadReportResultados()  { const el = document.getElementById('informes-inline-result'); try { const res = await authFetch(`${API_URL}/reports/estado-resultados`); const d = await res.json(); el.innerHTML = '<div class="summary-grid">'+`<div class="card"><h3>Ingresos</h3><div class="value pos">$${(d.ingresos?.total||0).toFixed(2)}</div></div>`+`<div class="card"><h3>Costos</h3><div class="value neg">$${(d.costos?.total||0).toFixed(2)}</div></div>`+`<div class="card"><h3>Ganancia Bruta</h3><div class="value ${(d.gananciaBruta||0)>=0?'pos':'neg'}">$${(d.gananciaBruta||0).toFixed(2)}</div></div>`+`<div class="card"><h3>Gastos</h3><div class="value neg">$${(d.gastos?.total||0).toFixed(2)}</div></div>`+`<div class="card"><h3>Utilidad Neta</h3><div class="value ${(d.utilidadNeta||0)>=0?'pos':'neg'}">$${(d.utilidadNeta||0).toFixed(2)}</div></div>`+'</div>'; } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; } }
-function loadReportDashboard()         { const el = document.getElementById('informes-inline-result'); el.innerHTML = '<div style="text-align:center;padding:24px"><p style="color:#6b7280;margin-bottom:12px">Dashboard disponible en el panel de reportes</p><button class="btn-primary" onclick="toggleReportsOpen()" style="padding:8px 18px">📈 Abrir Dashboard</button></div>'; }
+async function loadReportDiario() {
+  const el = document.getElementById('informes-inline-result');
+  try {
+    const res = await authFetch(`${API_URL}/journal?limit=20`);
+    const d = await res.json();
+    const rows = (d.entries||[]).map(e => {
+      const debit = e.lines?.reduce((s,l) => s + (l.debit||0), 0) || 0;
+      const credit = e.lines?.reduce((s,l) => s + (l.credit||0), 0) || 0;
+      return [new Date(e.date).toLocaleDateString('es-PA'), escHtml(e.description||''), debit > 0 ? '$'+debit.toFixed(2) : '—', credit > 0 ? '$'+credit.toFixed(2) : '—'];
+    });
+    el.innerHTML = buildInformesTable(['Fecha','Descripción','Débito','Crédito'], rows);
+  } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
+}
+async function loadReportBalance() {
+  const el = document.getElementById('informes-inline-result');
+  try {
+    const res = await authFetch(`${API_URL}/reports/balance-comprobacion`);
+    const d = await res.json();
+    const rows = (d||[]).map(a => [escHtml(a.account?.code), escHtml(a.account?.name), '$'+a.totalDebit?.toFixed(2), '$'+a.totalCredit?.toFixed(2), (a.balanceType==='DEUDOR'?'+':'−')+'$'+Math.abs(a.balance||0).toFixed(2)]);
+    el.innerHTML = buildInformesTable(['Código','Cuenta','Débito','Crédito','Saldo'], rows);
+  } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
+}
+async function loadReportResultados() {
+  const el = document.getElementById('informes-inline-result');
+  try {
+    const res = await authFetch(`${API_URL}/reports/estado-resultados`);
+    const d = await res.json();
+    el.innerHTML = '<div class="summary-grid">'+
+      `<div class="card"><h3>Ingresos</h3><div class="value pos">$${(d.ingresos?.total||0).toFixed(2)}</div></div>`+
+      `<div class="card"><h3>Costos</h3><div class="value neg">$${(d.costos?.total||0).toFixed(2)}</div></div>`+
+      `<div class="card"><h3>Ganancia Bruta</h3><div class="value ${(d.gananciaBruta||0)>=0?'pos':'neg'}">$${(d.gananciaBruta||0).toFixed(2)}</div></div>`+
+      `<div class="card"><h3>Gastos</h3><div class="value neg">$${(d.gastos?.total||0).toFixed(2)}</div></div>`+
+      `<div class="card"><h3>Utilidad Neta</h3><div class="value ${(d.utilidadNeta||0)>=0?'pos':'neg'}">$${(d.utilidadNeta||0).toFixed(2)}</div></div>`+
+    '</div>';
+  } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
+}
+async function loadReportDashboard() {
+  const el = document.getElementById('informes-inline-result');
+  try {
+    const res = await authFetch(`${API_URL}/reports/dashboard`);
+    const d = await res.json();
+    const r = d.resumen || {};
+    el.innerHTML = '<div class="summary-grid">'+
+      `<div class="card"><h3>Ingresos Totales</h3><div class="value pos">$${(r.totalIngresos||0).toFixed(2)}</div></div>`+
+      `<div class="card"><h3>Gastos Totales</h3><div class="value neg">$${(r.totalGastos||0).toFixed(2)}</div></div>`+
+      `<div class="card"><h3>Costos Totales</h3><div class="value neg">$${(r.totalCostos||0).toFixed(2)}</div></div>`+
+      `<div class="card"><h3>Utilidad Neta</h3><div class="value ${(r.utilidadNeta||0)>=0?'pos':'neg'}">$${(r.utilidadNeta||0).toFixed(2)}</div></div>`+
+      `<div class="card"><h3>Período</h3><div class="value" style="font-size:18px">${r.meses||'—'} meses</div></div>`+
+    '</div>';
+    if (d.topGastos && d.topGastos.length) {
+      el.innerHTML += '<h3 style="margin-top:16px;font-size:14px">🔝 Top Gastos</h3>';
+      el.innerHTML += buildInformesTable(['Cuenta','Monto'], d.topGastos.map(g => [escHtml(g.name||g.accountName||'—'), '$'+g.total?.toFixed(2)]));
+    }
+  } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
+}
 function loadReportAuxiliares() {
   const el = document.getElementById('informes-inline-result');
   el.innerHTML = `
