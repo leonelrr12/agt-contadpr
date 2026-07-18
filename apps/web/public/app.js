@@ -1080,7 +1080,6 @@ async function confirmTransaction() {
       }
       addMessage(msg, 'assistant');
       addUndoButton(entryId);
-      updateSummary();
       loadSubscriptionInfo(); // Actualizar contador de movimientos
     } else {
       const errData = await res.json().catch(() => ({}));
@@ -1169,7 +1168,6 @@ async function anularEntry(id, btn) {
       const data = await res.json();
       if (btn) btn.remove();
       addMessage(`↩ **Asiento anulado**\n\nAsiento de reversión #${data.reversal.id.slice(0,8)} creado.`, 'assistant');
-      updateSummary();
       loadSubscriptionInfo(); // Actualizar contador
     } catch (e) {
       await showAlert('Error al anular');
@@ -1180,7 +1178,6 @@ async function anularEntry(id, btn) {
 
 function simulateConfirm() {
   addMessage(`✅ **Transacción registrada exitosamente**\n\nAsiento registrado en el Libro Diario.`, 'assistant');
-  updateSummary();
 }
 
 function editTransaction() {
@@ -1191,19 +1188,6 @@ function editTransaction() {
   document.getElementById('message-input').value = currentInput;
   document.getElementById('message-input').focus();
   addMessage('✏️ Edita tu mensaje y vuelve a enviarlo:', 'assistant');
-}
-
-// El resumen rápido se movió al Dashboard — se mantiene como no-op para no romper llamadas existentes
-function updateSummary() {}
-
-function toggleReports() {
-  const panel = document.getElementById('reports-panel');
-  const overlay = document.getElementById('reports-overlay');
-  const isOpen = panel.classList.contains('open');
-  panel.classList.toggle('open');
-  overlay.classList.toggle('hidden');
-  document.body.style.overflow = isOpen ? '' : 'hidden';
-  if (!isOpen) { loadPanelDiario(); loadPanelBalance(); loadPanelResultados(); loadPanelDashboard(); loadPanelCuentas(); loadPanelConceptos(); loadPanelRevision(); }
 }
 
 /* ── Sidebar navigation ── */
@@ -1264,42 +1248,6 @@ function clickAdminTab(panel) {
   const btn = document.querySelector(`#panel-tabs-admin button[data-panel="${panel}"]`);
   if (btn) btn.click();
 }
-
-function toggleReportsOpen() {
-  const panel = document.getElementById('reports-panel');
-  const overlay = document.getElementById('reports-overlay');
-  if (!panel.classList.contains('open')) {
-    panel.classList.add('open');
-    overlay.classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
-    loadPanelDiario(); loadPanelBalance(); loadPanelResultados(); loadPanelDashboard(); loadPanelRevision();
-  }
-}
-
-function toggleReportsClose() {
-  const panel = document.getElementById('reports-panel');
-  const overlay = document.getElementById('reports-overlay');
-  panel.classList.remove('open');
-  overlay.classList.add('hidden');
-  document.body.style.overflow = '';
-}
-
-document.querySelectorAll('.panel-tabs button').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const parentTabs = btn.closest('.panel-tabs');
-    parentTabs.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
-    const target = document.getElementById('panel-' + btn.dataset.panel);
-    if (target) target.classList.add('active');
-    if (btn.dataset.panel === 'diario') diarioPage = 1;
-    if (btn.dataset.panel === 'diario') loadPanelDiario();
-    if (btn.dataset.panel === 'balance') loadPanelBalance();
-    if (btn.dataset.panel === 'resultados') loadPanelResultados();
-    if (btn.dataset.panel === 'dashboard') loadPanelDashboard();
-    if (btn.dataset.panel === 'revision') loadPanelRevision();
-  });
-});
 
 // Admin panel tabs
 document.querySelectorAll('#panel-tabs-admin button').forEach(btn => {
@@ -1985,7 +1933,6 @@ async function aprobarAsiento(id) {
     });
     if (!res.ok) { const err = await res.json(); await showAlert(err.error); return; }
     loadPanelRevision();
-    updateSummary();
     addMessage(`✅ Asiento #${id.slice(0,8)} aprobado por Contador Senior.`, 'assistant');
   } catch (e) {
     await showAlert('Error al aprobar');
@@ -2098,9 +2045,13 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('sidebar-user-name').textContent = user.name;
     document.getElementById('sidebar-user-company').textContent = user.company?.name || '';
 
-    // Mostrar admin solo a admins
-    if (user.role === 'admin') {
+    // Mostrar admin solo a admins y contadores
+    if (user.role === 'admin' || user.role === 'contador') {
       document.getElementById('nav-admin-link').style.display = 'block';
+    }
+    // SaaS Admin solo para admin
+    if (user.role === 'admin') {
+      document.getElementById('nav-saas-link').style.display = 'block';
     }
   }
 
@@ -2109,7 +2060,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   addMessage('¡Buenos días! Soy tu agente contable. ¿Qué deseas registrar hoy?', 'assistant');
   addMessage('Puedes escribir algo como:\n• "Compré combustible por $40 con tarjeta"\n• "Vendí $250 en efectivo"\n• "Pagué la electricidad"\n• "Compra de mercancía por $100 con ITBMS a Distribuidora XYZ, crédito"\n• "Vendí $200 en efectivo con ITBMS"\n• "Pago de ITBMS por $150"', 'assistant');
-  updateSummary();
 
   // Cargar cuentas para el selector del Auxiliar
   loadAuxiliarAccounts();
@@ -3143,6 +3093,7 @@ async function loadReportDiario() {
     const d = await res.json();
     if (!d.entries || !d.entries.length) { el.innerHTML = '<div class="empty">No hay asientos registrados</div>'; return; }
     const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    let totDeb = 0, totCred = 0;
     let html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th><th>Estado</th></tr></thead><tbody>';
     for (const e of d.entries) {
       const date = new Date(e.date).toLocaleDateString('es-PA');
@@ -3151,6 +3102,8 @@ async function loadReportDiario() {
       const statusHtml = `<span class="tag ${statusClass[e.status]||''}">${e.status}</span>`;
       for (let i = 0; i < e.lines.length; i++) {
         const l = e.lines[i];
+        totDeb += (l.debit||0);
+        totCred += (l.credit||0);
         html += `<tr>
           <td>${i===0 ? date : ''}</td>
           <td>${i===0 ? desc : ''}</td>
@@ -3161,7 +3114,11 @@ async function loadReportDiario() {
         </tr>`;
       }
     }
-    html += '</tbody></table></div>';
+    html += '</tbody><tfoot><tr style="border-top:2px solid #1a1a2e;font-weight:700">';
+    html += '<td></td><td></td><td style="padding-left:24px">Total</td>';
+    html += `<td style="color:#2e7d32">${fmt(totDeb)}</td>`;
+    html += `<td style="color:#c62828">${fmt(totCred)}</td>`;
+    html += '<td></td></tr></tfoot></table></div>';
     el.innerHTML = html;
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
@@ -3172,13 +3129,19 @@ async function loadReportBalance() {
     const res = await authFetch(`${API_URL}/reports/balance-comprobacion?${params}`);
     const d = await res.json();
     const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-    const rows = (d||[]).map(a => [
-      escHtml(a.account?.code), escHtml(a.account?.name),
-      `<span style="color:#2e7d32">${fmt(a.totalDebit||0)}</span>`,
-      `<span style="color:#c62828">${fmt(a.totalCredit||0)}</span>`,
-      `<strong style="color:${a.balanceType==='DEUDOR'?'#2e7d32':'#c62828'}">${a.balanceType==='DEUDOR'?'+':'−'}${fmt(Math.abs(a.balance||0)).replace('$','')}</strong>`
-    ]);
-    el.innerHTML = buildInformesTable(['Código','Cuenta','Débito','Crédito','Saldo'], rows);
+    let totDeb = 0, totCred = 0;
+    const rows = (d||[]).map(a => {
+      totDeb += (a.totalDebit||0);
+      totCred += (a.totalCredit||0);
+      return [
+        escHtml(a.account?.code), escHtml(a.account?.name),
+        `<span style="color:#2e7d32">${fmt(a.totalDebit||0)}</span>`,
+        `<span style="color:#c62828">${fmt(a.totalCredit||0)}</span>`,
+        `<strong style="color:${a.balanceType==='DEUDOR'?'#2e7d32':'#c62828'}">${a.balanceType==='DEUDOR'?'+':'−'}${fmt(Math.abs(a.balance||0)).replace('$','')}</strong>`
+      ];
+    });
+    const footer = ['', '<span style="padding-left:24px">Total</span>', `<span style="color:#2e7d32;font-weight:700">${fmt(totDeb)}</span>`, `<span style="color:#c62828;font-weight:700">${fmt(totCred)}</span>`, ''];
+    el.innerHTML = buildInformesTable(['Código','Cuenta','Débito','Crédito','Saldo'], rows, footer);
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
 async function loadReportResultados() {
@@ -3380,7 +3343,7 @@ function exportInforme(type, format) {
   window.open(`${API_URL}/reports/export/${type}?format=${format}&token=${encodeURIComponent(token)}`, '_blank');
 }
 
-function buildInformesTable(headers, rows) {
+function buildInformesTable(headers, rows, footer) {
   let h = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>';
   for (const th of headers) h += `<th style="text-align:left;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;text-transform:uppercase">${th}</th>`;
   h += '</tr></thead><tbody>';
@@ -3389,7 +3352,13 @@ function buildInformesTable(headers, rows) {
     for (const td of row) h += `<td style="padding:8px 10px;border-bottom:1px solid #e5e7eb">${td}</td>`;
     h += '</tr>';
   }
-  h += '</tbody></table></div>';
+  h += '</tbody>';
+  if (footer) {
+    h += `<tfoot><tr style="border-top:2px solid #1a1a2e;font-weight:700">`;
+    for (const td of footer) h += `<td style="padding:8px 10px">${td||''}</td>`;
+    h += '</tr></tfoot>';
+  }
+  h += '</table></div>';
   return h;
 }
 

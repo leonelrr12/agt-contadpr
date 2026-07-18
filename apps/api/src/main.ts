@@ -18,6 +18,11 @@ import { apiKeysRouter } from './routes/api-keys';
 import { billingRouter } from './routes/billing';
 import { clientsRouter } from './routes/clients';
 import { suppliersRouter } from './routes/suppliers';
+import { importRouter } from './routes/import';
+import { recurringRouter } from './routes/recurring';
+import { reconcileRouter } from './routes/reconcile';
+import { whatsappRouter } from './routes/whatsapp';
+import { taxCalendarRouter } from './routes/tax-calendar';
 import { planRateLimiter } from './middleware/plan-rate-limit';
 import { requireAuth, requireRole } from './middleware/auth';
 
@@ -62,8 +67,19 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '5mb' }));
 
+// Evitar que errores no manejados tumben el proceso
+process.on('unhandledRejection', (reason) => {
+  console.error('unhandledRejection:', reason);
+});
+process.on('uncaughtException', (error) => {
+  console.error('uncaughtException:', error.message || error);
+  if (error.message?.includes('EADDRINUSE')) process.exit(1);
+});
+
 // Aplica rate limiting por ruta (antes de los routers)
 app.use('/api/', generalLimiter);
+app.use('/api/import', heavyLimiter);
+app.use('/api/reconcile', heavyLimiter);
 app.use('/api/orchestrate', llmLimiter);
 app.use('/api/ocr', heavyLimiter);
 app.use('/api/factura', heavyLimiter);
@@ -80,6 +96,7 @@ app.get('/api/health', (_req, res) => {
 });
 app.use('/api/auth', authRouter);
 app.use('/api', billingRouter);  // /api/plans (público), /api/subscription (auth interno)
+app.use('/api/whatsapp', whatsappRouter);  // webhook público + links (auth)
 
 // ── Middleware de autenticación para el resto de rutas ──
 app.use('/api', requireAuth);
@@ -98,9 +115,39 @@ app.use('/api/ocr', ocrRouter);
 app.use('/api/factura', facturaRouter);
 app.use('/api/clients', clientsRouter);
 app.use('/api/suppliers', suppliersRouter);
+app.use('/api/import', importRouter);
+app.use('/api/recurring', recurringRouter);
+app.use('/api/reconcile', reconcileRouter);
+app.use('/api/tax-calendar', taxCalendarRouter);
 app.use('/api/config', requireRole('admin'), configRouter);
 app.use('/api/keys', apiKeysRouter);
 app.use('/api/admin', requireRole('admin'), adminRouter);
+
+// ── Procesar transacciones recurrentes al iniciar + Registrar webhook WhatsApp ──
+import { processDueItems } from './services/recurring-processor';
+import { registerOpenWaWebhook } from './services/whatsapp-service';
+import { generateUpcomingObligations } from './services/tax-calendar';
+prisma.$connect().then(() => {
+  // Registrar webhook de WhatsApp con OpenWa
+  registerOpenWaWebhook().catch(err => console.error('[WhatsApp] Webhook registration failed:', err.message));
+  // Generar obligaciones fiscales para todas las empresas
+  generateUpcomingObligations(prisma, 'demo-company').catch(() => {});
+  processDueItems(prisma).then(result => {
+    if (result.processed > 0) {
+      console.log(`[Recurring] Startup: ${result.processed} transacciones recurrentes procesadas`);
+    }
+    if (result.errors.length > 0) {
+      console.warn(`[Recurring] Startup: ${result.errors.length} errores`);
+    }
+  }).catch(err => {
+    console.error('[Recurring] Startup error:', err.message);
+  });
+});
+
+// Fallback: verificar recurrentes cada 30 minutos
+setInterval(() => {
+  processDueItems(prisma).catch(() => {});
+}, 30 * 60 * 1000);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

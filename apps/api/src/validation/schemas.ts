@@ -119,6 +119,68 @@ export const ocrCorrectSchema = z.object({
   itbms: z.number().nullable().optional(),
 });
 
+// ── Import ──
+export const importExecuteSchema = z.object({
+  rows: z.array(z.object({
+    date: isoDate,
+    description: z.string().min(1, 'Descripción requerida'),
+    amount: z.number().positive('El monto debe ser positivo'),
+    concept: z.string().optional(),
+    paymentMethod: z.enum([
+      'EFECTIVO', 'TARJETA_CREDITO', 'TARJETA_DEBITO',
+      'TRANSFERENCIA', 'CHEQUE', 'BANCO', 'CREDITO',
+    ]).nullable().optional(),
+    type: z.enum([
+      'INGRESO', 'GASTO', 'COMPRA', 'VENTA',
+      'PAGO_PROVEEDOR', 'COBRO_CLIENTE', 'PRESTAMO', 'PAGO_ITBMS',
+    ]),
+    provider: z.string().nullable().optional(),
+    debitAccountId: z.string().optional(),
+    creditAccountId: z.string().optional(),
+  })).min(1, 'Se requiere al menos una fila'),
+});
+
+// ── Recurring ──
+export const createRecurringSchema = z.object({
+  description: z.string().min(1, 'Descripción requerida'),
+  amount: z.number().positive('El monto debe ser positivo'),
+  concept: z.string().optional(),
+  type: z.enum([
+    'INGRESO', 'GASTO', 'COMPRA', 'VENTA',
+    'PAGO_PROVEEDOR', 'COBRO_CLIENTE', 'PRESTAMO',
+  ]),
+  paymentMethod: z.enum([
+    'EFECTIVO', 'TARJETA_CREDITO', 'TARJETA_DEBITO',
+    'TRANSFERENCIA', 'CHEQUE', 'BANCO', 'CREDITO',
+  ]).nullable().optional(),
+  debitAccountId: z.string().optional(),
+  creditAccountId: z.string().optional(),
+  frequency: z.enum(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']),
+  dayOfMonth: z.number().int().min(1).max(31).optional(),
+  dayOfWeek: z.number().int().min(0).max(6).optional(),
+  requireConfirmation: z.boolean().optional().default(true),
+});
+
+export const updateRecurringSchema = createRecurringSchema.partial();
+
+export const toggleRecurringSchema = z.object({
+  isActive: z.boolean(),
+});
+
+// ── Reconcile ──
+export const reconcileMatchSchema = z.object({
+  rowId: z.string().min(1),
+  entryId: z.string().nullable(), // null para desvincular
+});
+
+export const reconcileCreateEntrySchema = z.object({
+  rowId: z.string().min(1),
+  description: z.string().optional(),
+  debitAccountId: z.string().min(1, 'Cuenta de débito requerida'),
+  creditAccountId: z.string().min(1, 'Cuenta de crédito requerida'),
+  amount: z.number().positive('El monto debe ser positivo'),
+});
+
 // ── Type exports ──
 export type CreateAccountInput = z.infer<typeof createAccountSchema>;
 export type UpdateAccountInput = z.infer<typeof updateAccountSchema>;
@@ -131,3 +193,9 @@ export type UpdateJournalStatusInput = z.infer<typeof updateJournalStatusSchema>
 export type OrchestrateInput = z.infer<typeof orchestrateSchema>;
 export type OrchestrateConfirmInput = z.infer<typeof orchestrateConfirmSchema>;
 export type OCRCorrectInput = z.infer<typeof ocrCorrectSchema>;
+export type ImportExecuteInput = z.infer<typeof importExecuteSchema>;
+export type CreateRecurringInput = z.infer<typeof createRecurringSchema>;
+export type UpdateRecurringInput = z.infer<typeof updateRecurringSchema>;
+export type ToggleRecurringInput = z.infer<typeof toggleRecurringSchema>;
+export type ReconcileMatchInput = z.infer<typeof reconcileMatchSchema>;
+export type ReconcileCreateEntryInput = z.infer<typeof reconcileCreateEntrySchema>;

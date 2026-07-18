@@ -217,19 +217,20 @@ journalRouter.post('/:id/anular', requireRole('admin', 'contador'), async (req, 
         where: { id: entryId, companyId: req.user!.companyId },
         include: { lines: true, transactions: true },
       });
-      if (!original) throw Object.assign(new Error('Asiento no encontrado'), { status: 404 });
-      if (original.status === 'ANULADO') throw Object.assign(new Error('El asiento ya está anulado'), { status: 400 });
-      if (original.description.startsWith('ANULACIÓN:')) throw Object.assign(new Error('No se puede anular un asiento de reversión'), { status: 400 });
+      const orig = original as any;
+      if (!orig) throw Object.assign(new Error('Asiento no encontrado'), { status: 404 });
+      if (orig.status === 'ANULADO') throw Object.assign(new Error('El asiento ya está anulado'), { status: 400 });
+      if (orig.description.startsWith('ANULACIÓN:')) throw Object.assign(new Error('No se puede anular un asiento de reversión'), { status: 400 });
 
       const reversal = await tx.journalEntry.create({
         data: {
           date: new Date(),
-          description: `ANULACIÓN: ${original.description}`,
+          description: `ANULACIÓN: ${orig.description}`,
           status: 'CONFIRMADO',
           companyId: req.user!.companyId,
           createdById: req.user!.userId,
           lines: {
-            create: original.lines.map(l => ({
+            create: orig.lines.map((l: any) => ({
               accountId: l.accountId,
               debit: l.credit,
               credit: l.debit,
@@ -240,13 +241,13 @@ journalRouter.post('/:id/anular', requireRole('admin', 'contador'), async (req, 
       });
 
       await tx.journalEntry.update({
-        where: { id: original.id },
+        where: { id: orig.id },
         data: { status: 'ANULADO' },
       });
 
-      if (original.transactions?.length > 0) {
+      if (orig.transactions?.length > 0) {
         await tx.transaction.updateMany({
-          where: { journalEntryId: original.id },
+          where: { journalEntryId: orig.id },
           data: { journalEntryId: reversal.id },
         });
       }

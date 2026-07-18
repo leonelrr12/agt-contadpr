@@ -40,10 +40,18 @@ suppliersRouter.post('/', requireRole('admin', 'contador'), async (req, res) => 
   const { name, taxId, phone, email, paymentTerms, notes } = req.body;
   if (!name) { res.status(400).json({ error: 'El nombre es requerido' }); return; }
 
-  const supplier = await req.prisma.supplier.create({
-    data: { name, taxId, phone, email, paymentTerms: paymentTerms || '30', notes, companyId: req.user!.companyId },
-  });
-  res.status(201).json(supplier);
+  try {
+    const supplier = await req.prisma.supplier.create({
+      data: { name, taxId, phone, email, paymentTerms: paymentTerms || '30', notes, companyId: req.user!.companyId },
+    });
+    res.status(201).json(supplier);
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      res.status(409).json({ error: `El proveedor "${name}" ya existe` });
+    } else {
+      throw error;
+    }
+  }
 });
 
 // PUT /api/suppliers/:id — Actualizar

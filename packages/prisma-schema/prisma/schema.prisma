@@ -28,6 +28,10 @@ model Company {
   apiKeys        ApiKey[]
   clients        Client[]
   suppliers      Supplier[]
+  recurringTemplates RecurringTemplate[]
+  bankStatements     BankStatement[]
+  whatsappLinks      WhatsAppLink[]
+  taxObligations     TaxObligation[]
 }
 
 model User {
@@ -46,6 +50,7 @@ model User {
   journalEntries JournalEntry[]
   reviewedEntries JournalEntry[] @relation("ReviewedEntries")
   auditLogs      AuditLog[]
+  recurringTemplates RecurringTemplate[]
 }
 
 model Account {
@@ -65,6 +70,7 @@ model Account {
   concepts     Concept[]
   journalLines JournalLine[]
   rulesFrom    AccountingRuleEntry[]
+  bankStatements BankStatement[]
 
   @@unique([code, companyId])
 }
@@ -116,6 +122,7 @@ model JournalEntry {
   reviewedById String?
   reviewedAt   DateTime?
   reviewNotes  String?
+  reconciledAt DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -124,6 +131,8 @@ model JournalEntry {
   reviewedBy   User?         @relation("ReviewedEntries", fields: [reviewedById], references: [id])
   lines        JournalLine[]
   transactions Transaction[]
+  recurringTemplates RecurringTemplate[]
+  bankStatementRows  BankStatementRow[]
 }
 
 model JournalLine {
@@ -371,4 +380,139 @@ model OCRExample {
 
   @@index([provider])
   @@index([companyId])
+}
+
+model RecurringTemplate {
+  id                  String    @id @default(cuid())
+  companyId           String
+  createdById         String
+  description         String
+  amount              Float
+  concept             String?
+  type                String
+  paymentMethod       String?
+  debitAccountId      String?
+  creditAccountId     String?
+  frequency           String    // DAILY, WEEKLY, MONTHLY, YEARLY
+  dayOfMonth          Int?
+  dayOfWeek           Int?
+  nextRunAt           DateTime
+  isActive            Boolean   @default(true)
+  requireConfirmation Boolean   @default(true)
+  lastRunAt           DateTime?
+  lastEntryId         String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  company             Company        @relation(fields: [companyId], references: [id])
+  createdBy           User           @relation(fields: [createdById], references: [id])
+  lastEntry           JournalEntry?  @relation(fields: [lastEntryId], references: [id])
+
+  @@index([companyId])
+  @@index([nextRunAt])
+  @@map("recurring_template")
+}
+
+model BankStatement {
+  id              String    @id @default(cuid())
+  companyId       String
+  bankAccountId   String
+  fileName        String?
+  uploadDate      DateTime  @default(now())
+  statementStart  DateTime?
+  statementEnd    DateTime?
+  openingBalance  Float     @default(0)
+  closingBalance  Float     @default(0)
+  status          String    @default("PENDING")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company         Company        @relation(fields: [companyId], references: [id])
+  bankAccount     Account        @relation(fields: [bankAccountId], references: [id])
+  rows            BankStatementRow[]
+
+  @@index([companyId])
+  @@index([bankAccountId])
+  @@map("bank_statement")
+}
+
+model BankStatementRow {
+  id              String         @id @default(cuid())
+  statementId     String
+  date            DateTime
+  description     String
+  reference       String?
+  debit           Float          @default(0)
+  credit          Float          @default(0)
+  balance         Float?
+  matchedEntryId  String?
+  status          String         @default("UNMATCHED")
+  matchConfidence Float?
+  createdAt       DateTime       @default(now())
+
+  statement       BankStatement  @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  matchedEntry    JournalEntry?  @relation(fields: [matchedEntryId], references: [id])
+
+  @@index([statementId])
+  @@index([matchedEntryId])
+  @@index([status])
+  @@map("bank_statement_row")
+}
+
+model ImportLog {
+  id            String   @id @default(cuid())
+  companyId     String
+  createdById   String
+  fileName      String
+  rowsTotal     Int
+  rowsSuccess   Int
+  rowsError     Int
+  errors        String   @default("[]")
+  createdAt     DateTime @default(now())
+
+  @@index([companyId])
+  @@map("import_log")
+}
+
+model WhatsAppLink {
+  id          String    @id @default(cuid())
+  phoneNumber String    @unique
+  companyId   String?
+  label       String?
+  code        String?              // Código de 6 dígitos para vinculación
+  codeExpires DateTime?            // El código expira en 10 min
+  verifiedAt  DateTime?            // null = pendiente de verificar
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company     Company?  @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@index([phoneNumber])
+  @@map("whatsapp_link")
+}
+
+model TaxObligation {
+  id              String    @id @default(cuid())
+  companyId       String
+  type            String    // ITBMS, CSS, ISR, AVISO, TASA_UNICA
+  period          String    // "2026-07" (mensual) o "2026" (anual)
+  label           String    // "Declaración ITBMS Julio 2026"
+  dueDate         DateTime
+  estimatedAmount Float?
+  actualAmount    Float?
+  status          String    @default("PENDING") // PENDING, COMPLETED, OVERDUE
+  notes           String?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company         Company   @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, type, period])
+  @@index([companyId])
+  @@index([dueDate])
+  @@index([status])
+  @@map("tax_obligation")
 }
