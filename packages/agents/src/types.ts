@@ -18,6 +18,7 @@ export interface DialogResult {
   itbmsRate?: number;
   itbmsAmount?: number;
   provider: string | null;
+  ruc?: string | null;
 }
 
 export interface AgentTask {

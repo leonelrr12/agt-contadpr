@@ -85,6 +85,41 @@ body {
 #chat-header h1 { font-size: 22px; }
 .subtitle { font-size: 14px; color: #666; margin-top: 4px; }
 
+/* ── Capture Date Widget ── */
+#capture-date-picker {
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+#capture-date-picker:focus {
+  outline: none;
+  border-color: #0369a1 !important;
+  box-shadow: 0 0 0 2px rgba(3,105,161,0.15);
+}
+#capture-date-banner {
+  animation: slideDown 0.3s ease-out;
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Date Range Warning ── */
+.date-range-warning {
+  display: inline-block;
+  font-size: 11px;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin-top: 4px;
+  animation: fadeIn 0.3s ease-out;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 #chat-messages {
   flex: 1;
   overflow-y: auto;

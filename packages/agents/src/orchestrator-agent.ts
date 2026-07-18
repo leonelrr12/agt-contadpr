@@ -4,6 +4,17 @@ import { AccountingAgent } from './accounting-agent';
 import type { DialogResult, DialogContext } from './types';
 import type { AccountingEntry } from './accounting-agent';
 
+/** Parsea una fecha YYYY-MM-DD usando mediodía local para evitar
+ *  desplazamientos de zona horaria (medianoche UTC-4 → día anterior en UTC-5).
+ *  Si la fecha es inválida o nula, usa la fecha actual como fallback. */
+function parseLocalDate(isoDate: string | null | undefined): Date {
+  if (!isoDate) return new Date();
+  const parts = isoDate.split('-').map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return new Date();
+  const [y, m, d] = parts;
+  return new Date(y, m - 1, d, 12, 0, 0);
+}
+
 export interface PlanStep {
   agent: string;
   action: string;
@@ -41,6 +52,7 @@ export class OrchestratorAgent {
     prompt?: string;
     needsConfirmation: boolean;
     result?: any;
+    entityMatches?: any[];
   }> {
     const dialog = await this.dialogAgent.processInput(input, context);
     const plan: ExecutionPlan = {
@@ -72,8 +84,13 @@ export class OrchestratorAgent {
       };
     }
 
-    // Buscar coincidencias de proveedor/cliente antes de generar el asiento
-    if (dialog.provider) {
+    // Buscar coincidencias de proveedor/cliente antes de generar el asiento.
+    // Solo si el usuario NO ha pasado ya por el selector de entidad.
+    // selectedEntityId puede ser: string (ID existente), null (eligió "crear nuevo"),
+    // o la key no existe (primera vez que se procesa este input).
+    // Entity matching solo para CRÉDITO (cuentas por cobrar/pagar).
+    // Para otros métodos de pago (efectivo, tarjeta, transferencia) no se necesita relacionar entidad.
+    if (dialog.provider && dialog.paymentMethod === 'CREDITO' && !((context as any)?.extractedData && 'selectedEntityId' in (context as any).extractedData)) {
       const matches = await this.findEntityMatches(dialog.provider);
       if (matches.length > 0) {
         // Generar entry también para que el frontend tenga el result completo
@@ -139,11 +156,12 @@ export class OrchestratorAgent {
     };
   }
 
-  async confirm(result: any): Promise<{ journalEntry: any }> {
+  async confirm(result: any): Promise<{ journalEntry: any; autoCreated?: { type: string; name: string } | null }> {
     const { dialog, entry, selectedEntityId } = result;
+
     const entryData = await this.prisma.journalEntry.create({
       data: {
-        date: new Date(dialog.date),
+        date: parseLocalDate(dialog.date),
         description: entry.description,
         status: 'BORRADOR',
         companyId: this.companyId,
@@ -166,15 +184,17 @@ export class OrchestratorAgent {
       data: {
         type: dialog.type, amount: dialog.amount, description: dialog.description,
         concept: dialog.concept, paymentMethod: dialog.paymentMethod,
-        date: new Date(dialog.date), companyId: this.companyId,
+        date: parseLocalDate(dialog.date), companyId: this.companyId,
         createdById: this.userId, journalEntryId: entryData.id,
         metadata: JSON.stringify(metadata),
       },
     });
 
-    // ── Auto-crear cliente o proveedor si aplica ──
+    // ── Auto-crear cliente o proveedor ──
+    // Solo se crea cuando el método de pago es CRÉDITO (genera cuenta por cobrar/pagar).
+    // Para pagos al contado (efectivo, tarjeta, transferencia) no se crea entidad.
     let autoCreated: { type: string; name: string } | null = null;
-    if (dialog.provider) {
+    if (dialog.provider && dialog.paymentMethod === 'CREDITO') {
       autoCreated = await this.autoCreateEntity(dialog, entryData.id, result.selectedEntityId);
     }
 
@@ -334,7 +354,7 @@ export class OrchestratorAgent {
               companyId: this.companyId, clientId: client.id,
               amount: dialog.amount, itbms, total: dialog.amount + itbms,
               dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-              date: new Date(dialog.date), description: dialog.description, journalEntryId,
+              date: parseLocalDate(dialog.date), description: dialog.description, journalEntryId,
             },
           });
         }
@@ -361,7 +381,7 @@ export class OrchestratorAgent {
               companyId: this.companyId, supplierId: supplier.id,
               amount: dialog.amount, itbms, total: dialog.amount + itbms,
               dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-              date: new Date(dialog.date), description: dialog.description, journalEntryId,
+              date: parseLocalDate(dialog.date), description: dialog.description, journalEntryId,
             },
           });
         }

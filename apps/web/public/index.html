@@ -27,7 +27,7 @@
   <meta name="twitter:title" content="Contador507 — Contabilidad Inteligente">
   <meta name="twitter:description" content="Agente contable con IA para Panamá. Facturas, asientos y reportes automatizados.">
 
-  <link rel="stylesheet" href="styles.css?v=9">
+  <link rel="stylesheet" href="styles.css?v=11">
 </head>
 <body>
   <div id="app">
@@ -74,8 +74,20 @@
 
     <main id="main">
       <header id="chat-header">
-        <h1>Agente Contable</h1>
-        <p class="subtitle">¿Qué deseas registrar hoy?</p>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+          <div>
+            <h1>Agente Contable</h1>
+            <p class="subtitle">¿Qué deseas registrar hoy?</p>
+          </div>
+          <div id="capture-date-widget" style="display:flex;align-items:center;gap:8px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:10px 14px">
+            <span style="font-size:13px;color:#0369a1;white-space:nowrap">📅 Fecha de registro:</span>
+            <input type="date" id="capture-date-picker" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;font-family:inherit;background:#fff">
+          </div>
+        </div>
+        <div id="capture-date-banner" class="hidden" style="margin-top:10px;padding:10px 16px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <span style="font-size:13px;color:#92400e">📅 Estás registrando con fecha <strong id="capture-date-banner-date"></strong>. ¿Es correcta?</span>
+          <button onclick="dismissDateBanner()" style="padding:4px 12px;background:#fcd34d;border:none;border-radius:6px;cursor:pointer;font-size:12px;color:#78350f;font-weight:600">Entendido</button>
+        </div>
       </header>
 
       <div id="chat-messages"></div>
@@ -420,7 +432,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="app.js?v=46"></script>
+  <script src="app.js?v=53"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </body>
 </html>

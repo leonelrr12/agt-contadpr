@@ -106,10 +106,80 @@ let currentInput = '';
 let dialogContext = null;
 let ocrData = null;
 let ocrAbortController = null;
+
+// ── Capture Date (persistente entre registros) ──
+// Usar fecha local sin pasar por toISOString (que usa UTC) para evitar cambio de día
+const _now = new Date();
+let captureDate = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
+let dateBannerShown = false;
+
+function formatDateForDisplay(isoDate) {
+  const [y, m, d] = isoDate.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+// ── Validación de rango de año ──
+function getYearRange() {
+  const currentYear = new Date().getFullYear();
+  return { min: currentYear - 1, max: currentYear + 1 };
+}
+
+function isDateInRange(dateStr) {
+  if (!dateStr) return false;
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return false;
+  const y = parseInt(parts[0]);
+  const { min, max } = getYearRange();
+  return y >= min && y <= max;
+}
+
+/** Muestra/oculta alerta de fecha fuera de rango junto a un input date. */
+function toggleDateWarning(inputEl, dateStr) {
+  if (!inputEl) return;
+  const container = inputEl.closest('.ocr-field');
+  if (!container) return;
+  // Quitar warning existente
+  const existing = container.querySelector('.date-range-warning');
+  if (existing) existing.remove();
+
+  if (dateStr && !isDateInRange(dateStr)) {
+    const { min, max } = getYearRange();
+    const warning = document.createElement('span');
+    warning.className = 'date-range-warning';
+    warning.textContent = `⚠️ Fuera de rango (${min}-${max}). Se usará la fecha del selector.`;
+    container.appendChild(warning);
+    inputEl.style.borderColor = '#f59e0b';
+    inputEl.style.background = '#fffbeb';
+  } else {
+    inputEl.style.borderColor = '';
+    inputEl.style.background = '';
+  }
+}
+
+function showDateBanner() {
+  if (dateBannerShown) return;
+  dateBannerShown = true;
+  const banner = document.getElementById('capture-date-banner');
+  const bannerDate = document.getElementById('capture-date-banner-date');
+  if (banner) {
+    if (bannerDate) bannerDate.textContent = formatDateForDisplay(captureDate);
+    banner.classList.remove('hidden');
+  }
+}
+
+function dismissDateBanner() {
+  const banner = document.getElementById('capture-date-banner');
+  if (banner) banner.classList.add('hidden');
+}
 let pendingClassification = null;
 
 function showInput(mode) {
   stopQRScanner();
+  // Limpiar cualquier contexto residual de operaciones anteriores (PDF, OCR, etc.)
+  // para que no contamine el nuevo registro manual
+  dialogContext = null;
+  pendingResult = null;
+  pendingClassification = null;
   // PDF no oculta quick-actions (el diálogo de archivo es nativo, si cancela vuelve)
   if (mode !== 'pdf') {
     document.getElementById('quick-actions').classList.add('hidden');
@@ -158,12 +228,16 @@ function showInput(mode) {
     document.getElementById('message-input').placeholder = 'Dicta tu transacción...';
   }
   document.getElementById('message-input').focus();
+  // Mostrar recordatorio de fecha al abrir el input de captura
+  showDateBanner();
 }
 
 function cancelInput() {
   document.getElementById('text-input').classList.add('hidden');
   document.getElementById('quick-actions').classList.remove('hidden');
   document.getElementById('message-input').value = '';
+  // NOTA: no limpiar dialogContext ni pendingResult aquí.
+  // showEntityMatchSelector y needsConfirmation dependen de que persistan.
 }
 
 /* ── OCR / Factura ── */
@@ -256,7 +330,7 @@ async function processOCRFile(file) {
     let html = `<div class="ocr-extracted">
       <div class="ocr-field"><span>📄 Texto:</span><textarea id="ocr-edit-text" rows="3">${escapeHtml(data.text.substring(0, 500))}</textarea></div>
       <div class="ocr-field"><span>💰 Total:</span><input type="number" step="0.01" id="ocr-edit-total" value="${data.total ?? ''}"></div>
-      <div class="ocr-field"><span>📅 Fecha:</span><input type="date" id="ocr-edit-date" value="${data.date || ''}"></div>
+      <div class="ocr-field"><span>📅 Fecha:</span><input type="date" id="ocr-edit-date" value="${data.date || ''}" onchange="toggleDateWarning(this, this.value)"></div>
       <div class="ocr-field"><span>🏢 Proveedor:</span><input type="text" id="ocr-edit-provider" value="${escapeHtml(data.provider || '')}"></div>
       <div class="ocr-field"><span>🔢 RUC:</span><input type="text" id="ocr-edit-ruc" value="${escapeHtml(data.ruc || '')}"></div>
       <div class="ocr-field"><span>📊 ITBMS:</span><input type="number" step="0.01" id="ocr-edit-itbms" value="${data.itbms ?? ''}"></div>
@@ -265,6 +339,7 @@ async function processOCRFile(file) {
       <button class="ocr-toggle-img" onclick="toggleOCRImage()" style="margin-top:8px;font-size:12px;padding:6px 12px;background:none;border:1px solid #d0d5dd;border-radius:4px;cursor:pointer;color:#1a1a2e;width:100%">📷 Ver imagen</button>
     </div>`;
     document.getElementById('ocr-result-text').innerHTML = html;
+    setTimeout(() => { const el = document.getElementById('ocr-edit-date'); if (el) toggleDateWarning(el, el.value); }, 0);
   } catch (err) {
     if (err.name === 'AbortError') return;
     document.getElementById('ocr-loading').classList.add('hidden');
@@ -330,10 +405,17 @@ async function sendOCRResult() {
   const total = data.total;
   const provider = data.provider || null;
 
+  // Validar rango de año: si la fecha está fuera de rango, usar la del datepicker
+  let finalDate = data.date || null;
+  if (finalDate && !isDateInRange(finalDate)) {
+    finalDate = captureDate;
+    toggleDateWarning(document.getElementById('ocr-edit-date'), data.date);
+  }
+
   dialogContext = {
     amount: total || 0,
     provider: provider,
-    date: data.date || null,
+    date: finalDate,
     itbms: data.itbms != null,
   };
 
@@ -407,7 +489,7 @@ async function processPDFFile(file) {
       <div class="ocr-field"><span>🏢 Proveedor:</span><input type="text" id="pdf-edit-provider" value="${escapeHtml(data.provider || '')}"></div>
       <div class="ocr-field"><span>🔢 RUC:</span><input type="text" id="pdf-edit-ruc" value="${escapeHtml(data.ruc || '')}"></div>
       <div class="ocr-field"><span>🧾 Factura #:</span><input type="text" id="pdf-edit-invoice" value="${escapeHtml(data.invoiceNumber || '')}"></div>
-      <div class="ocr-field"><span>📅 Fecha:</span><input type="date" id="pdf-edit-date" value="${data.date || ''}"></div>
+      <div class="ocr-field"><span>📅 Fecha:</span><input type="date" id="pdf-edit-date" value="${data.date || ''}" onchange="toggleDateWarning(this, this.value)"></div>
       <div class="ocr-field"><span>💰 Subtotal:</span><input type="number" step="0.01" id="pdf-edit-subtotal" value="${data.subtotal ?? ''}"></div>
       <div class="ocr-field"><span>📊 ITBMS:</span><input type="number" step="0.01" id="pdf-edit-itbms" value="${data.itbms ?? ''}"></div>
       <div class="ocr-field"><span>💰 Total:</span><input type="number" step="0.01" id="pdf-edit-total" value="${data.total ?? ''}"></div>
@@ -416,6 +498,7 @@ async function processPDFFile(file) {
       <div class="ocr-field" style="flex-direction:column;align-items:stretch;gap:4px"><span>📄 Texto extraído:</span><textarea id="pdf-edit-text" rows="3" style="width:100%">${escapeHtml(data.text.substring(0, 500))}</textarea></div>
     </div>`;
     document.getElementById('pdf-result-text').innerHTML = html;
+    setTimeout(() => { const el = document.getElementById('pdf-edit-date'); if (el) toggleDateWarning(el, el.value); }, 0);
   } catch (err) {
     document.getElementById('pdf-loading').classList.add('hidden');
     document.getElementById('pdf-actions').classList.remove('hidden');
@@ -545,7 +628,7 @@ async function processQRUrl() {
       <div class="ocr-field"><span>🏢 Proveedor:</span><input type="text" id="qr-edit-provider" value="${escapeHtml(data.provider || '')}"></div>
       <div class="ocr-field"><span>🔢 RUC:</span><input type="text" id="qr-edit-ruc" value="${escapeHtml(data.ruc || '')}"></div>
       <div class="ocr-field"><span>🧾 Factura #:</span><input type="text" id="qr-edit-invoice" value="${escapeHtml(data.invoiceNumber || '')}"></div>
-      <div class="ocr-field"><span>📅 Fecha:</span><input type="date" id="qr-edit-date" value="${data.date || ''}"></div>
+      <div class="ocr-field"><span>📅 Fecha:</span><input type="date" id="qr-edit-date" value="${data.date || ''}" onchange="toggleDateWarning(this, this.value)"></div>
       <div class="ocr-field"><span>💰 Subtotal:</span><input type="number" step="0.01" id="qr-edit-subtotal" value="${data.subtotal ?? ''}"></div>
       <div class="ocr-field"><span>📊 ITBMS:</span><input type="number" step="0.01" id="qr-edit-itbms" value="${data.itbms ?? ''}"></div>
       <div class="ocr-field"><span>💰 Total:</span><input type="number" step="0.01" id="qr-edit-total" value="${data.total ?? ''}"></div>
@@ -553,6 +636,7 @@ async function processQRUrl() {
       <div class="ocr-field" style="flex-direction:column;align-items:stretch;gap:4px"><span>📄 Texto:</span><textarea id="qr-edit-text" rows="3" style="width:100%">${escapeHtml((data.text || '').substring(0, 500))}</textarea></div>
     </div>`;
     document.getElementById('qr-result-text').innerHTML = html;
+    setTimeout(() => { const el = document.getElementById('qr-edit-date'); if (el) toggleDateWarning(el, el.value); }, 0);
   } catch (err) {
     document.getElementById('qr-loading').classList.add('hidden');
     document.getElementById('qr-actions').classList.remove('hidden');
@@ -576,10 +660,17 @@ async function sendQRResult() {
 
   const hasItbms = itbms != null && itbms > 0;
 
+  // Validar rango de año: si la fecha está fuera de rango, usar la del datepicker
+  let finalDate = date || null;
+  if (finalDate && !isDateInRange(finalDate)) {
+    finalDate = captureDate;
+    toggleDateWarning(document.getElementById('qr-edit-date'), date);
+  }
+
   dialogContext = {
     amount: total,
     provider: provider,
-    date: date || null,
+    date: finalDate,
     itbms: hasItbms,
     itbmsAmount: itbms,
     invoiceNumber: invoiceNumber,
@@ -619,10 +710,17 @@ async function sendPDFResult() {
 
   const hasItbms = itbms != null && itbms > 0;
 
+  // Validar rango de año: si la fecha está fuera de rango, usar la del datepicker
+  let finalDate = date || null;
+  if (finalDate && !isDateInRange(finalDate)) {
+    finalDate = captureDate;
+    toggleDateWarning(document.getElementById('pdf-edit-date'), date);
+  }
+
   dialogContext = {
     amount: total,
     provider: provider,
-    date: date || null,
+    date: finalDate,
     itbms: hasItbms,
     itbmsAmount: itbms,
     invoiceNumber: invoiceNumber,
@@ -789,7 +887,14 @@ async function sendMessage() {
 
   try {
     const body = { input: text };
-    if (dialogContext) body.context = { extractedData: dialogContext };
+    // Inyectar la fecha de captura en el contexto para que el backend la use.
+    // Si el dialogContext ya tiene una fecha (ej. de OCR/PDF), esa tiene prioridad;
+    // si no, se usa la fecha del selector persistente.
+    // Sanitizar: el LLM a veces devuelve datetime completo (YYYY-MM-DDTHH:mm...)
+    const rawDate = dialogContext?.date || captureDate;
+    const extractedDate = typeof rawDate === 'string' ? rawDate.substring(0, 10) : captureDate;
+    const ctx = { ...(dialogContext || {}), date: extractedDate };
+    body.context = { extractedData: ctx };
     const res = await authFetch(`${API_URL}/orchestrate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1022,6 +1127,7 @@ function showConfirmationModal(data) {
     html += `• Concepto: ${dialog.concept}<br>`;
     html += `• Monto: $${dialog.amount}<br>`;
     if (dialog.paymentMethod) html += `• Pago: ${dialog.paymentMethod}<br>`;
+    html += `• 📅 Fecha: ${formatDateForDisplay(dialog.date)}<br>`;
   }
   html += `</div>`;
 
@@ -1056,13 +1162,15 @@ function closeModal() {
 
 async function confirmTransaction() {
   const result = pendingResult;
+  // Guardar selectedEntityId antes de que closeModal lo borre
+  const selectedEntityId = dialogContext?.selectedEntityId || null;
   closeModal();
   addMessage('✅ Transacción confirmada. Registrando...', 'assistant');
 
   try {
     // Si el usuario seleccionó una entidad existente, pasar el ID
-    if (dialogContext?.selectedEntityId) {
-      result.selectedEntityId = dialogContext.selectedEntityId;
+    if (selectedEntityId) {
+      result.selectedEntityId = selectedEntityId;
     }
     const res = await authFetch(`${API_URL}/orchestrate/confirm`, {
       method: 'POST',
@@ -1083,7 +1191,12 @@ async function confirmTransaction() {
       loadSubscriptionInfo(); // Actualizar contador de movimientos
     } else {
       const errData = await res.json().catch(() => ({}));
-      const msg = errData.error || 'Error al registrar. Intenta de nuevo.';
+      let msg = errData.error || 'Error al registrar. Intenta de nuevo.';
+      // Mostrar detalles de validación si existen
+      if (errData.detalles && Array.isArray(errData.detalles)) {
+        const fields = errData.detalles.map(d => d.campo).join(', ');
+        msg += ` (${fields})`;
+      }
       addMessage(`❌ ${msg}`, 'assistant');
       if (errData.contactSupport) {
         addMessage('📞 Contacta a soporte técnico si el problema persiste.', 'assistant');
@@ -2063,6 +2176,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Cargar cuentas para el selector del Auxiliar
   loadAuxiliarAccounts();
+
+  // ── Inicializar date picker persistente ──
+  const datePicker = document.getElementById('capture-date-picker');
+  if (datePicker) {
+    datePicker.value = captureDate;
+    datePicker.addEventListener('change', () => {
+      captureDate = datePicker.value;
+      dateBannerShown = false; // re-mostrar banner si el usuario cambia la fecha
+      // Actualizar también la fecha en el banner si está visible
+      const bannerDate = document.getElementById('capture-date-banner-date');
+      if (bannerDate) bannerDate.textContent = formatDateForDisplay(captureDate);
+    });
+  }
 });
 
 // ── Auxiliar de Cuenta ──

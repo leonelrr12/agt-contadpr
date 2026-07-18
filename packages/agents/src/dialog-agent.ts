@@ -1,9 +1,41 @@
 import type { DialogResult, DialogContext } from './types';
 import { LLMService } from './llm-service';
 
+/** Retorna true si día, mes, año forman una fecha válida y el año está en rango. */
+function isValidDate(d: number, m: number, y: number): boolean {
+  if (m < 1 || m > 12) return false;
+  if (d < 1 || d > 31) return false;
+  const daysInMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  // Año bisiesto
+  const isLeap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const maxDay = m === 2 ? (isLeap ? 29 : 28) : daysInMonth[m - 1];
+  if (d > maxDay) return false;
+  return true;
+}
+
+/** Retorna true si el año está en el rango aceptable (año actual ± 1). */
+function isYearInRange(y: number): boolean {
+  const currentYear = new Date().getFullYear();
+  return y >= currentYear - 1 && y <= currentYear + 1;
+}
+
+/** Intenta parsear una fecha de un texto. Usa lookbehind/lookahead para evitar
+ *  falsos positivos con RUCs (#12345-67890 → "5-6") o números de factura. */
+function tryParseDate(text: string): string | null {
+  // Regex con lookbehind/lookahead: la fecha NO debe estar rodeada de dígitos
+  const m = text.match(/(?<!\d)(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?(?!\d)/);
+  if (!m) return null;
+  const d = parseInt(m[1]);
+  const month = parseInt(m[2]);
+  const y = parseInt(m[3] || String(new Date().getFullYear()));
+  if (!isValidDate(d, month, y)) return null;
+  if (!isYearInRange(y)) return null;
+  return `${y}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
 function parseInput(input: string): {
   amount: number;
-  date: string;
+  date: string | null;
   type: string;
   concept: string;
   paymentMethod: string | null;
@@ -16,17 +48,15 @@ function parseInput(input: string): {
   const amountMatch = input.match(/\$?(\d+(?:[.,]\d+)?)/);
   const amount = amountMatch ? parseFloat(amountMatch[1].replace(',', '.')) : 0;
 
-  const dateMatch = input.match(/(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/);
-  let date: string;
-  if (dateMatch) {
-    const d = new Date(parseInt(dateMatch[3] || String(new Date().getFullYear())), parseInt(dateMatch[2]) - 1, parseInt(dateMatch[1]));
-    date = d.toISOString().split('T')[0];
-  } else if (input.includes('ayer')) {
+  let date: string | null = tryParseDate(input);
+  if (!date && input.includes('ayer')) {
     const d = new Date(); d.setDate(d.getDate() - 1);
-    date = d.toISOString().split('T')[0];
-  } else {
-    date = new Date().toISOString().split('T')[0];
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    date = `${y}-${m}-${day}`;
   }
+  // Si no se menciona fecha en el texto, retornamos null para que el caller use el contexto
 
   let type = 'GASTO';
   let concept = '';
@@ -122,6 +152,21 @@ function parseInput(input: string): {
   return { amount, date, type, concept, paymentMethod, missingFields, itbms, provider };
 }
 
+/** Detecta si el usuario mencionó explícitamente una fecha válida en el mensaje.
+ *  Usa la misma lógica que tryParseDate para evitar falsos positivos con RUCs. */
+function hasDateInText(input: string): boolean {
+  return tryParseDate(input) !== null || /\bayer\b/i.test(input);
+}
+
+/** Retorna la fecha de hoy en YYYY-MM-DD usando la zona horaria local (no UTC). */
+function todayLocal(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 export class DialogAgent {
   private llm: LLMService;
 
@@ -135,7 +180,7 @@ export class DialogAgent {
       amount: number;
       concept: string;
       paymentMethod: string | null;
-      date: string;
+      date: string | null;
       missingFields: string[];
       itbms?: boolean;
       provider?: string | null;
@@ -215,7 +260,17 @@ export class DialogAgent {
       description: input,
       concept,
       paymentMethod,
-      date: extracted.date || new Date().toISOString().split('T')[0],
+      date: (() => {
+        const hasDate = hasDateInText(input);
+        const extDate = extracted?.date ?? null;
+        const prevDate = prev?.date ?? null;
+        const prevDateValid = prevDate && (() => {
+          const parts = prevDate.split('-').map(Number);
+          return parts.length === 3 && isYearInRange(parts[0]);
+        })() ? prevDate : null;
+        const fallback = todayLocal();
+        return hasDate ? (extDate || fallback) : (prevDateValid || fallback);
+      })(),
       confidence: missingFields.length === 0 ? (this.llm.isEnabled ? 0.98 : 0.95) : 0.6,
       missingFields,
       itbms,

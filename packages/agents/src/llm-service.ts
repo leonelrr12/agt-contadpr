@@ -5,7 +5,7 @@ export interface LLMExtraction {
   amount: number;
   concept: string;
   paymentMethod: string | null;
-  date: string;
+  date: string | null;
   missingFields: string[];
   itbms?: boolean;
   provider?: string | null;
@@ -132,7 +132,7 @@ export class LLMService {
         amount: typeof parsed.amount === 'number' ? parsed.amount : 0,
         concept: parsed.concept || '',
         paymentMethod: parsed.paymentMethod || null,
-        date: parsed.date || new Date().toISOString().split('T')[0],
+        date: parsed.date || null as any,
         missingFields: Array.isArray(parsed.missingFields) ? parsed.missingFields : [],
         itbms: parsed.itbms === true,
         provider: parsed.provider || null,
