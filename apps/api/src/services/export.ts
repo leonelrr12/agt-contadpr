@@ -16,6 +16,7 @@ async function buildXlsx(
   columns: ColumnDef[],
   rows: Record<string, unknown>[],
   moneyFields: string[] = [],
+  footerRow?: Record<string, unknown>,
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(sheetName);
@@ -43,6 +44,18 @@ async function buildXlsx(
     sheet.addRow(row);
   }
 
+  // Fila de totales (footer)
+  if (footerRow) {
+    const fr = sheet.addRow(footerRow);
+    fr.font = { bold: true, size: 11 };
+    for (let c = 1; c <= columns.length; c++) {
+      fr.getCell(c).border = {
+        top: { style: 'medium', color: { argb: 'FF1A1A2E' } },
+        bottom: { style: 'thin', color: { argb: 'FFDDDDDD' } },
+      };
+    }
+  }
+
   // Formato de moneda para columnas monetarias
   for (let i = 0; i < columns.length; i++) {
     if (moneyFields.includes(columns[i].key)) {
@@ -57,6 +70,10 @@ async function buildXlsx(
     let maxLen = columns[i].header.length;
     for (const row of rows) {
       const val = String(row[columns[i].key] ?? '');
+      if (val.length > maxLen) maxLen = val.length;
+    }
+    if (footerRow) {
+      const val = String(footerRow[columns[i].key] ?? '');
       if (val.length > maxLen) maxLen = val.length;
     }
     col.width = Math.min(maxLen + 4, 40);
@@ -81,12 +98,16 @@ async function buildXlsx(
 /**
  * Genera un archivo CSV a partir de filas de datos.
  */
-function buildCsv(columns: ColumnDef[], rows: Record<string, unknown>[]): string {
+function buildCsv(columns: ColumnDef[], rows: Record<string, unknown>[], footerRow?: Record<string, unknown>): string {
   const header = columns.map((c) => escapeCsv(c.header)).join(',');
   const body = rows
     .map((row) => columns.map((c) => escapeCsv(String(row[c.key] ?? ''))).join(','))
     .join('\n');
-  return header + '\n' + body;
+  let csv = header + '\n' + body;
+  if (footerRow) {
+    csv += '\n' + columns.map((c) => escapeCsv(String(footerRow[c.key] ?? ''))).join(',');
+  }
+  return csv;
 }
 
 function escapeCsv(val: string): string {
@@ -133,10 +154,13 @@ export async function exportReport(
         balance: b.balance,
         balanceType: b.balanceType,
       }));
+      const totDeb = items.reduce((s, b) => s + (b.totalDebit || 0), 0);
+      const totCred = items.reduce((s, b) => s + (b.totalCredit || 0), 0);
+      const footerRow = { code: '', name: 'Total', type: '', totalDebit: totDeb, totalCredit: totCred, balance: '', balanceType: '' };
       const moneyFields = ['totalDebit', 'totalCredit', 'balance'];
       const buffer = format === 'xlsx'
-        ? await buildXlsx('Balance Comprobación', columns, rows, moneyFields)
-        : Buffer.from(buildCsv(columns, rows), 'utf-8');
+        ? await buildXlsx('Balance Comprobación', columns, rows, moneyFields, footerRow)
+        : Buffer.from(buildCsv(columns, rows, footerRow), 'utf-8');
       return {
         buffer,
         contentType: format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv',
@@ -257,9 +281,15 @@ export async function exportReport(
           });
         }
       }
+      let totDeb = 0, totCred = 0;
+      for (const r of rows) {
+        totDeb += Number(r.debit) || 0;
+        totCred += Number(r.credit) || 0;
+      }
+      const footerRow = { date: '', id: '', description: '', account: 'Total', debit: totDeb, credit: totCred, status: '' };
       const buffer = format === 'xlsx'
-        ? await buildXlsx('Libro Diario', columns, rows, ['debit', 'credit'])
-        : Buffer.from(buildCsv(columns, rows), 'utf-8');
+        ? await buildXlsx('Libro Diario', columns, rows, ['debit', 'credit'], footerRow)
+        : Buffer.from(buildCsv(columns, rows, footerRow), 'utf-8');
       return {
         buffer,
         contentType: format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv',
