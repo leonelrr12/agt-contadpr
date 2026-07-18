@@ -188,7 +188,9 @@ export class DialogAgent {
 
     if (this.llm.isEnabled) {
       const llmResult = await this.llm.extract(input);
-      if (llmResult && !llmResult.missingFields.includes('type')) {
+      // Solo usar resultado del LLM si type es válido (no vacío) y no está en missingFields.
+      // Evita que el LLM devuelva type="" y se tome como válido.
+      if (llmResult && llmResult.type && !llmResult.missingFields.includes('type')) {
         extracted = llmResult;
       }
     }
@@ -243,6 +245,10 @@ export class DialogAgent {
         paymentMethod = prev.paymentMethod;
       }
     }
+
+    // Safety: si después del merge type/concept siguen vacíos, rellenar de prev
+    if (!type && prev?.type) type = prev.type;
+    if (!concept && prev?.concept) concept = prev.concept;
 
     if (!concept) missingFields.push('concept');
     if (amount === 0) missingFields.push('amount');

@@ -173,13 +173,14 @@ function dismissDateBanner() {
 }
 let pendingClassification = null;
 
-function showInput(mode) {
+function showInput(mode, keepContext = false) {
   stopQRScanner();
-  // Limpiar cualquier contexto residual de operaciones anteriores (PDF, OCR, etc.)
-  // para que no contamine el nuevo registro manual
-  dialogContext = null;
-  pendingResult = null;
-  pendingClassification = null;
+  // Limpiar contexto solo al iniciar un registro nuevo, no en follow-ups
+  if (!keepContext) {
+    dialogContext = null;
+    pendingResult = null;
+    pendingClassification = null;
+  }
   // PDF no oculta quick-actions (el diálogo de archivo es nativo, si cancela vuelve)
   if (mode !== 'pdf') {
     document.getElementById('quick-actions').classList.add('hidden');
@@ -933,7 +934,9 @@ async function sendMessage() {
         dialogContext.selectedEntityId = prevSelectedId;
       }
       const missing = data.plan?.dialog?.missingFields || [];
-      if (missing.includes('paymentMethod')) {
+      // Solo mostrar selector de pago si es el ÚNICO campo faltante.
+      // Si hay otros (amount, concept, type), dejar que el prompt del servidor los pida primero.
+      if (missing.length === 1 && missing[0] === 'paymentMethod') {
         showPaymentMethodSelector();
       } else if (data.prompt.includes('clasificarlo manualmente')) {
         cancelInput();
@@ -942,7 +945,7 @@ async function sendMessage() {
         showClassificationUI(concept);
       } else {
         addMessage(data.prompt, 'assistant');
-        showInput('escribir');
+        showInput('escribir', true);
       }
     } else {
       cancelInput();
