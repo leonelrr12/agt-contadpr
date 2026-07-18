@@ -2,7 +2,8 @@ import { Router } from 'express';
 import multer from 'multer';
 import { validate } from '../middleware/validate';
 import { requireQuota, incrementUsage } from '../middleware/quota';
-import { parseImportFile } from '../services/csv-parser';
+import { parseImportFile, parseCargaInicialFile } from '../services/csv-parser';
+import { resolveCargaInicialRows } from '../services/account-lookup';
 import { ClassificationAgent } from '@agt-contador/agents';
 import { AccountingAgent } from '@agt-contador/agents';
 import { importExecuteSchema } from '../validation/schemas';
@@ -39,6 +40,43 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
   }
 
   try {
+    const cargaInicial = req.body.cargaInicial === 'true';
+
+    if (cargaInicial) {
+      // ── Carga Inicial Preview ──
+      const parsed = await parseCargaInicialFile(req.file.buffer, req.file.originalname);
+
+      if (parsed.rows.length === 0) {
+        res.json({
+          headers: parsed.headers,
+          totalRows: parsed.totalRows,
+          cargaInicial: true,
+          cargaInicialPreview: { rows: [], totalDebit: 0, totalCredit: 0, balanced: true, accountsNotFound: 0 },
+        });
+        return;
+      }
+
+      const previewRows = parsed.rows.slice(0, 20);
+      const { results, totalDebit, totalCredit } = await resolveCargaInicialRows(
+        req.prisma, req.user!.companyId, previewRows,
+      );
+
+      res.json({
+        headers: parsed.headers,
+        totalRows: parsed.totalRows,
+        cargaInicial: true,
+        cargaInicialPreview: {
+          rows: results,
+          totalDebit,
+          totalCredit,
+          balanced: Math.abs(totalDebit - totalCredit) < 0.01,
+          accountsNotFound: results.filter(r => r.status !== 'ok').length,
+        },
+      });
+      return;
+    }
+
+    // ── Flujo normal ──
     const parsed = await parseImportFile(req.file.buffer, req.file.originalname);
 
     // Clasificar las primeras 20 filas para el preview
@@ -316,6 +354,210 @@ importRouter.post('/execute-all', requireQuota, upload.single('file'), async (re
     const status = isClientError ? 400 : 500;
     res.status(status).json({
       error: isClientError ? error.message : 'Error interno al procesar la importación. Intente de nuevo.',
+      detail: error?.message,
+    });
+  }
+});
+
+/**
+ * POST /api/import/carga-inicial
+ * Recibe un archivo CSV con formato Categoria,Concepto,Monto
+ * y crea UN solo asiento de apertura con todas las líneas.
+ */
+importRouter.post('/carga-inicial', requireQuota, upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'No se recibió ningún archivo' });
+    return;
+  }
+
+  try {
+    const defaultDate = (req.body.importDate as string) || new Date().toISOString().split('T')[0];
+    const parsed = await parseCargaInicialFile(req.file.buffer, req.file.originalname);
+
+    if (parsed.rows.length === 0) {
+      res.status(400).json({ error: 'No se encontraron filas válidas en el archivo. Revise que tenga columnas Categoria, Concepto y Monto con valores correctos.' });
+      return;
+    }
+
+    // Resolver cuentas
+    const { results, totalDebit, totalCredit } = await resolveCargaInicialRows(
+      req.prisma, req.user!.companyId, parsed.rows,
+    );
+
+    // Verificar cuentas no encontradas
+    const notFound = results.filter(r => r.status === 'not_found');
+    if (notFound.length > 0) {
+      res.status(400).json({
+        error: `No se encontraron ${notFound.length} cuenta(s) en el catálogo contable.`,
+        code: 'ACCOUNTS_NOT_FOUND',
+        notFound: notFound.map(r => ({ accountName: r.accountName, accountType: r.accountType })),
+        success: 0,
+        total: parsed.rows.length,
+      });
+      return;
+    }
+
+    // Verificar balance
+    if (Math.abs(totalDebit - totalCredit) > 0.01) {
+      res.status(400).json({
+        error: `El balance no cuadra. Débitos: ${totalDebit.toFixed(2)}, Créditos: ${totalCredit.toFixed(2)}. Diferencia: ${(totalDebit - totalCredit).toFixed(2)}`,
+        code: 'UNBALANCED',
+        totalDebit,
+        totalCredit,
+        success: 0,
+        total: parsed.rows.length,
+      });
+      return;
+    }
+
+    // Verificar cuota
+    const sub = (req as any).subscription;
+    if (sub) {
+      const remaining = sub.movementsLimit - sub.movementsUsed;
+      if (remaining < 1) {
+        res.status(429).json({
+          error: 'No tienes movimientos disponibles en tu plan.',
+          code: 'QUOTA_EXCEEDED',
+          limit: sub.movementsLimit,
+          used: sub.movementsUsed,
+          remaining,
+        });
+        return;
+      }
+    }
+
+    // Crear UN solo JournalEntry con todas las líneas
+    const entry = await req.prisma.journalEntry.create({
+      data: {
+        date: toLocalDate(defaultDate),
+        description: `Carga Inicial - ${defaultDate}`,
+        status: 'BORRADOR',
+        companyId: req.user!.companyId,
+        createdById: req.user!.userId,
+        lines: {
+          create: results.map(r => ({
+            accountId: r.matchedAccount!.id,
+            debit: r.side === 'Debe' ? r.amount : 0,
+            credit: r.side === 'Haber' ? r.amount : 0,
+          })),
+        },
+      },
+    });
+
+    // Incrementar uso de cuota (una sola vez para toda la carga inicial)
+    try { await incrementUsage(req); } catch { /* quota exhausted */ }
+
+    res.json({
+      success: 1,
+      errors: [],
+      total: parsed.rows.length,
+      entryIds: [entry.id],
+      description: `Carga Inicial: ${parsed.rows.length} cuentas cargadas al ${defaultDate}`,
+      totalDebit,
+      totalCredit,
+    });
+  } catch (error: any) {
+    console.error('[Import] Carga inicial error:', error);
+    const isClientError = /no se (detectó|encontró)/i.test(error.message || '');
+    const status = isClientError ? 400 : 500;
+    res.status(status).json({
+      error: isClientError ? error.message : 'Error interno al procesar la carga inicial.',
+      detail: error?.message,
+    });
+  }
+});
+
+/**
+ * POST /api/import/carga-inicial/execute
+ * Versión JSON: recibe las filas ya resueltas (con accountId) desde el frontend
+ * después de que el usuario revisó/corrigió los matches en el preview.
+ */
+importRouter.post('/carga-inicial/execute', requireQuota, async (req, res) => {
+  const { rows, importDate } = req.body;
+
+  if (!rows || !Array.isArray(rows) || rows.length === 0) {
+    res.status(400).json({ error: 'Se requiere un arreglo de filas (rows) con accountId, amount, y side.' });
+    return;
+  }
+
+  try {
+    const date = (importDate as string) || new Date().toISOString().split('T')[0];
+
+    // Validar que todas las filas tengan accountId
+    const invalid = rows.filter((r: any) => !r.accountId || !r.amount || !r.side);
+    if (invalid.length > 0) {
+      res.status(400).json({
+        error: `${invalid.length} fila(s) no tienen accountId. Usa el selector de cuenta en el preview.`,
+        code: 'MISSING_ACCOUNT',
+        invalidRows: invalid.map((r: any, i: number) => ({ index: i, accountName: r.accountName })),
+      });
+      return;
+    }
+
+    // Calcular totales
+    const totalDebit = rows
+      .filter((r: any) => r.side === 'Debe')
+      .reduce((s: number, r: any) => s + r.amount, 0);
+    const totalCredit = rows
+      .filter((r: any) => r.side === 'Haber')
+      .reduce((s: number, r: any) => s + r.amount, 0);
+
+    if (Math.abs(totalDebit - totalCredit) > 0.01) {
+      res.status(400).json({
+        error: `El balance no cuadra. Débitos: ${totalDebit.toFixed(2)}, Créditos: ${totalCredit.toFixed(2)}. Diferencia: ${(totalDebit - totalCredit).toFixed(2)}`,
+        code: 'UNBALANCED',
+        totalDebit, totalCredit,
+        success: 0, total: rows.length,
+      });
+      return;
+    }
+
+    // Verificar cuota
+    const sub = (req as any).subscription;
+    if (sub) {
+      const remaining = sub.movementsLimit - sub.movementsUsed;
+      if (remaining < 1) {
+        res.status(429).json({
+          error: 'No tienes movimientos disponibles en tu plan.',
+          code: 'QUOTA_EXCEEDED',
+        });
+        return;
+      }
+    }
+
+    // Crear UN solo JournalEntry
+    const entry = await req.prisma.journalEntry.create({
+      data: {
+        date: toLocalDate(date),
+        description: `Carga Inicial - ${date}`,
+        status: 'BORRADOR',
+        companyId: req.user!.companyId,
+        createdById: req.user!.userId,
+        lines: {
+          create: rows.map((r: any) => ({
+            accountId: r.accountId,
+            debit: r.side === 'Debe' ? r.amount : 0,
+            credit: r.side === 'Haber' ? r.amount : 0,
+          })),
+        },
+      },
+    });
+
+    try { await incrementUsage(req); } catch { /* quota exhausted */ }
+
+    res.json({
+      success: 1,
+      errors: [],
+      total: rows.length,
+      entryIds: [entry.id],
+      description: `Carga Inicial: ${rows.length} cuentas cargadas al ${date}`,
+      totalDebit,
+      totalCredit,
+    });
+  } catch (error: any) {
+    console.error('[Import] Carga inicial execute error:', error);
+    res.status(500).json({
+      error: 'Error interno al crear la carga inicial.',
       detail: error?.message,
     });
   }

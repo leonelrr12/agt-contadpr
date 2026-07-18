@@ -231,8 +231,12 @@
           <p style="margin:0;color:#6b7280;font-size:13px">Formatos aceptados: CSV, XLSX (máx. 10MB)</p>
           <input type="file" id="import-inline-file" accept=".csv,.xlsx" style="display:none">
         </div>
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-          <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap">📅 Fecha por defecto:</label>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+            <input type="checkbox" id="import-inline-carga">
+            Carga Inicial (balance de apertura)
+          </label>
+          <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap">📅 Fecha:</label>
           <input type="date" id="import-inline-date" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;width:160px">
           <span id="import-inline-file-name" style="font-size:13px;color:#6b7280"></span>
         </div>

@@ -2568,6 +2568,102 @@ async function unlinkWhatsApp(id) {
 let importInlineFile = null;
 let importInlinePreview = null;
 
+/* ── Account Picker para Carga Inicial (inline) ── */
+let allAccountsInline = [];
+let accountPickerCallbackInline = null;
+
+async function loadAllAccountsInline() {
+  if (allAccountsInline.length > 0) return allAccountsInline;
+  try {
+    const res = await authFetch(`${API_URL}/accounts`);
+    if (res.ok) { allAccountsInline = await res.json(); }
+    return allAccountsInline;
+  } catch (e) { return []; }
+}
+
+function showAccountPickerInline(rowIndex, currentAccountId, event) {
+  closeAccountPickerInline();
+  const accounts = allAccountsInline;
+  if (accounts.length === 0) return;
+
+  const picker = document.createElement('div');
+  picker.id = 'account-picker-inline-dd';
+  picker.style.cssText = 'position:fixed;background:#fff;border:1px solid #d0d5dd;border-radius:8px;box-shadow:0 10px 25px rgba(0,0,0,0.15);z-index:99999;width:300px;max-height:300px;display:flex;flex-direction:column';
+
+  const searchInput = document.createElement('input');
+  searchInput.type = 'text';
+  searchInput.placeholder = 'Buscar cuenta...';
+  searchInput.style.cssText = 'width:100%;padding:10px 12px;border:none;border-bottom:1px solid #e5e7eb;font-size:13px;outline:none;border-radius:8px 8px 0 0';
+  picker.appendChild(searchInput);
+
+  const list = document.createElement('div');
+  list.style.cssText = 'overflow-y:auto;flex:1';
+  picker.appendChild(list);
+
+  function renderList(filter) {
+    const q = (filter || '').toLowerCase().trim();
+    let filtered = accounts;
+    if (q) {
+      filtered = accounts.filter(a =>
+        a.name.toLowerCase().includes(q) || a.code.includes(q) ||
+        (a.type && a.type.toLowerCase().includes(q))
+      );
+    }
+    filtered = filtered.slice(0, 50);
+    if (filtered.length === 0) {
+      list.innerHTML = '<div style="padding:12px;color:#9ca3af;font-size:13px;text-align:center">No se encontraron cuentas</div>';
+      return;
+    }
+    let html = ''; let lastType = '';
+    filtered.forEach(a => {
+      if (a.type && a.type !== lastType) {
+        lastType = a.type;
+        html += `<div style="padding:4px 12px;font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;background:#f9fafb">${escHtml(lastType)}</div>`;
+      }
+      const sel = a.id === currentAccountId;
+      html += `<div data-id="${a.id}" data-name="${escHtml(a.name)}" data-code="${escHtml(a.code)}" data-type="${escHtml(a.type||'')}"
+        style="padding:6px 12px;cursor:pointer;font-size:13px;${sel?'background:#e0e7ff;font-weight:600':''}">
+        <span style="color:#6b7280;font-size:11px;margin-right:6px">${escHtml(a.code)}</span>${escHtml(a.name)}
+      </div>`;
+    });
+    list.innerHTML = html;
+    list.querySelectorAll('div[data-id]').forEach(item => {
+      item.addEventListener('click', () => {
+        if (accountPickerCallbackInline) {
+          accountPickerCallbackInline({ id: item.dataset.id, name: item.dataset.name, code: item.dataset.code, type: item.dataset.type });
+        }
+        closeAccountPickerInline();
+      });
+      item.addEventListener('mouseover', function() { this.style.background = '#f0f7ff'; });
+      item.addEventListener('mouseout', function() { this.style.background = sel ? '#e0e7ff' : 'transparent'; });
+    });
+  }
+
+  renderList('');
+  searchInput.addEventListener('input', () => renderList(searchInput.value));
+  searchInput.focus();
+
+  const rect = event.target.getBoundingClientRect();
+  picker.style.top = Math.min(rect.bottom + 4, window.innerHeight - 320) + 'px';
+  picker.style.left = Math.min(rect.left, window.innerWidth - 320) + 'px';
+  document.body.appendChild(picker);
+
+  setTimeout(() => { document.addEventListener('click', closeAccountPickerInlineOnClick); }, 0);
+}
+
+function closeAccountPickerInlineOnClick(e) {
+  const p = document.getElementById('account-picker-inline-dd');
+  if (p && !p.contains(e.target) && !e.target.closest('.account-picker-btn')) {
+    closeAccountPickerInline();
+  }
+}
+
+function closeAccountPickerInline() {
+  const p = document.getElementById('account-picker-inline-dd');
+  if (p) p.remove();
+  document.removeEventListener('click', closeAccountPickerInlineOnClick);
+}
+
 function loadPanelImport() {
   document.getElementById('chat-messages').classList.add('hidden');
   document.getElementById('input-area').classList.add('hidden');
@@ -2575,6 +2671,12 @@ function loadPanelImport() {
   // Inicializar fecha por defecto
   const dateInput = document.getElementById('import-inline-date');
   if (!dateInput.value) dateInput.value = new Date().toISOString().split('T')[0];
+  // Cargar catálogo de cuentas para el picker de carga inicial
+  loadAllAccountsInline();
+  // Checkbox carga inicial: re-procesar archivo al cambiar
+  document.getElementById('import-inline-carga').onchange = () => {
+    if (importInlineFile) handleImportInlineFile(importInlineFile);
+  };
   // Drag & drop + file input
   const zone = document.getElementById('import-inline-zone');
   const fileInput = document.getElementById('import-inline-file');
@@ -2593,12 +2695,14 @@ function loadPanelImport() {
 
 async function handleImportInlineFile(file) {
   importInlineFile = file;
+  const isCarga = document.getElementById('import-inline-carga').checked;
   document.getElementById('import-inline-file-name').textContent = `📎 ${file.name}`;
   document.getElementById('import-inline-loading').classList.remove('hidden');
-  document.getElementById('import-inline-loading-text').textContent = 'Analizando archivo...';
+  document.getElementById('import-inline-loading-text').textContent = isCarga ? 'Analizando archivo de carga inicial...' : 'Analizando archivo...';
 
   const formData = new FormData();
   formData.append('file', file);
+  if (isCarga) formData.append('cargaInicial', 'true');
   try {
     const res = await authFetch(`${API_URL}/import/preview`, { method: 'POST', body: formData });
     if (!res.ok) { const e = await res.json(); await showAlert(e.error || 'Error'); resetImportInline(); return; }
@@ -2611,36 +2715,183 @@ async function handleImportInlineFile(file) {
 
 function renderImportInlinePreview() {
   if (!importInlinePreview) return;
-  const { totalRows, previewRows } = importInlinePreview;
-  document.getElementById('import-inline-total').textContent = totalRows;
-  const errs = previewRows.filter(r => !r.date || !r.amount || r.amount <= 0);
-  document.getElementById('import-inline-ok').textContent = Math.max(0, previewRows.length - errs.length) + (totalRows > 20 ? '+' : '');
-  document.getElementById('import-inline-err').textContent = errs.length;
-  document.getElementById('import-inline-summary').classList.remove('hidden');
+  const isCarga = importInlinePreview.cargaInicial === true;
 
-  // Tabla preview (primeras 20 filas)
-  const thead = document.getElementById('import-inline-thead');
-  thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Concepto</th><th>Cuenta</th><th>Conf</th></tr>';
-  let html = '';
-  previewRows.forEach((r, i) => {
-    const conf = r.classification;
-    html += `<tr>
-      <td>${i+1}</td><td>${r.date||'—'}</td><td>${escHtml(r.description||'')}</td>
-      <td>${r.amount?'$'+r.amount.toFixed(2):'—'}</td><td>${escHtml(r.concept||'')}</td>
-      <td>${conf?escHtml(conf.concept):'—'}</td>
-      <td>${conf?Math.round(conf.confidence*100)+'%':'—'}</td></tr>`;
-  });
-  document.getElementById('import-inline-tbody').innerHTML = html;
+  document.getElementById('import-inline-summary').classList.remove('hidden');
   document.getElementById('import-inline-preview').classList.remove('hidden');
   document.getElementById('import-inline-actions').classList.remove('hidden');
+
+  const btnExecute = document.getElementById('import-inline-execute');
+  if (isCarga) {
+    btnExecute.textContent = '📋 Cargar Balance Inicial';
+    btnExecute.style.background = '#7c3aed';
+    // Deshabilitar si hay cuentas no encontradas o no balanceado
+    if (importInlinePreview.cargaInicialPreview) {
+      const hasErrors = (importInlinePreview.cargaInicialPreview.accountsNotFound || 0) > 0;
+      const notBalanced = !importInlinePreview.cargaInicialPreview.balanced;
+      btnExecute.disabled = hasErrors || notBalanced;
+      btnExecute.title = hasErrors
+        ? 'Corrige las cuentas no encontradas antes de ejecutar'
+        : notBalanced
+          ? 'El balance no cuadra. Revisa los montos.'
+          : '';
+    }
+  } else {
+    btnExecute.textContent = '✅ Importar transacciones';
+    btnExecute.style.background = '#059669';
+    btnExecute.disabled = false;
+    btnExecute.title = '';
+  }
+
+  if (isCarga && importInlinePreview.cargaInicialPreview) {
+    const cip = importInlinePreview.cargaInicialPreview;
+    const { rows, totalDebit, totalCredit, balanced, accountsNotFound } = cip;
+    const totalRows = importInlinePreview.totalRows;
+
+    document.getElementById('import-inline-total').textContent = totalRows;
+    document.getElementById('import-inline-ok').textContent = rows.length - accountsNotFound + (totalRows > 20 ? '+' : '');
+    document.getElementById('import-inline-err').textContent = accountsNotFound;
+
+    // Mostrar balance extra
+    const summaryEl = document.getElementById('import-inline-summary');
+    let balanceRow = document.getElementById('import-inline-balance-row');
+    if (!balanceRow) {
+      balanceRow = document.createElement('div');
+      balanceRow.id = 'import-inline-balance-row';
+      balanceRow.style.cssText = 'display:flex;gap:14px;margin-bottom:16px';
+      summaryEl.parentNode.insertBefore(balanceRow, summaryEl.nextSibling);
+    }
+    balanceRow.innerHTML =
+      `<div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700">$${totalDebit.toFixed(2)}</div><div style="font-size:11px;color:#6b7280">Total Débitos</div></div>
+       <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700">$${totalCredit.toFixed(2)}</div><div style="font-size:11px;color:#6b7280">Total Créditos</div></div>
+       <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:${balanced?'#059669':'#dc2626'}">${balanced?'✅ Balanceado':'⚠️ Desbalanceado'}</div><div style="font-size:11px;color:#6b7280">Diferencia: $${Math.abs(totalDebit-totalCredit).toFixed(2)}</div></div>`;
+
+    const thead = document.getElementById('import-inline-thead');
+    thead.innerHTML = '<tr><th>#</th><th>Tipo</th><th>Cuenta</th><th>Monto</th><th>Lado</th><th>Cuenta Contable</th><th>Estado</th></tr>';
+    let html = '';
+    rows.forEach((r, i) => {
+      const isErr = r.status !== 'ok';
+      const accountLabel = r.matchedAccount ? `${r.matchedAccount.code} - ${r.matchedAccount.name}` : '';
+      html += `<tr>
+        <td>${i+1}</td><td>${escHtml(r.accountType)}</td><td>${escHtml(r.accountName)}</td>
+        <td>$${r.amount.toFixed(2)}</td><td>${r.side}</td>
+        <td>
+          <button class="account-picker-btn"
+            style="font-size:11px;text-align:left;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 8px;border-radius:4px;cursor:pointer;background:${isErr?'#fee2e2':'#f0fdf4'};border:1px solid ${isErr?'#fecaca':'#bbf7d0'};color:${isErr?'#991b1b':'#065f46'}"
+            data-row="${i}" data-account-id="${r.matchedAccount?r.matchedAccount.id:''}">
+            ${r.matchedAccount ? escHtml(accountLabel) : '🔍 Seleccionar...'}
+          </button>
+        </td>
+        <td>${r.status==='ok'?'✅':'<span style="color:#dc2626">❌</span>'}</td></tr>`;
+    });
+    document.getElementById('import-inline-tbody').innerHTML = html;
+
+    // Asignar eventos click a los botones de selección
+    document.getElementById('import-inline-tbody').querySelectorAll('.account-picker-btn').forEach(btn => {
+      btn.addEventListener('click', function(e) {
+        const rowIndex = parseInt(this.dataset.row);
+        const currentId = this.dataset.accountId || null;
+        accountPickerCallbackInline = (selected) => {
+          const row = importInlinePreview.cargaInicialPreview.rows[rowIndex];
+          row.matchedAccount = { id: selected.id, name: selected.name, code: selected.code, type: selected.type };
+          row.status = 'ok';
+          const rrows = importInlinePreview.cargaInicialPreview.rows;
+          importInlinePreview.cargaInicialPreview.accountsNotFound = rrows.filter(r => r.status !== 'ok').length;
+          importInlinePreview.cargaInicialPreview.totalDebit = rrows.filter(r => r.side === 'Debe').reduce((s, r) => s + r.amount, 0);
+          importInlinePreview.cargaInicialPreview.totalCredit = rrows.filter(r => r.side === 'Haber').reduce((s, r) => s + r.amount, 0);
+          importInlinePreview.cargaInicialPreview.balanced = Math.abs(
+            importInlinePreview.cargaInicialPreview.totalDebit - importInlinePreview.cargaInicialPreview.totalCredit
+          ) < 0.01;
+          // Re-render
+          document.getElementById('import-inline-tbody').querySelectorAll('.account-picker-btn').forEach(b => {
+            b.removeEventListener('click', () => {}); // limpia handlers viejos
+          });
+          renderImportInlinePreview();
+        };
+        showAccountPickerInline(rowIndex, currentId, e);
+      });
+    });
+  } else {
+    // Remover balance row si existe
+    const balanceRow = document.getElementById('import-inline-balance-row');
+    if (balanceRow) balanceRow.remove();
+
+    const { totalRows, previewRows } = importInlinePreview;
+    document.getElementById('import-inline-total').textContent = totalRows;
+    const errs = previewRows.filter(r => !r.date || !r.amount || r.amount <= 0);
+    document.getElementById('import-inline-ok').textContent = Math.max(0, previewRows.length - errs.length) + (totalRows > 20 ? '+' : '');
+    document.getElementById('import-inline-err').textContent = errs.length;
+
+    const thead = document.getElementById('import-inline-thead');
+    thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Concepto</th><th>Cuenta</th><th>Conf</th></tr>';
+    let html = '';
+    previewRows.forEach((r, i) => {
+      const conf = r.classification;
+      html += `<tr>
+        <td>${i+1}</td><td>${r.date||'—'}</td><td>${escHtml(r.description||'')}</td>
+        <td>${r.amount?'$'+r.amount.toFixed(2):'—'}</td><td>${escHtml(r.concept||'')}</td>
+        <td>${conf?escHtml(conf.concept):'—'}</td>
+        <td>${conf?Math.round(conf.confidence*100)+'%':'—'}</td></tr>`;
+    });
+    document.getElementById('import-inline-tbody').innerHTML = html;
+  }
 }
 
 async function executeImportInline() {
   if (!importInlineFile) return;
+  const isCarga = importInlinePreview.cargaInicial === true;
   const total = importInlinePreview.totalRows;
   const importDate = document.getElementById('import-inline-date').value;
   const dateLabel = new Date(importDate+'T12:00:00').toLocaleDateString('es-PA',{year:'numeric',month:'long',day:'numeric'});
 
+  if (isCarga) {
+    const cip = importInlinePreview.cargaInicialPreview;
+    if (cip.accountsNotFound > 0) {
+      await showAlert(`⚠️ Hay ${cip.accountsNotFound} cuenta(s) sin asignar. Usa el selector (🔍) en cada fila.`);
+      return;
+    }
+    if (!cip.balanced) {
+      await showAlert(`⚠️ El balance no cuadra. Diferencia: $${Math.abs(cip.totalDebit - cip.totalCredit).toFixed(2)}`);
+      return;
+    }
+
+    const ok = await showConfirm(`¿Crear carga inicial con ${total} cuentas?\n\n📅 Fecha del balance: ${dateLabel}\n\nSe creará un solo asiento de apertura como BORRADOR.`);
+    if (!ok) return;
+
+    document.getElementById('import-inline-loading').classList.remove('hidden');
+    document.getElementById('import-inline-actions').classList.add('hidden');
+    document.getElementById('import-inline-loading-text').textContent = `Creando carga inicial con ${total} cuentas...`;
+
+    // Enviar filas resueltas como JSON
+    const rows = cip.rows.map(r => ({
+      accountId: r.matchedAccount.id,
+      accountName: r.accountName,
+      accountType: r.accountType,
+      amount: r.amount,
+      side: r.side,
+    }));
+
+    try {
+      const res = await authFetch(`${API_URL}/import/carga-inicial/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows, importDate }),
+      });
+      document.getElementById('import-inline-loading').classList.add('hidden');
+      const result = await res.json();
+      if (res.ok) {
+        const d = result.totalDebit || 0;
+        const c = result.totalCredit || 0;
+        await showAlert(`✅ Carga Inicial completada\n\n${result.description || ''}\nDébitos: $${d.toFixed(2)}\nCréditos: $${c.toFixed(2)}`);
+      } else {
+        await showAlert(`❌ ${result.error || 'Error'}`);
+      }
+      resetImportInline();
+    } catch (e) { await showAlert('Error de conexión'); resetImportInline(); }
+    return;
+  }
+
+  // ── Flujo normal ──
   const ok = await showConfirm(`¿Importar ${total} transacciones?\n\n📅 Fecha: ${dateLabel}\n\n⚠️ Verifica la fecha. Los asientos se crearán como BORRADOR.`);
   if (!ok) return;
 
@@ -2675,6 +2926,13 @@ function resetImportInline() {
   document.getElementById('import-inline-summary').classList.add('hidden');
   document.getElementById('import-inline-actions').classList.add('hidden');
   document.getElementById('import-inline-loading').classList.add('hidden');
+  // Limpiar balance row si existe
+  const balanceRow = document.getElementById('import-inline-balance-row');
+  if (balanceRow) balanceRow.remove();
+  // Resetear botón
+  const btn = document.getElementById('import-inline-execute');
+  btn.textContent = '✅ Importar transacciones';
+  btn.style.background = '#059669';
 }
 
 /* ── Panel: Conciliación (inline) ── */

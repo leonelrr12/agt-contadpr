@@ -80,7 +80,8 @@
       </div>
 
       <div class="template-link">
-        💡 ¿No tienes un archivo? <a href="#" id="download-template">Descarga nuestra plantilla CSV de ejemplo</a>
+        💡 ¿No tienes un archivo? <a href="#" id="download-template">Descarga plantilla CSV de transacciones</a>
+        &nbsp;|&nbsp; <a href="#" id="download-carga-template">Descarga plantilla CSV de carga inicial</a>
       </div>
     </div>
 
@@ -101,7 +102,11 @@
 
       <div class="actions-bar">
         <div style="display:flex;align-items:center;gap:8px;flex:1">
-          <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap">📅 Fecha para asientos sin fecha:</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+            <input type="checkbox" id="carga-inicial-checkbox">
+            Carga Inicial (balance de apertura)
+          </label>
+          <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap;margin-left:12px">📅 Fecha:</label>
           <input type="date" id="import-date" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;width:160px">
         </div>
         <button class="btn btn-secondary" onclick="resetImport()">🔄 Cancelar</button>
@@ -167,6 +172,134 @@ if (!getToken()) { window.location.href = '/login.html'; }
 
 let previewData = null;
 let fileToUpload = null;
+let allAccounts = [];  // Catálogo completo de cuentas (para el picker de carga inicial)
+
+// ── Account Picker (para carga inicial) ──
+let accountPickerCallback = null;
+
+async function loadAllAccounts() {
+  if (allAccounts.length > 0) return allAccounts;
+  try {
+    const res = await authFetch(`${API_URL}/accounts`);
+    if (res.ok) {
+      allAccounts = await res.json();
+    }
+    return allAccounts;
+  } catch (e) {
+    console.error('Error cargando cuentas:', e);
+    return [];
+  }
+}
+
+function showAccountPicker(rowIndex, currentAccountId, event) {
+  // Cerrar picker anterior si existe
+  closeAccountPicker();
+
+  const accounts = allAccounts;
+  if (accounts.length === 0) return;
+
+  // Crear el dropdown
+  const picker = document.createElement('div');
+  picker.id = 'account-picker-dropdown';
+  picker.style.cssText = 'position:absolute;background:#fff;border:1px solid #d0d5dd;border-radius:8px;box-shadow:0 10px 25px rgba(0,0,0,0.15);z-index:9999;width:320px;max-height:320px;display:flex;flex-direction:column';
+
+  // Search input
+  const searchInput = document.createElement('input');
+  searchInput.type = 'text';
+  searchInput.placeholder = 'Buscar cuenta...';
+  searchInput.style.cssText = 'width:100%;padding:10px 12px;border:none;border-bottom:1px solid #e5e7eb;font-size:13px;font-family:inherit;outline:none;border-radius:8px 8px 0 0';
+  picker.appendChild(searchInput);
+
+  // List container
+  const list = document.createElement('div');
+  list.style.cssText = 'overflow-y:auto;flex:1';
+  picker.appendChild(list);
+
+  function renderList(filter) {
+    const q = (filter || '').toLowerCase().trim();
+    let filtered = accounts;
+    if (q) {
+      filtered = accounts.filter(a =>
+        a.name.toLowerCase().includes(q) ||
+        a.code.includes(q) ||
+        (a.type && a.type.toLowerCase().includes(q))
+      );
+    }
+    // Limitar a 50 resultados
+    filtered = filtered.slice(0, 50);
+
+    if (filtered.length === 0) {
+      list.innerHTML = '<div style="padding:12px;color:#9ca3af;font-size:13px;text-align:center">No se encontraron cuentas</div>';
+      return;
+    }
+
+    let html = '';
+    let lastType = '';
+    filtered.forEach(a => {
+      if (a.type && a.type !== lastType) {
+        lastType = a.type;
+        html += `<div style="padding:4px 12px;font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;background:#f9fafb">${lastType}</div>`;
+      }
+      const isSelected = a.id === currentAccountId;
+      html += `<div class="account-picker-item" data-id="${a.id}" data-name="${esc(a.name)}" data-code="${esc(a.code)}" data-type="${esc(a.type||'')}"
+        style="padding:6px 12px;cursor:pointer;font-size:13px;${isSelected?'background:#e0e7ff;font-weight:600':''}"
+        onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='${isSelected?'#e0e7ff':'transparent'}'">
+        <span style="color:#6b7280;font-size:11px;margin-right:6px">${esc(a.code)}</span>${esc(a.name)}
+      </div>`;
+    });
+    list.innerHTML = html;
+
+    // Click handlers
+    list.querySelectorAll('.account-picker-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const id = item.dataset.id;
+        const name = item.dataset.name;
+        const code = item.dataset.code;
+        const type = item.dataset.type;
+        if (accountPickerCallback) {
+          accountPickerCallback({ id, name, code, type });
+        }
+        closeAccountPicker();
+      });
+    });
+  }
+
+  renderList('');
+  searchInput.addEventListener('input', () => renderList(searchInput.value));
+  searchInput.focus();
+
+  // Posicionar cerca del click
+  const rect = event.target.getBoundingClientRect();
+  picker.style.position = 'fixed';
+  picker.style.top = Math.min(rect.bottom + 4, window.innerHeight - 340) + 'px';
+  picker.style.left = Math.min(rect.left, window.innerWidth - 340) + 'px';
+
+  document.body.appendChild(picker);
+
+  // Cerrar al hacer clic fuera
+  setTimeout(() => {
+    document.addEventListener('click', closeAccountPickerOnClick);
+  }, 0);
+}
+
+function closeAccountPickerOnClick(e) {
+  const picker = document.getElementById('account-picker-dropdown');
+  if (picker && !picker.contains(e.target) && !e.target.classList.contains('account-picker-btn')) {
+    closeAccountPicker();
+  }
+}
+
+function closeAccountPicker() {
+  const picker = document.getElementById('account-picker-dropdown');
+  if (picker) picker.remove();
+  document.removeEventListener('click', closeAccountPickerOnClick);
+}
+
+function refreshCargaInicialPreview() {
+  // Reconstruir el preview con los datos actualizados
+  if (!previewData || !previewData.cargaInicialPreview) return;
+  renderCargaInicialPreview(previewData.cargaInicialPreview);
+}
 
 // Prevenir que el navegador abra el archivo al soltarlo
 ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
@@ -207,11 +340,13 @@ function setProgress(pct) {
 
 async function handleFile(file) {
   fileToUpload = file;
-  showLoading('Analizando archivo...');
+  const isCarga = document.getElementById('carga-inicial-checkbox').checked;
+  showLoading(isCarga ? 'Analizando archivo de carga inicial...' : 'Analizando archivo...');
   setProgress(20);
 
   const formData = new FormData();
   formData.append('file', file);
+  if (isCarga) formData.append('cargaInicial', 'true');
 
   try {
     const res = await authFetch(`${API_URL}/import/preview`, {
@@ -234,9 +369,9 @@ async function handleFile(file) {
   }
 }
 
-function renderPreview() {
+async function renderPreview() {
   if (!previewData) return;
-  const { headers, detectedMapping, previewRows, totalRows } = previewData;
+  const { cargaInicial, cargaInicialPreview } = previewData;
 
   document.getElementById('step-loading').classList.add('hidden');
   document.getElementById('step-upload').classList.add('hidden');
@@ -248,6 +383,141 @@ function renderPreview() {
   if (!dateInput.value) {
     dateInput.value = new Date().toISOString().split('T')[0];
   }
+
+  // Actualizar texto del botón según modo
+  const isCarga = cargaInicial === true;
+  const btnExecute = document.getElementById('btn-execute');
+  if (isCarga) {
+    btnExecute.textContent = '📋 Cargar Balance Inicial';
+    btnExecute.style.background = '#7c3aed';
+  } else {
+    btnExecute.textContent = '✅ Importar transacciones';
+    btnExecute.style.background = '#059669';
+    btnExecute.disabled = false;
+    btnExecute.title = '';
+  }
+
+  if (isCarga && cargaInicialPreview) {
+    await renderCargaInicialPreview(cargaInicialPreview);
+  } else {
+    renderNormalPreview();
+  }
+}
+
+async function renderCargaInicialPreview(cip) {
+  // Cargar catálogo de cuentas para el picker
+  await loadAllAccounts();
+
+  const { rows, totalDebit, totalCredit, balanced, accountsNotFound } = cip;
+
+  // Stats
+  document.getElementById('stat-total').textContent = previewData.totalRows;
+  document.getElementById('stat-ok').textContent = rows.length - accountsNotFound + (previewData.totalRows > 20 ? '+' : '');
+  document.getElementById('stat-err').textContent = accountsNotFound;
+
+  // Summary cards extra
+  const cardsRow = document.querySelector('.summary-cards');
+  let balanceCards = document.getElementById('carga-balance-cards');
+  if (!balanceCards) {
+    balanceCards = document.createElement('div');
+    balanceCards.id = 'carga-balance-cards';
+    balanceCards.className = 'summary-cards';
+    cardsRow.parentNode.insertBefore(balanceCards, cardsRow.nextSibling);
+  }
+  balanceCards.innerHTML =
+    `<div class="summary-card"><div class="num" style="color:#1a1a2e">$${totalDebit.toFixed(2)}</div><div class="label">Total Débitos</div></div>
+     <div class="summary-card"><div class="num" style="color:#1a1a2e">$${totalCredit.toFixed(2)}</div><div class="label">Total Créditos</div></div>
+     <div class="summary-card ${balanced ? 'ok' : 'err'}"><div class="num">${balanced ? '✅ Balanceado' : '⚠️ Desbalanceado'}</div><div class="label">Diferencia: $${Math.abs(totalDebit - totalCredit).toFixed(2)}</div></div>`;
+
+  // Table header
+  const thead = document.getElementById('preview-thead');
+  thead.innerHTML = '<tr>' +
+    '<th>#</th>' +
+    '<th>Tipo Cuenta</th>' +
+    '<th>Nombre Cuenta</th>' +
+    '<th>Monto</th>' +
+    '<th>Lado</th>' +
+    '<th>Cuenta Contable</th>' +
+    '<th>Estado</th>' +
+    '</tr>';
+
+  // Table body
+  const tbody = document.getElementById('preview-tbody');
+  let html = '';
+  rows.forEach((r, i) => {
+    const isErr = r.status !== 'ok';
+    const rowClass = isErr ? 'row-error' : '';
+    const accountLabel = r.matchedAccount
+      ? `${r.matchedAccount.code} - ${r.matchedAccount.name}`
+      : '';
+    html += `<tr class="${rowClass}">
+      <td>${i + 1}</td>
+      <td><span class="badge" style="background:#e0e7ff;color:#3730a3">${esc(r.accountType)}</span></td>
+      <td>${esc(r.accountName)}</td>
+      <td>$${r.amount.toFixed(2)}</td>
+      <td>${r.side === 'Debe' ? '⬅️ Debe' : '➡️ Haber'}</td>
+      <td>
+        <button class="btn btn-sm account-picker-btn"
+          style="font-size:12px;text-align:left;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:${isErr ? '#fee2e2' : '#f0fdf4'};border:1px solid ${isErr ? '#fecaca' : '#bbf7d0'};color:${isErr ? '#991b1b' : '#065f46'};cursor:pointer"
+          data-row="${i}"
+          data-account-id="${r.matchedAccount ? r.matchedAccount.id : ''}">
+          ${r.matchedAccount ? esc(accountLabel) : '🔍 Seleccionar cuenta...'}
+        </button>
+      </td>
+      <td>${r.status === 'ok' ? '<span class="badge badge-ok">Encontrada</span>' : '<span class="badge badge-err">Sin match</span>'}</td>
+    </tr>`;
+  });
+
+  if (previewData.totalRows > 20) {
+    html += `<tr><td colspan="7" style="text-align:center;color:#6b7280;padding:12px">
+      Mostrando 20 de ${previewData.totalRows} filas.
+    </td></tr>`;
+  }
+
+  tbody.innerHTML = html;
+
+  // Asignar eventos click a los botones de selección de cuenta
+  tbody.querySelectorAll('.account-picker-btn').forEach(btn => {
+    btn.addEventListener('click', function(e) {
+      const rowIndex = parseInt(this.dataset.row);
+      const currentId = this.dataset.accountId || null;
+      accountPickerCallback = (selected) => {
+        // Actualizar la fila en previewData
+        const row = previewData.cargaInicialPreview.rows[rowIndex];
+        row.matchedAccount = { id: selected.id, name: selected.name, code: selected.code, type: selected.type };
+        row.status = 'ok';
+        // Recalcular totals y re-render
+        const rrows = previewData.cargaInicialPreview.rows;
+        previewData.cargaInicialPreview.accountsNotFound = rrows.filter(r => r.status !== 'ok').length;
+        previewData.cargaInicialPreview.totalDebit = rrows.filter(r => r.side === 'Debe').reduce((s, r) => s + r.amount, 0);
+        previewData.cargaInicialPreview.totalCredit = rrows.filter(r => r.side === 'Haber').reduce((s, r) => s + r.amount, 0);
+        previewData.cargaInicialPreview.balanced = Math.abs(
+          previewData.cargaInicialPreview.totalDebit - previewData.cargaInicialPreview.totalCredit
+        ) < 0.01;
+        refreshCargaInicialPreview();
+        // Actualizar botón execute
+        const btnEx = document.getElementById('btn-execute');
+        const hasErrors = previewData.cargaInicialPreview.accountsNotFound > 0;
+        btnEx.disabled = hasErrors || !previewData.cargaInicialPreview.balanced;
+        btnEx.title = hasErrors ? 'Corrige las cuentas no encontradas antes de ejecutar' : '';
+      };
+      showAccountPicker(rowIndex, currentId, e);
+    });
+  });
+
+  // Actualizar botón execute
+  const btnEx = document.getElementById('btn-execute');
+  const hasErrors = accountsNotFound > 0;
+  btnEx.disabled = hasErrors || !balanced;
+  btnEx.title = hasErrors ? 'Corrige las cuentas no encontradas antes de ejecutar' : (!balanced ? 'El balance no cuadra' : '');
+}
+
+function renderNormalPreview() {
+  const { headers, detectedMapping, previewRows, totalRows } = previewData;
+
+  // Remover cards de balance si existen
+  const balanceCards = document.getElementById('carga-balance-cards');
+  if (balanceCards) balanceCards.remove();
 
   // Stats
   const errors = previewRows.filter(r => !r.date || !r.amount || !r.amount > 0 || (r.classification && r.classification.confidence < 0.3));
@@ -328,10 +598,61 @@ function closeConfirmModal(ok) {
 async function executeImport() {
   if (!previewData || !fileToUpload) return;
 
+  const isCarga = previewData.cargaInicial === true;
   const total = previewData.totalRows;
   const importDate = document.getElementById('import-date').value;
   const dateLabel = new Date(importDate + 'T12:00:00').toLocaleDateString('es-PA', { year: 'numeric', month: 'long', day: 'numeric' });
 
+  if (isCarga) {
+    // ── Carga Inicial ──
+    const cip = previewData.cargaInicialPreview;
+    const hasErrors = cip.accountsNotFound > 0;
+    if (hasErrors) {
+      alert(`⚠️ Hay ${cip.accountsNotFound} cuenta(s) sin asignar. Usa el selector de cuenta (🔍) en cada fila antes de continuar.`);
+      return;
+    }
+    if (!cip.balanced) {
+      alert(`⚠️ El balance no cuadra. Diferencia: $${Math.abs(cip.totalDebit - cip.totalCredit).toFixed(2)}`);
+      return;
+    }
+
+    const ok = await showConfirmModal('📋 Confirmar carga inicial',
+      `<p>Se creará <strong>un asiento de apertura</strong> con <strong>${total} cuentas</strong>.</p>
+       <p>📅 <strong>Fecha del balance:</strong><br><span style="font-size:16px;color:#7c3aed">${dateLabel}</span></p>
+       <p style="color:#6b7280;font-size:13px">El asiento se creará como <strong>BORRADOR</strong> para revisión.</p>`);
+    if (!ok) return;
+
+    showLoading(`Creando carga inicial con ${total} cuentas...`);
+
+    // Enviar las filas ya resueltas (con accountId) como JSON
+    const rows = cip.rows.map(r => ({
+      accountId: r.matchedAccount.id,
+      accountName: r.accountName,
+      accountType: r.accountType,
+      amount: r.amount,
+      side: r.side,
+    }));
+
+    try {
+      const res = await authFetch(`${API_URL}/import/carga-inicial/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows, importDate }),
+      });
+      setProgress(90);
+
+      const result = await res.json();
+      setProgress(100);
+
+      renderResult(result, total, true);
+    } catch (e) {
+      alert('Error: ' + e.message);
+      resetImport();
+    }
+    return;
+  }
+
+  // ── Flujo normal ──
   // Advertencia si son muchas filas
   if (total > 500) {
     const ok = await showConfirmModal('⚠️ Archivo grande',
@@ -364,33 +685,51 @@ async function executeImport() {
     const result = await res.json();
     setProgress(100);
 
-    renderResult(result, total);
+    renderResult(result, total, false);
   } catch (e) {
     alert('Error: ' + e.message);
     resetImport();
   }
 }
 
-function renderResult(result, total) {
+function renderResult(result, total, isCarga) {
   document.getElementById('step-loading').classList.add('hidden');
   document.getElementById('step-upload').classList.add('hidden');
   document.getElementById('step-preview').classList.add('hidden');
   document.getElementById('step-result').classList.remove('hidden');
 
   const cards = document.getElementById('result-cards');
-  cards.innerHTML = `
-    <div class="summary-card total"><div class="num">${total}</div><div class="label">Total procesadas</div></div>
-    <div class="summary-card ok"><div class="num">${result.success}</div><div class="label">Importadas con éxito ✅</div></div>
-    <div class="summary-card err"><div class="num">${result.errors.length}</div><div class="label">Con error ❌</div></div>
-  `;
+  if (isCarga) {
+    const d = result.totalDebit || 0;
+    const c = result.totalCredit || 0;
+    cards.innerHTML = `
+      <div class="summary-card total"><div class="num">${total}</div><div class="label">Cuentas cargadas</div></div>
+      <div class="summary-card ok"><div class="num">$${d.toFixed(2)}</div><div class="label">Total Débitos</div></div>
+      <div class="summary-card ok"><div class="num">$${c.toFixed(2)}</div><div class="label">Total Créditos</div></div>
+      <div class="summary-card ok"><div class="num">✅</div><div class="label">Carga Inicial Exitosa</div></div>
+    `;
+  } else {
+    cards.innerHTML = `
+      <div class="summary-card total"><div class="num">${total}</div><div class="label">Total procesadas</div></div>
+      <div class="summary-card ok"><div class="num">${result.success}</div><div class="label">Importadas con éxito ✅</div></div>
+      <div class="summary-card err"><div class="num">${result.errors.length}</div><div class="label">Con error ❌</div></div>
+    `;
+  }
 
   const errContainer = document.getElementById('error-list-container');
-  if (result.errors.length > 0) {
+  if (result.errors && result.errors.length > 0) {
     let errHtml = '<div class="error-list"><h4>⚠️ Errores encontrados</h4><ul>';
     result.errors.forEach(e => {
       errHtml += `<li><strong>Fila ${e.row}:</strong> ${esc(e.error)}</li>`;
     });
     errHtml += '</ul></div>';
+    errContainer.innerHTML = errHtml;
+  } else if (result.notFound && result.notFound.length > 0) {
+    let errHtml = '<div class="error-list"><h4>⚠️ Cuentas no encontradas</h4><ul>';
+    result.notFound.forEach(a => {
+      errHtml += `<li><strong>${esc(a.accountName)}</strong> (${esc(a.accountType)})</li>`;
+    });
+    errHtml += '</ul><p style="color:#6b7280;font-size:13px">Agrega estas cuentas al catálogo contable e intenta de nuevo.</p></div>';
     errContainer.innerHTML = errHtml;
   } else {
     errContainer.innerHTML = '';
@@ -407,7 +746,7 @@ function resetImport() {
   document.getElementById('step-loading').classList.add('hidden');
 }
 
-// ── Template download ──
+// ── Template downloads ──
 document.getElementById('download-template').addEventListener('click', e => {
   e.preventDefault();
   const csv = 'Fecha,Descripción,Monto,Tipo,Concepto,Método de Pago\n' +
@@ -420,6 +759,22 @@ document.getElementById('download-template').addEventListener('click', e => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = 'plantilla_importacion.csv'; a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('download-carga-template').addEventListener('click', e => {
+  e.preventDefault();
+  const csv = 'Categoria,Concepto,Monto\n' +
+    'Activo,Banco,55049.36\n' +
+    'Activo,Cuentas por Cobrar,24352.02\n' +
+    'Activo,Inventario,1000.00\n' +
+    'Pasivo,Cuentas por Pagar,10000.00\n' +
+    'Pasivo,Impuesto por Pagar,18115.18\n' +
+    'Patrimonio,Superávit,52286.20\n';
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'plantilla_carga_inicial.csv'; a.click();
   URL.revokeObjectURL(url);
 });
 </script>

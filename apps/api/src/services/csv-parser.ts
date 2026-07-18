@@ -161,7 +161,7 @@ export async function parseImportFile(
     });
   } else {
     // CSV
-    const text = buffer.toString('utf-8').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const text = buffer.toString('utf-8').replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const lines = text.split('\n').filter(l => l.trim());
     if (lines.length === 0) throw new Error('El archivo CSV está vacío.');
 
@@ -265,6 +265,134 @@ export async function parseImportFile(
   });
 
   return { headers, rows, detectedMapping: mapping, totalRows: rows.length };
+}
+
+// ── Carga Inicial ──
+
+export interface CargaInicialRow {
+  accountType: string;   // "Activo", "Pasivo", "Patrimonio"
+  accountName: string;   // "Banco", "Cuentas por Cobrar", etc.
+  amount: number;
+}
+
+export interface CargaInicialResult {
+  headers: string[];
+  rows: CargaInicialRow[];
+  totalRows: number;
+}
+
+const CATEGORIA_PATTERNS = [/categoria/i, /category/i, /tipo[_\s]?cuenta/i, /clase/i];
+const NOMBRE_CUENTA_PATTERNS = [/concepto/i, /cuenta/i, /nombre/i, /descripc/i, /account/i, /name/i, /rubro/i];
+
+/**
+ * Parsea un archivo CSV/XLSX para carga inicial (balance de apertura).
+ * Formato esperado: Categoria, Concepto, Monto
+ *   - Categoria: Activo | Pasivo | Patrimonio
+ *   - Concepto: nombre de la cuenta contable
+ *   - Monto: saldo inicial
+ */
+export async function parseCargaInicialFile(
+  buffer: Buffer,
+  fileName: string,
+): Promise<CargaInicialResult> {
+  const isXlsx = fileName.endsWith('.xlsx');
+
+  let headers: string[] = [];
+  const rawRows: string[][] = [];
+
+  if (isXlsx) {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as any);
+    const sheet = workbook.worksheets[0];
+    if (!sheet) throw new Error('El archivo Excel no tiene hojas.');
+
+    sheet.eachRow((row, rowNum) => {
+      const values: string[] = [];
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        values.push(String(cell.value ?? '').trim());
+      });
+      while (values.length > 0 && values[values.length - 1] === '') values.pop();
+      if (values.length === 0) return;
+      if (rowNum === 1) {
+        headers = values;
+      } else {
+        rawRows.push(values);
+      }
+    });
+  } else {
+    const text = buffer.toString('utf-8').replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length === 0) throw new Error('El archivo CSV está vacío.');
+
+    const delimiter = detectDelimiter(lines[0]);
+
+    for (let i = 0; i < lines.length; i++) {
+      const values = parseCSVLine(lines[i], delimiter);
+      if (i === 0) {
+        headers = values.map(h => h.trim());
+      } else {
+        rawRows.push(values.map(v => v.trim()));
+      }
+    }
+  }
+
+  if (headers.length === 0) throw new Error('No se detectaron encabezados en el archivo.');
+
+  // Detectar columnas
+  let categoriaCol: string | null = null;
+  let nombreCol: string | null = null;
+  let montoCol: string | null = null;
+
+  for (const h of headers) {
+    if (!categoriaCol && matchHeader(h, CATEGORIA_PATTERNS)) categoriaCol = h;
+    if (!nombreCol && matchHeader(h, NOMBRE_CUENTA_PATTERNS)) nombreCol = h;
+    if (!montoCol && matchHeader(h, AMOUNT_PATTERNS)) montoCol = h;
+  }
+
+  if (!categoriaCol) throw new Error('No se detectó columna de Categoría (Activo/Pasivo/Patrimonio). Use "Categoria" como encabezado.');
+  if (!nombreCol) throw new Error('No se detectó columna de Concepto (nombre de cuenta). Use "Concepto" como encabezado.');
+  if (!montoCol) throw new Error('No se detectó columna de Monto. Use "Monto" como encabezado.');
+
+  const rows: CargaInicialRow[] = [];
+
+  for (const rawRow of rawRows) {
+    const raw: Record<string, string> = {};
+    headers.forEach((h, i) => { raw[h] = rawRow[i] || ''; });
+
+    const accountType = (raw[categoriaCol] || '').trim();
+    const accountName = (raw[nombreCol] || '').trim();
+    const amount = parseAmount(raw[montoCol] || '');
+
+    if (!accountType || !accountName || amount === null || amount <= 0) continue;
+
+    // Normalizar tipo de cuenta
+    const normalizedType = normalizeAccountType(accountType);
+    if (!normalizedType) continue; // tipo no reconocido
+
+    rows.push({
+      accountType: normalizedType,
+      accountName,
+      amount,
+    });
+  }
+
+  return { headers, rows, totalRows: rows.length };
+}
+
+/**
+ * Normaliza el tipo de cuenta a: ACTIVO, PASIVO, PATRIMONIO.
+ * Retorna null si no se reconoce.
+ */
+function normalizeAccountType(raw: string): string | null {
+  const lower = raw.toLowerCase().trim();
+  if (/activo/i.test(lower)) return 'ACTIVO';
+  if (/pasivo/i.test(lower)) return 'PASIVO';
+  if (/patrimonio|patrimonio|capital/i.test(lower)) return 'PATRIMONIO';
+  // También aceptar INGRESO, GASTO, COSTO para flexibilidad
+  if (/ingreso/i.test(lower)) return 'INGRESO';
+  if (/gasto/i.test(lower)) return 'GASTO';
+  if (/costo/i.test(lower)) return 'COSTO';
+  return null;
 }
 
 /**
