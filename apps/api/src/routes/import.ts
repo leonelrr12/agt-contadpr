@@ -7,6 +7,7 @@ import { resolveCargaInicialRows } from '../services/account-lookup';
 import { ClassificationAgent } from '@agt-contador/agents';
 import { AccountingAgent } from '@agt-contador/agents';
 import { importExecuteSchema } from '../validation/schemas';
+import { syncEntityFromEntry } from '../services/entity-service';
 
 export const importRouter = Router();
 
@@ -134,6 +135,8 @@ interface ImportRow {
   paymentMethod?: string | null;
   type: string;
   provider?: string | null;
+  reference?: string | null;
+  ruc?: string | null;
   debitAccountId?: string;
   creditAccountId?: string;
 }
@@ -184,6 +187,8 @@ async function executeImportRows(
             missingFields: [] as string[],
             itbms: false,
             provider: row.provider || null,
+            reference: row.reference || null,
+            ruc: row.ruc || null,
             suggestedResponse: '',
           };
 
@@ -227,9 +232,22 @@ async function executeImportRows(
               companyId,
               createdById: userId,
               journalEntryId: je.id,
-              metadata: JSON.stringify(row.provider ? { provider: row.provider } : {}),
+              metadata: (() => {
+                const m: Record<string, any> = {};
+                if (row.provider) m.provider = row.provider;
+                if (row.reference) m.reference = row.reference;
+                if (row.ruc) m.ruc = row.ruc;
+                return JSON.stringify(m);
+              })(),
             },
           });
+
+          // Sincronizar auxiliar (CxC/CxP): crear Cliente/Proveedor + Invoice/Bill si aplica
+          if (row.provider) {
+            try {
+              await syncEntityFromEntry(tx, companyId, je);
+            } catch (e) { /* no blocking */ }
+          }
 
           results.entryIds.push(je.id);
           results.success++;
@@ -306,6 +324,8 @@ importRouter.post('/execute-all', requireQuota, upload.single('file'), async (re
         paymentMethod: r.paymentMethod,
         type: r.type || 'GASTO',
         provider: r.provider,
+        reference: r.reference,
+        ruc: r.ruc,
       }));
 
     if (rows.length === 0) {

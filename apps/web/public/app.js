@@ -1979,133 +1979,6 @@ async function saveConfig() {
   } catch (e) { await showAlert('Error de conexión'); }
 }
 
-/* ── Revisión de Asientos (Contador Senior) ── */
-async function loadPanelRevision() {
-  const el = document.getElementById('revision-content');
-  const from = document.getElementById('filter-revision-from').value;
-  const to = document.getElementById('filter-revision-to').value;
-  let url = `${API_URL}/journal/pendientes`;
-  if (from) url += `?startDate=${from}`;
-  if (to) url += `${from ? '&' : '?'}endDate=${to}`;
-  try {
-    const res = await authFetch(url);
-    const entries = await res.json();
-    if (!entries || !entries.length) {
-      el.innerHTML = '<div class="empty">✅ No hay asientos pendientes de revisión</div>';
-      document.getElementById('pendientes-badge').classList.add('hidden');
-      return;
-    }
-    document.getElementById('pendientes-badge').textContent = entries.length;
-    document.getElementById('pendientes-badge').classList.remove('hidden');
-
-    let html = `<div style="margin-bottom:8px;font-size:13px;color:#6b7280">${entries.length} asiento(s) pendiente(s) de revisión</div>`;
-    for (const e of entries) {
-      const date = new Date(e.date).toLocaleDateString('es-PA');
-      const totalDeb = e.lines.reduce((s, l) => s + l.debit, 0);
-      const totalCred = e.lines.reduce((s, l) => s + l.credit, 0);
-      const creador = e.createdBy?.name || 'N/A';
-      html += `<div class="revision-card" data-id="${e.id}">
-        <div class="rev-header">
-          <span class="rev-date">${date}</span>
-          <span class="rev-creator">por ${creador}</span>
-        </div>
-        <div class="rev-desc">${e.description}</div>
-        <div class="rev-lines">`;
-      for (const line of e.lines) {
-        const name = line.account?.name || 'Cuenta';
-        if (line.debit > 0) html += `<div class="rev-line"><span>${name}</span><span class="debit">$${line.debit.toFixed(2)}</span></div>`;
-        if (line.credit > 0) html += `<div class="rev-line"><span>${name}</span><span class="credit">$${line.credit.toFixed(2)}</span></div>`;
-      }
-      html += `<div class="rev-line rev-total"><span>Total</span><span>Deb: $${totalDeb.toFixed(2)} / Cred: $${totalCred.toFixed(2)}</span></div>`;
-      html += `</div>
-        <div class="rev-actions">
-          <button class="btn-approve" onclick="aprobarAsiento('${e.id}')">✅ Aprobar</button>
-          <button class="btn-reject" onclick="rechazarAsiento('${e.id}')">❌ Rechazar</button>
-        </div>
-      </div>`;
-    }
-    el.innerHTML = html;
-  } catch (e) {
-    el.innerHTML = '<div class="empty">Error al cargar pendientes</div>';
-  }
-}
-
-function clearRevisionFilters() {
-  document.getElementById('filter-revision-from').value = '';
-  document.getElementById('filter-revision-to').value = '';
-  loadPanelRevision();
-}
-
-async function aprobarAsiento(id) {
-  const card = document.querySelector(`.revision-card[data-id="${id}"]`);
-  if (card) {
-    card.querySelector('.rev-actions').innerHTML = '<span style="color:#2e7d32;font-weight:600">APROBANDO...</span>';
-  }
-  try {
-    const res = await authFetch(`${API_URL}/journal/${id}/review`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'aprobar' }),
-    });
-    if (!res.ok) { const err = await res.json(); await showAlert(err.error); return; }
-    loadPanelRevision();
-    addMessage(`✅ Asiento #${id.slice(0,8)} aprobado por Contador Senior.`, 'assistant');
-  } catch (e) {
-    await showAlert('Error al aprobar');
-    loadPanelRevision();
-  }
-}
-
-function showRejectDialog(id) {
-  const overlay = document.createElement('div'); overlay.className = 'app-dialog-overlay';
-  overlay.innerHTML = `<div class="app-dialog" style="max-width:420px">
-    <div class="app-dialog-icon">❌</div>
-    <div class="app-dialog-msg">¿Rechazar este asiento?</div>
-    <div style="margin:8px 0">
-      <label style="font-size:12px;color:#6b7280;display:block;margin-bottom:4px">Motivo del rechazo (opcional):</label>
-      <input id="reject-notes-input" placeholder="Ej: Monto incorrecto, cuenta equivocada..." style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px;box-sizing:border-box">
-    </div>
-    <div class="app-dialog-buttons">
-      <button class="app-dialog-btn secondary" id="reject-cancel">Cancelar</button>
-      <button class="app-dialog-btn danger" id="reject-confirm">Rechazar</button>
-    </div></div>`;
-  document.body.appendChild(overlay);
-
-  const close = () => overlay.remove();
-  overlay.querySelector('#reject-cancel').onclick = close;
-  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-
-  overlay.querySelector('#reject-confirm').onclick = async () => {
-    const notes = document.getElementById('reject-notes-input').value.trim();
-    overlay.remove();
-    await doRechazarAsiento(id, notes);
-  };
-}
-
-async function doRechazarAsiento(id, notes) {
-  const card = document.querySelector(`.revision-card[data-id="${id}"]`);
-  if (card) {
-    card.querySelector('.rev-actions').innerHTML = '<span style="color:#c62828;font-weight:600">RECHAZANDO...</span>';
-  }
-  try {
-    const res = await authFetch(`${API_URL}/journal/${id}/review`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'rechazar', notes: notes || '' }),
-    });
-    if (!res.ok) { const err = await res.json(); await showAlert(err.error); return; }
-    loadPanelRevision();
-    addMessage(`❌ Asiento #${id.slice(0,8)} **rechazado**${notes ? ' — Motivo: ' + notes : ''}\n\nPuedes corregir la transacción y volver a enviarla.`, 'assistant');
-  } catch (e) {
-    await showAlert('Error al rechazar');
-    loadPanelRevision();
-  }
-}
-
-async function rechazarAsiento(id) {
-  showRejectDialog(id);
-}
-
 document.getElementById('message-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -2902,13 +2775,15 @@ function renderImportInlinePreview() {
     document.getElementById('import-inline-err').textContent = errs.length;
 
     const thead = document.getElementById('import-inline-thead');
-    thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Concepto</th><th>Cuenta</th><th>Conf</th></tr>';
+    thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Ref</th><th>RUC</th><th>Concepto</th><th>Cuenta</th><th>Conf</th></tr>';
     let html = '';
     previewRows.forEach((r, i) => {
       const conf = r.classification;
       html += `<tr>
         <td>${i+1}</td><td>${r.date||'—'}</td><td>${escHtml(r.description||'')}</td>
-        <td>${r.amount?'$'+r.amount.toFixed(2):'—'}</td><td>${escHtml(r.concept||'')}</td>
+        <td>${r.amount?'$'+r.amount.toFixed(2):'—'}</td>
+        <td>${escHtml(r.reference||'')}</td><td>${escHtml(r.ruc||'')}</td>
+        <td>${escHtml(r.concept||'')}</td>
         <td>${conf?escHtml(conf.concept):'—'}</td>
         <td>${conf?Math.round(conf.confidence*100)+'%':'—'}</td></tr>`;
     });
@@ -3145,6 +3020,7 @@ async function loadRevisionList() {
             ${lineasHtml}
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+            ${getUser()?.role === 'admin' ? `<button onclick="showEditEntryModal('${e.id}')" style="padding:6px 14px;font-size:12px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✏️ Editar</button>` : ''}
             <button onclick="reviewApprove('${e.id}')" style="padding:6px 14px;font-size:12px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✅ Aprobar</button>
             <button onclick="reviewReject('${e.id}')" style="padding:6px 14px;font-size:12px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">❌ Rechazar</button>
           </div>
@@ -3156,6 +3032,8 @@ async function loadRevisionList() {
 }
 
 async function reviewApprove(id) {
+  const ok = await showConfirm('¿Apruebas este asiento?\n\n✅ El asiento quedará CONFIRMADO y afectará los saldos contables.');
+  if (!ok) return;
   try {
     const res = await authFetch(`${API_URL}/journal/${id}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'aprobar' }) });
     if (res.ok) { loadRevisionList(); await showAlert('✅ Asiento aprobado'); }
@@ -3163,10 +3041,422 @@ async function reviewApprove(id) {
 }
 
 async function reviewReject(id) {
+  // Mostrar modal para pedir motivo del rechazo
+  const overlay = document.createElement('div'); overlay.className = 'app-dialog-overlay';
+  overlay.innerHTML = `<div class="app-dialog" style="max-width:420px">
+    <div class="app-dialog-icon">❌</div>
+    <div class="app-dialog-msg">¿Rechazar este asiento?</div>
+    <div style="margin:8px 0">
+      <label style="font-size:12px;color:#6b7280;display:block;margin-bottom:4px">Motivo del rechazo <span style="color:#dc2626">*</span> <small>(mín. 10 caracteres)</small></label>
+      <input id="reject-notes-input" placeholder="Ej: Monto incorrecto, cuenta equivocada..." style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px;box-sizing:border-box">
+      <small id="reject-notes-error" style="color:#dc2626;display:none;font-size:11px">El motivo debe tener al menos 10 caracteres.</small>
+    </div>
+    <div class="app-dialog-buttons">
+      <button class="app-dialog-btn secondary" id="reject-cancel">Cancelar</button>
+      <button class="app-dialog-btn danger" id="reject-confirm">Rechazar</button>
+    </div></div>`;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('#reject-cancel').onclick = close;
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+  overlay.querySelector('#reject-confirm').onclick = async () => {
+    const notes = document.getElementById('reject-notes-input').value.trim();
+    if (notes.length < 10) {
+      document.getElementById('reject-notes-error').style.display = 'block';
+      return;
+    }
+    overlay.remove();
+    try {
+      const res = await authFetch(`${API_URL}/journal/${id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'rechazar', notes }),
+      });
+      if (res.ok) { loadRevisionList(); }
+    } catch (e) { await showAlert('Error'); }
+  };
+}
+
+/* ── Modal: Editar Asiento (solo admin) ── */
+async function showEditEntryModal(entryId) {
+  // Cargar entry completo
+  let entry;
   try {
-    const res = await authFetch(`${API_URL}/journal/${id}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'rechazar' }) });
-    if (res.ok) { loadRevisionList(); }
-  } catch (e) { await showAlert('Error'); }
+    const res = await authFetch(`${API_URL}/journal/${entryId}`);
+    if (!res.ok) { await showAlert('Error al cargar el asiento'); return; }
+    entry = await res.json();
+  } catch (e) { await showAlert('Error de conexión'); return; }
+
+  if (entry.status !== 'BORRADOR') { await showAlert('Solo se pueden editar asientos en BORRADOR'); return; }
+
+  // Asegurar cuentas cargadas
+  if (!cuentasCache || !cuentasCache.length) {
+    try {
+      const r = await authFetch(`${API_URL}/accounts`);
+      cuentasCache = await r.json();
+    } catch (e) { /* usar cache vacío */ }
+  }
+  const activeAccounts = (cuentasCache || []).filter(a => a.isActive).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+
+  const dateStr = entry.date ? new Date(entry.date).toISOString().split('T')[0] : '';
+
+  // Construir HTML del modal
+  const overlay = document.createElement('div'); overlay.className = 'app-dialog-overlay';
+  overlay.id = 'edit-entry-overlay';
+  overlay.innerHTML = `<div class="app-dialog" style="max-width:750px;max-height:90vh;overflow-y:auto">
+    <div style="font-weight:700;font-size:16px;margin-bottom:16px">✏️ Editar Asiento</div>
+
+    <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px">
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Fecha</label>
+        <input id="edit-entry-date" type="date" value="${dateStr}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box">
+      </div>
+      <div style="flex:2;min-width:250px">
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Descripción</label>
+        <input id="edit-entry-desc" type="text" value="${escHtml(entry.description||'')}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box">
+      </div>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Líneas del asiento</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px" id="edit-entry-lines-table">
+        <thead><tr>
+          <th style="text-align:left;padding:4px 8px;border-bottom:2px solid #e5e7eb;color:#6b7280">Cuenta</th>
+          <th style="text-align:right;padding:4px 8px;border-bottom:2px solid #e5e7eb;color:#6b7280;width:120px">Débito</th>
+          <th style="text-align:right;padding:4px 8px;border-bottom:2px solid #e5e7eb;color:#6b7280;width:120px">Crédito</th>
+          <th style="width:32px"></th>
+        </tr></thead>
+        <tbody id="edit-entry-lines-tbody"></tbody>
+      </table>
+      <button onclick="editEntryAddLine()" style="margin-top:8px;padding:6px 12px;font-size:11px;background:#f0f0f0;border:1px dashed #9ca3af;border-radius:6px;cursor:pointer;color:#374151">+ Agregar línea</button>
+    </div>
+
+    <div id="edit-entry-balance" style="padding:8px 12px;border-radius:6px;font-size:13px;font-weight:600;margin-bottom:12px;text-align:right"></div>
+
+    <div class="app-dialog-buttons">
+      <button class="app-dialog-btn secondary" id="edit-entry-cancel">Cancelar</button>
+      <button class="app-dialog-btn primary" id="edit-entry-save" disabled>Guardar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  // Referencias
+  const tbody = overlay.querySelector('#edit-entry-lines-tbody');
+  const balanceEl = overlay.querySelector('#edit-entry-balance');
+  const saveBtn = overlay.querySelector('#edit-entry-save');
+  const cancelBtn = overlay.querySelector('#edit-entry-cancel');
+
+  // Datos vivos (se mutan)
+  let editLines = (entry.lines || []).map(l => ({
+    accountId: l.accountId,
+    debit: l.debit || 0,
+    credit: l.credit || 0,
+  }));
+
+  // Mínimo 2 líneas
+  if (editLines.length < 2) {
+    editLines.push({ accountId: '', debit: 0, credit: 0 });
+  }
+
+  function renderLines() {
+    tbody.innerHTML = editLines.map((l, i) => `<tr>
+      <td style="padding:4px 4px">
+        <select onchange="editEntryUpdateLine(${i},'accountId',this.value)" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;box-sizing:border-box">
+          <option value="">— Seleccionar cuenta —</option>
+          ${activeAccounts.map(a => `<option value="${a.id}" ${a.id === l.accountId ? 'selected' : ''}>${escHtml(a.code)} — ${escHtml(a.name)}</option>`).join('')}
+        </select>
+      </td>
+      <td style="padding:4px 4px"><input type="number" step="0.01" min="0" value="${l.debit || ''}" onchange="editEntryUpdateLine(${i},'debit',parseFloat(this.value)||0)" onfocus="if(this.value==='0')this.value=''" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;text-align:right;box-sizing:border-box"></td>
+      <td style="padding:4px 4px"><input type="number" step="0.01" min="0" value="${l.credit || ''}" onchange="editEntryUpdateLine(${i},'credit',parseFloat(this.value)||0)" onfocus="if(this.value==='0')this.value=''" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;text-align:right;box-sizing:border-box"></td>
+      <td style="padding:4px 2px;text-align:center">${editLines.length > 2 ? `<button onclick="editEntryRemoveLine(${i})" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px" title="Eliminar línea">🗑️</button>` : ''}</td>
+    </tr>`).join('');
+    updateEditBalance();
+  }
+
+  window.editEntryLines = editLines;
+  window.editEntryUpdateBalance = updateEditBalance;
+  window.editEntryRenderLines = renderLines;
+  window.editEntryUpdateLine = function(i, field, value) {
+    window.editEntryLines[i][field] = value;
+    window.editEntryUpdateBalance();
+  };
+  window.editEntryRemoveLine = function(i) {
+    if (window.editEntryLines.length <= 2) return;
+    window.editEntryLines.splice(i, 1);
+    window.editEntryRenderLines();
+  };
+  window.editEntryAddLine = function() {
+    window.editEntryLines.push({ accountId: '', debit: 0, credit: 0 });
+    window.editEntryRenderLines();
+  };
+
+  function updateEditBalance() {
+    const totalDebit = window.editEntryLines.reduce((s, l) => s + (l.debit || 0), 0);
+    const totalCredit = window.editEntryLines.reduce((s, l) => s + (l.credit || 0), 0);
+    const diff = Math.abs(totalDebit - totalCredit);
+    const balanced = Math.round(diff * 100) === 0;
+    balanceEl.textContent = `Débito: $${totalDebit.toFixed(2)} · Crédito: $${totalCredit.toFixed(2)} · Diferencia: $${diff.toFixed(2)}`;
+    balanceEl.style.background = balanced ? '#ecfdf5' : '#fef2f2';
+    balanceEl.style.color = balanced ? '#059669' : '#dc2626';
+    saveBtn.disabled = !balanced;
+  }
+
+  renderLines();
+
+  // Eventos
+  cancelBtn.onclick = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  saveBtn.onclick = async () => {
+    const date = overlay.querySelector('#edit-entry-date').value;
+    const description = overlay.querySelector('#edit-entry-desc').value.trim();
+    if (!date || !description) { await showAlert('Fecha y descripción son requeridas'); return; }
+
+    // Validar que cada línea tenga cuenta
+    const invalid = window.editEntryLines.some(l => !l.accountId);
+    if (invalid) { await showAlert('Todas las líneas deben tener una cuenta asignada'); return; }
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Guardando...';
+
+    try {
+      const res = await authFetch(`${API_URL}/journal/${entryId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date,
+          description,
+          lines: window.editEntryLines.map(l => ({
+            accountId: l.accountId,
+            debit: l.debit || 0,
+            credit: l.credit || 0,
+          })),
+        }),
+      });
+      if (res.ok) {
+        overlay.remove();
+        loadRevisionList();
+        await showAlert('✅ Asiento actualizado');
+      } else {
+        const err = await res.json();
+        await showAlert(`❌ ${err.error || 'Error al guardar'}`);
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Guardar';
+      }
+    } catch (e) {
+      await showAlert('Error de conexión');
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Guardar';
+    }
+  };
+}
+
+/* ── Corregir Asiento Confirmado (anular + nuevo BORRADOR) ── */
+async function corregirEntry(entryId) {
+  const ok = await showConfirm(
+    '⚠️ Se abrirá el formulario con los datos del asiento original para que los corrijas.\n\n' +
+    '📌 Al guardar, se creará una REVERSIÓN del original (CONFIRMADO).\n' +
+    '📌 El asiento original se mantiene CONFIRMADO (no se modifica).\n' +
+    '📌 El nuevo asiento corregido quedará en BORRADOR para revisión.\n\n' +
+    'Si cancelas el formulario, no se hará ningún cambio.\n\n' +
+    '¿Deseas continuar?'
+  );
+  if (!ok) return;
+
+  try {
+    // Obtener datos del original para pre-llenar el modal
+    const getRes = await authFetch(`${API_URL}/journal/${entryId}`);
+    if (!getRes.ok) { await showAlert('Error al cargar datos del asiento'); return; }
+    const originalEntry = await getRes.json();
+
+    // Abrir modal — el anulado + creación ocurren al guardar
+    showCreateEntryModal(originalEntry, entryId);
+
+  } catch (e) { await showAlert('Error de conexión'); }
+}
+
+async function showCreateEntryModal(originalEntry, originalEntryId) {
+  // Asegurar cuentas cargadas antes de renderizar
+  if (!cuentasCache || !cuentasCache.length) {
+    try {
+      const r = await authFetch(`${API_URL}/accounts`);
+      cuentasCache = await r.json();
+    } catch (e) { /* seguir con cache vacío */ }
+  }
+  const activeAccounts = (cuentasCache || []).filter(a => a.isActive).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+
+  const today = new Date().toISOString().split('T')[0];
+  const desc = `CORRECCIÓN: ${originalEntry.description || 'Sin descripción'}`;
+
+  const overlay = document.createElement('div'); overlay.className = 'app-dialog-overlay';
+  overlay.id = 'create-entry-overlay';
+  overlay.innerHTML = `<div class="app-dialog" style="max-width:750px;max-height:90vh;overflow-y:auto">
+    <div style="font-weight:700;font-size:16px;margin-bottom:4px">✏️ Corregir Asiento</div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:16px">El asiento original fue anulado. Crea la versión corregida como BORRADOR.</div>
+
+    <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px">
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Fecha</label>
+        <input id="create-entry-date" type="date" value="${today}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box">
+      </div>
+      <div style="flex:2;min-width:250px">
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Descripción</label>
+        <input id="create-entry-desc" type="text" value="${escHtml(desc)}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box">
+      </div>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px">Líneas del asiento</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px" id="create-entry-lines-table">
+        <thead><tr>
+          <th style="text-align:left;padding:4px 8px;border-bottom:2px solid #e5e7eb;color:#6b7280">Cuenta</th>
+          <th style="text-align:right;padding:4px 8px;border-bottom:2px solid #e5e7eb;color:#6b7280;width:120px">Débito</th>
+          <th style="text-align:right;padding:4px 8px;border-bottom:2px solid #e5e7eb;color:#6b7280;width:120px">Crédito</th>
+          <th style="width:32px"></th>
+        </tr></thead>
+        <tbody id="create-entry-lines-tbody"></tbody>
+      </table>
+      <button onclick="createEntryAddLine()" style="margin-top:8px;padding:6px 12px;font-size:11px;background:#f0f0f0;border:1px dashed #9ca3af;border-radius:6px;cursor:pointer;color:#374151">+ Agregar línea</button>
+    </div>
+
+    <div id="create-entry-balance" style="padding:8px 12px;border-radius:6px;font-size:13px;font-weight:600;margin-bottom:12px;text-align:right"></div>
+
+    <div class="app-dialog-buttons">
+      <button class="app-dialog-btn secondary" id="create-entry-cancel">Cancelar</button>
+      <button class="app-dialog-btn primary" id="create-entry-save" disabled>Guardar como BORRADOR</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  const tbody = overlay.querySelector('#create-entry-lines-tbody');
+  const balanceEl = overlay.querySelector('#create-entry-balance');
+  const saveBtn = overlay.querySelector('#create-entry-save');
+
+  // Datos vivos
+  let createLines = (originalEntry.lines || []).map(l => ({
+    accountId: l.accountId,
+    debit: l.debit || 0,
+    credit: l.credit || 0,
+  }));
+  if (createLines.length < 2) createLines.push({ accountId: '', debit: 0, credit: 0 });
+
+  function renderLines() {
+    tbody.innerHTML = createLines.map((l, i) => `<tr>
+      <td style="padding:4px 4px">
+        <select onchange="window.createEntryUpdateLine(${i},'accountId',this.value)" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;box-sizing:border-box">
+          <option value="">— Seleccionar cuenta —</option>
+          ${activeAccounts.map(a => `<option value="${a.id}" ${a.id === l.accountId ? 'selected' : ''}>${escHtml(a.code)} — ${escHtml(a.name)}</option>`).join('')}
+        </select>
+      </td>
+      <td style="padding:4px 4px"><input type="number" step="0.01" min="0" value="${l.debit || ''}" onchange="window.createEntryUpdateLine(${i},'debit',parseFloat(this.value)||0)" onfocus="if(this.value==='0')this.value=''" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;text-align:right;box-sizing:border-box"></td>
+      <td style="padding:4px 4px"><input type="number" step="0.01" min="0" value="${l.credit || ''}" onchange="window.createEntryUpdateLine(${i},'credit',parseFloat(this.value)||0)" onfocus="if(this.value==='0')this.value=''" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;text-align:right;box-sizing:border-box"></td>
+      <td style="padding:4px 2px;text-align:center">${createLines.length > 2 ? `<button onclick="window.createEntryRemoveLine(${i})" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px" title="Eliminar línea">🗑️</button>` : ''}</td>
+    </tr>`).join('');
+    updateCreateBalance();
+  }
+
+  window.createEntryLines = createLines;
+  window.createEntryUpdateLine = function(i, field, value) { window.createEntryLines[i][field] = value; updateCreateBalance(); };
+  window.createEntryRemoveLine = function(i) { if (window.createEntryLines.length <= 2) return; window.createEntryLines.splice(i, 1); renderLines(); };
+  window.createEntryAddLine = function() { window.createEntryLines.push({ accountId: '', debit: 0, credit: 0 }); renderLines(); };
+
+  function updateCreateBalance() {
+    const totalDebit = window.createEntryLines.reduce((s, l) => s + (l.debit || 0), 0);
+    const totalCredit = window.createEntryLines.reduce((s, l) => s + (l.credit || 0), 0);
+    const diff = Math.abs(totalDebit - totalCredit);
+    const balanced = Math.round(diff * 100) === 0;
+    balanceEl.textContent = `Débito: $${totalDebit.toFixed(2)} · Crédito: $${totalCredit.toFixed(2)} · Diferencia: $${diff.toFixed(2)}`;
+    balanceEl.style.background = balanced ? '#ecfdf5' : '#fef2f2';
+    balanceEl.style.color = balanced ? '#059669' : '#dc2626';
+    saveBtn.disabled = !balanced;
+  }
+
+  renderLines();
+
+  overlay.querySelector('#create-entry-cancel').onclick = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  saveBtn.onclick = async () => {
+    const date = overlay.querySelector('#create-entry-date').value;
+    const description = overlay.querySelector('#create-entry-desc').value.trim();
+    if (!date || !description) { await showAlert('Fecha y descripción son requeridas'); return; }
+
+    const invalid = window.createEntryLines.some(l => !l.accountId);
+    if (invalid) { await showAlert('Todas las líneas deben tener una cuenta asignada'); return; }
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Creando reversión...';
+
+    try {
+      // 1. Crear reversión del original (CONFIRMADO) — usa líneas ORIGINALES invertidas
+      if (originalEntryId) {
+        const originalLines = originalEntry.lines || [];
+        const revLines = originalLines.map(l => ({
+          accountId: l.accountId,
+          debit: l.credit || 0,
+          credit: l.debit || 0,
+        }));
+        const revRes = await authFetch(`${API_URL}/journal`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: new Date().toISOString().split('T')[0],
+            description: `REVERSIÓN [ref:${originalEntryId.slice(0,12)}]: ${originalEntry.description || 'Asiento original'}`,
+            lines: revLines,
+          }),
+        });
+        if (!revRes.ok) {
+          const err = await revRes.json();
+          await showAlert(`❌ ${err.error || 'Error al crear reversión'}`);
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Guardar como BORRADOR';
+          return;
+        }
+        // Aprobar la reversión automáticamente
+        const revData = await revRes.json();
+        await authFetch(`${API_URL}/journal/${revData.id}/review`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'aprobar' }),
+        });
+      }
+
+      saveBtn.textContent = 'Creando corrección...';
+
+      // 2. Crear el nuevo asiento corregido (BORRADOR) con referencia al original
+      const refTag = originalEntryId ? ` [ref:${originalEntryId.slice(0,12)}]` : '';
+      const res = await authFetch(`${API_URL}/journal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date,
+          description: description + refTag,
+          lines: window.createEntryLines.map(l => ({
+            accountId: l.accountId,
+            debit: l.debit || 0,
+            credit: l.credit || 0,
+          })),
+        }),
+      });
+      if (res.ok) {
+        overlay.remove();
+        await showAlert('✅ Asiento corregido creado como BORRADOR. Ve a Revisión para aprobarlo.');
+        // Recargar reporte diario actual
+        if (typeof loadReportDiario === 'function') loadReportDiario();
+      } else {
+        const err = await res.json();
+        await showAlert(`❌ ${err.error || 'Error al crear el asiento'}`);
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Guardar como BORRADOR';
+      }
+    } catch (e) {
+      await showAlert('Error de conexión');
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Guardar como BORRADOR';
+    }
+  };
 }
 
 /* ── Panel: Informes (inline) ── */
@@ -3202,6 +3492,9 @@ function clickInformeTab(informe) {
   const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', resultados: 'estado-resultados', dashboard: null, auxiliares: null, revision: null };
   const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'resultados');
   document.getElementById('informes-date-filter').classList.toggle('hidden', !showFilter);
+  // Mostrar filtro de status solo en Diario
+  const statusEl = document.getElementById('informes-filter-status');
+  if (statusEl) statusEl.style.display = informe === 'diario' ? '' : 'none';
   setInformesExportBar(exportTypes[informe] || null);
   showInformesLoading();
   const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard };
@@ -3229,6 +3522,12 @@ async function loadReportDiario() {
       const desc = escHtml(e.description||'');
       const statusClass = { BORRADOR: 'tag-draft', CONFIRMADO: 'tag-conf', RECHAZADO: 'tag-rejected', ANULADO: 'tag-void' };
       const statusHtml = `<span class="tag ${statusClass[e.status]||''}">${e.status}</span>`;
+      // Bloquear corrección si ya fue revertido/corregido antes
+      const alreadyCorrected = (e.description||'').includes('[ref:') || d.entries.some(x => (x.description||'').includes(`[ref:${e.id.slice(0,12)}]`));
+      const canCorrect = e.status === 'CONFIRMADO' && !(e.description||'').startsWith('ANULACIÓN:') && !(e.description||'').startsWith('REVERSIÓN') && !alreadyCorrected;
+      const actionsHtml = canCorrect
+        ? `<button onclick="corregirEntry('${e.id}')" style="margin-left:4px;padding:2px 8px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer" title="Anular original y crear corrección">✏️ Corregir</button>`
+        : '';
       for (let i = 0; i < e.lines.length; i++) {
         const l = e.lines[i];
         totDeb += (l.debit||0);
@@ -3239,7 +3538,7 @@ async function loadReportDiario() {
           <td>${escHtml(l.account?.code||'')} — ${escHtml(l.account?.name||'')}</td>
           <td style="color:#2e7d32;font-weight:600">${l.debit ? fmt(l.debit) : '—'}</td>
           <td style="color:#c62828;font-weight:600">${l.credit ? fmt(l.credit) : '—'}</td>
-          <td>${i===0 ? statusHtml : ''}</td>
+          <td>${i===0 ? statusHtml + actionsHtml : ''}</td>
         </tr>`;
       }
     }
@@ -3430,13 +3729,13 @@ async function toggleFacturas(entityId, type) {
     if (!items || !items.length) { det.innerHTML = '<div style="text-align:center;padding:12px;color:#6b7280">Sin facturas</div>'; return; }
     const fmt = n => '$'+n.toLocaleString('en-US',{minimumFractionDigits:2});
     const rows = items.map(f => {
-      const statusLabel = { PENDIENTE: '⏳ Pendiente', VENCIDA: '🔴 Vencida', PAGADA: '✅ Pagada' };
-      const statusColor = { PENDIENTE: '#f59e0b', VENCIDA: '#dc2626', PAGADA: '#059669' };
+      const statusLabel = { PENDIENTE: '⏳ Pendiente', VENCIDA: '🔴 Vencida', PAGADA: '✅ Pagada', RECHAZADA: '❌ Rechazada' };
+      const statusColor = { PENDIENTE: '#f59e0b', VENCIDA: '#dc2626', PAGADA: '#059669', RECHAZADA: '#dc2626' };
       return [
         f.number || '—',
         new Date(f.date).toLocaleDateString('es-PA'),
         new Date(f.dueDate).toLocaleDateString('es-PA'),
-        fmt(f.amount || f.total || 0),
+        fmt(f.total || f.amount || 0),
         `<span style="color:${statusColor[f.status]||'#6b7280'};font-weight:600;font-size:11px">${statusLabel[f.status]||f.status}</span>`
       ];
     });
@@ -3449,9 +3748,11 @@ async function toggleFacturas(entityId, type) {
 function getInformesDateParams() {
   const from = document.getElementById('informes-filter-from')?.value || '';
   const to = document.getElementById('informes-filter-to')?.value || '';
+  const status = document.getElementById('informes-filter-status')?.value || '';
   const params = new URLSearchParams();
   if (from) params.set('startDate', from);
   if (to) params.set('endDate', to);
+  if (status) params.set('status', status);
   return params;
 }
 function loadCurrentInformeTab() {

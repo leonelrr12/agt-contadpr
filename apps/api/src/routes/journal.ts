@@ -3,11 +3,13 @@ import { validate } from '../middleware/validate';
 import { requireRole } from '../middleware/auth';
 import { buildDateFilter } from '../lib/date-filter';
 import { logAudit } from '../services/audit-log';
+import { syncEntityFromEntry } from '../services/entity-service';
 import { requireQuota, incrementUsage } from '../middleware/quota';
 import {
   createJournalEntrySchema,
   reviewJournalSchema,
   updateJournalStatusSchema,
+  updateJournalEntrySchema,
 } from '../validation/schemas';
 
 export const journalRouter = Router();
@@ -65,6 +67,18 @@ journalRouter.post('/:id/review', requireRole('admin', 'contador'), validate(rev
           reviewedBy: { select: { name: true } },
         },
       });
+
+      // Si se rechaza, marcar Invoice/Bill como RECHAZADA para que no aparezca en auxiliar
+      if (newStatus === 'RECHAZADO') {
+        await tx.invoice.updateMany({
+          where: { journalEntryId: entry.id },
+          data: { status: 'RECHAZADA' },
+        });
+        await tx.bill.updateMany({
+          where: { journalEntryId: entry.id },
+          data: { status: 'RECHAZADA' },
+        });
+      }
 
       return { updated, previousStatus: entry.status };
     });
@@ -205,6 +219,19 @@ journalRouter.patch('/:id/status', validate(updateJournalStatusSchema), async (r
     data: { status },
     include: { lines: { include: { account: true } }, createdBy: { select: { name: true } } },
   });
+
+  // Si se reenvía (RECHAZADO → BORRADOR), reactivar Invoice/Bill
+  if (status === 'BORRADOR' && entry.status === 'RECHAZADO') {
+    await req.prisma.invoice.updateMany({
+      where: { journalEntryId: req.params.id, status: 'RECHAZADA' },
+      data: { status: 'PENDIENTE' },
+    });
+    await req.prisma.bill.updateMany({
+      where: { journalEntryId: req.params.id, status: 'RECHAZADA' },
+      data: { status: 'PENDIENTE' },
+    });
+  }
+
   res.json(updated);
 });
 
@@ -265,6 +292,81 @@ journalRouter.post('/:id/anular', requireRole('admin', 'contador'), async (req, 
     });
 
     res.json(result);
+  } catch (e: any) {
+    const status = e.status || 500;
+    res.status(status).json({ error: e.message });
+  }
+});
+
+// PUT /:id — Editar un asiento BORRADOR (solo admin)
+journalRouter.put('/:id', requireRole('admin'), validate(updateJournalEntrySchema), async (req, res) => {
+  const { date, description, lines } = req.body;
+
+  try {
+    const result = await req.prisma.$transaction(async (tx: any) => {
+      const entry = await tx.journalEntry.findFirst({
+        where: { id: req.params.id, companyId: req.user!.companyId },
+        include: { lines: true },
+      });
+      if (!entry) throw Object.assign(new Error('Asiento no encontrado'), { status: 404 });
+
+      if (entry.status !== 'BORRADOR') {
+        throw Object.assign(
+          new Error(`Solo se pueden editar asientos en BORRADOR. Estado actual: ${entry.status}`),
+          { status: 400 },
+        );
+      }
+
+      // Validar balance
+      const totalDebit = lines.reduce((sum: number, l: any) => sum + (l.debit || 0), 0);
+      const totalCredit = lines.reduce((sum: number, l: any) => sum + (l.credit || 0), 0);
+      if (Math.abs(totalDebit - totalCredit) > 0.01) {
+        throw Object.assign(
+          new Error(`Asiento no balanceado. Débito: ${totalDebit.toFixed(2)}, Crédito: ${totalCredit.toFixed(2)}, Diferencia: ${Math.abs(totalDebit - totalCredit).toFixed(2)}`),
+          { status: 400 },
+        );
+      }
+
+      // Borrar líneas existentes y crear las nuevas
+      await tx.journalLine.deleteMany({ where: { journalEntryId: entry.id } });
+
+      const updated = await tx.journalEntry.update({
+        where: { id: entry.id },
+        data: {
+          date: new Date(date + 'T12:00:00'),
+          description,
+          lines: {
+            create: lines.map((l: any) => ({
+              accountId: l.accountId,
+              debit: l.debit || 0,
+              credit: l.credit || 0,
+            })),
+          },
+        },
+        include: {
+          lines: { include: { account: true } },
+          createdBy: { select: { name: true } },
+        },
+      });
+
+      return { updated, previousLines: entry.lines.length };
+    });
+
+    // Sincronizar auxiliares (CxC/CxP) tras edición
+    try {
+      await syncEntityFromEntry(req.prisma, req.user!.companyId, result.updated);
+    } catch (e) { /* no blocking */ }
+
+    await logAudit(req.prisma, {
+      userId: req.user!.userId,
+      action: 'JOURNAL_EDITED',
+      entity: 'JournalEntry',
+      entityId: req.params.id,
+      before: { linesCount: result.previousLines },
+      after: { linesCount: lines.length, description, date },
+    });
+
+    res.json(result.updated);
   } catch (e: any) {
     const status = e.status || 500;
     res.status(status).json({ error: e.message });

@@ -65,6 +65,16 @@ export const updateJournalStatusSchema = z.object({
   status: z.enum(['BORRADOR', 'RECHAZADO']),
 });
 
+export const updateJournalEntrySchema = z.object({
+  date: isoDate,
+  description: z.string().min(1, 'Descripción requerida'),
+  lines: z.array(z.object({
+    accountId: z.string().min(1, 'accountId requerido'),
+    debit: z.number().min(0).optional().default(0),
+    credit: z.number().min(0).optional().default(0),
+  })).min(2, 'Se requieren al menos 2 líneas de asiento'),
+});
+
 // ── Orchestrate ──
 export const orchestrateSchema = z.object({
   input: z.string().min(1, 'El texto de la transacción es requerido'),
@@ -135,6 +145,8 @@ export const importExecuteSchema = z.object({
       'PAGO_PROVEEDOR', 'COBRO_CLIENTE', 'PRESTAMO', 'PAGO_ITBMS',
     ]),
     provider: z.string().nullable().optional(),
+    reference: z.string().nullable().optional(),
+    ruc: z.string().nullable().optional(),
     debitAccountId: z.string().optional(),
     creditAccountId: z.string().optional(),
   })).min(1, 'Se requiere al menos una fila'),
@@ -190,6 +202,7 @@ export type CreateTransactionInput = z.infer<typeof createTransactionSchema>;
 export type CreateJournalEntryInput = z.infer<typeof createJournalEntrySchema>;
 export type ReviewJournalInput = z.infer<typeof reviewJournalSchema>;
 export type UpdateJournalStatusInput = z.infer<typeof updateJournalStatusSchema>;
+export type UpdateJournalEntryInput = z.infer<typeof updateJournalEntrySchema>;
 export type OrchestrateInput = z.infer<typeof orchestrateSchema>;
 export type OrchestrateConfirmInput = z.infer<typeof orchestrateConfirmSchema>;
 export type OCRCorrectInput = z.infer<typeof ocrCorrectSchema>;

@@ -10,6 +10,7 @@ export interface ParsedRow {
   provider: string | null;
   // Bancario
   reference: string | null;
+  ruc: string | null;
   debit: number | null;
   credit: number | null;
   balance: number | null;
@@ -30,6 +31,7 @@ export interface ColumnMapping {
   creditCol: string | null;
   balanceCol: string | null;
   referenceCol: string | null;
+  rucCol: string | null;
 }
 
 export interface ParseResult {
@@ -49,7 +51,8 @@ const PROVIDER_PATTERNS = [/proveedor/i, /cliente/i, /entidad/i, /provider/i, /t
 const DEBIT_PATTERNS = [/d[eé]bito/i, /debit/i, /cargo/i, /salida/i, /retiro/i, /egreso/i];
 const CREDIT_PATTERNS = [/cr[eé]dito/i, /credit/i, /abono/i, /entrada/i, /dep[oó]sito/i, /ingreso/i];
 const BALANCE_PATTERNS = [/saldo/i, /balance/i];
-const REFERENCE_PATTERNS = [/referencia/i, /ref/i, /n[úu]mero/i, /cheque/i, /nro/i, /#[ ]*ref/i];
+const REFERENCE_PATTERNS = [/referencia/i, /ref/i, /n[úu]mero/i, /cheque/i, /nro/i, /#[ ]*ref/i, /factura/i];
+const RUC_PATTERNS = [/ruc/i, /tax[_\s]?id/i, /c[ée]dula/i, /identificaci[óo]n/i];
 
 function matchHeader(header: string, patterns: RegExp[]): boolean {
   return patterns.some(p => p.test(header));
@@ -66,11 +69,25 @@ function detectDelimiter(firstLine: string): string {
 
 function parseDate(raw: string): string | null {
   if (!raw) return null;
-  // Formatos: DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, DD-MM-YYYY
+  // Formatos: DD/MM/YYYY (Panamá), MM/DD/YYYY, YYYY-MM-DD, DD-MM-YYYY
+  // Prioridad: DD/MM/YYYY (formato Panamá). Si mes > 12, intentar MM/DD/YYYY.
   const ddmmyyyy = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   if (ddmmyyyy) {
-    const d = new Date(parseInt(ddmmyyyy[3]), parseInt(ddmmyyyy[2]) - 1, parseInt(ddmmyyyy[1]));
-    if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+    const p1 = parseInt(ddmmyyyy[1]); // posible día o mes
+    const p2 = parseInt(ddmmyyyy[2]); // posible mes o día
+    const y = parseInt(ddmmyyyy[3]);
+    if (p2 <= 12) {
+      // DD/MM/YYYY (Panamá): p1=dd, p2=mm
+      const d = new Date(y, p2 - 1, p1);
+      if (!isNaN(d.getTime()) && d.getMonth() === p2 - 1) return d.toISOString().split('T')[0];
+    }
+    if (p1 <= 12) {
+      // MM/DD/YYYY (US): p1=mm, p2=dd
+      const d = new Date(y, p1 - 1, p2);
+      if (!isNaN(d.getTime()) && d.getMonth() === p1 - 1) return d.toISOString().split('T')[0];
+    }
+    // Ambos fallaron — retornar null (no inventar fecha)
+    return null;
   }
   const yyyymmdd = raw.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
   if (yyyymmdd) {
@@ -120,7 +137,7 @@ function detectPaymentMethod(row: ParsedRow): string | null {
   const desc = Object.values(row._raw).join(' ').toLowerCase();
   if (/tarjeta\s*(de\s*)?cr[eé]dito|tc\b/i.test(desc)) return 'TARJETA_CREDITO';
   if (/tarjeta\s*(de\s*)?d[eé]bito|td\b/i.test(desc)) return 'TARJETA_DEBITO';
-  if (/efectivo|cash/i.test(desc)) return 'EFECTIVO';
+  if (/efectivo|cash|contado/i.test(desc)) return 'EFECTIVO';
   if (/transferencia|ach|wire/i.test(desc)) return 'TRANSFERENCIA';
   if (/cheque|chq/i.test(desc)) return 'CHEQUE';
   if (/cr[eé]dito\b(?!.*tarjeta)/i.test(desc)) return 'CREDITO';
@@ -193,6 +210,7 @@ export async function parseImportFile(
     creditCol: null,
     balanceCol: null,
     referenceCol: null,
+    rucCol: null,
   };
 
   for (const h of headers) {
@@ -207,6 +225,7 @@ export async function parseImportFile(
     if (!mapping.creditCol && matchHeader(h, CREDIT_PATTERNS)) mapping.creditCol = h;
     if (!mapping.balanceCol && matchHeader(h, BALANCE_PATTERNS)) mapping.balanceCol = h;
     if (!mapping.referenceCol && matchHeader(h, REFERENCE_PATTERNS)) mapping.referenceCol = h;
+    if (!mapping.rucCol && matchHeader(h, RUC_PATTERNS)) mapping.rucCol = h;
   }
 
   // Si no se detectó amount, intentar debit/credit como fallback
@@ -245,6 +264,7 @@ export async function parseImportFile(
       type: getVal(mapping.typeCol) || null,
       provider: getVal(mapping.providerCol) || null,
       reference: getVal(mapping.referenceCol) || null,
+      ruc: getVal(mapping.rucCol) || null,
       debit,
       credit,
       balance: parseAmount(getVal(mapping.balanceCol)),

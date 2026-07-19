@@ -20,7 +20,7 @@ clientsRouter.get('/', async (req, res) => {
 
   const enriched = clients.map(c => {
     const totalDue = c.invoices
-      .filter(i => i.status !== 'PAGADA')
+      .filter(i => i.status !== 'PAGADA' && i.status !== 'RECHAZADA')
       .reduce((s, i) => s + i.total, 0);
     return { ...c, totalDue, invoiceCount: c.invoices.length };
   });
@@ -121,7 +121,7 @@ clientsRouter.patch('/:id/invoices/:invId/pay', requireRole('admin', 'contador')
 clientsRouter.get('/report/aging', async (req, res) => {
   const clients = await req.prisma.client.findMany({
     where: { companyId: req.user!.companyId },
-    include: { invoices: { where: { status: { not: 'PAGADA' } } } },
+    include: { invoices: { where: { status: { notIn: ['PAGADA', 'RECHAZADA'] } } } },
   });
 
   const now = new Date();
@@ -151,12 +151,12 @@ clientsRouter.get('/report/summary', async (req, res) => {
     req.prisma.client.count({ where: { companyId: req.user!.companyId } }),
     req.prisma.invoice.aggregate({
       _sum: { total: true },
-      where: { companyId: req.user!.companyId, status: { not: 'PAGADA' } },
+      where: { companyId: req.user!.companyId, status: { notIn: ['PAGADA', 'RECHAZADA'] } },
     }),
     req.prisma.invoice.count({
       where: {
         companyId: req.user!.companyId,
-        status: { not: 'PAGADA' },
+        status: { notIn: ['PAGADA', 'RECHAZADA'] },
         dueDate: { lt: new Date() },
       },
     }),

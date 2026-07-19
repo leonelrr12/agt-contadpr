@@ -17,7 +17,7 @@ suppliersRouter.get('/', async (req, res) => {
 
   const enriched = suppliers.map(s => {
     const totalOwed = s.bills
-      .filter(b => b.status !== 'PAGADA')
+      .filter(b => b.status !== 'PAGADA' && b.status !== 'RECHAZADA')
       .reduce((sum, b) => sum + b.total, 0);
     return { ...s, totalOwed, billCount: s.bills.length };
   });
@@ -127,7 +127,7 @@ suppliersRouter.patch('/:id/bills/:billId/pay', requireRole('admin', 'contador')
 suppliersRouter.get('/report/aging', async (req, res) => {
   const suppliers = await req.prisma.supplier.findMany({
     where: { companyId: req.user!.companyId },
-    include: { bills: { where: { status: { not: 'PAGADA' } } } },
+    include: { bills: { where: { status: { notIn: ['PAGADA', 'RECHAZADA'] } } } },
   });
 
   const now = new Date();
@@ -156,12 +156,12 @@ suppliersRouter.get('/report/summary', async (req, res) => {
     req.prisma.supplier.count({ where: { companyId: req.user!.companyId } }),
     req.prisma.bill.aggregate({
       _sum: { total: true },
-      where: { companyId: req.user!.companyId, status: { not: 'PAGADA' } },
+      where: { companyId: req.user!.companyId, status: { notIn: ['PAGADA', 'RECHAZADA'] } },
     }),
     req.prisma.bill.count({
       where: {
         companyId: req.user!.companyId,
-        status: { not: 'PAGADA' },
+        status: { notIn: ['PAGADA', 'RECHAZADA'] },
         dueDate: { lt: new Date() },
       },
     }),
