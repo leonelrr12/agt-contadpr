@@ -55,7 +55,7 @@ export class AccountingAgent {
     const entry: AccountingEntry = {
       debit: [],
       credit: [],
-      description: `${dialog.type}: ${dialog.concept} - $${dialog.amount}`,
+      description: `${dialog.type}: ${dialog.description} - $${dialog.amount}`,
     };
     const itbmsRate = dialog.itbmsRate ?? getItbmsRate();
     const useItbms = dialog.itbmsRate !== undefined || (process.env.ITBMS_ENABLED === 'true');
@@ -87,7 +87,7 @@ export class AccountingAgent {
         entry.credit.push({ accountId: classification.accountId, name: classification.concept, amount: dialog.amount });
         if (itbmsAmount > 0) {
           entry.credit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: itbmsAmount });
-          entry.description = `${dialog.type}: ${dialog.concept} - $${dialog.amount} + ITBMS $${itbmsAmount}`;
+          entry.description = `${dialog.type}: ${dialog.description} - $${dialog.amount} + ITBMS $${itbmsAmount}`;
         }
         break;
       }
@@ -96,7 +96,7 @@ export class AccountingAgent {
         entry.debit.push({ accountId: 'inventario-mercancia', name: 'Inventario de Mercancía', amount: netAmount });
         if (itbmsAmount > 0) {
           entry.debit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: itbmsAmount });
-          entry.description = `${dialog.type}: ${dialog.concept} - $${netAmount} + ITBMS $${itbmsAmount}`;
+          entry.description = `${dialog.type}: ${dialog.description} - $${netAmount} + ITBMS $${itbmsAmount}`;
         }
         const totalAmount = netAmount + itbmsAmount;
         if (dialog.paymentMethod === 'TARJETA_CREDITO') {

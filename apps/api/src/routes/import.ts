@@ -87,15 +87,20 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
     });
 
     const previewRows = [];
+    const conceptColName = parsed.detectedMapping.conceptCol;
     for (const row of parsed.rows.slice(0, 20)) {
-      const concept = row.concept || row.description || '';
+      // Si hay columna Concepto explícita, tomar el valor crudo (sin fallback a descripción)
+      // Si no hay columna, dejar null — la clasificación BD se muestra en columna "Cuenta"
+      const rawConcept = conceptColName ? (row._raw[conceptColName]?.trim() || null) : null;
+      const conceptForClassify = rawConcept || row.description || '';
       let classification = null;
-      if (concept) {
-        classification = await classifier.classify(concept, row.type || 'GASTO');
+      if (conceptForClassify) {
+        classification = await classifier.classify(conceptForClassify, row.type || 'GASTO');
       }
       previewRows.push({
         ...row,
         _raw: undefined, // no enviar raw al frontend
+        concept: rawConcept,
         classification: classification ? {
           concept: classification.concept,
           accountId: classification.accountId,
@@ -166,13 +171,19 @@ async function executeImportRows(
 
         try {
           let accountId = row.debitAccountId || row.creditAccountId;
+          let classifiedConcept = row.concept || row.description || 'Gastos Varios';
+          let classConfidence = 0.9;
+
           if (!accountId) {
             const concept = row.concept || row.description || 'Gastos Varios';
-            const classification = await classifier.classify(concept, row.type);
-            if (!classification.accountId || classification.confidence < 0.3) {
+            const classResult = await classifier.classify(concept, row.type);
+            if (!classResult.accountId || classResult.confidence < 0.3) {
               throw new Error(`No se pudo clasificar el concepto "${concept}"`);
             }
-            accountId = classification.accountId;
+            accountId = classResult.accountId;
+            // Usar el concepto normalizado de la BD (ej. "Ventas" en vez de "Venta de Calzado")
+            classifiedConcept = classResult.concept;
+            classConfidence = classResult.confidence;
           }
 
           const dialog = {
@@ -180,7 +191,7 @@ async function executeImportRows(
             amount: row.amount,
             currency: 'USD',
             description: row.description,
-            concept: row.concept || row.description,
+            concept: classifiedConcept,
             paymentMethod: (row.paymentMethod || null) as any,
             date: row.date,
             confidence: 0.9,
@@ -192,7 +203,7 @@ async function executeImportRows(
             suggestedResponse: '',
           };
 
-          const classification = { concept: row.concept || row.description, accountId, confidence: 0.9 };
+          const classification = { concept: classifiedConcept, accountId, confidence: classConfidence };
           const entry = accountant.generateEntry(dialog, classification);
           const validation = accountant.validateEntry(entry);
           if (!validation.valid) {
@@ -226,7 +237,7 @@ async function executeImportRows(
               type: row.type,
               amount: row.amount,
               description: row.description,
-              concept: row.concept || row.description,
+              concept: classifiedConcept,
               paymentMethod: row.paymentMethod,
               date: toLocalDate(row.date),
               companyId,
