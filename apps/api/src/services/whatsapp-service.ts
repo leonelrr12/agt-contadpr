@@ -118,13 +118,14 @@ export async function processWhatsAppPDF(
     const syntheticInput = parts.join(' ');
 
     const ocrContext: Record<string, any> = {};
+    ocrContext.type = 'GASTO'; // DGI desde WhatsApp siempre es GASTO
     if (pdfData.provider) ocrContext.provider = pdfData.provider;
     if (pdfData.total) ocrContext.amount = pdfData.total;
     if (pdfData.date) ocrContext.date = pdfData.date;
     if (pdfData.ruc) ocrContext.ruc = pdfData.ruc;
     ocrContext.itbms = !!pdfData.itbms;
     ocrContext.source = 'pdf';
-    if (items.length > 0) ocrContext.items = items; // ayuda al dialogAgent a clasificar
+    if (items.length > 0) ocrContext.items = items;
 
     const context = { messages: [], extractedData: ocrContext };
     const link = await prisma.whatsAppLink.findFirst({
@@ -200,6 +201,7 @@ export async function processWhatsAppImage(
 
     const syntheticInput = parts.join(' ');
     const ocrContext: Record<string, any> = {};
+    ocrContext.type = 'GASTO'; // Factura desde WhatsApp siempre es GASTO
     if (ocrData.provider) ocrContext.provider = ocrData.provider;
     if (ocrData.total) ocrContext.amount = ocrData.total;
     if (ocrData.date) ocrContext.date = ocrData.date;

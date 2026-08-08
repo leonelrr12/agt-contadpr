@@ -222,8 +222,9 @@ export class DialogAgent {
         provider = prev.provider || provider;
         itbms = prev.itbms || itbms;
       } else {
-        // Merge normal: solo rellenar lo que falta
-        if (extracted.missingFields.includes('type') && prev.type) {
+        // Merge normal: solo rellenar lo que falta.
+        // Si el contexto tiene type forzado (OCR/PDF desde WhatsApp), usarlo.
+        if (prev.type && (extracted.missingFields.includes('type') || (prev as any).source)) {
           type = prev.type;
         }
         const conceptUnset = extracted.missingFields.includes('concept') || extracted.missingFields.includes('concept_category');
