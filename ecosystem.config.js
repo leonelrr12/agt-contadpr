@@ -15,9 +15,7 @@ function loadEnv(filePath) {
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
       value = value.slice(1, -1);
     }
-    if (!process.env[key]) {
-      process.env[key] = value;
-    }
+    process.env[key] = value;
   }
 }
 loadEnv(path.join(__dirname, '.env'));
@@ -32,6 +30,14 @@ module.exports = {
       PORT: 3001,
       DATABASE_URL: process.env.DATABASE_URL || 'postgresql://contador:contador123@localhost:5433/agt_contador?schema=public',
       DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY || '',
+      JWT_SECRET: process.env.JWT_SECRET || '',
+      CORS_ORIGIN: process.env.CORS_ORIGIN || '',
+      ITBMS_RATE: process.env.ITBMS_RATE || '0.07',
+      ITBMS_ENABLED: process.env.ITBMS_ENABLED || 'true',
+      OPENWA_API_URL: process.env.OPENWA_API_URL || 'http://localhost:3000',
+      OPENWA_API_KEY: process.env.OPENWA_API_KEY || '',
+      OPENWA_SESSION_NAME: process.env.OPENWA_SESSION_NAME || 'contador507',
+      APP_HOST: process.env.APP_HOST || 'http://147.93.145.67:3001',
     },
   }],
 };
