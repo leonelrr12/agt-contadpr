@@ -89,6 +89,21 @@ whatsappRouter.post('/verify', requireAuth, async (req, res) => {
   }
 
   const result = await verifyCode(req.prisma, phoneNumber, code, req.user!.companyId);
+
+  // Enviar mensaje de bienvenida por WhatsApp al verificar exitosamente
+  if (result.success) {
+    const chatId = `${phoneNumber}@c.us`;
+    const welcomeMsg =
+      `✅ *Contador507 vinculado correctamente*\n\n` +
+      `Ya puedes registrar transacciones desde WhatsApp. Ejemplos:\n\n` +
+      `• "compré gasolina por $40 con tarjeta"\n` +
+      `• "pagué internet $65 efectivo"\n` +
+      `• "vendí mercancía $500 crédito a Cliente XYZ"\n` +
+      `• "cobré factura a Cliente ABC $200"\n\n` +
+      `En cada paso te guiaré para completar la información faltante. Escribe *CANCELAR* para empezar de nuevo.`;
+    sendWhatsAppMessage(chatId, welcomeMsg).catch(() => {});
+  }
+
   res.json(result);
 });
 
