@@ -133,98 +133,85 @@ Responde SOLO con JSON, sin explicaciones ni markdown.${fewShotContext}`,
 }
 
 function parseDate(text: string): string | null {
-  const patterns = [
-    /(\d{1,2})\s*de\s*(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s*de\s*(\d{4})/i,
-    /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/,
-    /(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/,
-    /fe[sc]ha[:\s]*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/i,
-  ];
+  // DGI format: "Fecha de Emisión: 19/06/2026"
+  const dgiMatch = text.match(/Fecha\s*de\s*Emisi[oó]n[:\s]*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/i);
+  if (dgiMatch) {
+    const d = new Date(parseInt(dgiMatch[3]), parseInt(dgiMatch[2]) - 1, parseInt(dgiMatch[1]));
+    if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+  }
+  // Generic patterns (avoid matching RUC numbers like 356-19-77860)
+  const generic = text.match(/(?<!\d)(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?!\d)/);
+  if (generic) {
+    const y = parseInt(generic[3]);
+    const m = parseInt(generic[2]);
+    const d = parseInt(generic[1]);
+    if (y >= 2020 && y <= 2030 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      const date = new Date(y, m - 1, d);
+      if (!isNaN(date.getTime())) return date.toISOString().split('T')[0];
+    }
+  }
+  // Spanish month name
   const months: Record<string, number> = {
     enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5,
     julio: 6, agosto: 7, septiembre: 8, octubre: 9, noviembre: 10, diciembre: 11,
   };
-  for (const p of patterns) {
-    const m = text.match(p);
-    if (!m) continue;
-    if (p === patterns[0]) {
-      const d = new Date(parseInt(m[3]), months[m[2].toLowerCase()], parseInt(m[1]));
-      if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-    } else if (p === patterns[1] || p === patterns[3]) {
-      const d = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
-      if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-    } else {
-      const d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
-      if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-    }
+  const spanish = text.match(/(\d{1,2})\s*de\s*(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s*de\s*(\d{4})/i);
+  if (spanish) {
+    const d = new Date(parseInt(spanish[3]), months[spanish[2].toLowerCase()], parseInt(spanish[1]));
+    if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
   }
   return null;
 }
 
 function parseRUC(text: string): string | null {
-  const m = text.match(/\b(\d{1,3}[-\/]\d{1,6}[-\/]\d{1,6})\b/);
+  // DGI: "RUC: 356-19-77860"
+  const dgiMatch = text.match(/(?:RUC|RUC\/C[eé]dula)[:\s]+(\d{1,3}[-\/]\d{1,6}[-\/]\d{1,6})/i);
+  if (dgiMatch) return dgiMatch[1];
+  // Generic RUC pattern (with word boundaries to avoid matching dates)
+  const m = text.match(/\b(\d{1,4}-\d{1,6}-\d{1,10})\b/);
   return m ? m[1] : null;
 }
 
 function parseProvider(text: string): string | null {
-  const patterns = [
-    /proveedor[:\s]+([^\n]+)/i,
-    /raz[oó]n social[:\s]+([^\n]+)/i,
-    /(?:^|\n)\s*emisor[:\s]+([^\n]+)/im,
-    /nombre\s+(?:del\s+)?(?:proveedor|emisor|comercio)[:\s]+([^\n]+)/i,
-  ];
-  for (const p of patterns) {
-    const m = text.match(p);
-    if (m) {
-      const v = m[1].trim().substring(0, 100);
-      if (v.length > 2) return v;
-    }
-  }
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  for (const line of lines) {
-    if (line.length > 5 && line.length < 80
-        && /^[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ]/.test(line)
-        && !/factura|electr[oó]nica|ruc|fecha|cliente|subtotal|itbms|total|gracias|datos|detalle|emisor|dv|direcci[oó]n/i.test(line)) {
-      return line;
-    }
-  }
+  // DGI: "Emisor: SUPERMERCADOS XTRA, S.A."
+  const emisorMatch = text.match(/Emisor[:\s]+([^\n]+)/i);
+  if (emisorMatch) return emisorMatch[1].trim().substring(0, 100);
+  // Fallback
+  const m = text.match(/(?:proveedor|raz[oó]n social)[:\s]+([^\n]+)/i);
+  if (m) return m[1].trim().substring(0, 100);
   return null;
 }
 
 function parseInvoiceNumber(text: string): string | null {
-  const patterns = [
-    /factura\s*(?:n[°º]?|#|no\.?|número)?[:\s]*([A-Z]+[\-\s]?\d[\w\d\-]*)/i,
-    /(?:fe|factura)[\-\s]*(\d+[\-\s]+\d+)/i,
-    /serie[:\s]*([\w\d\-]+)/i,
-  ];
-  for (const p of patterns) {
-    const m = text.match(p);
-    if (m) {
-      const v = (m[1] || m[0]).trim();
-      if (/\d/.test(v)) return v;
-    }
-  }
+  // DGI: "Número: 0000221106"
+  const dgiMatch = text.match(/N[uú]mero[:\s]+(\d+)/i);
+  if (dgiMatch) return dgiMatch[1];
+  // Generic
+  const m = text.match(/[Ff]actura\s*(?:n[°º]?|#|No\.?)?[:\s]*([A-Z]?[\d][\w\d\-]*)/i);
+  if (m) return m[1].trim();
+  // "Punto de Facturación: 003 Protocolo de autorización: 20260000000937125743"
+  const protoMatch = text.match(/Protocolo de autorizaci[oó]n[:\s]*PAC[:\s]*(\d+)/i);
+  if (protoMatch) return protoMatch[1];
   return null;
 }
 
 function parseTotal(text: string): number | null {
-  const patterns = [
-    /\btotal\b[:\s]*[^\d]*?([\d,]+(?:\.\d{1,2})?)/i,
-    /monto[:\s]*[^\d]*?([\d,]+(?:\.\d{1,2})?)/i,
-    /neto[:\s]*[^\d]*?([\d,]+(?:\.\d{1,2})?)/i,
-    /pagar[:\s]*[^\d]*?([\d,]+(?:\.\d{1,2})?)/i,
-  ];
-  for (const p of patterns) {
-    const m = text.match(p);
+  // DGI: buscar el ÚLTIMO "Total X.XX" (el final, no el del desglose ITBMS)
+  const totalMatches = text.match(/^Total\s+([\d,]+\.?\d*)\s*$/gim);
+  if (totalMatches && totalMatches.length > 0) {
+    // Tomar el último Total (es el total real después del desglose)
+    const last = totalMatches[totalMatches.length - 1];
+    const m = last.match(/([\d,]+\.?\d*)/);
     if (m) return parseFloat(m[1].replace(/,/g, ''));
   }
-  const numRegex = /(?:^|\s)[-+]?(?:\$|b[\/. ]*)?\s*(\d[\d,]*\.\d{1,2})\b/g;
-  const nums: number[] = [];
-  let match;
-  while ((match = numRegex.exec(text)) !== null) {
-    const val = parseFloat(match[1].replace(/,/g, ''));
-    if (val > 0) nums.push(val);
-  }
-  if (nums.length > 0) return Math.max(...nums);
+  // "Valor Total X.XX" o "Total Neto X.XX"
+  const valorMatch = text.match(/Valor\s*Total\s+([\d,]+\.?\d*)/i)
+    || text.match(/Total\s*Neto\s+([\d,]+\.?\d*)/i)
+    || text.match(/TOTAL\s*PAGADO\s+([\d,]+\.?\d*)/i);
+  if (valorMatch) return parseFloat(valorMatch[1].replace(/,/g, ''));
+  // Fallback: último número con formato moneda
+  const amounts = [...text.matchAll(/\b(\d[\d,]*\.\d{2})\b/g)].map(m => parseFloat(m[1].replace(/,/g, ''))).filter(n => n > 0);
+  if (amounts.length > 0) return amounts[amounts.length - 1]; // último monto
   return null;
 }
 
