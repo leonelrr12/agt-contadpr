@@ -373,6 +373,7 @@ export async function verifyCode(
     data: {
       companyId,
       verifiedAt: new Date(),
+      isActive: true,
       code: null,
       codeExpires: null,
     },
