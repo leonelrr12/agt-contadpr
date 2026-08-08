@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { processWhatsAppMessage, verifyCode, generateCode, sendWhatsAppMessage } from '../services/whatsapp-service';
+import { processWhatsAppMessage, processWhatsAppImage, verifyCode, generateCode, sendWhatsAppMessage } from '../services/whatsapp-service';
 
 export const whatsappRouter = Router();
 
@@ -27,23 +27,41 @@ whatsappRouter.post('/webhook', async (req, res) => {
 
   if (!from) return res.sendStatus(200);
 
-  // Solo procesar texto (por ahora)
+  // Solo procesar texto o imágenes
   const messageText = msg.text || msg.caption || '';
-  if (!messageText && msg.type !== 'image') {
+  const isImage = msg.type === 'image';
+  const imageUrl = msg.mediaUrl || null;
+
+  if (!messageText && !isImage) {
     return res.sendStatus(200);
   }
 
+  // Verificar vinculación, excepto para HOLA (que inicia el proceso de vinculación)
+  const isHola = /^hola$/i.test(messageText) || /^hi$/i.test(messageText) || /^inicio$/i.test(messageText);
+
+  if (!isHola) {
+    const link = await req.prisma.whatsAppLink.findFirst({
+      where: { phoneNumber: from, verifiedAt: { not: null }, isActive: true },
+    });
+    if (!link || !link.companyId) {
+      return res.sendStatus(200); // Silencioso: el número no está vinculado
+    }
+  }
+
   try {
-    // Si es imagen, pedir que envíen texto
-    if (msg.type === 'image' && !messageText) {
-      await sendWhatsAppMessage(chatId, '📷 Recibí tu imagen. Por ahora solo proceso texto. Describe la transacción: "compré gasolina $40 efectivo"');
+    if (isImage && imageUrl) {
+      const reply = await processWhatsAppImage(req.prisma, from, chatId, imageUrl, messageText);
+      if (reply) await sendWhatsAppMessage(chatId, reply);
+      return res.sendStatus(200);
+    }
+
+    if (isImage && !imageUrl) {
+      await sendWhatsAppMessage(chatId, '📷 No pude acceder a la imagen. Describe la transacción: "compré gasolina $40 efectivo"');
       return res.sendStatus(200);
     }
 
     const reply = await processWhatsAppMessage(req.prisma, from, chatId, messageText);
-    if (reply) {
-      await sendWhatsAppMessage(chatId, reply);
-    }
+    if (reply) await sendWhatsAppMessage(chatId, reply);
   } catch (err: any) {
     console.error('[WhatsApp] Webhook error:', err.message);
     try {

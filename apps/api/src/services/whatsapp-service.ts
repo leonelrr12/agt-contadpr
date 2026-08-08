@@ -16,6 +16,7 @@ import {
   getOriginalInput,
   resetSession,
 } from './wa-session-store';
+import { extractFromImage } from './ocr';
 
 const OPENWA_URL = process.env.OPENWA_API_URL || 'http://localhost:2785';
 const OPENWA_KEY = process.env.OPENWA_API_KEY || '';
@@ -67,6 +68,90 @@ export function generateCode(): string {
 const CMD_CONFIRM = /^(confirmar|s[ií]|ok|dale|aceptar|yes)$/i;
 const CMD_CANCEL = /^(cancelar|no|nop|abortar)$/i;
 const CMD_RESET = /^(reiniciar|empezar de nuevo|nueva transacc[ió]on)$/i;
+
+/**
+ * Procesa una imagen de factura enviada por WhatsApp.
+ * Descarga la imagen, ejecuta OCR y construye una transacción.
+ */
+export async function processWhatsAppImage(
+  prisma: any,
+  phoneNumber: string,
+  chatId: string,
+  imageUrl: string,
+  caption?: string,
+): Promise<string | null> {
+  try {
+    // Descargar imagen desde whatsapp-ai-bot
+    const imgRes = await fetch(imageUrl);
+    if (!imgRes.ok) return '❌ No pude descargar la imagen. Intenta de nuevo.';
+    const buffer = Buffer.from(await imgRes.arrayBuffer());
+
+    // OCR
+    const ocrData = await extractFromImage(buffer, prisma);
+    console.log('[WhatsApp OCR] Extracted:', { total: ocrData.total, provider: ocrData.provider, date: ocrData.date, itbms: ocrData.itbms, confidence: ocrData.confidence, source: ocrData.source });
+
+    if (!ocrData.total && !ocrData.provider) {
+      return `📷 No pude extraer datos de esta imagen (confianza: ${Math.round(ocrData.confidence * 100)}%). Asegúrate de que sea una factura legible.`;
+    }
+
+    // Construir texto para el orquestador
+    const parts: string[] = ['factura'];
+    if (ocrData.provider) parts.push(`de ${ocrData.provider}`);
+    if (ocrData.total) parts.push(`por $${ocrData.total}`);
+    if (ocrData.date) parts.push(`del ${ocrData.date}`);
+    if (ocrData.itbms) parts.push(`con ITBMS $${ocrData.itbms}`);
+    if (caption) parts.push(`(${caption})`);
+
+    const syntheticInput = parts.join(' ');
+    const ocrContext: Record<string, any> = {};
+    if (ocrData.provider) ocrContext.provider = ocrData.provider;
+    if (ocrData.total) ocrContext.amount = ocrData.total;
+    if (ocrData.date) ocrContext.date = ocrData.date;
+    if (ocrData.ruc) ocrContext.ruc = ocrData.ruc;
+    ocrContext.itbms = !!ocrData.itbms;
+    ocrContext.source = 'ocr';
+
+    // Procesar con el orquestador usando contexto OCR pre-extraído
+    const context = { messages: [], extractedData: ocrContext };
+    const link = await prisma.whatsAppLink.findFirst({
+      where: { phoneNumber, verifiedAt: { not: null }, isActive: true },
+    });
+
+    const { OrchestratorAgent } = await import('@agt-contador/agents');
+    const orchestrator = new OrchestratorAgent({
+      prisma,
+      companyId: link?.companyId || 'demo-company',
+      userId: link?.companyId === 'demo-company' ? 'demo-user' : link?.companyId || 'demo-user',
+      deepseekApiKey: process.env.DEEPSEEK_API_KEY,
+    });
+
+    const result = await orchestrator.process(syntheticInput, context);
+
+    if (result.prompt && !result.needsConfirmation) {
+      const dialogData = (result.plan as any)?.dialog || {};
+      setDialogContext(chatId, dialogData);
+      setOriginalInput(chatId, syntheticInput);
+
+      const missing = dialogData.missingFields || [];
+      if (missing.length === 1 && missing[0] === 'paymentMethod') {
+        setAwaitingPayment(chatId);
+        return `📷 *Factura procesada*\n\n${formatPaymentPrompt(dialogData)}`;
+      }
+
+      return `📷 *Factura procesada*\n\n🤖 ${result.prompt}\n\n💡 _Responde con lo que falta, o *CANCELAR*._`;
+    }
+
+    if (result.needsConfirmation && result.prompt) {
+      setPendingResult(chatId, result.result);
+      return `📷 *Factura procesada*\n\n${result.prompt}\n\n✏️ *CONFIRMAR* para guardar, *CANCELAR* para descartar.`;
+    }
+
+    return `📷 Factura procesada. Revisa tu panel.`;
+  } catch (err: any) {
+    console.error('[WhatsApp] OCR error:', err.message);
+    return '❌ Error al procesar la imagen. Intenta con una foto más clara.';
+  }
+}
 
 /**
  * Procesa un mensaje entrante de WhatsApp con soporte multi-turn.
