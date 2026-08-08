@@ -17,6 +17,7 @@ import {
   resetSession,
 } from './wa-session-store';
 import { extractFromImage } from './ocr';
+import { extractFromPDF } from './pdf-extractor';
 
 const OPENWA_URL = process.env.OPENWA_API_URL || 'http://localhost:2785';
 const OPENWA_KEY = process.env.OPENWA_API_KEY || '';
@@ -68,6 +69,95 @@ export function generateCode(): string {
 const CMD_CONFIRM = /^(confirmar|s[ií]|ok|dale|aceptar|yes)$/i;
 const CMD_CANCEL = /^(cancelar|no|nop|abortar)$/i;
 const CMD_RESET = /^(reiniciar|empezar de nuevo|nueva transacc[ió]on)$/i;
+
+/**
+ * Procesa un PDF de factura electrónica (DGI) enviado por WhatsApp.
+ * Usa pdf-parse para extraer texto directamente (más preciso que OCR).
+ */
+export async function processWhatsAppPDF(
+  prisma: any,
+  phoneNumber: string,
+  chatId: string,
+  pdfUrl: string,
+): Promise<string | null> {
+  try {
+    const pdfRes = await fetch(pdfUrl);
+    if (!pdfRes.ok) return '❌ No pude descargar el PDF. Intenta de nuevo.';
+    const buffer = Buffer.from(await pdfRes.arrayBuffer());
+
+    const pdfData = await extractFromPDF(buffer, prisma);
+
+    if (!pdfData.total && !pdfData.provider) {
+      return `📄 No pude extraer datos del PDF (texto: ${(pdfData.text || '').substring(0, 100)}...). ¿Podrías describir la factura? Ej: "factura ENSA por $45.67"`;
+    }
+
+    // Construir resumen
+    const summaryParts: string[] = [];
+    if (pdfData.provider) summaryParts.push(`🏢 *Proveedor*: ${pdfData.provider}`);
+    if (pdfData.ruc) summaryParts.push(`🔢 *RUC*: ${pdfData.ruc}`);
+    if (pdfData.invoiceNumber) summaryParts.push(`📋 *Factura #*: ${pdfData.invoiceNumber}`);
+    if (pdfData.total) summaryParts.push(`💰 *Total*: $${pdfData.total}`);
+    if (pdfData.itbms) summaryParts.push(`📊 *ITBMS*: $${pdfData.itbms}`);
+    if (pdfData.date) summaryParts.push(`📅 *Fecha*: ${pdfData.date}`);
+    const summary = summaryParts.length > 0
+      ? `📄 *Factura electrónica*\n\n${summaryParts.join('\n')}\n\n`
+      : `📄 *Factura electrónica*\n\n`;
+
+    // Construir input sintético
+    const parts: string[] = ['pagué'];
+    if (pdfData.provider) parts.push(`a ${pdfData.provider}`);
+    if (pdfData.total) parts.push(`$${pdfData.total}`);
+    if (pdfData.date) parts.push(`del ${pdfData.date}`);
+    if (pdfData.itbms) parts.push(`con ITBMS $${pdfData.itbms}`);
+    const syntheticInput = parts.join(' ');
+
+    const ocrContext: Record<string, any> = {};
+    if (pdfData.provider) ocrContext.provider = pdfData.provider;
+    if (pdfData.total) ocrContext.amount = pdfData.total;
+    if (pdfData.date) ocrContext.date = pdfData.date;
+    if (pdfData.ruc) ocrContext.ruc = pdfData.ruc;
+    ocrContext.itbms = !!pdfData.itbms;
+    ocrContext.source = 'pdf';
+
+    const context = { messages: [], extractedData: ocrContext };
+    const link = await prisma.whatsAppLink.findFirst({
+      where: { phoneNumber, verifiedAt: { not: null }, isActive: true },
+    });
+
+    const { OrchestratorAgent } = await import('@agt-contador/agents');
+    const orchestrator = new OrchestratorAgent({
+      prisma,
+      companyId: link?.companyId || 'demo-company',
+      userId: link?.companyId === 'demo-company' ? 'demo-user' : link?.companyId || 'demo-user',
+      deepseekApiKey: process.env.DEEPSEEK_API_KEY,
+    });
+
+    const result = await orchestrator.process(syntheticInput, context);
+
+    if (result.prompt && !result.needsConfirmation) {
+      const dialogData = (result.plan as any)?.dialog || {};
+      setDialogContext(chatId, dialogData);
+      setOriginalInput(chatId, syntheticInput);
+
+      const missing = dialogData.missingFields || [];
+      if (missing.length === 1 && missing[0] === 'paymentMethod') {
+        setAwaitingPayment(chatId);
+        return `${summary}${formatPaymentPrompt(dialogData)}`;
+      }
+      return `${summary}🤖 ${result.prompt}\n\n💡 _Responde con lo que falta, o *CANCELAR*._`;
+    }
+
+    if (result.needsConfirmation && result.prompt) {
+      setPendingResult(chatId, result.result);
+      return `${summary}${result.prompt}\n\n✏️ *CONFIRMAR* para guardar, *CANCELAR* para descartar.`;
+    }
+
+    return `${summary}_Revisa tu panel._`;
+  } catch (err: any) {
+    console.error('[WhatsApp] PDF error:', err.message);
+    return '❌ Error al procesar el PDF. Intenta con otro archivo.';
+  }
+}
 
 /**
  * Procesa una imagen de factura enviada por WhatsApp.

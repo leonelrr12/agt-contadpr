@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { processWhatsAppMessage, processWhatsAppImage, verifyCode, generateCode, sendWhatsAppMessage } from '../services/whatsapp-service';
+import { processWhatsAppMessage, processWhatsAppImage, processWhatsAppPDF, verifyCode, generateCode, sendWhatsAppMessage } from '../services/whatsapp-service';
 
 export const whatsappRouter = Router();
 
@@ -49,14 +49,25 @@ whatsappRouter.post('/webhook', async (req, res) => {
   }
 
   try {
+    const isPDF = msg.mediaMime === 'application/pdf' || (imageUrl && imageUrl.endsWith('.pdf'));
+    const mediaUrl = imageUrl;
+
+    // PDF: usar extractor de texto (más preciso que OCR de imagen)
+    if (isPDF && mediaUrl) {
+      const reply = await processWhatsAppPDF(req.prisma, from, chatId, mediaUrl);
+      if (reply) await sendWhatsAppMessage(chatId, reply);
+      return res.sendStatus(200);
+    }
+
+    // Imagen: usar OCR
     if (isImage && imageUrl) {
       const reply = await processWhatsAppImage(req.prisma, from, chatId, imageUrl, messageText);
       if (reply) await sendWhatsAppMessage(chatId, reply);
       return res.sendStatus(200);
     }
 
-    if (isImage && !imageUrl) {
-      await sendWhatsAppMessage(chatId, '📷 No pude acceder a la imagen. Describe la transacción: "compré gasolina $40 efectivo"');
+    if ((isImage || isPDF) && !imageUrl) {
+      await sendWhatsAppMessage(chatId, '📷 No pude acceder al archivo. Describe la transacción: "compré gasolina $40 efectivo"');
       return res.sendStatus(200);
     }
 
