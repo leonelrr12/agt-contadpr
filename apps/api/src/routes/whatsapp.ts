@@ -30,9 +30,11 @@ whatsappRouter.post('/webhook', async (req, res) => {
   // Solo procesar texto o imágenes
   const messageText = msg.text || msg.caption || '';
   const isImage = msg.type === 'image';
+  const isDocument = msg.type === 'document';
   const imageUrl = msg.mediaUrl || null;
+  const hasMedia = isImage || isDocument;
 
-  if (!messageText && !isImage) {
+  if (!messageText && !hasMedia) {
     return res.sendStatus(200);
   }
 
@@ -66,7 +68,7 @@ whatsappRouter.post('/webhook', async (req, res) => {
       return res.sendStatus(200);
     }
 
-    if ((isImage || isPDF) && !imageUrl) {
+    if (hasMedia && !imageUrl) {
       await sendWhatsAppMessage(chatId, '📷 No pude acceder al archivo. Describe la transacción: "compré gasolina $40 efectivo"');
       return res.sendStatus(200);
     }
