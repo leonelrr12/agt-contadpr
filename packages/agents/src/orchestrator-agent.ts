@@ -138,8 +138,12 @@ export class OrchestratorAgent {
       COBRO_CLIENTE: 'Cobro', PAGO_PROVEEDOR: 'Pago Proveedor',
       PAGO_ITBMS: 'Pago ITBMS',
     };
+    // Mostrar concepto clasificado si difiere del texto crudo
+    const classifiedLabel = classification.concept &&
+      classification.concept.toLowerCase() !== dialog.concept.toLowerCase()
+      ? ` (${classification.concept})` : '';
     const summaryParts = [
-      `**${typeLabels[dialog.type] || dialog.type}**: ${dialog.concept} por **$${dialog.amount}**${dialog.itbmsAmount ? ` (+ ITBMS $${dialog.itbmsAmount})` : ''}`,
+      `**${typeLabels[dialog.type] || dialog.type}**: ${dialog.concept}${classifiedLabel} por **$${dialog.amount}**${dialog.itbmsAmount ? ` (+ ITBMS $${dialog.itbmsAmount})` : ''}`,
     ];
     if (dialog.provider) summaryParts.push(`Proveedor: **${dialog.provider}**`);
     if (dialog.paymentMethod) summaryParts.push(`Pago con: **${dialog.paymentMethod}**`);
