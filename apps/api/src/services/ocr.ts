@@ -21,7 +21,7 @@ async function getWorkers(): Promise<{ worker: any; psm: number }[]> {
   if (!workers) {
     workers = await Promise.all(
       [PSM.AUTO, PSM.SINGLE_COLUMN, PSM.SINGLE_BLOCK].map(async (psm) => {
-        const worker = await createWorker('spa', OEM.LSTM_ONLY);
+        const worker = await createWorker('spa+eng', OEM.LSTM_ONLY);
         await worker.setParameters({
           tessedit_pageseg_mode: psm,
           tessedit_char_whitelist: '',
@@ -72,18 +72,24 @@ async function preprocessImage(buffer: Buffer): Promise<Buffer> {
   const metadata = await sharp(buffer).metadata();
   const img = sharp(buffer);
 
-  const maxDim = 2000;
-  if (metadata.width && metadata.width > maxDim) {
-    img.resize({ width: maxDim });
-  } else if (metadata.height && metadata.height > maxDim) {
-    img.resize({ height: maxDim });
+  // Escalar: si es muy grande reducimos, si es muy chico ampliamos
+  const maxDim = 3000;
+  const minDim = 1200;
+  if (metadata.width && metadata.height) {
+    const longest = Math.max(metadata.width, metadata.height);
+    if (longest > maxDim) {
+      img.resize({ width: maxDim, withoutEnlargement: true });
+    } else if (longest < minDim) {
+      img.resize({ width: minDim }); // ampliar imágenes chicas
+    }
   }
 
   return img
     .grayscale()
     .normalise()
-    .linear(1.5, -50)
-    .sharpen({ sigma: 2, m1: 0, m2: 4, x1: 4, y2: 20, y3: 20 })
+    .median(1)                 // reducción de ruido
+    .linear(2.0, -(256 * 0.35)) // contraste más agresivo
+    .sharpen({ sigma: 1.5, m1: 0.5, m2: 2, x1: 3, y2: 12, y3: 15 })
     .toBuffer();
 }
 
