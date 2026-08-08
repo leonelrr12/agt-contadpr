@@ -2,10 +2,17 @@ import { Router } from 'express';
 
 export const configRouter = Router();
 
+/** Público: número de WhatsApp del bot (no requiere autenticación). */
+export const publicConfigRouter = Router();
+publicConfigRouter.get('/wa-phone', (_req, res) => {
+  res.json({ phone: process.env.WA_BOT_PHONE || '+507 6403-4863' });
+});
+
 configRouter.get('/', (_req, res) => {
   res.json({
     itbmsRate: parseFloat(process.env.ITBMS_RATE || '') || 0.07,
     itbmsEnabled: process.env.ITBMS_ENABLED !== 'false',
+    waBotPhone: process.env.WA_BOT_PHONE || '+507 6403-4863',
   });
 });
 

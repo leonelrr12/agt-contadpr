@@ -38,6 +38,7 @@ module.exports = {
       OPENWA_API_KEY: process.env.OPENWA_API_KEY || '',
       OPENWA_SESSION_NAME: process.env.OPENWA_SESSION_NAME || 'contador507',
       APP_HOST: process.env.APP_HOST || 'http://147.93.145.67:3001',
+      WA_BOT_PHONE: process.env.WA_BOT_PHONE || '+507 6403-4863',
     },
   }],
 };

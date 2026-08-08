@@ -2431,14 +2431,13 @@ async function loadPanelWhatsApp() {
   hideRecurringForm();
   document.getElementById('panel-whatsapp-content').classList.remove('hidden');
 
-  // Mostrar el número del bot de WhatsApp
+  // Mostrar el número del bot de WhatsApp (endpoint público)
   const botNumber = document.getElementById('wa-bot-number');
-  // Intentar obtener de la config o usar default
   try {
-    const res = await authFetch(`${API_URL}/config`);
+    const res = await fetch(`${API_URL}/config/wa-phone`);
     if (res.ok) {
-      const config = await res.json();
-      if (config.whatsappPhone) botNumber.textContent = config.whatsappPhone;
+      const data = await res.json();
+      if (data.phone) botNumber.textContent = data.phone;
     }
   } catch {}
 

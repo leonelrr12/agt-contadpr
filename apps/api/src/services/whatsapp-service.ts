@@ -39,7 +39,7 @@ export async function sendWhatsAppMessage(chatId: string, text: string): Promise
   }
   try {
     const sessions = await (await fetch(`${OPENWA_URL}/api/sessions`, { headers: waHeaders() })).json();
-    const session = Array.isArray(sessions) ? sessions.find((s: any) => s.name === OPENWA_SESSION || s.status === 'CONNECTED') : null;
+    const session = Array.isArray(sessions) ? sessions.find((s: any) => s.name === OPENWA_SESSION) || sessions.find((s: any) => s.status === 'CONNECTED') : null;
     if (!session) {
       console.error('[WhatsApp] No active session found');
       return false;

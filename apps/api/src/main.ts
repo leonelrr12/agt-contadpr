@@ -11,7 +11,7 @@ import { transactionsRouter } from './routes/transactions';
 import { orchestrateRouter } from './routes/orchestrate';
 import { ocrRouter } from './routes/ocr';
 import { facturaRouter } from './routes/factura';
-import { configRouter } from './routes/config';
+import { configRouter, publicConfigRouter } from './routes/config';
 import { authRouter } from './routes/auth';
 import { adminRouter } from './routes/admin';
 import { apiKeysRouter } from './routes/api-keys';
@@ -97,6 +97,7 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/auth', authRouter);
 app.use('/api', billingRouter);  // /api/plans (público), /api/subscription (auth interno)
 app.use('/api/whatsapp', whatsappRouter);  // webhook público + links (auth)
+app.use('/api/config', publicConfigRouter);  // público: wa-phone, etc.
 
 // ── Middleware de autenticación para el resto de rutas ──
 app.use('/api', requireAuth);

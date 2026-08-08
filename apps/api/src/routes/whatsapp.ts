@@ -22,7 +22,8 @@ whatsappRouter.post('/webhook', async (req, res) => {
 
   const from = body.from;       // "50761234567"
   const chatId = body.chatId;   // "50761234567@c.us"
-  const msg = body.body || {};
+  // Compatible con OpenWA (body.body) y whatsapp-ai-bot (body.message)
+  const msg = body.body || body.message || {};
 
   if (!from) return res.sendStatus(200);
 
