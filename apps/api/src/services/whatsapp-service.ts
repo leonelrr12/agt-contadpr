@@ -353,10 +353,20 @@ export async function processWhatsAppMessage(
     if (method) {
       if (!waSession.dialogContext) waSession.dialogContext = {};
       waSession.dialogContext.paymentMethod = method;
-      // Reconstruir input para que dialogAgent no malinterprete "1"/"efectivo" como monto
-      const originalText = getOriginalInput(chatId) || `${waSession.dialogContext.concept || ''} $${waSession.dialogContext.amount || 0} ${method}`;
+      // Reconstruir input para que dialogAgent no malinterprete "1"/"efectivo" como monto.
+      // Prioridad: texto original > reconstruir del contexto > fallback genérico
+      let reprocessText = getOriginalInput(chatId);
+      if (!reprocessText) {
+        const ctx = waSession.dialogContext;
+        const parts: string[] = [];
+        if (ctx.type) parts.push(ctx.type.toLowerCase());
+        if (ctx.concept) parts.push(ctx.concept);
+        if (ctx.amount) parts.push(`$${ctx.amount}`);
+        parts.push(method);
+        reprocessText = parts.join(' ') || `pagué $${ctx.amount || 0} ${method}`;
+      }
       const context: any = { extractedData: waSession.dialogContext };
-      return await processWithOrchestrator(prisma, chatId, link, originalText, context);
+      return await processWithOrchestrator(prisma, chatId, link, reprocessText, context);
     }
     return `❌ No reconocí ese método de pago. Responde con: *Efectivo*, *Tarjeta*, *Crédito*, *Transferencia* o *Cheque*.`;
   }
@@ -383,9 +393,13 @@ async function afterEntitySelection(
 ): Promise<string> {
   if (waSession.dialogContext?.paymentMethod) {
     // Ya tiene método de pago → re-procesar para obtener confirmación
-    const originalText = getOriginalInput(chatId) || '';
+    let reprocessText = getOriginalInput(chatId);
+    if (!reprocessText) {
+      const ctx = waSession.dialogContext;
+      reprocessText = `pagué ${ctx.concept || ''} $${ctx.amount || 0} ${ctx.paymentMethod}`;
+    }
     const context: any = { extractedData: waSession.dialogContext };
-    return await processWithOrchestrator(prisma, chatId, link, originalText, context);
+    return await processWithOrchestrator(prisma, chatId, link, reprocessText, context);
   }
   // Falta método de pago → mostrar selector
   setAwaitingPayment(chatId);
