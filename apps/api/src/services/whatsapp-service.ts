@@ -88,16 +88,15 @@ export async function processWhatsAppImage(
 
     // OCR
     const ocrData = await extractFromImage(buffer, prisma);
-    console.log('[WhatsApp OCR] Extracted:', { total: ocrData.total, provider: ocrData.provider, date: ocrData.date, itbms: ocrData.itbms, confidence: ocrData.confidence, source: ocrData.source });
 
     if (!ocrData.total && !ocrData.provider) {
       return `📷 No pude extraer datos de esta imagen (confianza: ${Math.round(ocrData.confidence * 100)}%). Asegúrate de que sea una factura legible.`;
     }
 
-    // Construir texto para el orquestador
-    const parts: string[] = ['factura'];
-    if (ocrData.provider) parts.push(`de ${ocrData.provider}`);
-    if (ocrData.total) parts.push(`por $${ocrData.total}`);
+    // Construir texto para el orquestador — usar "pagué" para que clasifique como GASTO
+    const parts: string[] = ['pagué'];
+    if (ocrData.provider) parts.push(`a ${ocrData.provider}`);
+    if (ocrData.total) parts.push(`$${ocrData.total}`);
     if (ocrData.date) parts.push(`del ${ocrData.date}`);
     if (ocrData.itbms) parts.push(`con ITBMS $${ocrData.itbms}`);
     if (caption) parts.push(`(${caption})`);
@@ -125,6 +124,16 @@ export async function processWhatsAppImage(
       deepseekApiKey: process.env.DEEPSEEK_API_KEY,
     });
 
+    // Construir resumen legible de lo extraído
+    const summaryParts: string[] = [];
+    if (ocrData.provider) summaryParts.push(`🏢 *Proveedor*: ${ocrData.provider}`);
+    if (ocrData.total) summaryParts.push(`💰 *Total*: $${ocrData.total}`);
+    if (ocrData.date) summaryParts.push(`📅 *Fecha*: ${ocrData.date}`);
+    if (ocrData.itbms) summaryParts.push(`📊 *ITBMS*: $${ocrData.itbms}`);
+    const ocrSummary = summaryParts.length > 0
+      ? `📷 *Factura procesada*\n\n${summaryParts.join('\n')}\n\n`
+      : `📷 *Factura procesada*\n\n`;
+
     const result = await orchestrator.process(syntheticInput, context);
 
     if (result.prompt && !result.needsConfirmation) {
@@ -135,18 +144,18 @@ export async function processWhatsAppImage(
       const missing = dialogData.missingFields || [];
       if (missing.length === 1 && missing[0] === 'paymentMethod') {
         setAwaitingPayment(chatId);
-        return `📷 *Factura procesada*\n\n${formatPaymentPrompt(dialogData)}`;
+        return `${ocrSummary}${formatPaymentPrompt(dialogData)}`;
       }
 
-      return `📷 *Factura procesada*\n\n🤖 ${result.prompt}\n\n💡 _Responde con lo que falta, o *CANCELAR*._`;
+      return `${ocrSummary}🤖 ${result.prompt}\n\n💡 _Responde con lo que falta, o *CANCELAR*._`;
     }
 
     if (result.needsConfirmation && result.prompt) {
       setPendingResult(chatId, result.result);
-      return `📷 *Factura procesada*\n\n${result.prompt}\n\n✏️ *CONFIRMAR* para guardar, *CANCELAR* para descartar.`;
+      return `${ocrSummary}${result.prompt}\n\n✏️ *CONFIRMAR* para guardar, *CANCELAR* para descartar.`;
     }
 
-    return `📷 Factura procesada. Revisa tu panel.`;
+    return `${ocrSummary}_Revisa tu panel para ver el asiento generado._`;
   } catch (err: any) {
     console.error('[WhatsApp] OCR error:', err.message);
     return '❌ Error al procesar la imagen. Intenta con una foto más clara.';
