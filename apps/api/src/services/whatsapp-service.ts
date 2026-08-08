@@ -103,9 +103,15 @@ export async function processWhatsAppPDF(
       ? `📄 *Factura electrónica*\n\n${summaryParts.join('\n')}\n\n`
       : `📄 *Factura electrónica*\n\n`;
 
-    // Construir input sintético
-    const parts: string[] = ['pagué'];
-    if (pdfData.provider) parts.push(`a ${pdfData.provider}`);
+    // Extraer descripciones de items de la factura para mejorar clasificación
+    const items = extractInvoiceItems(pdfData.text);
+    const itemsDesc = items.length > 0 ? items.slice(0, 3).join(', ') : '';
+
+    // Construir input sintético incluyendo items para clasificación por concepto.
+    // Usar "compré" en vez de "pagué" para que clasifique como GASTO/COMPRA, no PAGO_PROVEEDOR.
+    const parts: string[] = ['compré'];
+    if (itemsDesc) parts.push(itemsDesc);
+    if (pdfData.provider) parts.push(`en ${pdfData.provider}`);
     if (pdfData.total) parts.push(`$${pdfData.total}`);
     if (pdfData.date) parts.push(`del ${pdfData.date}`);
     if (pdfData.itbms) parts.push(`con ITBMS $${pdfData.itbms}`);
@@ -118,6 +124,7 @@ export async function processWhatsAppPDF(
     if (pdfData.ruc) ocrContext.ruc = pdfData.ruc;
     ocrContext.itbms = !!pdfData.itbms;
     ocrContext.source = 'pdf';
+    if (items.length > 0) ocrContext.items = items; // ayuda al dialogAgent a clasificar
 
     const context = { messages: [], extractedData: ocrContext };
     const link = await prisma.whatsAppLink.findFirst({
@@ -183,9 +190,9 @@ export async function processWhatsAppImage(
       return `📷 No pude extraer datos de esta imagen (confianza: ${Math.round(ocrData.confidence * 100)}%). Asegúrate de que sea una factura legible.`;
     }
 
-    // Construir texto para el orquestador — usar "pagué" para que clasifique como GASTO
-    const parts: string[] = ['pagué'];
-    if (ocrData.provider) parts.push(`a ${ocrData.provider}`);
+    // Construir texto para el orquestador — usar "compré" para clasificar como GASTO/COMPRA
+    const parts: string[] = ['compré'];
+    if (ocrData.provider) parts.push(`en ${ocrData.provider}`);
     if (ocrData.total) parts.push(`$${ocrData.total}`);
     if (ocrData.date) parts.push(`del ${ocrData.date}`);
     if (ocrData.itbms) parts.push(`con ITBMS $${ocrData.itbms}`);
@@ -527,6 +534,38 @@ async function handleConfirm(
     resetSession(chatId);
     return `❌ Error al guardar: ${err.message || 'Intenta de nuevo'}`;
   }
+}
+
+/** Extrae descripciones de items de una factura DGI. */
+function extractInvoiceItems(pdfText: string): string[] {
+  if (!pdfText) return [];
+  // Buscar la sección de items: después de "Valor Item" y antes de "Desglose ITBMS"
+  const lines = pdfText.split('\n');
+  const items: string[] = [];
+  let inItems = false;
+
+  for (const line of lines) {
+    if (/Valor\s*Item/i.test(line)) {
+      inItems = true;
+      continue;
+    }
+    if (/Desglose\s*ITBMS|Subtotal|Valor\s*Total/i.test(line)) {
+      inItems = false;
+      continue;
+    }
+    if (inItems) {
+      const trimmed = line.trim();
+      // Saltar cabeceras o líneas vacías
+      if (!trimmed || /^(No\.|Código|Cantidad|Unidad|Precio)/i.test(trimmed)) continue;
+      // La línea de item empieza con número seguido de descripción
+      const match = trimmed.match(/^\d+\s+(.+?)(?:\s+\d+\.?\d*\s+)/);
+      if (match) {
+        const desc = match[1].trim();
+        if (desc.length > 2 && desc.length < 80) items.push(desc);
+      }
+    }
+  }
+  return items;
 }
 
 /** Formatea el prompt de método de pago con opciones numeradas. */
