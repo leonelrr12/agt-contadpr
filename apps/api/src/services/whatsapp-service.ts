@@ -450,10 +450,38 @@ async function processWithOrchestrator(
     // ── Faltan campos → guardar contexto, pedir más info ──
     if (result.prompt && !result.needsConfirmation) {
       const dialogData = (result.plan as any)?.dialog || {};
+
+      const missing: string[] = dialogData.missingFields || [];
+
+      // concept_category: auto-clasificar sin preguntar al usuario.
+      // El concepto ya viene de los items del PDF o del texto del usuario.
+      if (missing.includes('concept_category') || missing.includes('concept')) {
+        // Quitar concept/concept_category de missingFields para evitar el prompt
+        const filteredMissing = missing.filter(m => m !== 'concept_category' && m !== 'concept');
+        // Si no quedan más campos faltantes, el concepto actual es suficiente
+        if (filteredMissing.length === 0) {
+          // Re-procesar con el concepto actual — el orquestador hará classification
+          dialogData.missingFields = [];
+          setDialogContext(chatId, dialogData);
+          const ctx: any = { extractedData: dialogData };
+          const reprocessText = getOriginalInput(chatId) || text;
+          return await processWithOrchestrator(prisma, chatId, link, reprocessText, ctx);
+        }
+        // Si solo falta paymentMethod después de quitar concept_category
+        if (filteredMissing.length === 1 && filteredMissing[0] === 'paymentMethod') {
+          dialogData.missingFields = filteredMissing;
+          setDialogContext(chatId, dialogData);
+          setOriginalInput(chatId, text);
+          setAwaitingPayment(chatId);
+          return formatPaymentPrompt(dialogData);
+        }
+        missing.length = 0;
+        missing.push(...filteredMissing);
+      }
+
       setDialogContext(chatId, dialogData);
       setOriginalInput(chatId, text);
 
-      const missing = dialogData.missingFields || [];
       if (missing.length === 1 && missing[0] === 'paymentMethod') {
         setAwaitingPayment(chatId);
         return formatPaymentPrompt(dialogData);
