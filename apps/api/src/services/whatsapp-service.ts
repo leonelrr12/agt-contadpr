@@ -119,6 +119,7 @@ export async function processWhatsAppPDF(
 
     const ocrContext: Record<string, any> = {};
     ocrContext.type = 'GASTO'; // DGI desde WhatsApp siempre es GASTO
+    ocrContext.concept = itemsDesc || pdfData.provider || 'Gasto Varios'; // concepto desde items
     if (pdfData.provider) ocrContext.provider = pdfData.provider;
     if (pdfData.total) ocrContext.amount = pdfData.total;
     if (pdfData.date) ocrContext.date = pdfData.date;
@@ -135,7 +136,7 @@ export async function processWhatsAppPDF(
     // Delegar a processWithOrchestrator para manejo unificado de missing fields
     setOriginalInput(chatId, syntheticInput);
     const reply = await processWithOrchestrator(prisma, chatId, link, syntheticInput, context);
-    return reply ? `📄 *Factura electrónica*\n\n${reply}` : null;
+    return reply ? `${summary}${reply}` : null;
   } catch (err: any) {
     console.error('[WhatsApp] PDF error:', err.message);
     return '❌ Error al procesar el PDF. Intenta con otro archivo.';
@@ -404,14 +405,30 @@ async function processWithOrchestrator(
 
       const missing: string[] = dialogData.missingFields || [];
 
-      // concept_category/concept: auto-clasificar sin preguntar al usuario.
-      // Siempre quitar estos campos — el concepto ya viene del PDF/contexto.
-      if (missing.includes('concept_category') || missing.includes('concept')) {
-        (dialogData as any)._autoClassified = true;
+      // concept_category/concept: quitar de missingFields si ya viene del contexto
+      const hadConceptIssue = missing.includes('concept_category') || missing.includes('concept');
+      if (hadConceptIssue) {
         missing.length = 0;
         const filtered = dialogData.missingFields.filter((m: string) => m !== 'concept_category' && m !== 'concept');
         missing.push(...filtered);
         dialogData.missingFields = [...missing];
+      }
+
+      // Si el único problema era concept_category, re-ejecutar el orquestador
+      if (hadConceptIssue && missing.length === 0) {
+        setDialogContext(chatId, dialogData);
+        const ctx: any = { extractedData: dialogData };
+        const orchestrator2 = new OrchestratorAgent({
+          prisma, companyId: link.companyId,
+          userId: link.companyId === 'demo-company' ? 'demo-user' : link.companyId,
+          deepseekApiKey: process.env.DEEPSEEK_API_KEY,
+        });
+        const result2 = await orchestrator2.process(text, ctx);
+        if (result2.needsConfirmation && result2.prompt) {
+          setPendingResult(chatId, result2.result);
+          return result2.prompt;
+        }
+        if (result2.prompt) return result2.prompt;
       }
 
       setDialogContext(chatId, dialogData);

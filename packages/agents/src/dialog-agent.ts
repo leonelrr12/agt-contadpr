@@ -231,6 +231,9 @@ export class DialogAgent {
         const noKeywordMatch = extracted.missingFields.includes('type');
         if ((conceptUnset || noKeywordMatch) && prev.concept) {
           concept = prev.concept;
+          // Quitar concept_category de missingFields — ya tenemos el concepto
+          const idx = extracted.missingFields.indexOf('concept_category');
+          if (idx >= 0) extracted.missingFields.splice(idx, 1);
         }
         if (extracted.amount === 0 && prev.amount && prev.amount > 0) {
           amount = prev.amount;
