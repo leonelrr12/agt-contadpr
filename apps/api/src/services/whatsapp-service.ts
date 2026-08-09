@@ -441,20 +441,20 @@ async function processWithOrchestrator(
       setDialogContext(chatId, dialogData);
       setOriginalInput(chatId, text);
 
-      // 1. Si falta categoría → mostrar selector
-      if (hasConcept && !(dialogData as any)._conceptSelected) {
-        setAwaitingCategory(chatId);
-        return formatCategoryPrompt(dialogData);
-      }
-
-      // 1b. Categoría ya seleccionada → quitar de missing
-      if (hasConcept && (dialogData as any)._conceptSelected) {
+      // Quitar concept_category si ya fue seleccionada
+      if ((missing.includes('concept_category') || missing.includes('concept')) && (dialogData as any)._conceptSelected) {
         missing.length = 0;
         const rest = (dialogData.missingFields || []).filter((m: string) => m !== 'concept_category' && m !== 'concept');
         missing.push(...rest);
       }
 
-      // 2. Si falta forma de pago → mostrar selector
+      // Si falta forma de pago Y no se ha seleccionado categoría → categoría primero
+      if (missing.includes('paymentMethod') && !(dialogData as any)._conceptSelected) {
+        setAwaitingCategory(chatId);
+        return formatCategoryPrompt(dialogData);
+      }
+
+      // Si falta forma de pago → mostrar pago
       if (missing.includes('paymentMethod')) {
         setAwaitingPayment(chatId);
         return formatPaymentPrompt(dialogData);
