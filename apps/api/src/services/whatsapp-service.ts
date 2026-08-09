@@ -402,7 +402,6 @@ async function processWithOrchestrator(
     // ── Faltan campos → guardar contexto, pedir más info ──
     if (result.prompt && !result.needsConfirmation) {
       const dialogData = (result.plan as any)?.dialog || {};
-
       const missing: string[] = dialogData.missingFields || [];
 
       // concept_category/concept: quitar de missingFields si ya viene del contexto
@@ -414,25 +413,26 @@ async function processWithOrchestrator(
         dialogData.missingFields = [...missing];
       }
 
+      // Guardar contexto y texto original SIEMPRE (incluso si vamos a re-ejecutar)
+      setDialogContext(chatId, dialogData);
+      setOriginalInput(chatId, text);
+
       // Si el único problema era concept_category, re-ejecutar el orquestador
       if (hadConceptIssue && missing.length === 0) {
-        setDialogContext(chatId, dialogData);
         const ctx: any = { extractedData: dialogData };
-        const orchestrator2 = new OrchestratorAgent({
+        const { OrchestratorAgent: OA2 } = await import('@agt-contador/agents');
+        const o2 = new OA2({
           prisma, companyId: link.companyId,
           userId: link.companyId === 'demo-company' ? 'demo-user' : link.companyId,
           deepseekApiKey: process.env.DEEPSEEK_API_KEY,
         });
-        const result2 = await orchestrator2.process(text, ctx);
+        const result2 = await o2.process(text, ctx);
         if (result2.needsConfirmation && result2.prompt) {
           setPendingResult(chatId, result2.result);
           return result2.prompt;
         }
         if (result2.prompt) return result2.prompt;
       }
-
-      setDialogContext(chatId, dialogData);
-      setOriginalInput(chatId, text);
 
       if (missing.length === 1 && missing[0] === 'paymentMethod') {
         setAwaitingPayment(chatId);
