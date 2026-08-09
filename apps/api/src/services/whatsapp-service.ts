@@ -436,6 +436,8 @@ async function processWithOrchestrator(
       if (existingCtx?.amount && !dialogData.amount) (dialogData as any).amount = existingCtx.amount;
       if (existingCtx?._conceptSelected) (dialogData as any)._conceptSelected = true;
       if (existingCtx?.concept) (dialogData as any).concept = existingCtx.concept;
+      if (existingCtx?.type) (dialogData as any).type = existingCtx.type;
+      if (existingCtx?.source) (dialogData as any).source = existingCtx.source;
 
       // Guardar contexto SIN pisar campos ya seleccionados
       setDialogContext(chatId, dialogData);
