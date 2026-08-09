@@ -265,6 +265,7 @@ export async function processWhatsAppMessage(
   let waSession = getSession(chatId);
   if (!waSession) {
     waSession = createSession(chatId, phoneNumber);
+    // session created
   } else {
     touchSession(chatId);
   }
@@ -291,9 +292,9 @@ export async function processWhatsAppMessage(
     resetSession(chatId);
   }
 
-  // ── Respuesta de categoría: procesar directo sin depender del estado ──
+  // ── Respuesta de categoría (solo si no se seleccionó ya) ──
   const category = parseCategoryReply(text);
-  if (category && waSession.dialogContext) {
+  if (category && waSession.dialogContext && !(waSession.dialogContext as any)._conceptSelected) {
     if (!waSession.dialogContext) waSession.dialogContext = {};
     const ctx = waSession.dialogContext;
     if (category === 'otra') {
