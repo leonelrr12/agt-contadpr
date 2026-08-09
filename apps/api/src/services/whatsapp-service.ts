@@ -268,7 +268,6 @@ export async function processWhatsAppMessage(
   } else {
     touchSession(chatId);
   }
-  console.log(`[WA] state=${waSession.state} text="${text.substring(0, 30)}"`);
 
   // ── Comandos de control de sesión ──
   if (CMD_RESET.test(text)) {
@@ -441,10 +440,6 @@ async function processWithOrchestrator(
       const inputCtx = context?.extractedData;
       if (inputCtx?.type) (dialogData as any).type = inputCtx.type;
       if (inputCtx?.source) (dialogData as any).source = inputCtx.source;
-
-      // Guardar contexto SIN pisar campos ya seleccionados
-      setDialogContext(chatId, dialogData);
-      setOriginalInput(chatId, text);
 
       // Quitar concept_category si ya fue seleccionada
       if ((missing.includes('concept_category') || missing.includes('concept')) && (dialogData as any)._conceptSelected) {
