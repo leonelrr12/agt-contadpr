@@ -126,12 +126,17 @@ whatsappRouter.post('/verify', requireAuth, async (req, res) => {
     const chatId = `${phoneNumber}@c.us`;
     const welcomeMsg =
       `✅ *Contador507 vinculado correctamente*\n\n` +
-      `Ya puedes registrar transacciones desde WhatsApp. Ejemplos:\n\n` +
-      `• "compré gasolina por $40 con tarjeta"\n` +
-      `• "pagué internet $65 efectivo"\n` +
-      `• "vendí mercancía $500 crédito a Cliente XYZ"\n` +
-      `• "cobré factura a Cliente ABC $200"\n\n` +
-      `En cada paso te guiaré para completar la información faltante. Escribe *CANCELAR* para empezar de nuevo.`;
+      `📝 *Registrar transacciones*\n` +
+      `Escribe tu gasto o venta. Ejemplos:\n` +
+      `_"compré gasolina por $40"_\n` +
+      `_"pagué internet $65"_\n\n` +
+      `📄 *Facturas*\n` +
+      `Envía una foto de la factura o un PDF de la DGI.\n\n` +
+      `💡 *Comandos*\n` +
+      `• Responde con números para seleccionar opciones\n` +
+      `• *OK* — guardar transacción\n` +
+      `• *XX* — cancelar / empezar de nuevo\n` +
+      `• *HOLA* — ver estas instrucciones`;
     sendWhatsAppMessage(chatId, welcomeMsg).catch(() => {});
   }
 

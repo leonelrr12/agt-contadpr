@@ -234,7 +234,7 @@ export async function processWhatsAppMessage(
     if (existingLink) {
       // Ya vinculado: solo reiniciar sesión
       resetSession(chatId);
-      return `🤖 *Contador507*: ¡Hola de nuevo! ¿Qué deseas registrar hoy?\n\nEj: _"compré gasolina por \$40 con tarjeta"_`;
+      return `🤖 *Contador507* — ¿Qué deseas registrar?\n\n📝 _\"compré gasolina por \$40\"_\n📄 _Envía un PDF o foto de factura_\n\n💡 *OK* = guardar | *XX* = cancelar | *HOLA* = ayuda`;
     }
 
     // No vinculado: generar código
