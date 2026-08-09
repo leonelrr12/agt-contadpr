@@ -423,50 +423,47 @@ async function processWithOrchestrator(
     // ── Faltan campos → guardar contexto, pedir más info ──
     if (result.prompt && !result.needsConfirmation) {
       const dialogData = (result.plan as any)?.dialog || {};
-      const missing: string[] = dialogData.missingFields || [];
+      const missing: string[] = [...(dialogData.missingFields || [])];
 
-      // concept_category: mostrar selector de categoría (solo si el usuario no la seleccionó ya)
-      const hasConceptIssue = missing.includes('concept_category') || missing.includes('concept');
-      if (hasConceptIssue) {
-        // Quitar de missingFields
-        missing.length = 0;
-        const filtered = dialogData.missingFields.filter((m: string) => m !== 'concept_category' && m !== 'concept');
-        missing.push(...filtered);
-        dialogData.missingFields = [...missing];
-        setDialogContext(chatId, dialogData);
-        setOriginalInput(chatId, text);
+      // Orden fijo: 1º categoría → 2º forma de pago → 3º resto
+      const hasConcept = missing.includes('concept_category') || missing.includes('concept');
+      const hasPayment = missing.includes('paymentMethod');
 
-        // Si el usuario ya seleccionó concepto, no volver a preguntar
-        if ((dialogData as any)._conceptSelected) {
-          // Solo seguir con lo que falte (ej. paymentMethod)
-          if (missing.length === 1 && missing[0] === 'paymentMethod') {
-            setAwaitingPayment(chatId);
-            return formatPaymentPrompt(dialogData);
-          }
-          if (missing.length === 0) {
-            // Nada más falta — confirmación directa
-            const { OrchestratorAgent: OA2 } = await import('@agt-contador/agents');
-            const o2 = new OA2({ prisma, companyId: link.companyId, userId: link.companyId === 'demo-company' ? 'demo-user' : link.companyId, deepseekApiKey: process.env.DEEPSEEK_API_KEY });
-            const r2 = await o2.process(text, { messages: [], extractedData: dialogData });
-            if (r2.needsConfirmation && r2.prompt) { setPendingResult(chatId, r2.result); return r2.prompt; }
-            if (r2.prompt) return r2.prompt;
-          }
-          return `🤖 ${result.prompt}`;
-        }
+      // Siempre guardar el contexto completo
+      setDialogContext(chatId, dialogData);
+      setOriginalInput(chatId, text);
 
-        // Primera vez: mostrar selector de categoría
+      // 1. Si falta categoría Y no se ha seleccionado → mostrar selector de categoría
+      if (hasConcept && !(dialogData as any)._conceptSelected) {
         setAwaitingCategory(chatId);
         return formatCategoryPrompt(dialogData);
       }
 
-      setDialogContext(chatId, dialogData);
-      setOriginalInput(chatId, text);
+      // 1b. Categoría ya seleccionada pero el orquestador la reporta → ignorar y seguir
+      if (hasConcept && (dialogData as any)._conceptSelected) {
+        // Quitar concept_category de missing para que no interfiera
+        missing.length = 0;
+        const rest = (dialogData.missingFields || []).filter((m: string) => m !== 'concept_category' && m !== 'concept');
+        missing.push(...rest);
+        dialogData.missingFields = [...missing];
+        setDialogContext(chatId, dialogData);
+      }
 
-      if (missing.length === 1 && missing[0] === 'paymentMethod') {
+      // 2. Si falta forma de pago → mostrar selector de pago
+      if (missing.includes('paymentMethod')) {
         setAwaitingPayment(chatId);
         return formatPaymentPrompt(dialogData);
       }
 
+      // 3. Nada falta → re-ejecutar para obtener confirmación
+      if (missing.length === 0) {
+        const { OrchestratorAgent: OA2 } = await import('@agt-contador/agents');
+        const o2 = new OA2({ prisma, companyId: link.companyId, userId: link.companyId === 'demo-company' ? 'demo-user' : link.companyId, deepseekApiKey: process.env.DEEPSEEK_API_KEY });
+        const r2 = await o2.process(text, { messages: [], extractedData: dialogData });
+        if (r2.needsConfirmation && r2.prompt) { setPendingResult(chatId, r2.result); return r2.prompt; }
+      }
+
+      // 4. Otros campos faltantes
       return `🤖 ${result.prompt}\n\n💡 _Responde a este mensaje con lo que falta, o escribe *XX* para empezar de nuevo._`;
     }
 
@@ -593,28 +590,38 @@ function parseCategoryReply(text: string): string | null {
 /** Avanza después de seleccionar categoría: verifica qué falta y muestra el siguiente paso. */
 async function advanceAfterCategory(prisma: any, chatId: string, link: any, waSession: any): Promise<string> {
   const ctx = waSession.dialogContext;
-  // Marcar que el usuario ya seleccionó concepto — no volver a preguntar
   (ctx as any)._conceptSelected = true;
-  // Ya tenemos concepto. ¿Qué más falta?
+
+  // Verificar qué sigue faltando (sin llamar al orquestador que re-añadiría concept_category)
   if (!ctx.paymentMethod) {
     setAwaitingPayment(chatId);
     return formatPaymentPrompt(ctx);
   }
-  // Todo completo: llamar al orquestador directo para obtener confirmación
-  setDialogContext(chatId, ctx);
+
+  // Todo completo: re-ejecutar orquestador con contexto completo para obtener confirmación
+  const reprocessText = getOriginalInput(chatId) || `compré ${ctx.concept} $${ctx.amount || 0} ${ctx.paymentMethod}`;
   const { OrchestratorAgent: OA3 } = await import('@agt-contador/agents');
   const o3 = new OA3({
     prisma, companyId: link.companyId,
     userId: link.companyId === 'demo-company' ? 'demo-user' : link.companyId,
     deepseekApiKey: process.env.DEEPSEEK_API_KEY,
   });
-  const reprocessText = getOriginalInput(chatId) || `compré ${ctx.concept} $${ctx.amount || 0} ${ctx.paymentMethod}`;
   const result3 = await o3.process(reprocessText, { messages: [], extractedData: ctx });
+
   if (result3.needsConfirmation && result3.prompt) {
     setPendingResult(chatId, result3.result);
+    // Limpiar el texto del resultado — quitar "Asiento contable" si el monto está mal
     return result3.prompt;
   }
-  // Si aún faltan campos (poco probable), mostrar el prompt
+
+  // Si el orquestador aún reporta concept_category, forzar confirmación
+  const missing = (result3.plan as any)?.dialog?.missingFields || [];
+  if (missing.includes('concept_category')) {
+    // El concepto ya fue seleccionado — forzar confirmación
+    setPendingResult(chatId, result3.result);
+    return result3.prompt || `✅ *${ctx.concept}* — $${ctx.amount}\n\n✏️ Escribe *OK* para guardar, o *XX* para descartar.`;
+  }
+
   if (result3.prompt) return result3.prompt;
   return `✅ Transacción lista. Escribe *OK* para guardar.`;
 }
