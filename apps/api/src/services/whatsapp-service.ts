@@ -540,9 +540,9 @@ async function handleConfirm(
       response += `\n${labels[saved.autoCreated.type] || saved.autoCreated.type}: *${saved.autoCreated.name}*`;
     }
 
-    // No resetear — limpiar solo pendingResult para permitir siguiente transacción
+    // Limpiar para permitir siguiente transacción (sin borrar sesión)
     const s = getSession(chatId);
-    if (s) { s.pendingResult = null; s.state = 'idle'; }
+    if (s) { s.pendingResult = null; s.dialogContext = null; s.state = 'idle'; }
     return response;
   } catch (err: any) {
     console.error('[WhatsApp] Confirm error:', err.message);
