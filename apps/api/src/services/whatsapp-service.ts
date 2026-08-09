@@ -67,8 +67,8 @@ export function generateCode(): string {
 }
 
 // ── Comandos de control para el flujo multi-turn ──
-const CMD_CONFIRM = /^(confirmar|s[ií]|ok|dale|aceptar|yes)$/i;
-const CMD_CANCEL = /^(cancelar|no|nop|abortar)$/i;
+const CMD_CONFIRM = /^(ok|confirmar|s[ií]|dale|aceptar|yes)$/i;
+const CMD_CANCEL = /^(xx|cancelar|no|nop|abortar)$/i;
 const CMD_RESET = /^(reiniciar|empezar de nuevo|nueva transacc[ió]on)$/i;
 
 /**
@@ -281,7 +281,7 @@ export async function processWhatsAppMessage(
     }
   }
 
-  // ── Estado CONFIRMING: esperando "CONFIRMAR" para guardar ──
+  // ── Estado CONFIRMING: esperando "OK" para guardar ──
   if (waSession.state === 'confirming' && waSession.pendingResult) {
     if (CMD_CONFIRM.test(text)) {
       return await handleConfirm(prisma, chatId, link, waSession);
@@ -467,13 +467,13 @@ async function processWithOrchestrator(
         return formatPaymentPrompt(dialogData);
       }
 
-      return `🤖 ${result.prompt}\n\n💡 _Responde a este mensaje con lo que falta, o escribe *CANCELAR* para empezar de nuevo._`;
+      return `🤖 ${result.prompt}\n\n💡 _Responde a este mensaje con lo que falta, o escribe *XX* para empezar de nuevo._`;
     }
 
     // ── Listo para confirmar ──
     if (result.needsConfirmation && result.prompt) {
       setPendingResult(chatId, result.result);
-      return `${result.prompt}\n\n✏️ Escribe *CONFIRMAR* para guardar, o *CANCELAR* para descartar.`;
+      return `${result.prompt}\n\n✏️ Escribe *OK* para guardar, o *XX* para descartar.`;
     }
 
     if (result.prompt) {
@@ -616,7 +616,7 @@ async function advanceAfterCategory(prisma: any, chatId: string, link: any, waSe
   }
   // Si aún faltan campos (poco probable), mostrar el prompt
   if (result3.prompt) return result3.prompt;
-  return `✅ Transacción lista. Escribe *CONFIRMAR* para guardar.`;
+  return `✅ Transacción lista. Escribe *OK* para guardar.`;
 }
 
 /** Formatea el prompt de método de pago con opciones numeradas. */
