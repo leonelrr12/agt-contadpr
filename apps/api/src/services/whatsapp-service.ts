@@ -268,6 +268,7 @@ export async function processWhatsAppMessage(
   } else {
     touchSession(chatId);
   }
+  console.log(`[WA] state=${waSession.state} text="${text.substring(0, 30)}"`);
 
   // ── Comandos de control de sesión ──
   if (CMD_RESET.test(text)) {
@@ -451,6 +452,10 @@ async function processWithOrchestrator(
         const rest = (dialogData.missingFields || []).filter((m: string) => m !== 'concept_category' && m !== 'concept');
         missing.push(...rest);
       }
+
+      // Guardar contexto DESPUÉS de decidir el estado
+      setDialogContext(chatId, dialogData);
+      setOriginalInput(chatId, text);
 
       // Si falta forma de pago Y no se ha seleccionado categoría → categoría primero
       if (missing.includes('paymentMethod') && !(dialogData as any)._conceptSelected) {
