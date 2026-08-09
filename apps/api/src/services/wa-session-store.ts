@@ -37,7 +37,7 @@ try {
   }
 } catch (e) {}
 
-// Persistir periódicamente cada 30s
+// Persistir a disco (llamado en cada cambio de estado y cada 30s)
 function persistSessions() {
   try {
     const data: Record<string, WaSession> = {};
@@ -86,6 +86,7 @@ export function setDialogContext(chatId: string, ctx: Record<string, any> | null
   s.dialogContext = ctx;
   s.state = 'collecting';
   s.lastActivity = Date.now();
+  persistSessions();
 }
 
 export function setPendingResult(chatId: string, result: any): void {
@@ -94,6 +95,7 @@ export function setPendingResult(chatId: string, result: any): void {
   s.pendingResult = result;
   s.state = 'confirming';
   s.lastActivity = Date.now();
+  persistSessions();
 }
 
 export function setEntityMatches(chatId: string, matches: any[]): void {
@@ -102,6 +104,7 @@ export function setEntityMatches(chatId: string, matches: any[]): void {
   s.entityMatches = matches;
   s.state = 'awaiting_entity';
   s.lastActivity = Date.now();
+  persistSessions();
 }
 
 export function setOriginalInput(chatId: string, text: string): void {
@@ -109,6 +112,7 @@ export function setOriginalInput(chatId: string, text: string): void {
   if (!s) return;
   s.originalInput = text;
   s.lastActivity = Date.now();
+  persistSessions();
 }
 
 export function getOriginalInput(chatId: string): string | null {
@@ -121,6 +125,7 @@ export function setAwaitingCategory(chatId: string): void {
   if (!s) return;
   s.state = 'awaiting_category';
   s.lastActivity = Date.now();
+  persistSessions();
 }
 
 export function setAwaitingPayment(chatId: string): void {
@@ -128,6 +133,7 @@ export function setAwaitingPayment(chatId: string): void {
   if (!s) return;
   s.state = 'awaiting_payment';
   s.lastActivity = Date.now();
+  persistSessions();
 }
 
 export function clearSession(chatId: string): void {
@@ -138,8 +144,10 @@ export function clearSession(chatId: string): void {
   s.entityMatches = null;
   s.state = 'idle';
   s.lastActivity = Date.now();
+  persistSessions();
 }
 
 export function resetSession(chatId: string): void {
   sessions.delete(chatId);
+  persistSessions();
 }
