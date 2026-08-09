@@ -455,27 +455,14 @@ async function processWithOrchestrator(
 
       const missing: string[] = dialogData.missingFields || [];
 
-      // concept_category: auto-clasificar sin preguntar al usuario (solo una vez).
-      if ((missing.includes('concept_category') || missing.includes('concept'))
-          && !(dialogData as any)._autoClassified) {
+      // concept_category/concept: auto-clasificar sin preguntar al usuario.
+      // Siempre quitar estos campos — el concepto ya viene del PDF/contexto.
+      if (missing.includes('concept_category') || missing.includes('concept')) {
         (dialogData as any)._autoClassified = true;
-        const filteredMissing = missing.filter(m => m !== 'concept_category' && m !== 'concept');
-        if (filteredMissing.length === 0) {
-          dialogData.missingFields = [];
-          setDialogContext(chatId, dialogData);
-          const ctx: any = { extractedData: dialogData };
-          const reprocessText = getOriginalInput(chatId) || text;
-          return await processWithOrchestrator(prisma, chatId, link, reprocessText, ctx);
-        }
-        if (filteredMissing.length === 1 && filteredMissing[0] === 'paymentMethod') {
-          dialogData.missingFields = filteredMissing;
-          setDialogContext(chatId, dialogData);
-          // No sobreescribir originalInput — preservar el texto del PDF
-          setAwaitingPayment(chatId);
-          return formatPaymentPrompt(dialogData);
-        }
         missing.length = 0;
-        missing.push(...filteredMissing);
+        const filtered = dialogData.missingFields.filter((m: string) => m !== 'concept_category' && m !== 'concept');
+        missing.push(...filtered);
+        dialogData.missingFields = [...missing];
       }
 
       setDialogContext(chatId, dialogData);
