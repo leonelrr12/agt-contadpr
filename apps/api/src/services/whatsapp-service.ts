@@ -430,14 +430,16 @@ async function processWithOrchestrator(
       const hasConcept = missing.includes('concept_category') || missing.includes('concept');
       const hasPayment = missing.includes('paymentMethod');
 
-      // Preservar campos ya seleccionados del contexto existente
+      // Preservar campos del contexto existente Y del contexto original (ocrContext)
       const existingCtx = getSession(chatId)?.dialogContext;
       if (existingCtx?.paymentMethod) (dialogData as any).paymentMethod = existingCtx.paymentMethod;
       if (existingCtx?.amount && !dialogData.amount) (dialogData as any).amount = existingCtx.amount;
       if (existingCtx?._conceptSelected) (dialogData as any)._conceptSelected = true;
       if (existingCtx?.concept) (dialogData as any).concept = existingCtx.concept;
-      if (existingCtx?.type) (dialogData as any).type = existingCtx.type;
-      if (existingCtx?.source) (dialogData as any).source = existingCtx.source;
+      // Forzar type y source desde el contexto de entrada (PDF/OCR)
+      const inputCtx = context?.extractedData;
+      if (inputCtx?.type) (dialogData as any).type = inputCtx.type;
+      if (inputCtx?.source) (dialogData as any).source = inputCtx.source;
 
       // Guardar contexto SIN pisar campos ya seleccionados
       setDialogContext(chatId, dialogData);
