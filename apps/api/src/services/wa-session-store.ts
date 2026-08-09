@@ -1,16 +1,12 @@
 /**
  * Session store para conversaciones de WhatsApp.
  * Mantiene dialogContext y pendingResult por chatId con TTL de 10 minutos.
- *
- * Flujo multi-turn:
- *   1. Usuario envía "compré gasolina $40"
- *   2. Orchestrator detecta falta paymentMethod → guarda contexto, pide método
- *   3. Usuario responde "efectivo" → carga contexto, merge, continúa
- *   4. Orchestrator pide confirmación → guarda pendingResult, pide "CONFIRMAR"
- *   5. Usuario envía "CONFIRMAR" → confirma transacción
+ * Persiste a /tmp/wa-sessions.json para sobrevivir reinicios.
  */
 
-const TTL_MS = 10 * 60 * 1000; // 10 minutos
+const TTL_MS = 10 * 60 * 1000;
+const PERSIST_FILE = '/tmp/wa-sessions.json';
+const fs = require('fs');
 
 export type WaState = 'idle' | 'collecting' | 'confirming' | 'awaiting_entity' | 'awaiting_payment' | 'awaiting_category';
 
@@ -19,21 +15,43 @@ interface WaSession {
   phoneNumber: string;
   dialogContext: Record<string, any> | null;
   pendingResult: any | null;
-  entityMatches: any[] | null;    // matches de proveedor/cliente para selección numérica
-  originalInput: string | null;    // texto original de la transacción para re-procesamiento
+  entityMatches: any[] | null;
+  originalInput: string | null;
   state: WaState;
   lastActivity: number;
 }
 
 const sessions = new Map<string, WaSession>();
 
-// Limpieza periódica de sesiones expiradas (cada 5 min)
+// Restaurar sesiones del disco
+try {
+  if (fs.existsSync(PERSIST_FILE)) {
+    const data = JSON.parse(fs.readFileSync(PERSIST_FILE, 'utf8'));
+    for (const [chatId, s] of Object.entries(data)) {
+      const session = s as WaSession;
+      if (Date.now() - session.lastActivity < TTL_MS) {
+        sessions.set(chatId, session);
+      }
+    }
+    console.log(`[WA Session] ${sessions.size} sesiones restauradas de disco`);
+  }
+} catch (e) {}
+
+// Persistir periódicamente cada 30s
+function persistSessions() {
+  try {
+    const data: Record<string, WaSession> = {};
+    for (const [chatId, s] of sessions) data[chatId] = s;
+    fs.writeFileSync(PERSIST_FILE, JSON.stringify(data));
+  } catch {}
+}
+setInterval(persistSessions, 30_000);
+
+// Limpieza de sesiones expiradas cada 5 min
 setInterval(() => {
   const now = Date.now();
   for (const [chatId, s] of sessions) {
-    if (now - s.lastActivity > TTL_MS) {
-      sessions.delete(chatId);
-    }
+    if (now - s.lastActivity > TTL_MS) sessions.delete(chatId);
   }
 }, 5 * 60 * 1000);
 
@@ -49,14 +67,9 @@ export function getSession(chatId: string): WaSession | undefined {
 
 export function createSession(chatId: string, phoneNumber: string): WaSession {
   const s: WaSession = {
-    chatId,
-    phoneNumber,
-    dialogContext: null,
-    pendingResult: null,
-    entityMatches: null,
-    originalInput: null,
-    state: 'idle',
-    lastActivity: Date.now(),
+    chatId, phoneNumber,
+    dialogContext: null, pendingResult: null, entityMatches: null,
+    originalInput: null, state: 'idle', lastActivity: Date.now(),
   };
   sessions.set(chatId, s);
   return s;

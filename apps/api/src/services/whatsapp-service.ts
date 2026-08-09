@@ -352,9 +352,9 @@ export async function processWhatsAppMessage(
     return `❌ No reconocí ese método de pago. Responde con: *Efectivo*, *Tarjeta*, *Crédito*, *Transferencia* o *Cheque*.`;
   }
 
-  // ── Protección: si no hay sesión activa y el mensaje es un número suelto, ignorar ──
+  // ── Protección: si no hay sesión activa y el mensaje es un número suelto, pedir que describa ──
   if (waSession.state === 'idle' && /^\d{1,2}$/.test(text.trim())) {
-    return `🤖 Parece que la sesión anterior se perdió. Escribe *HOLA* para empezar de nuevo.`;
+    return `🤖 Parece que aún no has iniciado una transacción. Escribe qué deseas registrar, por ejemplo: _"compré gasolina por \$40"_ o envía una foto/PDF de la factura.`;
   }
 
   // ── Construir contexto desde la sesión e invocar orquestador ──
