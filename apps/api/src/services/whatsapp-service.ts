@@ -291,6 +291,12 @@ export async function processWhatsAppMessage(
     resetSession(chatId);
   }
 
+  // ── Si el mensaje parece respuesta de categoría pero la sesión no está lista, esperar un poco
+  if (parseCategoryReply(text) && waSession.state === 'idle' && !waSession.dialogContext) {
+    await new Promise(r => setTimeout(r, 2000));
+    waSession = getSession(chatId) || waSession;
+  }
+
   // ── Estado AWAITING_CATEGORY: esperando selección de categoría ──
   if (waSession.state === 'awaiting_category' && waSession.dialogContext) {
     const ctx = waSession.dialogContext;
@@ -326,6 +332,12 @@ export async function processWhatsAppMessage(
       return await afterEntitySelection(prisma, chatId, link, waSession);
     }
     return `❌ Opción inválida. Responde con un número del 1 al ${waSession.entityMatches.length}, o escribe *NUEVO*.`;
+  }
+
+  // ── Si el mensaje parece respuesta de pago pero sesión no lista, esperar
+  if (parsePaymentMethodReply(text) && waSession.state === 'idle' && !waSession.dialogContext) {
+    await new Promise(r => setTimeout(r, 2000));
+    waSession = getSession(chatId) || waSession;
   }
 
   // ── Estado AWAITING_PAYMENT: esperando método de pago ──
