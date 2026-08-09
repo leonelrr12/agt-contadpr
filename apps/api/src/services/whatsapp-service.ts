@@ -132,35 +132,10 @@ export async function processWhatsAppPDF(
       where: { phoneNumber, verifiedAt: { not: null }, isActive: true },
     });
 
-    const { OrchestratorAgent } = await import('@agt-contador/agents');
-    const orchestrator = new OrchestratorAgent({
-      prisma,
-      companyId: link?.companyId || 'demo-company',
-      userId: link?.companyId === 'demo-company' ? 'demo-user' : link?.companyId || 'demo-user',
-      deepseekApiKey: process.env.DEEPSEEK_API_KEY,
-    });
-
-    const result = await orchestrator.process(syntheticInput, context);
-
-    if (result.prompt && !result.needsConfirmation) {
-      const dialogData = (result.plan as any)?.dialog || {};
-      setDialogContext(chatId, dialogData);
-      setOriginalInput(chatId, syntheticInput);
-
-      const missing = dialogData.missingFields || [];
-      if (missing.length === 1 && missing[0] === 'paymentMethod') {
-        setAwaitingPayment(chatId);
-        return `${summary}${formatPaymentPrompt(dialogData)}`;
-      }
-      return `${summary}🤖 ${result.prompt}\n\n💡 _Responde con lo que falta, o *CANCELAR*._`;
-    }
-
-    if (result.needsConfirmation && result.prompt) {
-      setPendingResult(chatId, result.result);
-      return `${summary}${result.prompt}\n\n✏️ *CONFIRMAR* para guardar, *CANCELAR* para descartar.`;
-    }
-
-    return `${summary}_Revisa tu panel._`;
+    // Delegar a processWithOrchestrator para manejo unificado de missing fields
+    setOriginalInput(chatId, syntheticInput);
+    const reply = await processWithOrchestrator(prisma, chatId, link, syntheticInput, context);
+    return reply ? `📄 *Factura electrónica*\n\n${reply}` : null;
   } catch (err: any) {
     console.error('[WhatsApp] PDF error:', err.message);
     return '❌ Error al procesar el PDF. Intenta con otro archivo.';
@@ -209,52 +184,26 @@ export async function processWhatsAppImage(
     ocrContext.itbms = !!ocrData.itbms;
     ocrContext.source = 'ocr';
 
-    // Procesar con el orquestador usando contexto OCR pre-extraído
-    const context = { messages: [], extractedData: ocrContext };
-    const link = await prisma.whatsAppLink.findFirst({
-      where: { phoneNumber, verifiedAt: { not: null }, isActive: true },
-    });
-
-    const { OrchestratorAgent } = await import('@agt-contador/agents');
-    const orchestrator = new OrchestratorAgent({
-      prisma,
-      companyId: link?.companyId || 'demo-company',
-      userId: link?.companyId === 'demo-company' ? 'demo-user' : link?.companyId || 'demo-user',
-      deepseekApiKey: process.env.DEEPSEEK_API_KEY,
-    });
-
-    // Construir resumen legible de lo extraído
+    // Construir resumen de lo extraído por OCR
     const summaryParts: string[] = [];
     if (ocrData.provider) summaryParts.push(`🏢 *Proveedor*: ${ocrData.provider}`);
     if (ocrData.total) summaryParts.push(`💰 *Total*: $${ocrData.total}`);
     if (ocrData.date) summaryParts.push(`📅 *Fecha*: ${ocrData.date}`);
     if (ocrData.itbms) summaryParts.push(`📊 *ITBMS*: $${ocrData.itbms}`);
-    const ocrSummary = summaryParts.length > 0
+
+    const context = { messages: [], extractedData: ocrContext };
+    const link = await prisma.whatsAppLink.findFirst({
+      where: { phoneNumber, verifiedAt: { not: null }, isActive: true },
+    });
+
+    // Delegar a processWithOrchestrator para manejo unificado
+    setOriginalInput(chatId, syntheticInput);
+    const reply = await processWithOrchestrator(prisma, chatId, link, syntheticInput, context);
+    if (!reply) return null;
+    const ocrPrefix = summaryParts.length > 0
       ? `📷 *Factura procesada*\n\n${summaryParts.join('\n')}\n\n`
       : `📷 *Factura procesada*\n\n`;
-
-    const result = await orchestrator.process(syntheticInput, context);
-
-    if (result.prompt && !result.needsConfirmation) {
-      const dialogData = (result.plan as any)?.dialog || {};
-      setDialogContext(chatId, dialogData);
-      setOriginalInput(chatId, syntheticInput);
-
-      const missing = dialogData.missingFields || [];
-      if (missing.length === 1 && missing[0] === 'paymentMethod') {
-        setAwaitingPayment(chatId);
-        return `${ocrSummary}${formatPaymentPrompt(dialogData)}`;
-      }
-
-      return `${ocrSummary}🤖 ${result.prompt}\n\n💡 _Responde con lo que falta, o *CANCELAR*._`;
-    }
-
-    if (result.needsConfirmation && result.prompt) {
-      setPendingResult(chatId, result.result);
-      return `${ocrSummary}${result.prompt}\n\n✏️ *CONFIRMAR* para guardar, *CANCELAR* para descartar.`;
-    }
-
-    return `${ocrSummary}_Revisa tu panel para ver el asiento generado._`;
+    return `${ocrPrefix}${reply}`;
   } catch (err: any) {
     console.error('[WhatsApp] OCR error:', err.message);
     return '❌ Error al procesar la imagen. Intenta con una foto más clara.';
