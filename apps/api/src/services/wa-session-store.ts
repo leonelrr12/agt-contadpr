@@ -84,7 +84,10 @@ export function setDialogContext(chatId: string, ctx: Record<string, any> | null
   const s = sessions.get(chatId);
   if (!s) return;
   s.dialogContext = ctx;
-  s.state = 'collecting';
+  // Solo cambiar a 'collecting' si no está en un estado de espera activo
+  if (s.state === 'idle') {
+    s.state = 'collecting';
+  }
   s.lastActivity = Date.now();
   persistSessions();
 }
