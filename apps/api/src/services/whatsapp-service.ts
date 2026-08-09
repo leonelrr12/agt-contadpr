@@ -12,6 +12,7 @@ import {
   setPendingResult,
   setEntityMatches,
   setAwaitingPayment,
+  setAwaitingCategory,
   setOriginalInput,
   getOriginalInput,
   resetSession,
@@ -289,6 +290,26 @@ export async function processWhatsAppMessage(
     resetSession(chatId);
   }
 
+  // ── Estado AWAITING_CATEGORY: esperando selección de categoría ──
+  if (waSession.state === 'awaiting_category' && waSession.dialogContext) {
+    const ctx = waSession.dialogContext;
+    const category = parseCategoryReply(text);
+    if (category === 'otra') {
+      (ctx as any)._awaitingCustomCategory = true;
+      return 'Escribe el nombre de la categoría (ej: _Papelería, Refrigerios, Mantenimiento_):';
+    }
+    if ((ctx as any)._awaitingCustomCategory) {
+      (ctx as any).concept = text.trim().substring(0, 60);
+      (ctx as any)._awaitingCustomCategory = false;
+      return await advanceAfterCategory(prisma, chatId, link, waSession);
+    }
+    if (category) {
+      ctx.concept = category;
+      return await advanceAfterCategory(prisma, chatId, link, waSession);
+    }
+    return `❌ Opción inválida. Responde *1* para Gastos Varios o *2* para especificar otra.`;
+  }
+
   // ── Estado AWAITING_ENTITY: esperando selección numérica o NUEVO ──
   if (waSession.state === 'awaiting_entity' && waSession.entityMatches) {
     if (/^nuev[oa]$/i.test(text)) {
@@ -404,35 +425,42 @@ async function processWithOrchestrator(
       const dialogData = (result.plan as any)?.dialog || {};
       const missing: string[] = dialogData.missingFields || [];
 
-      // concept_category/concept: quitar de missingFields si ya viene del contexto
-      const hadConceptIssue = missing.includes('concept_category') || missing.includes('concept');
-      if (hadConceptIssue) {
+      // concept_category: mostrar selector de categoría (solo si el usuario no la seleccionó ya)
+      const hasConceptIssue = missing.includes('concept_category') || missing.includes('concept');
+      if (hasConceptIssue) {
+        // Quitar de missingFields
         missing.length = 0;
         const filtered = dialogData.missingFields.filter((m: string) => m !== 'concept_category' && m !== 'concept');
         missing.push(...filtered);
         dialogData.missingFields = [...missing];
+        setDialogContext(chatId, dialogData);
+        setOriginalInput(chatId, text);
+
+        // Si el usuario ya seleccionó concepto, no volver a preguntar
+        if ((dialogData as any)._conceptSelected) {
+          // Solo seguir con lo que falte (ej. paymentMethod)
+          if (missing.length === 1 && missing[0] === 'paymentMethod') {
+            setAwaitingPayment(chatId);
+            return formatPaymentPrompt(dialogData);
+          }
+          if (missing.length === 0) {
+            // Nada más falta — confirmación directa
+            const { OrchestratorAgent: OA2 } = await import('@agt-contador/agents');
+            const o2 = new OA2({ prisma, companyId: link.companyId, userId: link.companyId === 'demo-company' ? 'demo-user' : link.companyId, deepseekApiKey: process.env.DEEPSEEK_API_KEY });
+            const r2 = await o2.process(text, { messages: [], extractedData: dialogData });
+            if (r2.needsConfirmation && r2.prompt) { setPendingResult(chatId, r2.result); return r2.prompt; }
+            if (r2.prompt) return r2.prompt;
+          }
+          return `🤖 ${result.prompt}`;
+        }
+
+        // Primera vez: mostrar selector de categoría
+        setAwaitingCategory(chatId);
+        return formatCategoryPrompt(dialogData);
       }
 
-      // Guardar contexto y texto original SIEMPRE (incluso si vamos a re-ejecutar)
       setDialogContext(chatId, dialogData);
       setOriginalInput(chatId, text);
-
-      // Si el único problema era concept_category, re-ejecutar el orquestador
-      if (hadConceptIssue && missing.length === 0) {
-        const ctx: any = { extractedData: dialogData };
-        const { OrchestratorAgent: OA2 } = await import('@agt-contador/agents');
-        const o2 = new OA2({
-          prisma, companyId: link.companyId,
-          userId: link.companyId === 'demo-company' ? 'demo-user' : link.companyId,
-          deepseekApiKey: process.env.DEEPSEEK_API_KEY,
-        });
-        const result2 = await o2.process(text, ctx);
-        if (result2.needsConfirmation && result2.prompt) {
-          setPendingResult(chatId, result2.result);
-          return result2.prompt;
-        }
-        if (result2.prompt) return result2.prompt;
-      }
 
       if (missing.length === 1 && missing[0] === 'paymentMethod') {
         setAwaitingPayment(chatId);
@@ -546,6 +574,49 @@ function extractInvoiceItems(pdfText: string): string[] {
     }
   }
   return items;
+}
+
+/** Formatea el prompt de categoría. */
+function formatCategoryPrompt(_dialogData: any): string {
+  return `📂 *Clasificar gasto*\n\n 1. Gastos Varios\n 2. Otra (especificar)\n\nResponde *1* o *2*.`;
+}
+
+/** Parsea la respuesta de categoría. */
+function parseCategoryReply(text: string): string | null {
+  const t = text.toLowerCase().trim();
+  if (t === '1' || t === 'gastos varios' || t === 'varios') return 'Gastos Varios';
+  if (t === '2' || t === 'otra' || t === 'otro' || t === 'especificar') return 'otra';
+  // Si no es 1 ni 2 pero estamos en modo custom, devolver custom
+  return null;
+}
+
+/** Avanza después de seleccionar categoría: verifica qué falta y muestra el siguiente paso. */
+async function advanceAfterCategory(prisma: any, chatId: string, link: any, waSession: any): Promise<string> {
+  const ctx = waSession.dialogContext;
+  // Marcar que el usuario ya seleccionó concepto — no volver a preguntar
+  (ctx as any)._conceptSelected = true;
+  // Ya tenemos concepto. ¿Qué más falta?
+  if (!ctx.paymentMethod) {
+    setAwaitingPayment(chatId);
+    return formatPaymentPrompt(ctx);
+  }
+  // Todo completo: llamar al orquestador directo para obtener confirmación
+  setDialogContext(chatId, ctx);
+  const { OrchestratorAgent: OA3 } = await import('@agt-contador/agents');
+  const o3 = new OA3({
+    prisma, companyId: link.companyId,
+    userId: link.companyId === 'demo-company' ? 'demo-user' : link.companyId,
+    deepseekApiKey: process.env.DEEPSEEK_API_KEY,
+  });
+  const reprocessText = getOriginalInput(chatId) || `compré ${ctx.concept} $${ctx.amount || 0} ${ctx.paymentMethod}`;
+  const result3 = await o3.process(reprocessText, { messages: [], extractedData: ctx });
+  if (result3.needsConfirmation && result3.prompt) {
+    setPendingResult(chatId, result3.result);
+    return result3.prompt;
+  }
+  // Si aún faltan campos (poco probable), mostrar el prompt
+  if (result3.prompt) return result3.prompt;
+  return `✅ Transacción lista. Escribe *CONFIRMAR* para guardar.`;
 }
 
 /** Formatea el prompt de método de pago con opciones numeradas. */

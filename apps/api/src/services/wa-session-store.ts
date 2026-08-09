@@ -12,7 +12,7 @@
 
 const TTL_MS = 10 * 60 * 1000; // 10 minutos
 
-export type WaState = 'idle' | 'collecting' | 'confirming' | 'awaiting_entity' | 'awaiting_payment';
+export type WaState = 'idle' | 'collecting' | 'confirming' | 'awaiting_entity' | 'awaiting_payment' | 'awaiting_category';
 
 interface WaSession {
   chatId: string;
@@ -101,6 +101,13 @@ export function setOriginalInput(chatId: string, text: string): void {
 export function getOriginalInput(chatId: string): string | null {
   const s = sessions.get(chatId);
   return s?.originalInput || null;
+}
+
+export function setAwaitingCategory(chatId: string): void {
+  const s = sessions.get(chatId);
+  if (!s) return;
+  s.state = 'awaiting_category';
+  s.lastActivity = Date.now();
 }
 
 export function setAwaitingPayment(chatId: string): void {
