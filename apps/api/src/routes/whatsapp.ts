@@ -7,12 +7,35 @@ export const whatsappRouter = Router();
 // ── Rutas públicas (sin auth) ──
 // Webhook: llamado por OpenWa, no por el usuario
 
+// Lock por usuario para evitar race conditions (múltiples webhooks simultáneos)
+const userLocks = new Map<string, Promise<void>>();
+
+function withUserLock(chatId: string, fn: () => Promise<void>): Promise<void> {
+  const prev = userLocks.get(chatId) || Promise.resolve();
+  const next = prev.then(fn, fn);
+  userLocks.set(chatId, next);
+  next.finally(() => {
+    if (userLocks.get(chatId) === next) userLocks.delete(chatId);
+  });
+  return next;
+}
+
 /**
  * POST /api/whatsapp/webhook
  * Recibe mensajes de WhatsApp via OpenWa.
  * Endpoint público — no requiere JWT (el API Key de OpenWa lo protege).
  */
 whatsappRouter.post('/webhook', async (req, res) => {
+  const body = req.body;
+  const chatId = body.chatId || body.from || 'unknown';
+
+  // Serializar por usuario para evitar race conditions
+  await withUserLock(chatId, () => handleWebhook(req, res));
+  // La respuesta ya fue enviada por handleWebhook — no hacer nada aquí
+});
+
+async function handleWebhook(req: any, res: any): Promise<void> {
+  try {
   const body = req.body;
 
   // Validar que sea un mensaje recibido
@@ -83,7 +106,10 @@ whatsappRouter.post('/webhook', async (req, res) => {
   }
 
   res.sendStatus(200);
-});
+  } catch (_err: any) {
+    res.sendStatus(200);
+  }
+}
 
 // ── Rutas protegidas (requieren JWT) ──
 
