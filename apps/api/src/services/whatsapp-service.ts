@@ -120,7 +120,7 @@ export async function processWhatsAppPDF(
 
     const ocrContext: Record<string, any> = {};
     ocrContext.type = 'GASTO'; // DGI desde WhatsApp siempre es GASTO
-    ocrContext.concept = itemsDesc || pdfData.provider || 'Gasto Varios'; // concepto desde items
+    // NO poner concept — dejar que el dialogAgent pida concept_category
     if (pdfData.provider) ocrContext.provider = pdfData.provider;
     if (pdfData.total) ocrContext.amount = pdfData.total;
     if (pdfData.date) ocrContext.date = pdfData.date;
@@ -179,6 +179,7 @@ export async function processWhatsAppImage(
     const syntheticInput = parts.join(' ');
     const ocrContext: Record<string, any> = {};
     ocrContext.type = 'GASTO'; // Factura desde WhatsApp siempre es GASTO
+    // NO poner concept — dejar que el dialogAgent pida concept_category
     if (ocrData.provider) ocrContext.provider = ocrData.provider;
     if (ocrData.total) ocrContext.amount = ocrData.total;
     if (ocrData.date) ocrContext.date = ocrData.date;
@@ -429,41 +430,46 @@ async function processWithOrchestrator(
       const hasConcept = missing.includes('concept_category') || missing.includes('concept');
       const hasPayment = missing.includes('paymentMethod');
 
-      // Siempre guardar el contexto completo
+      // Preservar campos ya seleccionados del contexto existente
+      const existingCtx = getSession(chatId)?.dialogContext;
+      if (existingCtx?.paymentMethod) (dialogData as any).paymentMethod = existingCtx.paymentMethod;
+      if (existingCtx?.amount && !dialogData.amount) (dialogData as any).amount = existingCtx.amount;
+      if (existingCtx?._conceptSelected) (dialogData as any)._conceptSelected = true;
+      if (existingCtx?.concept) (dialogData as any).concept = existingCtx.concept;
+
+      // Guardar contexto SIN pisar campos ya seleccionados
       setDialogContext(chatId, dialogData);
       setOriginalInput(chatId, text);
 
-      // 1. Si falta categoría Y no se ha seleccionado → mostrar selector de categoría
+      // 1. Si falta categoría → mostrar selector
       if (hasConcept && !(dialogData as any)._conceptSelected) {
         setAwaitingCategory(chatId);
         return formatCategoryPrompt(dialogData);
       }
 
-      // 1b. Categoría ya seleccionada pero el orquestador la reporta → ignorar y seguir
+      // 1b. Categoría ya seleccionada → quitar de missing
       if (hasConcept && (dialogData as any)._conceptSelected) {
-        // Quitar concept_category de missing para que no interfiera
         missing.length = 0;
         const rest = (dialogData.missingFields || []).filter((m: string) => m !== 'concept_category' && m !== 'concept');
         missing.push(...rest);
-        dialogData.missingFields = [...missing];
-        setDialogContext(chatId, dialogData);
       }
 
-      // 2. Si falta forma de pago → mostrar selector de pago
+      // 2. Si falta forma de pago → mostrar selector
       if (missing.includes('paymentMethod')) {
         setAwaitingPayment(chatId);
         return formatPaymentPrompt(dialogData);
       }
 
-      // 3. Nada falta → re-ejecutar para obtener confirmación
+      // 3. Nada falta → confirmación
       if (missing.length === 0) {
         const { OrchestratorAgent: OA2 } = await import('@agt-contador/agents');
         const o2 = new OA2({ prisma, companyId: link.companyId, userId: link.companyId === 'demo-company' ? 'demo-user' : link.companyId, deepseekApiKey: process.env.DEEPSEEK_API_KEY });
         const r2 = await o2.process(text, { messages: [], extractedData: dialogData });
         if (r2.needsConfirmation && r2.prompt) { setPendingResult(chatId, r2.result); return r2.prompt; }
+        if (r2.prompt) return r2.prompt;
       }
 
-      // 4. Otros campos faltantes
+      // 4. Otros
       return `🤖 ${result.prompt}\n\n💡 _Responde a este mensaje con lo que falta, o escribe *XX* para empezar de nuevo._`;
     }
 
