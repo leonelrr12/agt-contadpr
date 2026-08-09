@@ -291,29 +291,28 @@ export async function processWhatsAppMessage(
     resetSession(chatId);
   }
 
-  // ── Si el mensaje parece respuesta de categoría pero la sesión no está lista, esperar un poco
-  if (parseCategoryReply(text) && waSession.state === 'idle' && !waSession.dialogContext) {
-    await new Promise(r => setTimeout(r, 2000));
-    waSession = getSession(chatId) || waSession;
-  }
-
-  // ── Estado AWAITING_CATEGORY: esperando selección de categoría ──
-  if (waSession.state === 'awaiting_category' && waSession.dialogContext) {
+  // ── Respuesta de categoría: procesar directo sin depender del estado ──
+  const category = parseCategoryReply(text);
+  if (category && waSession.dialogContext) {
+    if (!waSession.dialogContext) waSession.dialogContext = {};
     const ctx = waSession.dialogContext;
-    const category = parseCategoryReply(text);
     if (category === 'otra') {
       (ctx as any)._awaitingCustomCategory = true;
       return 'Escribe el nombre de la categoría (ej: _Papelería, Refrigerios, Mantenimiento_):';
     }
-    if ((ctx as any)._awaitingCustomCategory) {
-      (ctx as any).concept = text.trim().substring(0, 60);
-      (ctx as any)._awaitingCustomCategory = false;
-      return await advanceAfterCategory(prisma, chatId, link, waSession);
-    }
-    if (category) {
-      ctx.concept = category;
-      return await advanceAfterCategory(prisma, chatId, link, waSession);
-    }
+    ctx.concept = category;
+    setAwaitingCategory(chatId); // asegurar estado
+    return await advanceAfterCategory(prisma, chatId, link, waSession);
+  }
+  // Categoría custom (texto libre después de "Otra")
+  if ((waSession.dialogContext as any)?._awaitingCustomCategory && !parseCategoryReply(text)) {
+    const ctx = waSession.dialogContext!;
+    ctx.concept = text.trim().substring(0, 60);
+    (ctx as any)._awaitingCustomCategory = false;
+    return await advanceAfterCategory(prisma, chatId, link, waSession);
+  }
+  // Estado formal (compatibilidad)
+  if (waSession.state === 'awaiting_category' && waSession.dialogContext && !category) {
     return `❌ Opción inválida. Responde *1* para Gastos Varios o *2* para especificar otra.`;
   }
 
@@ -334,33 +333,24 @@ export async function processWhatsAppMessage(
     return `❌ Opción inválida. Responde con un número del 1 al ${waSession.entityMatches.length}, o escribe *NUEVO*.`;
   }
 
-  // ── Si el mensaje parece respuesta de pago pero sesión no lista, esperar
-  if (parsePaymentMethodReply(text) && waSession.state === 'idle' && !waSession.dialogContext) {
-    await new Promise(r => setTimeout(r, 2000));
-    waSession = getSession(chatId) || waSession;
-  }
-
-  // ── Estado AWAITING_PAYMENT: esperando método de pago ──
-  if (waSession.state === 'awaiting_payment') {
-    const method = parsePaymentMethodReply(text);
-    if (method) {
-      if (!waSession.dialogContext) waSession.dialogContext = {};
-      waSession.dialogContext.paymentMethod = method;
-      // Reconstruir input para que dialogAgent no malinterprete "1"/"efectivo" como monto.
-      // Prioridad: texto original > reconstruir del contexto > fallback genérico
-      let reprocessText = getOriginalInput(chatId);
-      if (!reprocessText) {
-        const ctx = waSession.dialogContext;
-        const parts: string[] = [];
-        if (ctx.type) parts.push(ctx.type.toLowerCase());
-        if (ctx.concept) parts.push(ctx.concept);
-        if (ctx.amount) parts.push(`$${ctx.amount}`);
-        parts.push(method);
-        reprocessText = parts.join(' ') || `pagué $${ctx.amount || 0} ${method}`;
-      }
-      const context: any = { extractedData: waSession.dialogContext };
-      return await processWithOrchestrator(prisma, chatId, link, reprocessText, context);
+  // ── Respuesta de pago: procesar directo sin depender del estado ──
+  const method = parsePaymentMethodReply(text);
+  if (method && waSession.dialogContext) {
+    waSession.dialogContext.paymentMethod = method;
+    let reprocessText = getOriginalInput(chatId);
+    if (!reprocessText) {
+      const ctx = waSession.dialogContext;
+      const parts: string[] = [];
+      if (ctx.type) parts.push(ctx.type.toLowerCase());
+      if (ctx.concept) parts.push(ctx.concept);
+      if (ctx.amount) parts.push(`$${ctx.amount}`);
+      parts.push(method);
+      reprocessText = parts.join(' ') || `pagué $${ctx.amount || 0} ${method}`;
     }
+    return await processWithOrchestrator(prisma, chatId, link, reprocessText, { messages: [], extractedData: waSession.dialogContext });
+  }
+  // Estado formal (compatibilidad, mensaje de error)
+  if (waSession.state === 'awaiting_payment' && !method) {
     return `❌ No reconocí ese método de pago. Responde con: *Efectivo*, *Tarjeta*, *Crédito*, *Transferencia* o *Cheque*.`;
   }
 
