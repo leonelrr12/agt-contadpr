@@ -123,8 +123,8 @@ export async function processWhatsAppPDF(
     const syntheticInput = parts.join(' ');
 
     const ocrContext: Record<string, any> = {};
-    ocrContext.type = 'GASTO'; // DGI desde WhatsApp siempre es GASTO
-    // NO poner concept — dejar que el dialogAgent pida concept_category
+    ocrContext.type = 'GASTO';
+    if (predictedConcept) ocrContext.concept = predictedConcept; // pre-clasificado
     if (pdfData.provider) ocrContext.provider = pdfData.provider;
     if (pdfData.total) ocrContext.amount = pdfData.total;
     if (pdfData.date) ocrContext.date = pdfData.date;
@@ -433,19 +433,18 @@ async function processWithOrchestrator(
       setDialogContext(chatId, dialogData);
       setOriginalInput(chatId, text);
 
-      // Si es PDF/imagen: auto-clasificar si el orquestador ya encontró el concepto
+      // Si es PDF/imagen: usar el concepto pre-clasificado si existe
       const isMedia = (dialogData as any).source === 'pdf' || (dialogData as any).source === 'ocr';
-      const classified = (result.plan as any)?.classification;
       if (isMedia && !(dialogData as any)._conceptSelected) {
-        if (classified && classified.concept && classified.confidence > 0) {
-          // El orquestador ya clasificó — usar ese concepto y seguir
-          (dialogData as any).concept = classified.concept;
+        if ((dialogData as any).concept && (dialogData as any).concept !== 'Gastos Varios') {
+          // Ya tenemos concepto del quickClassify — marcar como seleccionado
           (dialogData as any)._conceptSelected = true;
         } else if (missing.includes('concept_category')) {
           // No se pudo clasificar — mostrar selector manual
           setAwaitingCategory(chatId);
           return formatCategoryPrompt(dialogData);
         }
+      }
       }
 
       // Si falta forma de pago Y no se ha seleccionado categoría → categoría primero
