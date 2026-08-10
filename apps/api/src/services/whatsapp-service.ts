@@ -104,10 +104,7 @@ export async function processWhatsAppPDF(
     if (pdfData.total) summaryParts.push(`💰 *Total*: $${pdfData.total}`);
     if (pdfData.itbms) summaryParts.push(`📊 *ITBMS*: $${pdfData.itbms}`);
     if (pdfData.date) summaryParts.push(`📅 *Fecha*: ${pdfData.date}`);
-    // Pre-clasificar items para mostrar concepto en el resumen
-    const predictedConcept = quickClassify(items);
-    if (predictedConcept) summaryParts.push(`📂 *Concepto*: ${predictedConcept}`);
-    if (itemsDesc && !predictedConcept) summaryParts.push(`📝 *Items*: ${itemsDesc}`);
+    if (itemsDesc) summaryParts.push(`📝 *Items*: ${itemsDesc}`);
     const summary = summaryParts.length > 0
       ? `📄 *Factura electrónica*\n\n${summaryParts.join('\n')}\n\n`
       : `📄 *Factura electrónica*\n\n`;
@@ -124,7 +121,6 @@ export async function processWhatsAppPDF(
 
     const ocrContext: Record<string, any> = {};
     ocrContext.type = 'GASTO';
-    if (predictedConcept) ocrContext.concept = predictedConcept; // pre-clasificado
     if (pdfData.provider) ocrContext.provider = pdfData.provider;
     if (pdfData.total) ocrContext.amount = pdfData.total;
     if (pdfData.date) ocrContext.date = pdfData.date;
@@ -546,49 +542,6 @@ async function handleConfirm(
   }
 }
 
-/** Clasificación rápida por keywords para mostrar en el resumen antes del orquestador. */
-function quickClassify(items: string[]): string | null {
-  if (!items.length) return null;
-  const text = items.join(' ').toLowerCase();
-
-  // Alimentación
-  const food = ['carne', 'carnes', 'pollo', 'res', 'higado', 'hígado', 'pescado', 'cerdo',
-    'chuleta', 'costilla', 'salchicha', 'chorizo', 'tocino', 'jamón', 'jamon', 'mortadela',
-    'uvas', 'uva', 'manzana', 'naranja', 'piña', 'pina', 'sandía', 'sandia', 'melón', 'melon',
-    'papaya', 'fresa', 'limón', 'limon', 'plátano', 'platano', 'guineo', 'mango', 'pera',
-    'cebolla', 'tomate', 'lechuga', 'zanahoria', 'papa', 'yuca', 'ñame', 'name',
-    'verduras', 'vegetales', 'frutas', 'leche', 'queso', 'huevos', 'huevo', 'yogurt',
-    'arroz', 'pan', 'harina', 'aceite', 'pasta', 'fideo', 'avena', 'cereal', 'granola',
-    'mantequilla', 'margarina', 'helado', 'natilla', 'azúcar', 'azucar', 'sal', 'vinagre',
-    'salsa', 'mayonesa', 'ketchup', 'mostaza', 'especia', 'condimento'];
-  for (const w of food) { if (text.includes(w)) return 'Alimentación'; }
-
-  // Bebidas / Refrigerios
-  const drinks = ['bebida', 'bebidas', 'soda', 'sodas', 'refresco', 'refrescos', 'gaseosa',
-    'jugo', 'jugos', 'café', 'cafe', 'té', 'te', 'malteada', 'batido', 'cerveza', 'vino',
-    'licor', 'ron', 'vodka', 'whiskey', 'agua', 'hielo'];
-  for (const w of drinks) { if (text.includes(w)) return 'Refrigerios'; }
-
-  // Combustible
-  if (/gasolina|gas|di[eé]sel|petro|tanque|terpel|delta/i.test(text)) return 'Combustible';
-  // Electricidad
-  if (/luz|electric|ensa|naturgy|edemet|edeche/i.test(text)) return 'Electricidad';
-  // Internet
-  if (/internet|wifi|fibra|tigo|cable|más móvil|mas movil/i.test(text)) return 'Internet';
-  // Agua
-  if (/agua|idaan/i.test(text) && !/sandía|sandia|melón|melon/i.test(text)) return 'Agua';
-  // Papelería
-  if (/papel|oficina|útil|util|impresora|tinta|cartucho|lapicero|bolígrafo|cuaderno|sobre/i.test(text)) return 'Papelería';
-  // Limpieza
-  if (/detergente|jab[oó]n|cloro|desinfectante|escoba|trapeador|bolsa|esponja|limpia/i.test(text)) return 'Suministros de Limpieza';
-  // Medicinas
-  if (/medicamento|medicina|farmacia|pastilla|jarabe|vitamina|suplemento/i.test(text)) return 'Medicamentos';
-  // Mantenimiento
-  if (/tornillo|repuesto|herramienta|pintura|plomero|electricista|mec[aá]nico/i.test(text)) return 'Mantenimiento';
-
-  return null;
-}
-
 /** Extrae descripciones de items de una factura DGI. */
 function extractInvoiceItems(pdfText: string): string[] {
   if (!pdfText) return [];
@@ -674,17 +627,16 @@ async function advanceAfterCategory(prisma: any, chatId: string, link: any, waSe
 
 /** Formatea el prompt de método de pago con opciones numeradas. */
 function formatPaymentPrompt(dialogData: any): string {
+  const concept = (dialogData as any)?.concept || '';
+  const conceptLine = concept && concept !== 'Gastos Varios' ? `📂 *Concepto*: ${concept}\n\n` : '';
   const isVenta = dialogData.type === 'VENTA' || dialogData.type === 'COBRO_CLIENTE';
   const methods = [
-    '💵 Efectivo',
-    '💳 Tarjeta Crédito',
-    '💳 Tarjeta Débito',
+    '💵 Efectivo', '💳 Tarjeta Crédito', '💳 Tarjeta Débito',
     isVenta ? '📋 Crédito (por cobrar)' : '📋 Crédito (por pagar)',
-    '🏦 Transferencia',
-    '📄 Cheque',
+    '🏦 Transferencia', '📄 Cheque',
   ];
   const lines = methods.map((m, i) => `  ${i + 1}. ${m}`).join('\n');
-  return `💳 *¿Cómo se pagó?*\n${lines}\n\nResponde con el número o el nombre del método.`;
+  return `${conceptLine}💳 *¿Cómo se pagó?*\n${lines}\n\nResponde con el número o el nombre del método.`;
 }
 
 /**
