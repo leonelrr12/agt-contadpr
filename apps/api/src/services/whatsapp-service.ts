@@ -96,18 +96,14 @@ export async function processWhatsAppPDF(
     const items = extractInvoiceItems(pdfData.text);
     const itemsDesc = items.length > 0 ? items.slice(0, 3).join(', ') : '';
 
-    // Construir resumen (items van después de fecha)
-    const summaryParts: string[] = [];
-    if (pdfData.provider) summaryParts.push(`🏢 *Proveedor*: ${pdfData.provider}`);
-    if (pdfData.ruc) summaryParts.push(`🔢 *RUC*: ${pdfData.ruc}`);
-    if (pdfData.invoiceNumber) summaryParts.push(`📋 *Factura #*: ${pdfData.invoiceNumber}`);
-    if (pdfData.total) summaryParts.push(`💰 *Total*: $${pdfData.total}`);
-    if (pdfData.itbms) summaryParts.push(`📊 *ITBMS*: $${pdfData.itbms}`);
-    if (pdfData.date) summaryParts.push(`📅 *Fecha*: ${pdfData.date}`);
-    // Los items se usan para clasificar, no se muestran
-    const summary = summaryParts.length > 0
-      ? `📄 *Factura electrónica*\n\n${summaryParts.join('\n')}\n\n`
-      : `📄 *Factura electrónica*\n\n`;
+    // Construir resumen base (el concepto se agrega después del orquestador)
+    const baseParts: string[] = [];
+    if (pdfData.provider) baseParts.push(`🏢 *Proveedor*: ${pdfData.provider}`);
+    if (pdfData.ruc) baseParts.push(`🔢 *RUC*: ${pdfData.ruc}`);
+    if (pdfData.invoiceNumber) baseParts.push(`📋 *Factura #*: ${pdfData.invoiceNumber}`);
+    if (pdfData.total) baseParts.push(`💰 *Total*: $${pdfData.total}`);
+    if (pdfData.itbms) baseParts.push(`📊 *ITBMS*: $${pdfData.itbms}`);
+    if (pdfData.date) baseParts.push(`📅 *Fecha*: ${pdfData.date}`);
 
     // Construir input sintético incluyendo items para clasificación por concepto.
     // Usar "compré" en vez de "pagué" para que clasifique como GASTO/COMPRA, no PAGO_PROVEEDOR.
@@ -137,6 +133,15 @@ export async function processWhatsAppPDF(
     // Delegar a processWithOrchestrator para manejo unificado de missing fields
     setOriginalInput(chatId, syntheticInput);
     const reply = await processWithOrchestrator(prisma, chatId, link, syntheticInput, context);
+
+    // Obtener concepto clasificado del contexto guardado
+    const ctx = getSession(chatId)?.dialogContext;
+    const concept = (ctx as any)?.concept || '';
+    if (concept && concept !== 'Gastos Varios') baseParts.push(`📂 *Concepto*: ${concept}`);
+
+    const summary = baseParts.length > 0
+      ? `📄 *Factura electrónica*\n\n${baseParts.join('\n')}\n\n`
+      : `📄 *Factura electrónica*\n\n`;
     return reply ? `${summary}${reply}` : null;
   } catch (err: any) {
     console.error('[WhatsApp] PDF error:', err.message);
