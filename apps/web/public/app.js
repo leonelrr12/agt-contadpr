@@ -1190,7 +1190,6 @@ async function confirmTransaction() {
         msg += `\n\n${label} ${entity}: **${data.autoCreated.name}** → /${entity}s.html`;
       }
       addMessage(msg, 'assistant');
-      addUndoButton(entryId);
       loadSubscriptionInfo(); // Actualizar contador de movimientos
     } else {
       const errData = await res.json().catch(() => ({}));
