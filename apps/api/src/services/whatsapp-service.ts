@@ -472,6 +472,12 @@ async function processWithOrchestrator(
         const o2 = new OA2({ prisma, companyId: link.companyId, userId: link.companyId === 'demo-company' ? 'demo-user' : link.companyId, deepseekApiKey: process.env.DEEPSEEK_API_KEY });
         const r2 = await o2.process(text, { messages: [], extractedData: dialogData });
         if (r2.needsConfirmation && r2.prompt) { setPendingResult(chatId, r2.result); return r2.prompt; }
+        // Si el orquestador aún pide categoría, forzar confirmación con lo que tenemos
+        if (r2.prompt && (r2.plan as any)?.dialog?.missingFields?.includes('concept_category')) {
+          (dialogData as any)._conceptSelected = true;
+          setPendingResult(chatId, r2.result || { dialog: dialogData });
+          return r2.prompt;
+        }
         if (r2.prompt) return r2.prompt;
       }
 
