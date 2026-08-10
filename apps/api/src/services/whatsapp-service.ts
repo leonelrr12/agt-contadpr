@@ -429,17 +429,19 @@ async function processWithOrchestrator(
       setDialogContext(chatId, dialogData);
       setOriginalInput(chatId, text);
 
-      // Si es PDF/imagen y no se ha seleccionado categoría:
-      // Si el concepto ya está clasificado (vino del OCR/items), usar ese.
-      // Solo mostrar selector si NO hay keyword match.
+      // Si es PDF/imagen: auto-clasificar si el orquestador ya encontró el concepto
       const isMedia = (dialogData as any).source === 'pdf' || (dialogData as any).source === 'ocr';
-      if (isMedia && !(dialogData as any)._conceptSelected && missing.includes('concept_category')) {
-        setAwaitingCategory(chatId);
-        return formatCategoryPrompt(dialogData);
-      }
-      // Si es media pero NO hay concept_category (ya se clasificó), seguir directo
-      if (isMedia && !(dialogData as any)._conceptSelected && !missing.includes('concept_category')) {
-        (dialogData as any)._conceptSelected = true; // marcar como clasificado
+      const classified = (result.plan as any)?.classification;
+      if (isMedia && !(dialogData as any)._conceptSelected) {
+        if (classified && classified.confidence >= 0.5 && classified.concept) {
+          // El orquestador ya clasificó — usar ese concepto y seguir
+          (dialogData as any).concept = classified.concept;
+          (dialogData as any)._conceptSelected = true;
+        } else if (missing.includes('concept_category')) {
+          // No se pudo clasificar — mostrar selector manual
+          setAwaitingCategory(chatId);
+          return formatCategoryPrompt(dialogData);
+        }
       }
 
       // Si falta forma de pago Y no se ha seleccionado categoría → categoría primero
