@@ -434,16 +434,11 @@ async function processWithOrchestrator(
         (dialogData as any)._conceptSelected = true;
       }
 
-      // Guardar contexto DESPUÉS de decidir el estado
-      setDialogContext(chatId, dialogData);
-      setOriginalInput(chatId, text);
-
       // Si es PDF/imagen: usar el concepto clasificado por el orquestador
       const isMedia = (dialogData as any).source === 'pdf' || (dialogData as any).source === 'ocr';
       if (isMedia && !(dialogData as any)._conceptSelected) {
         const classifiedConcept = (result.plan as any)?.classification?.concept;
         if (classifiedConcept && classifiedConcept !== (dialogData as any).concept) {
-          // El orquestador clasificó a algo más específico (ej. Alimentación vs RINCON KG)
           (dialogData as any).concept = classifiedConcept;
           (dialogData as any)._conceptSelected = true;
         } else if ((dialogData as any).concept && (dialogData as any).concept !== 'Gastos Varios') {
@@ -454,7 +449,9 @@ async function processWithOrchestrator(
         }
       }
 
-      console.log(`[WA-FLOW] missing=${JSON.stringify(missing)} _cs=${!!(dialogData as any)._conceptSelected} concept=${(dialogData as any).concept} source=${(dialogData as any).source} payment=${(dialogData as any).paymentMethod}`);
+      // Guardar contexto DESPUÉS de todas las modificaciones
+      setDialogContext(chatId, dialogData);
+      setOriginalInput(chatId, text);
       // Si falta forma de pago Y no se ha seleccionado categoría → categoría primero
       if (missing.includes('paymentMethod') && !(dialogData as any)._conceptSelected) {
         setAwaitingCategory(chatId);
