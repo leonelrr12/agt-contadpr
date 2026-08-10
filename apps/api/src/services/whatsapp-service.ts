@@ -104,7 +104,7 @@ export async function processWhatsAppPDF(
     if (pdfData.total) summaryParts.push(`💰 *Total*: $${pdfData.total}`);
     if (pdfData.itbms) summaryParts.push(`📊 *ITBMS*: $${pdfData.itbms}`);
     if (pdfData.date) summaryParts.push(`📅 *Fecha*: ${pdfData.date}`);
-    if (itemsDesc) summaryParts.push(`📝 *Items*: ${itemsDesc}`);
+    // Los items se usan para clasificar, no se muestran
     const summary = summaryParts.length > 0
       ? `📄 *Factura electrónica*\n\n${summaryParts.join('\n')}\n\n`
       : `📄 *Factura electrónica*\n\n`;
