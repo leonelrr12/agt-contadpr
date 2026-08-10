@@ -104,7 +104,10 @@ export async function processWhatsAppPDF(
     if (pdfData.total) summaryParts.push(`💰 *Total*: $${pdfData.total}`);
     if (pdfData.itbms) summaryParts.push(`📊 *ITBMS*: $${pdfData.itbms}`);
     if (pdfData.date) summaryParts.push(`📅 *Fecha*: ${pdfData.date}`);
-    if (itemsDesc) summaryParts.push(`📝 *Items*: ${itemsDesc}`);
+    // Pre-clasificar items para mostrar concepto en el resumen
+    const predictedConcept = quickClassify(items);
+    if (predictedConcept) summaryParts.push(`📂 *Concepto*: ${predictedConcept}`);
+    if (itemsDesc && !predictedConcept) summaryParts.push(`📝 *Items*: ${itemsDesc}`);
     const summary = summaryParts.length > 0
       ? `📄 *Factura electrónica*\n\n${summaryParts.join('\n')}\n\n`
       : `📄 *Factura electrónica*\n\n`;
@@ -543,6 +546,49 @@ async function handleConfirm(
     resetSession(chatId);
     return `❌ Error al guardar: ${err.message || 'Intenta de nuevo'}`;
   }
+}
+
+/** Clasificación rápida por keywords para mostrar en el resumen antes del orquestador. */
+function quickClassify(items: string[]): string | null {
+  if (!items.length) return null;
+  const text = items.join(' ').toLowerCase();
+
+  // Alimentación
+  const food = ['carne', 'carnes', 'pollo', 'res', 'higado', 'hígado', 'pescado', 'cerdo',
+    'chuleta', 'costilla', 'salchicha', 'chorizo', 'tocino', 'jamón', 'jamon', 'mortadela',
+    'uvas', 'uva', 'manzana', 'naranja', 'piña', 'pina', 'sandía', 'sandia', 'melón', 'melon',
+    'papaya', 'fresa', 'limón', 'limon', 'plátano', 'platano', 'guineo', 'mango', 'pera',
+    'cebolla', 'tomate', 'lechuga', 'zanahoria', 'papa', 'yuca', 'ñame', 'name',
+    'verduras', 'vegetales', 'frutas', 'leche', 'queso', 'huevos', 'huevo', 'yogurt',
+    'arroz', 'pan', 'harina', 'aceite', 'pasta', 'fideo', 'avena', 'cereal', 'granola',
+    'mantequilla', 'margarina', 'helado', 'natilla', 'azúcar', 'azucar', 'sal', 'vinagre',
+    'salsa', 'mayonesa', 'ketchup', 'mostaza', 'especia', 'condimento'];
+  for (const w of food) { if (text.includes(w)) return 'Alimentación'; }
+
+  // Bebidas / Refrigerios
+  const drinks = ['bebida', 'bebidas', 'soda', 'sodas', 'refresco', 'refrescos', 'gaseosa',
+    'jugo', 'jugos', 'café', 'cafe', 'té', 'te', 'malteada', 'batido', 'cerveza', 'vino',
+    'licor', 'ron', 'vodka', 'whiskey', 'agua', 'hielo'];
+  for (const w of drinks) { if (text.includes(w)) return 'Refrigerios'; }
+
+  // Combustible
+  if (/gasolina|gas|di[eé]sel|petro|tanque|terpel|delta/i.test(text)) return 'Combustible';
+  // Electricidad
+  if (/luz|electric|ensa|naturgy|edemet|edeche/i.test(text)) return 'Electricidad';
+  // Internet
+  if (/internet|wifi|fibra|tigo|cable|más móvil|mas movil/i.test(text)) return 'Internet';
+  // Agua
+  if (/agua|idaan/i.test(text) && !/sandía|sandia|melón|melon/i.test(text)) return 'Agua';
+  // Papelería
+  if (/papel|oficina|útil|util|impresora|tinta|cartucho|lapicero|bolígrafo|cuaderno|sobre/i.test(text)) return 'Papelería';
+  // Limpieza
+  if (/detergente|jab[oó]n|cloro|desinfectante|escoba|trapeador|bolsa|esponja|limpia/i.test(text)) return 'Suministros de Limpieza';
+  // Medicinas
+  if (/medicamento|medicina|farmacia|pastilla|jarabe|vitamina|suplemento/i.test(text)) return 'Medicamentos';
+  // Mantenimiento
+  if (/tornillo|repuesto|herramienta|pintura|plomero|electricista|mec[aá]nico/i.test(text)) return 'Mantenimiento';
+
+  return null;
 }
 
 /** Extrae descripciones de items de una factura DGI. */
