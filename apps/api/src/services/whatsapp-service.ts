@@ -466,17 +466,19 @@ async function processWithOrchestrator(
         return formatPaymentPrompt(dialogData);
       }
 
-      // 3. Nada falta → confirmación
+      // 3. Nada falta → ejecutar orquestador para obtener confirmación con asiento contable
       if (missing.length === 0) {
         const { OrchestratorAgent: OA2 } = await import('@agt-contador/agents');
         const o2 = new OA2({ prisma, companyId: link.companyId, userId: link.companyId === 'demo-company' ? 'demo-user' : link.companyId, deepseekApiKey: process.env.DEEPSEEK_API_KEY });
         const r2 = await o2.process(text, { messages: [], extractedData: dialogData });
         if (r2.needsConfirmation && r2.prompt) { setPendingResult(chatId, r2.result); return r2.prompt; }
-        // Si el orquestador aún pide categoría, forzar confirmación con lo que tenemos
-        if (r2.prompt && (r2.plan as any)?.dialog?.missingFields?.includes('concept_category')) {
-          (dialogData as any)._conceptSelected = true;
-          setPendingResult(chatId, r2.result || { dialog: dialogData });
-          return r2.prompt;
+        // Si el orquestador pide categoría pero ya tenemos concepto, ignorar y usar el resultado actual
+        if (r2.prompt && !r2.needsConfirmation) {
+          // Tomar el pendingResult del primer orquestador si existe, o construir uno básico
+          if ((result as any).result?.entry) {
+            setPendingResult(chatId, (result as any).result);
+          }
+          return `✅ *${(dialogData as any).concept || 'Gasto'}* — $${(dialogData as any).amount || 0}\n\n✏️ Escribe *OK* para guardar, o *XX* para descartar.`;
         }
         if (r2.prompt) return r2.prompt;
       }
