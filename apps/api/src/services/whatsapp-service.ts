@@ -637,8 +637,6 @@ async function advanceAfterCategory(prisma: any, chatId: string, link: any, waSe
 
 /** Formatea el prompt de método de pago con opciones numeradas. */
 function formatPaymentPrompt(dialogData: any): string {
-  const concept = (dialogData as any)?.concept || '';
-  const conceptLine = concept && concept !== 'Gastos Varios' ? `📂 *Concepto*: ${concept}\n\n` : '';
   const isVenta = dialogData.type === 'VENTA' || dialogData.type === 'COBRO_CLIENTE';
   const methods = [
     '💵 Efectivo', '💳 Tarjeta Crédito', '💳 Tarjeta Débito',
@@ -646,7 +644,7 @@ function formatPaymentPrompt(dialogData: any): string {
     '🏦 Transferencia', '📄 Cheque',
   ];
   const lines = methods.map((m, i) => `  ${i + 1}. ${m}`).join('\n');
-  return `${conceptLine}💳 *¿Cómo se pagó?*\n${lines}\n\nResponde con el número o el nombre del método.`;
+  return `💳 *¿Cómo se pagó?*\n${lines}\n\nResponde con el número o el nombre del método.`;
 }
 
 /**
