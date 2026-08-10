@@ -454,6 +454,7 @@ async function processWithOrchestrator(
         }
       }
 
+      console.log(`[WA-FLOW] missing=${JSON.stringify(missing)} _cs=${!!(dialogData as any)._conceptSelected} concept=${(dialogData as any).concept} source=${(dialogData as any).source} payment=${(dialogData as any).paymentMethod}`);
       // Si falta forma de pago Y no se ha seleccionado categoría → categoría primero
       if (missing.includes('paymentMethod') && !(dialogData as any)._conceptSelected) {
         setAwaitingCategory(chatId);
