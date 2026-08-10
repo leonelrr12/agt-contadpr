@@ -3030,12 +3030,10 @@ async function loadRevisionList() {
 }
 
 async function reviewApprove(id) {
-  const ok = await showConfirm('¿Apruebas este asiento?\n\n✅ El asiento quedará CONFIRMADO y afectará los saldos contables.');
-  if (!ok) return;
   try {
     const res = await authFetch(`${API_URL}/journal/${id}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'aprobar' }) });
-    if (res.ok) { loadRevisionList(); await showAlert('✅ Asiento aprobado'); }
-  } catch (e) { await showAlert('Error'); }
+    if (res.ok) loadRevisionList();
+  } catch (e) { /* silencioso */ }
 }
 
 async function reviewReject(id) {
