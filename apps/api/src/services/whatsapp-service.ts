@@ -429,14 +429,17 @@ async function processWithOrchestrator(
       setDialogContext(chatId, dialogData);
       setOriginalInput(chatId, text);
 
-      // Si es PDF/imagen: usar el concepto pre-clasificado si existe
+      // Si es PDF/imagen: usar el concepto clasificado por el orquestador
       const isMedia = (dialogData as any).source === 'pdf' || (dialogData as any).source === 'ocr';
       if (isMedia && !(dialogData as any)._conceptSelected) {
-        if ((dialogData as any).concept && (dialogData as any).concept !== 'Gastos Varios') {
-          // Ya tenemos concepto del quickClassify — marcar como seleccionado
+        const classifiedConcept = (result.plan as any)?.classification?.concept;
+        if (classifiedConcept && classifiedConcept !== (dialogData as any).concept) {
+          // El orquestador clasificó a algo más específico (ej. Alimentación vs RINCON KG)
+          (dialogData as any).concept = classifiedConcept;
+          (dialogData as any)._conceptSelected = true;
+        } else if ((dialogData as any).concept && (dialogData as any).concept !== 'Gastos Varios') {
           (dialogData as any)._conceptSelected = true;
         } else if (missing.includes('concept_category')) {
-          // No se pudo clasificar — mostrar selector manual
           setAwaitingCategory(chatId);
           return formatCategoryPrompt(dialogData);
         }
