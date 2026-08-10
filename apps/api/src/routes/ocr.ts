@@ -3,6 +3,17 @@ import multer from 'multer';
 import { extractFromImage, saveCorrection } from '../services/ocr';
 import { validate } from '../middleware/validate';
 import { ocrCorrectSchema } from '../validation/schemas';
+import { KEYWORD_MAP } from '@agt-contador/agents';
+
+function quickClassify(text: string): string | null {
+  if (!text) return null;
+  const words = text.toLowerCase().split(/\s+/).filter(w => w.length >= 2);
+  for (const word of words) {
+    const candidates = KEYWORD_MAP[word];
+    if (candidates && candidates.length > 0) return candidates[0];
+  }
+  return null;
+}
 
 export const ocrRouter = Router();
 
@@ -27,7 +38,8 @@ ocrRouter.post('/extract', upload.single('image'), async (req, res) => {
 
   try {
     const result = await extractFromImage(req.file.buffer, req.prisma);
-    res.json(result);
+    const concept = quickClassify(result.text) || quickClassify(result.provider || '');
+    res.json({ ...result, concept });
   } catch (error: any) {
     console.error('[OCR] Error:', error);
     res.status(500).json({

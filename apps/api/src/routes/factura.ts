@@ -1,8 +1,19 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { extractFromPDF } from '../services/pdf-extractor';
+import { KEYWORD_MAP } from '@agt-contador/agents';
 
 export const facturaRouter = Router();
+
+function quickClassify(text: string): string | null {
+  if (!text) return null;
+  const words = text.toLowerCase().split(/\s+/).filter(w => w.length >= 2);
+  for (const word of words) {
+    const candidates = KEYWORD_MAP[word];
+    if (candidates && candidates.length > 0) return candidates[0];
+  }
+  return null;
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -25,7 +36,8 @@ facturaRouter.post('/extract', upload.single('pdf'), async (req, res) => {
 
   try {
     const result = await extractFromPDF(req.file.buffer, req.prisma);
-    res.json(result);
+    const concept = quickClassify(result.text) || quickClassify(result.provider || '');
+    res.json({ ...result, concept });
   } catch (error: any) {
     console.error('[Factura] Error:', error);
     res.status(500).json({

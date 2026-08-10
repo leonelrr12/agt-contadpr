@@ -335,6 +335,7 @@ async function processOCRFile(file) {
       <div class="ocr-field"><span>🏢 Proveedor:</span><input type="text" id="ocr-edit-provider" value="${escapeHtml(data.provider || '')}"></div>
       <div class="ocr-field"><span>🔢 RUC:</span><input type="text" id="ocr-edit-ruc" value="${escapeHtml(data.ruc || '')}"></div>
       <div class="ocr-field"><span>📊 ITBMS:</span><input type="number" step="0.01" id="ocr-edit-itbms" value="${data.itbms ?? ''}"></div>
+      ${data.concept ? `<div class="ocr-field"><span>📂 Concepto:</span><strong>${escapeHtml(data.concept)}</strong></div>` : ``
       <div class="ocr-field"><span>🎯 Confianza:</span><strong>${(data.confidence * 100).toFixed(0)}%</strong></div>
       <div class="ocr-field"><span>🤖 Motor:</span><strong>${data.source === 'tesseract+llm' ? 'Tesseract + DeepSeek' : 'Tesseract'}</strong></div>
       <button class="ocr-toggle-img" onclick="toggleOCRImage()" style="margin-top:8px;font-size:12px;padding:6px 12px;background:none;border:1px solid #d0d5dd;border-radius:4px;cursor:pointer;color:#1a1a2e;width:100%">📷 Ver imagen</button>
@@ -493,6 +494,7 @@ async function processPDFFile(file) {
       <div class="ocr-field"><span>📅 Fecha:</span><input type="date" id="pdf-edit-date" value="${data.date || ''}" onchange="toggleDateWarning(this, this.value)"></div>
       <div class="ocr-field"><span>💰 Subtotal:</span><input type="number" step="0.01" id="pdf-edit-subtotal" value="${data.subtotal ?? ''}"></div>
       <div class="ocr-field"><span>📊 ITBMS:</span><input type="number" step="0.01" id="pdf-edit-itbms" value="${data.itbms ?? ''}"></div>
+      ${data.concept ? `<div class="ocr-field"><span>📂 Concepto:</span><strong>${escapeHtml(data.concept)}</strong></div>` : ``
       <div class="ocr-field"><span>💰 Total:</span><input type="number" step="0.01" id="pdf-edit-total" value="${data.total ?? ''}"></div>
       <div class="ocr-field"><span>🎯 Confianza:</span><strong>${(data.confidence * 100).toFixed(0)}%</strong></div>
       <div class="ocr-field"><span>🤖 Motor:</span><strong>${data.source === 'pdf-parse+llm' ? 'PDF + DeepSeek' : 'PDF'}</strong></div>
