@@ -340,6 +340,11 @@ async function processOCRFile(file) {
       <button class="ocr-toggle-img" onclick="toggleOCRImage()" style="margin-top:8px;font-size:12px;padding:6px 12px;background:none;border:1px solid #d0d5dd;border-radius:4px;cursor:pointer;color:#1a1a2e;width:100%">📷 Ver imagen</button>
     </div>`;
     document.getElementById('ocr-result-text').innerHTML = html;
+    if (data.concept) {
+      const conceptDiv = document.createElement('div'); conceptDiv.className = 'ocr-field';
+      conceptDiv.innerHTML = '<span>📂 Concepto:</span><strong>' + escapeHtml(data.concept) + '</strong>';
+      document.getElementById('ocr-result-text').querySelector('.ocr-extracted').appendChild(conceptDiv);
+    }
     setTimeout(() => { const el = document.getElementById('ocr-edit-date'); if (el) toggleDateWarning(el, el.value); }, 0);
   } catch (err) {
     if (err.name === 'AbortError') return;
@@ -499,6 +504,11 @@ async function processPDFFile(file) {
       <div class="ocr-field" style="flex-direction:column;align-items:stretch;gap:4px"><span>📄 Texto extraído:</span><textarea id="pdf-edit-text" rows="3" style="width:100%">${escapeHtml(data.text.substring(0, 500))}</textarea></div>
     </div>`;
     document.getElementById('pdf-result-text').innerHTML = html;
+    if (data.concept) {
+      const conceptDiv = document.createElement('div'); conceptDiv.className = 'ocr-field';
+      conceptDiv.innerHTML = '<span>📂 Concepto:</span><strong>' + escapeHtml(data.concept) + '</strong>';
+      document.getElementById('pdf-result-text').querySelector('.ocr-extracted').appendChild(conceptDiv);
+    }
     setTimeout(() => { const el = document.getElementById('pdf-edit-date'); if (el) toggleDateWarning(el, el.value); }, 0);
   } catch (err) {
     document.getElementById('pdf-loading').classList.add('hidden');
