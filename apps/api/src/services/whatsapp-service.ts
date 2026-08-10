@@ -265,102 +265,84 @@ export async function processWhatsAppMessage(
   let waSession = getSession(chatId);
   if (!waSession) {
     waSession = createSession(chatId, phoneNumber);
-    // session created
   } else {
     touchSession(chatId);
   }
 
-  // ── Comandos de control de sesión ──
-  if (CMD_RESET.test(text)) {
-    resetSession(chatId);
-    return `🔄 Sesión reiniciada. ¿Qué deseas registrar?`;
+  // ── Determinar intención del mensaje ──
+  const lower = text.toLowerCase().trim();
+  const isConfirm = CMD_CONFIRM.test(text);
+  const isCancel = CMD_CANCEL.test(text);
+  const categoryReply = parseCategoryReply(text);         // "Gastos Varios", "otra", o null
+  const paymentReply = parsePaymentMethodReply(text);     // "EFECTIVO", "TARJETA_CREDITO", etc
+  const hasCtx = !!waSession.dialogContext;
+  const ctx = waSession.dialogContext || {};
+  const conceptSelected = !!(ctx as any)._conceptSelected;
+  const customCategoryPending = !!(ctx as any)._awaitingCustomCategory;
+
+  // ── 1. Comandos globales ──
+  if (isCancel && hasCtx) { resetSession(chatId); return `❌ Transacción cancelada. ¿Qué deseas registrar ahora?`; }
+  if (CMD_RESET.test(text)) { resetSession(chatId); return `🔄 Sesión reiniciada. ¿Qué deseas registrar?`; }
+
+  // ── 2. Confirmación (OK guarda, cualquier otra cosa reinicia) ──
+  if (waSession.pendingResult) {
+    if (isConfirm) return await handleConfirm(prisma, chatId, link, waSession);
+    // Si hay pendingResult pero no es OK ni XX, ignorar y seguir
   }
 
-  if (CMD_CANCEL.test(text)) {
-    if (waSession.state !== 'idle') {
-      resetSession(chatId);
-      return `❌ Transacción cancelada. ¿Qué deseas registrar ahora?`;
-    }
+  // ── 3. Categoría custom pendiente (el usuario debe escribir el nombre) ──
+  if (customCategoryPending) {
+    (ctx as any).concept = text.trim().substring(0, 60);
+    (ctx as any)._awaitingCustomCategory = false;
+    (ctx as any)._conceptSelected = true;
+    return await advanceAfterCategory(prisma, chatId, link, waSession);
   }
 
-  // ── Estado CONFIRMING: esperando "OK" para guardar ──
-  if (waSession.state === 'confirming' && waSession.pendingResult) {
-    if (CMD_CONFIRM.test(text)) {
-      return await handleConfirm(prisma, chatId, link, waSession);
-    }
-    // No es confirmación ni cancelación → reiniciar flujo con input nuevo
-    resetSession(chatId);
-  }
-
-  // ── Respuesta de categoría (solo si no se seleccionó ya) ──
-  const category = parseCategoryReply(text);
-  if (category && waSession.dialogContext && !(waSession.dialogContext as any)._conceptSelected) {
-    if (!waSession.dialogContext) waSession.dialogContext = {};
-    const ctx = waSession.dialogContext;
-    if (category === 'otra') {
+  // ── 4. Respuesta de categoría ("1"=Gastos Varios, "2"=Otra) ──
+  if (categoryReply && hasCtx && !conceptSelected) {
+    if (categoryReply === 'otra') {
       (ctx as any)._awaitingCustomCategory = true;
       return 'Escribe el nombre de la categoría (ej: _Papelería, Refrigerios, Mantenimiento_):';
     }
-    ctx.concept = category;
-    setAwaitingCategory(chatId); // asegurar estado
+    (ctx as any).concept = categoryReply;
+    (ctx as any)._conceptSelected = true;
     return await advanceAfterCategory(prisma, chatId, link, waSession);
-  }
-  // Categoría custom (texto libre después de "Otra")
-  if ((waSession.dialogContext as any)?._awaitingCustomCategory && !parseCategoryReply(text)) {
-    const ctx = waSession.dialogContext!;
-    ctx.concept = text.trim().substring(0, 60);
-    (ctx as any)._awaitingCustomCategory = false;
-    return await advanceAfterCategory(prisma, chatId, link, waSession);
-  }
-  // Estado formal (compatibilidad)
-  if (waSession.state === 'awaiting_category' && waSession.dialogContext && !category) {
-    return `❌ Opción inválida. Responde *1* para Gastos Varios o *2* para especificar otra.`;
   }
 
-  // ── Estado AWAITING_ENTITY: esperando selección numérica o NUEVO ──
-  if (waSession.state === 'awaiting_entity' && waSession.entityMatches) {
-    if (/^nuev[oa]$/i.test(text)) {
-      if (!waSession.dialogContext) waSession.dialogContext = {};
-      waSession.dialogContext.selectedEntityId = null;
+  // ── 5. Respuesta de pago (solo si ya se seleccionó concepto) ──
+  if (paymentReply && hasCtx && conceptSelected) {
+    (ctx as any).paymentMethod = paymentReply;
+    let reprocessText = getOriginalInput(chatId);
+    if (!reprocessText) {
+      const parts: string[] = [];
+      if ((ctx as any).type) parts.push((ctx as any).type.toLowerCase());
+      if ((ctx as any).concept) parts.push((ctx as any).concept);
+      if ((ctx as any).amount) parts.push(`$${(ctx as any).amount}`);
+      parts.push(paymentReply);
+      reprocessText = parts.join(' ');
+    }
+    return await processWithOrchestrator(prisma, chatId, link, reprocessText, { messages: [], extractedData: ctx as any });
+  }
+
+  // ── 6. Entity matches ──
+  if (waSession.entityMatches && hasCtx) {
+    if (/^nuev[oa]$/i.test(lower)) {
+      (ctx as any).selectedEntityId = null;
       return await afterEntitySelection(prisma, chatId, link, waSession);
     }
     const num = parseInt(text);
     if (num >= 1 && num <= waSession.entityMatches.length) {
-      const match = waSession.entityMatches[num - 1];
-      if (!waSession.dialogContext) waSession.dialogContext = {};
-      waSession.dialogContext.selectedEntityId = match.id;
+      (ctx as any).selectedEntityId = waSession.entityMatches[num - 1].id;
       return await afterEntitySelection(prisma, chatId, link, waSession);
     }
-    return `❌ Opción inválida. Responde con un número del 1 al ${waSession.entityMatches.length}, o escribe *NUEVO*.`;
   }
 
-  // ── Respuesta de pago: procesar directo sin depender del estado ──
-  const method = parsePaymentMethodReply(text);
-  if (method && waSession.dialogContext) {
-    waSession.dialogContext.paymentMethod = method;
-    let reprocessText = getOriginalInput(chatId);
-    if (!reprocessText) {
-      const ctx = waSession.dialogContext;
-      const parts: string[] = [];
-      if (ctx.type) parts.push(ctx.type.toLowerCase());
-      if (ctx.concept) parts.push(ctx.concept);
-      if (ctx.amount) parts.push(`$${ctx.amount}`);
-      parts.push(method);
-      reprocessText = parts.join(' ') || `pagué $${ctx.amount || 0} ${method}`;
-    }
-    return await processWithOrchestrator(prisma, chatId, link, reprocessText, { messages: [], extractedData: waSession.dialogContext });
-  }
-  // Estado formal (compatibilidad, mensaje de error)
-  if (waSession.state === 'awaiting_payment' && !method) {
-    return `❌ No reconocí ese método de pago. Responde con: *Efectivo*, *Tarjeta*, *Crédito*, *Transferencia* o *Cheque*.`;
-  }
-
-  // ── Construir contexto desde la sesión e invocar orquestador ──
+  // ── 7. Default: nueva transacción ──
   const context: any = {};
-  if (waSession.dialogContext) {
-    context.extractedData = waSession.dialogContext;
+  if (hasCtx && !conceptSelected) {
+    // Si hay contexto pero no se ha procesado, pasarlo (puede ser un follow-up no reconocido)
+    context.extractedData = ctx;
   }
-
   return await processWithOrchestrator(prisma, chatId, link, text, context);
 }
 
@@ -375,18 +357,10 @@ async function afterEntitySelection(
   link: any,
   waSession: any,
 ): Promise<string> {
-  if (waSession.dialogContext?.paymentMethod) {
-    // Ya tiene método de pago → re-procesar para obtener confirmación
-    let reprocessText = getOriginalInput(chatId);
-    if (!reprocessText) {
-      const ctx = waSession.dialogContext;
-      reprocessText = `pagué ${ctx.concept || ''} $${ctx.amount || 0} ${ctx.paymentMethod}`;
-    }
-    const context: any = { extractedData: waSession.dialogContext };
-    return await processWithOrchestrator(prisma, chatId, link, reprocessText, context);
+  if ((waSession.dialogContext as any)?.paymentMethod) {
+    let reprocessText = getOriginalInput(chatId) || `pagué ${(waSession.dialogContext as any).concept || ''} $${(waSession.dialogContext as any).amount || 0} ${(waSession.dialogContext as any).paymentMethod}`;
+    return await processWithOrchestrator(prisma, chatId, link, reprocessText, { messages: [], extractedData: waSession.dialogContext });
   }
-  // Falta método de pago → mostrar selector
-  setAwaitingPayment(chatId);
   return formatPaymentPrompt(waSession.dialogContext);
 }
 
@@ -545,9 +519,8 @@ async function handleConfirm(
       response += `\n${labels[saved.autoCreated.type] || saved.autoCreated.type}: *${saved.autoCreated.name}*`;
     }
 
-    // Limpiar para permitir siguiente transacción (sin borrar sesión)
     const s = getSession(chatId);
-    if (s) { s.pendingResult = null; s.dialogContext = null; s.state = 'idle'; }
+    if (s) { s.pendingResult = null; s.dialogContext = null; s.originalInput = null; }
     return response;
   } catch (err: any) {
     console.error('[WhatsApp] Confirm error:', err.message);
@@ -604,12 +577,10 @@ function parseCategoryReply(text: string): string | null {
 
 /** Avanza después de seleccionar categoría: verifica qué falta y muestra el siguiente paso. */
 async function advanceAfterCategory(prisma: any, chatId: string, link: any, waSession: any): Promise<string> {
-  const ctx = waSession.dialogContext;
+  const ctx = waSession.dialogContext!;
   (ctx as any)._conceptSelected = true;
 
-  // Verificar qué sigue faltando (sin llamar al orquestador que re-añadiría concept_category)
-  if (!ctx.paymentMethod) {
-    setAwaitingPayment(chatId);
+  if (!(ctx as any).paymentMethod) {
     return formatPaymentPrompt(ctx);
   }
 
