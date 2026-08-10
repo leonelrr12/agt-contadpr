@@ -43,7 +43,8 @@ async function handleWebhook(req: any, res: any): Promise<void> {
   }
 
   const from = body.from;       // "50761234567"
-  const chatId = body.chatId;   // "50761234567@c.us"
+  const chatId = body.chatId;   // "170527415103566@lid" — para enviar mensajes
+  const sessionKey = from;      // número de teléfono — consistente como key de sesión
   // Compatible con OpenWA (body.body) y whatsapp-ai-bot (body.message)
   const msg = body.body || body.message || {};
 
@@ -95,7 +96,7 @@ async function handleWebhook(req: any, res: any): Promise<void> {
       return res.sendStatus(200);
     }
 
-    const reply = await processWhatsAppMessage(req.prisma, from, chatId, messageText);
+    const reply = await processWhatsAppMessage(req.prisma, from, sessionKey, messageText);
     if (reply) await sendWhatsAppMessage(chatId, reply);
   } catch (err: any) {
     console.error('[WhatsApp] Webhook error:', err.message);
