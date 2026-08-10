@@ -425,6 +425,7 @@ async function sendOCRResult() {
     provider: provider,
     date: finalDate,
     itbms: data.itbms != null,
+    concept: data.concept || null,
   };
 
   const parts = [];
@@ -689,6 +690,7 @@ async function sendQRResult() {
     itbms: hasItbms,
     itbmsAmount: itbms,
     invoiceNumber: invoiceNumber,
+    concept: data.concept || null,
     ruc: ruc,
   };
 
@@ -741,6 +743,7 @@ async function sendPDFResult() {
     itbms: hasItbms,
     itbmsAmount: itbms,
     invoiceNumber: invoiceNumber,
+    concept: data.concept || null,
     ruc: ruc,
   };
 
