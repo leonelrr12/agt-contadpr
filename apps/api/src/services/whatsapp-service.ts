@@ -426,8 +426,8 @@ async function processWithOrchestrator(
       if (inputCtx?.source) (dialogData as any).source = inputCtx.source;
 
       // Quitar concept_category si ya hay concepto (vino del contexto o fue seleccionado)
-      const hasConcept = (dialogData as any)._conceptSelected || !!(context as any)?.extractedData?.concept || !!(dialogData as any).concept;
-      if ((missing.includes('concept_category') || missing.includes('concept')) && hasConcept) {
+      const conceptReady = (dialogData as any)._conceptSelected || !!(context as any)?.extractedData?.concept || !!(dialogData as any).concept;
+      if ((missing.includes('concept_category') || missing.includes('concept')) && conceptReady) {
         missing.length = 0;
         const rest = (dialogData.missingFields || []).filter((m: string) => m !== 'concept_category' && m !== 'concept');
         missing.push(...rest);
