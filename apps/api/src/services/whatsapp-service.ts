@@ -429,6 +429,13 @@ async function processWithOrchestrator(
       setDialogContext(chatId, dialogData);
       setOriginalInput(chatId, text);
 
+      // Si es PDF/imagen y no se ha seleccionado categoría → forzar selector
+      const isMedia = (dialogData as any).source === 'pdf' || (dialogData as any).source === 'ocr';
+      if (isMedia && !(dialogData as any)._conceptSelected) {
+        setAwaitingCategory(chatId);
+        return formatCategoryPrompt(dialogData);
+      }
+
       // Si falta forma de pago Y no se ha seleccionado categoría → categoría primero
       if (missing.includes('paymentMethod') && !(dialogData as any)._conceptSelected) {
         setAwaitingCategory(chatId);

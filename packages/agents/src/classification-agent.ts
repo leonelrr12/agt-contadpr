@@ -311,7 +311,7 @@ export class ClassificationAgent {
       const wordMatches = allConcepts
         .map((c: any) => {
           const conceptLower = c.name.toLowerCase();
-          const matchedWords = inputWords.filter(w => conceptLower.includes(w));
+          const matchedWords = inputWords.filter(w => new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(conceptLower));
           return { concept: c, matchedWords };
         })
         .filter((m: { concept: any; matchedWords: string[] }) => m.matchedWords.length > 0)
