@@ -1143,7 +1143,10 @@ function showConfirmationModal(data) {
 
   if (dialog) {
     html += `• Tipo: ${dialog.type}<br>`;
-    html += `• Concepto: ${dialog.concept}<br>`;
+    const classified = result.classification?.concept;
+    const conceptDisplay = classified && classified !== dialog.concept
+      ? `${dialog.concept} (${classified})` : dialog.concept;
+    html += `• Concepto: ${conceptDisplay}<br>`;
     html += `• Monto: $${dialog.amount}<br>`;
     if (dialog.paymentMethod) html += `• Pago: ${dialog.paymentMethod}<br>`;
     html += `• 📅 Fecha: ${formatDateForDisplay(dialog.date)}<br>`;
