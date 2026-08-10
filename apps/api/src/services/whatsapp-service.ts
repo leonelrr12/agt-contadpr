@@ -544,6 +544,12 @@ async function handleConfirm(
       response += `\n${labels[saved.autoCreated.type] || saved.autoCreated.type}: *${saved.autoCreated.name}*`;
     }
 
+    // Incrementar contador de movimientos de la suscripción
+    await prisma.subscription.updateMany({
+      where: { companyId: link.companyId, status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] } },
+      data: { movementsUsed: { increment: 1 } },
+    }).catch(() => {});
+
     const s = getSession(chatId);
     if (s) { s.pendingResult = null; s.dialogContext = null; s.originalInput = null; }
     return response;

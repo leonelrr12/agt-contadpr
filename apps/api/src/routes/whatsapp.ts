@@ -58,15 +58,34 @@ async function handleWebhook(req: any, res: any): Promise<void> {
     return res.sendStatus(200);
   }
 
-  // Verificar vinculación, excepto para HOLA (que inicia el proceso de vinculación)
+  // Verificar vinculación, excepto para HOLA
   const isHola = /^hola$/i.test(messageText) || /^hi$/i.test(messageText) || /^inicio$/i.test(messageText);
 
   if (!isHola) {
-    const link = await req.prisma.whatsAppLink.findFirst({
+    const linkCheck = await req.prisma.whatsAppLink.findFirst({
       where: { phoneNumber: from, verifiedAt: { not: null }, isActive: true },
     });
-    if (!link || !link.companyId) {
-      return res.sendStatus(200); // Silencioso: el número no está vinculado
+    if (!linkCheck || !linkCheck.companyId) {
+      return res.sendStatus(200);
+    }
+
+    // Verificar suscripción activa
+    const sub = await req.prisma.subscription.findFirst({
+      where: { companyId: linkCheck.companyId, status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] } },
+      include: { plan: true },
+    });
+    if (!sub) {
+      await sendWhatsAppMessage(chatId, '⚠️ No tienes una suscripción activa. Contrata un plan en contador507.com/planes');
+      return res.sendStatus(200);
+    }
+    if (new Date() > sub.periodEnd) {
+      await req.prisma.subscription.update({ where: { id: sub.id }, data: { status: 'EXPIRED' } }).catch(() => {});
+      await sendWhatsAppMessage(chatId, '⚠️ Tu suscripción ha expirado. Renueva en contador507.com/planes');
+      return res.sendStatus(200);
+    }
+    if (sub.movementsUsed >= sub.movementsLimit) {
+      await sendWhatsAppMessage(chatId, `⚠️ Has alcanzado el límite de ${sub.movementsLimit} movimientos de tu plan *${sub.plan?.name || 'actual'}*. Espera la renovación o actualiza tu plan.`);
+      return res.sendStatus(200);
     }
   }
 
