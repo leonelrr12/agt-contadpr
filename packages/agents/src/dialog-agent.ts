@@ -254,9 +254,9 @@ export class DialogAgent {
     if (!concept) missingFields.push('concept');
     if (amount === 0) missingFields.push('amount');
     if (!paymentMethod) missingFields.push('paymentMethod');
-    // Propagar concept_category solo si NO hay concepto del contexto (OCR/PDF/selección)
-    if ((extracted as any).missingFields?.includes('concept_category') && concept
-        && !(prev as any)?._conceptSelected && !(prev as any)?.source) {
+    // NUNCA propagar concept_category si el concepto ya está establecido
+    // (viene de OCR/PDF, fue seleccionado manualmente, o está en el contexto)
+    if ((extracted as any).missingFields?.includes('concept_category') && !concept) {
       missingFields.push('concept_category');
     }
 
