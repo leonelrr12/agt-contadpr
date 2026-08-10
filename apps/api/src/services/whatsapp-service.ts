@@ -445,7 +445,6 @@ async function processWithOrchestrator(
           return formatCategoryPrompt(dialogData);
         }
       }
-      }
 
       // Si falta forma de pago Y no se ha seleccionado categoría → categoría primero
       if (missing.includes('paymentMethod') && !(dialogData as any)._conceptSelected) {
