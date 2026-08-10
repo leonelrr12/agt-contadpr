@@ -131,7 +131,9 @@ export async function processWhatsAppPDF(
       where: { phoneNumber, verifiedAt: { not: null }, isActive: true },
     });
 
-    console.log(`[PDF-SESSION] key=${chatId}`);
+    // Asegurar que la sesión existe antes de guardar contexto
+    if (!getSession(chatId)) createSession(chatId, phoneNumber);
+
     // Delegar a processWithOrchestrator para manejo unificado de missing fields
     setOriginalInput(chatId, syntheticInput);
     const reply = await processWithOrchestrator(prisma, chatId, link, syntheticInput, context);
@@ -205,6 +207,9 @@ export async function processWhatsAppImage(
       where: { phoneNumber, verifiedAt: { not: null }, isActive: true },
     });
 
+    // Asegurar sesión
+    if (!getSession(chatId)) createSession(chatId, phoneNumber);
+
     // Delegar a processWithOrchestrator para manejo unificado
     setOriginalInput(chatId, syntheticInput);
     const reply = await processWithOrchestrator(prisma, chatId, link, syntheticInput, context);
@@ -274,7 +279,6 @@ export async function processWhatsAppMessage(
   } else {
     touchSession(chatId);
   }
-  console.log(`[SESSION] key=${chatId} hasCtx=${!!waSession.dialogContext} amount=${(waSession.dialogContext as any)?.amount} state=${waSession.state}`);
 
   // ── Determinar intención del mensaje ──
   const lower = text.toLowerCase().trim();
