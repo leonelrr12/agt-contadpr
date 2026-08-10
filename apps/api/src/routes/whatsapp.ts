@@ -26,12 +26,11 @@ function withUserLock(chatId: string, fn: () => Promise<void>): Promise<void> {
  * Endpoint público — no requiere JWT (el API Key de OpenWa lo protege).
  */
 whatsappRouter.post('/webhook', async (req, res) => {
+  // Usar from (número de teléfono) como key del lock — es consistente entre mensajes
   const body = req.body;
-  const chatId = body.chatId || body.from || 'unknown';
+  const lockKey = body.from || body.chatId || 'unknown';
 
-  // Serializar por usuario para evitar race conditions
-  await withUserLock(chatId, () => handleWebhook(req, res));
-  // La respuesta ya fue enviada por handleWebhook — no hacer nada aquí
+  await withUserLock(lockKey, () => handleWebhook(req, res));
 });
 
 async function handleWebhook(req: any, res: any): Promise<void> {
