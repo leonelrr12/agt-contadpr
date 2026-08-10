@@ -314,21 +314,18 @@ export async function processWhatsAppMessage(
     return await advanceAfterCategory(prisma, chatId, link, waSession);
   }
 
-  // ── 5. Respuesta de pago (si hay contexto, aunque conceptSelected se haya perdido) ──
-  if (paymentReply && hasCtx) {
-    if (!conceptSelected) (ctx as any)._conceptSelected = true;
-    if (!(ctx as any).concept) (ctx as any).concept = 'Gastos Varios';
-    (ctx as any).paymentMethod = paymentReply;
+  // ── 5. Respuesta de pago: procesar SIEMPRE ──
+  if (paymentReply) {
+    const ctx: any = waSession.dialogContext || { type: 'GASTO', concept: 'Gastos Varios', amount: 0 };
+    ctx.paymentMethod = paymentReply;
+    ctx._conceptSelected = true;
+    waSession.dialogContext = ctx;
+
     let reprocessText = getOriginalInput(chatId);
     if (!reprocessText) {
-      const parts: string[] = [];
-      if ((ctx as any).type) parts.push((ctx as any).type.toLowerCase());
-      if ((ctx as any).concept) parts.push((ctx as any).concept);
-      if ((ctx as any).amount) parts.push(`$${(ctx as any).amount}`);
-      parts.push(paymentReply);
-      reprocessText = parts.join(' ');
+      reprocessText = `compré ${ctx.concept || 'producto'} $${ctx.amount || 0} ${paymentReply}`;
     }
-    return await processWithOrchestrator(prisma, chatId, link, reprocessText, { messages: [], extractedData: ctx as any });
+    return await processWithOrchestrator(prisma, chatId, link, reprocessText, { messages: [], extractedData: ctx });
   }
 
   // ── 6. Entity matches ──
