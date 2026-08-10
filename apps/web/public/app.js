@@ -681,6 +681,8 @@ async function sendQRResult() {
   }
 
   dialogContext = {
+    type: 'GASTO',
+    source: 'pdf',
     amount: total,
     provider: provider,
     date: finalDate,
@@ -731,6 +733,8 @@ async function sendPDFResult() {
   }
 
   dialogContext = {
+    type: 'GASTO',
+    source: 'pdf',
     amount: total,
     provider: provider,
     date: finalDate,
