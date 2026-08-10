@@ -3,7 +3,7 @@ import type { ClassificationResult } from '@agt-contador/shared';
 // Palabras clave que mapean a nombres de conceptos en BD.
 // La clave es la palabra que puede aparecer en una descripción,
 // el valor es un array de posibles nombres de concepto (se busca el primero que exista en BD).
-const KEYWORD_MAP: Record<string, string[]> = {
+export const KEYWORD_MAP: Record<string, string[]> = {
   // Refrigerios / alimentación
   café: ['Refrigerios', 'Alimentación', 'Alimentacion', 'Cafetería', 'Cafeteria'],
   cafe: ['Refrigerios', 'Alimentación', 'Alimentacion', 'Cafetería', 'Cafeteria'],

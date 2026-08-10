@@ -19,6 +19,7 @@ import {
 } from './wa-session-store';
 import { extractFromImage } from './ocr';
 import { extractFromPDF } from './pdf-extractor';
+import { KEYWORD_MAP } from '@agt-contador/agents';
 
 const OPENWA_URL = process.env.OPENWA_API_URL || 'http://localhost:2785';
 const OPENWA_KEY = process.env.OPENWA_API_KEY || '';
@@ -134,10 +135,9 @@ export async function processWhatsAppPDF(
     setOriginalInput(chatId, syntheticInput);
     const reply = await processWithOrchestrator(prisma, chatId, link, syntheticInput, context);
 
-    // Obtener concepto clasificado del contexto guardado
-    const ctx = getSession(chatId)?.dialogContext;
-    const concept = (ctx as any)?.concept || '';
-    if (concept && concept !== 'Gastos Varios') baseParts.push(`📂 *Concepto*: ${concept}`);
+    // Clasificar concepto usando el mismo KEYWORD_MAP del classification-agent
+    const classifiedConcept = classifyByKeywords(itemsDesc || pdfData.provider || '');
+    if (classifiedConcept) baseParts.push(`📂 *Concepto*: ${classifiedConcept}`);
 
     const summary = baseParts.length > 0
       ? `📄 *Factura electrónica*\n\n${baseParts.join('\n')}\n\n`
@@ -550,6 +550,17 @@ async function handleConfirm(
     resetSession(chatId);
     return `❌ Error al guardar: ${err.message || 'Intenta de nuevo'}`;
   }
+}
+
+/** Clasifica un texto usando el KEYWORD_MAP del classification-agent (misma lógica). */
+function classifyByKeywords(text: string): string | null {
+  if (!text) return null;
+  const words = text.toLowerCase().split(/\s+/).filter(w => w.length >= 2);
+  for (const word of words) {
+    const candidates = KEYWORD_MAP[word];
+    if (candidates && candidates.length > 0) return candidates[0];
+  }
+  return null;
 }
 
 /** Extrae descripciones de items de una factura DGI. */
