@@ -419,6 +419,8 @@ async function sendOCRResult() {
   }
 
   dialogContext = {
+    type: 'GASTO',
+    source: 'ocr',
     amount: total || 0,
     provider: provider,
     date: finalDate,
@@ -426,8 +428,8 @@ async function sendOCRResult() {
   };
 
   const parts = [];
-  if (provider) parts.push(`Compra a ${provider}`);
-  else parts.push('Compra');
+  if (provider) parts.push(`Gasto en ${provider}`);
+  else parts.push('Gasto');
   if (total) parts.push(`por $${total}`);
 
   const text = parts.join(' ');
@@ -689,8 +691,8 @@ async function sendQRResult() {
   };
 
   let message = '';
-  if (provider) message += `Compra a ${provider}`;
-  else message += 'Compra';
+  if (provider) message += `Gasto en ${provider}`;
+  else message += 'Gasto';
   if (total) message += ` por $${total}`;
   if (ruc) message += ` RUC ${ruc}`;
   if (invoiceNumber) message += `, factura ${invoiceNumber}`;
@@ -739,8 +741,8 @@ async function sendPDFResult() {
   };
 
   let message = '';
-  if (provider) message += `Compra a ${provider}`;
-  else message += 'Compra';
+  if (provider) message += `Gasto en ${provider}`;
+  else message += 'Gasto';
   if (total) message += ` por $${total}`;
   if (ruc) message += ` RUC ${ruc}`;
   if (invoiceNumber) message += `, factura ${invoiceNumber}`;
