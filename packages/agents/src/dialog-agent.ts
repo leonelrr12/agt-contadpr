@@ -254,8 +254,9 @@ export class DialogAgent {
     if (!concept) missingFields.push('concept');
     if (amount === 0) missingFields.push('amount');
     if (!paymentMethod) missingFields.push('paymentMethod');
-    // Propagar concept_category solo si NO hay concepto del contexto (OCR/PDF/selección manual)
-    if ((extracted as any).missingFields?.includes('concept_category') && concept && !(prev as any)?._conceptSelected && !(prev as any)?.source) {
+    // Propagar concept_category solo si NO hay concepto del contexto (OCR/PDF/selección)
+    if ((extracted as any).missingFields?.includes('concept_category') && concept
+        && !(prev as any)?._conceptSelected && !(prev as any)?.source) {
       missingFields.push('concept_category');
     }
 
