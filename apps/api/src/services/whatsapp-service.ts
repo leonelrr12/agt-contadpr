@@ -92,7 +92,11 @@ export async function processWhatsAppPDF(
       return `📄 No pude extraer datos del PDF (texto: ${(pdfData.text || '').substring(0, 100)}...). ¿Podrías describir la factura? Ej: "factura ENSA por $45.67"`;
     }
 
-    // Construir resumen
+    // Extraer items para mostrar en resumen
+    const items = extractInvoiceItems(pdfData.text);
+    const itemsDesc = items.length > 0 ? items.slice(0, 3).join(', ') : '';
+
+    // Construir resumen (items van después de fecha)
     const summaryParts: string[] = [];
     if (pdfData.provider) summaryParts.push(`🏢 *Proveedor*: ${pdfData.provider}`);
     if (pdfData.ruc) summaryParts.push(`🔢 *RUC*: ${pdfData.ruc}`);
@@ -100,13 +104,10 @@ export async function processWhatsAppPDF(
     if (pdfData.total) summaryParts.push(`💰 *Total*: $${pdfData.total}`);
     if (pdfData.itbms) summaryParts.push(`📊 *ITBMS*: $${pdfData.itbms}`);
     if (pdfData.date) summaryParts.push(`📅 *Fecha*: ${pdfData.date}`);
+    if (itemsDesc) summaryParts.push(`📝 *Items*: ${itemsDesc}`);
     const summary = summaryParts.length > 0
       ? `📄 *Factura electrónica*\n\n${summaryParts.join('\n')}\n\n`
       : `📄 *Factura electrónica*\n\n`;
-
-    // Extraer descripciones de items de la factura para mejorar clasificación
-    const items = extractInvoiceItems(pdfData.text);
-    const itemsDesc = items.length > 0 ? items.slice(0, 3).join(', ') : '';
 
     // Construir input sintético incluyendo items para clasificación por concepto.
     // Usar "compré" en vez de "pagué" para que clasifique como GASTO/COMPRA, no PAGO_PROVEEDOR.
@@ -433,7 +434,7 @@ async function processWithOrchestrator(
       const isMedia = (dialogData as any).source === 'pdf' || (dialogData as any).source === 'ocr';
       const classified = (result.plan as any)?.classification;
       if (isMedia && !(dialogData as any)._conceptSelected) {
-        if (classified && classified.confidence >= 0.5 && classified.concept) {
+        if (classified && classified.concept && classified.confidence > 0) {
           // El orquestador ya clasificó — usar ese concepto y seguir
           (dialogData as any).concept = classified.concept;
           (dialogData as any)._conceptSelected = true;
