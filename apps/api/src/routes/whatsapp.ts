@@ -76,14 +76,14 @@ async function handleWebhook(req: any, res: any): Promise<void> {
 
     // PDF: usar extractor de texto (más preciso que OCR de imagen)
     if (isPDF && mediaUrl) {
-      const reply = await processWhatsAppPDF(req.prisma, from, chatId, mediaUrl);
+      const reply = await processWhatsAppPDF(req.prisma, from, sessionKey, mediaUrl);
       if (reply) await sendWhatsAppMessage(chatId, reply);
       return res.sendStatus(200);
     }
 
     // Imagen: usar OCR
     if (isImage && imageUrl) {
-      const reply = await processWhatsAppImage(req.prisma, from, chatId, imageUrl, messageText);
+      const reply = await processWhatsAppImage(req.prisma, from, sessionKey, imageUrl, messageText);
       if (reply) await sendWhatsAppMessage(chatId, reply);
       return res.sendStatus(200);
     }
