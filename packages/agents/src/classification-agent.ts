@@ -156,7 +156,6 @@ const KEYWORD_MAP: Record<string, string[]> = {
   helado: ['Alimentación', 'Alimentacion'], natilla: ['Alimentación', 'Alimentacion'],
   // Bebidas / Refrigerios
   bebida: ['Refrigerios', 'Alimentación', 'Alimentacion'],
-  bebidas: ['Refrigerios', 'Alimentación', 'Alimentacion'],
   soda: ['Refrigerios', 'Alimentación', 'Alimentacion'],
   sodas: ['Refrigerios', 'Alimentación', 'Alimentacion'],
   refresco: ['Refrigerios', 'Alimentación', 'Alimentacion'],
@@ -184,7 +183,6 @@ const KEYWORD_MAP: Record<string, string[]> = {
   papita: ['Refrigerios', 'Alimentación', 'Alimentacion'],
   papitas: ['Refrigerios', 'Alimentación', 'Alimentacion'],
   snack: ['Refrigerios', 'Alimentación', 'Alimentacion'],
-  snacks: ['Refrigerios', 'Alimentación', 'Alimentacion'],
   pastel: ['Refrigerios', 'Alimentación', 'Alimentacion'],
   torta: ['Refrigerios', 'Alimentación', 'Alimentacion'],
   galleta: ['Refrigerios', 'Alimentación', 'Alimentacion'],
