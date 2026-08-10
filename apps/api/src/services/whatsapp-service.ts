@@ -309,8 +309,10 @@ export async function processWhatsAppMessage(
     return await advanceAfterCategory(prisma, chatId, link, waSession);
   }
 
-  // ── 5. Respuesta de pago (solo si ya se seleccionó concepto) ──
-  if (paymentReply && hasCtx && conceptSelected) {
+  // ── 5. Respuesta de pago (si hay contexto, aunque conceptSelected se haya perdido) ──
+  if (paymentReply && hasCtx) {
+    if (!conceptSelected) (ctx as any)._conceptSelected = true;
+    if (!(ctx as any).concept) (ctx as any).concept = 'Gastos Varios';
     (ctx as any).paymentMethod = paymentReply;
     let reprocessText = getOriginalInput(chatId);
     if (!reprocessText) {
