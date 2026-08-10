@@ -4,7 +4,7 @@
  * Persiste a /tmp/wa-sessions.json para sobrevivir reinicios.
  */
 
-const TTL_MS = 10 * 60 * 1000;
+const TTL_MS = 60 * 60 * 1000; // 1 hora
 const PERSIST_FILE = '/tmp/wa-sessions.json';
 const fs = require('fs');
 
