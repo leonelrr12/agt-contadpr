@@ -430,16 +430,16 @@ async function processWithOrchestrator(
         (dialogData as any)._conceptSelected = true;
       }
 
+      // Guardar contexto ANTES de mostrar prompts
+      setDialogContext(chatId, dialogData);
+      setOriginalInput(chatId, text);
+
       // Si es PDF/imagen: SIEMPRE mostrar selector Gasto/Inventario
       const isMedia = (dialogData as any).source === 'pdf' || (dialogData as any).source === 'ocr';
       if (isMedia && !(dialogData as any)._conceptSelected) {
         setAwaitingCategory(chatId);
         return formatCategoryPrompt(dialogData);
       }
-
-      // Guardar contexto DESPUÉS de todas las modificaciones
-      setDialogContext(chatId, dialogData);
-      setOriginalInput(chatId, text);
       // Si falta forma de pago Y no se ha seleccionado categoría → categoría primero
       if (missing.includes('paymentMethod') && !(dialogData as any)._conceptSelected) {
         setAwaitingCategory(chatId);
