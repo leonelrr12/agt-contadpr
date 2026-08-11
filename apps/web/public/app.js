@@ -1448,7 +1448,7 @@ async function loadPanelDiario() {
       pagEl.innerHTML = '';
       return;
     }
-    let html = '<table><thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th><th>Proveedor</th><th>Estado</th></tr></thead><tbody>';
+    let html = '<table><thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th><th>Estado</th></tr></thead><tbody>';
     for (const e of data.entries) {
       const date = new Date(e.date).toLocaleDateString('es-PA');
       let statusTag = '';
@@ -1456,12 +1456,12 @@ async function loadPanelDiario() {
       else if (e.status === 'CONFIRMADO') statusTag = '<span class="tag tag-conf">CONFIRMADO</span>';
       else if (e.status === 'RECHAZADO') statusTag = `<span class="tag tag-rejected" title="${e.reviewNotes || ''}">RECHAZADO</span>`;
       else if (e.status === 'ANULADO') statusTag = '<span class="tag tag-void">ANULADO</span>';
-      const providerHtml = e.provider ? `<span style="font-size:11px;color:#6b7280">${e.provider}</span>` : '';
+      const providerHtml = e.provider ? ` — <span style="font-size:11px;color:#6b7280">${e.provider}</span>` : '';
       const firstLine = e.lines[0];
       if (firstLine) {
         const canUndo = e.status === 'CONFIRMADO' && !e.description.startsWith('ANULACIÓN:');
         const undoBtn = canUndo ? `<button onclick="anularPanel('${e.id}')" class="btn-undo" title="Anular asiento">↩</button>` : '';
-        html += `<tr><td>${date}</td><td>${e.description}${e.reviewNotes ? `<br><small style="color:#c62828">${e.reviewNotes}</small>` : ''}</td><td>${firstLine.account?.name || ''}</td><td class="debit">${firstLine.debit ? '$' + firstLine.debit.toFixed(2) : ''}</td><td class="credit">${firstLine.credit ? '$' + firstLine.credit.toFixed(2) : ''}</td><td>${providerHtml}</td><td>${statusTag} ${undoBtn}</td></tr>`;
+        html += `<tr><td>${date}</td><td>${e.description}${providerHtml}${e.reviewNotes ? `<br><small style="color:#c62828">${e.reviewNotes}</small>` : ''}</td><td>${firstLine.account?.name || ''}</td><td class="debit">${firstLine.debit ? '$' + firstLine.debit.toFixed(2) : ''}</td><td class="credit">${firstLine.credit ? '$' + firstLine.credit.toFixed(2) : ''}</td><td>${statusTag} ${undoBtn}</td></tr>`;
       }
       for (let i = 1; i < e.lines.length; i++) {
         const line = e.lines[i];
