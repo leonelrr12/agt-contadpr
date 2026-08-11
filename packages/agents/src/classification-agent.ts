@@ -53,7 +53,7 @@ export const KEYWORD_MAP: Record<string, string[]> = {
   renta: ['Alquiler', 'Alquiler', 'Renta'],
   arriendo: ['Alquiler', 'Alquiler', 'Renta'],
   arrendamiento: ['Alquiler', 'Alquiler', 'Renta'],
-  local: ['Alquiler', 'Alquiler', 'Renta'],
+  // 'local' removido — falso positivo con direcciones (ej. 'Local 24')
   // Teléfono
   teléfono: ['Teléfono', 'Telefono', 'Teléfono'],
   telefono: ['Teléfono', 'Telefono', 'Teléfono'],

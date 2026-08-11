@@ -13,7 +13,7 @@ function quickClassify(text: string): string | null {
     'operación','operacion','interna','factura','número','numero','cufe','protocolo','autorización',
     'autorizacion','pac','punto','facturación','facturacion','cliente','receptor','consumidor','final',
     'cédula','cedula','pasaporte','descripción','descripcion','cantidad','unidad','unitario','descuento',
-    'monto','valor','item','desglose','base','forma','pago','caja','bancos','banco','general']);
+    'monto','valor','item','desglose','base','forma','pago','caja','bancos','banco','general','local','planta','baja']);
   const words = text.toLowerCase().split(/\s+/).filter(w => w.length >= 2 && !ignore.has(w));
   for (const word of words) {
     const candidates = KEYWORD_MAP[word];
