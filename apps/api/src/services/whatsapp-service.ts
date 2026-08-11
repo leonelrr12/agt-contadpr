@@ -426,19 +426,11 @@ async function processWithOrchestrator(
         (dialogData as any)._conceptSelected = true;
       }
 
-      // Si es PDF/imagen: usar el concepto clasificado por el orquestador
+      // Si es PDF/imagen: SIEMPRE mostrar selector Gasto/Inventario
       const isMedia = (dialogData as any).source === 'pdf' || (dialogData as any).source === 'ocr';
       if (isMedia && !(dialogData as any)._conceptSelected) {
-        const classifiedConcept = (result.plan as any)?.classification?.concept;
-        if (classifiedConcept && classifiedConcept !== (dialogData as any).concept) {
-          (dialogData as any).concept = classifiedConcept;
-          (dialogData as any)._conceptSelected = true;
-        } else if ((dialogData as any).concept && (dialogData as any).concept !== 'Gastos Varios') {
-          (dialogData as any)._conceptSelected = true;
-        } else if (missing.includes('concept_category')) {
-          setAwaitingCategory(chatId);
-          return formatCategoryPrompt(dialogData);
-        }
+        setAwaitingCategory(chatId);
+        return formatCategoryPrompt(dialogData);
       }
 
       // Guardar contexto DESPUÉS de todas las modificaciones
