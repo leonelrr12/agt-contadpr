@@ -5,7 +5,7 @@ import { validate } from '../middleware/validate';
 import { ocrCorrectSchema } from '../validation/schemas';
 import { KEYWORD_MAP } from '@agt-contador/agents';
 
-function quickClassify(text: string): string | null {
+async function quickClassify(text: string, prisma?: any): Promise<string | null> {
   if (!text) return null;
   const ignore = new Set(['itbms','total','subtotal','neto','exento','gravado','impuesto','pagado',
     'vuelto','efectivo','página','pagina','fecha','emisión','emision','ruc','dv','dirección',
@@ -15,6 +15,15 @@ function quickClassify(text: string): string | null {
     'cédula','cedula','pasaporte','descripción','descripcion','cantidad','unidad','unitario','descuento',
     'monto','valor','item','desglose','base','forma','pago','caja','bancos','banco','general','local','planta','baja']);
   const words = text.toLowerCase().split(/\s+/).filter(w => w.length >= 2 && !ignore.has(w));
+  if (prisma) {
+    for (const word of words) {
+      const concept = await prisma.concept.findFirst({
+        where: { keywords: { contains: word }, isActive: true },
+        select: { name: true },
+      }).catch(() => null);
+      if (concept) return concept.name;
+    }
+  }
   for (const word of words) {
     const candidates = KEYWORD_MAP[word];
     if (candidates && candidates.length > 0) return candidates[0];
@@ -45,7 +54,7 @@ ocrRouter.post('/extract', upload.single('image'), async (req, res) => {
 
   try {
     const result = await extractFromImage(req.file.buffer, req.prisma);
-    const concept = quickClassify(result.text) || quickClassify(result.provider || '');
+    const concept = await quickClassify(result.text, req.prisma) || await quickClassify(result.provider || '');
     res.json({ ...result, concept });
   } catch (error: any) {
     console.error('[OCR] Error:', error);

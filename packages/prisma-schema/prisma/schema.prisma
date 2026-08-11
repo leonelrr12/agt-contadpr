@@ -83,6 +83,7 @@ model Concept {
   companyId  String
   confidence Float    @default(0.9)
   isActive   Boolean  @default(true)
+  keywords   String   @default("[]")
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
