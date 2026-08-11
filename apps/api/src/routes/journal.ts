@@ -28,10 +28,16 @@ journalRouter.get('/pendientes', async (req, res) => {
     include: {
       lines: { include: { account: true } },
       createdBy: { select: { name: true, email: true } },
+      transactions: { select: { metadata: true }, take: 1 },
     },
     orderBy: { date: 'asc' },
   });
-  res.json(entries);
+  const result = entries.map(e => {
+    let provider = null;
+    try { const m = JSON.parse(e.transactions?.[0]?.metadata || '{}'); provider = m.provider || null; } catch {}
+    return { ...e, provider };
+  });
+  res.json(result);
 });
 
 journalRouter.post('/:id/review', requireRole('admin', 'contador'), validate(reviewJournalSchema), async (req, res) => {

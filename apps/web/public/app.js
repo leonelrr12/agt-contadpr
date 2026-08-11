@@ -3042,7 +3042,7 @@ async function loadRevisionList() {
       html += `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:10px">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px">
           <div style="flex:1;min-width:0">
-            <div style="font-weight:700;font-size:14px">${escHtml(e.description||'Sin descripción')}</div>
+            <div style="font-weight:700;font-size:14px">${escHtml(e.description||'Sin descripción')}${e.provider ? ` — <span style="font-size:11px;color:#6b7280;font-weight:400">${escHtml(e.provider)}</span>` : ''}</div>
             <div style="font-size:12px;color:#6b7280;margin-top:4px">📅 ${date} · 👤 ${escHtml(e.createdBy?.name||'—')} · ${e.lines?.length||0} líneas</div>
             ${lineasHtml}
           </div>
