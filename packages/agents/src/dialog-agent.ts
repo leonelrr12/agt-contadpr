@@ -229,8 +229,7 @@ export class DialogAgent {
         }
         const conceptUnset = extracted.missingFields.includes('concept') || extracted.missingFields.includes('concept_category');
         const noKeywordMatch = extracted.missingFields.includes('type');
-        const fromMedia = !!(prev as any)?.source; // OCR/PDF — concepto ya clasificado
-        if ((conceptUnset || noKeywordMatch || fromMedia) && prev.concept) {
+        if ((conceptUnset || noKeywordMatch) && prev.concept) {
           concept = prev.concept;
         }
         if (extracted.amount === 0 && prev.amount && prev.amount > 0) {
