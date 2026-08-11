@@ -416,6 +416,7 @@ async function processWithOrchestrator(
       const inputCtx = context?.extractedData;
       if (inputCtx?.type) (dialogData as any).type = inputCtx.type;
       if (inputCtx?.source) (dialogData as any).source = inputCtx.source;
+      if ((inputCtx as any)?.itbmsAmount) (dialogData as any).itbmsAmount = (inputCtx as any).itbmsAmount;
 
       // Quitar concept_category si ya hay concepto (vino del contexto o fue seleccionado)
       const conceptReady = (dialogData as any)._conceptSelected || !!(context as any)?.extractedData?.concept || !!(dialogData as any).concept;
