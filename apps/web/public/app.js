@@ -1985,12 +1985,16 @@ async function loadPanelConfig() {
     const cfg = await res.json();
     document.getElementById('config-itbms-rate').value = cfg.itbmsRate * 100;
     document.getElementById('config-itbms-enabled').value = cfg.itbmsEnabled ? 'true' : 'false';
+    const declaraEl = document.getElementById('config-declara-itbms');
+    if (declaraEl) declaraEl.value = cfg.declaraITBMS !== false ? 'true' : 'false';
   } catch (e) { /* keep defaults */ }
 }
 
 async function saveConfig() {
   const rate = parseFloat(document.getElementById('config-itbms-rate').value);
   const enabled = document.getElementById('config-itbms-enabled').value === 'true';
+  const declaraEl = document.getElementById('config-declara-itbms');
+  const declaraITBMS = declaraEl ? declaraEl.value === 'true' : true;
 
   if (isNaN(rate) || rate < 0 || rate > 20) { await showAlert('Tasa ITBMS debe estar entre 0 y 20'); return; }
 
@@ -1998,7 +2002,7 @@ async function saveConfig() {
     const res = await authFetch(`${API_URL}/config`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ itbmsRate: rate / 100, itbmsEnabled: enabled }),
+      body: JSON.stringify({ itbmsRate: rate / 100, itbmsEnabled: enabled, declaraITBMS }),
     });
     if (!res.ok) { const e = await res.json(); await showAlert(e.error); return; }
     const msg = document.getElementById('config-saved-msg');

@@ -15,8 +15,9 @@ model Company {
   phone     String?
   email     String?
   country   String   @default("PA")
-  currency  String   @default("USD")
-  createdAt DateTime @default(now())
+  currency     String   @default("USD")
+  declaraITBMS Boolean  @default(true)
+  createdAt    DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   users          User[]

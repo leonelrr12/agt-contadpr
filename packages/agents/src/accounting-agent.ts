@@ -29,11 +29,13 @@ function getItbmsRate(): number {
 export class AccountingAgent {
   private prisma: any;
   private companyId: string;
+  private declaraITBMS: boolean;
   private codeToId: Record<string, string> = {};
 
-  constructor(prisma: any, companyId: string) {
+  constructor(prisma: any, companyId: string, declaraITBMS = true) {
     this.prisma = prisma;
     this.companyId = companyId;
+    this.declaraITBMS = declaraITBMS;
   }
 
   async init(): Promise<void> {
@@ -42,6 +44,12 @@ export class AccountingAgent {
       select: { code: true, id: true },
     });
     for (const a of accounts) this.codeToId[a.code] = a.id;
+    // Leer si la empresa declara ITBMS
+    const company = await this.prisma.company.findUnique({
+      where: { id: this.companyId },
+      select: { declaraITBMS: true },
+    });
+    if (company) this.declaraITBMS = company.declaraITBMS;
   }
 
   resolveAlias(alias: string): string {
@@ -93,10 +101,14 @@ export class AccountingAgent {
       }
       case 'COMPRA': {
         const netAmount = dialog.amount;
-        entry.debit.push({ accountId: 'inventario-mercancia', name: 'Inventario de Mercancía', amount: netAmount });
-        if (itbmsAmount > 0) {
+        if (this.declaraITBMS && itbmsAmount > 0) {
+          // Declara: ITBMS separado como crédito fiscal
+          entry.debit.push({ accountId: 'inventario-mercancia', name: 'Inventario de Mercancía', amount: netAmount });
           entry.debit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: itbmsAmount });
           entry.description = `${dialog.type}: ${dialog.concept || dialog.description} - $${netAmount} + ITBMS $${itbmsAmount}`;
+        } else {
+          // No declara: ITBMS como parte del costo
+          entry.debit.push({ accountId: 'inventario-mercancia', name: 'Inventario de Mercancía', amount: netAmount + itbmsAmount });
         }
         const totalAmount = netAmount + itbmsAmount;
         if (dialog.paymentMethod === 'TARJETA_CREDITO') {

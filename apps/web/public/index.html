@@ -400,6 +400,13 @@
                   <option value="false">❌ No</option>
                 </select>
               </div>
+              <div>
+                <label>¿Declara ITBMS? (afecta asientos contables)</label>
+                <select id="config-declara-itbms" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit">
+                  <option value="true">✅ Sí — ITBMS a cuenta por pagar</option>
+                  <option value="false">❌ No — ITBMS como parte del gasto/costo</option>
+                </select>
+              </div>
             </div>
             <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
               <button class="btn-primary" onclick="saveConfig()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar Configuración</button>
