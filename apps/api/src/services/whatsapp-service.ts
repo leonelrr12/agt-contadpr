@@ -122,6 +122,9 @@ export async function processWhatsAppPDF(
     if (pdfData.itbms) ocrContext.itbmsAmount = pdfData.itbms;
     ocrContext.source = 'pdf';
     if (items.length > 0) ocrContext.items = items;
+    // Pre-clasificar concepto para usarlo en el asiento
+    const classifiedConcept = classifyByKeywords(itemsDesc || pdfData.provider || '');
+    if (classifiedConcept) ocrContext.concept = classifiedConcept;
 
     const context = { messages: [], extractedData: ocrContext };
     const link = await prisma.whatsAppLink.findFirst({
@@ -135,8 +138,7 @@ export async function processWhatsAppPDF(
     setOriginalInput(chatId, syntheticInput);
     const reply = await processWithOrchestrator(prisma, chatId, link, syntheticInput, context);
 
-    // Clasificar concepto usando el mismo KEYWORD_MAP del classification-agent
-    const classifiedConcept = classifyByKeywords(itemsDesc || pdfData.provider || '');
+    // Mostrar concepto pre-clasificado en el resumen
     if (classifiedConcept) baseParts.push(`📂 *Concepto*: ${classifiedConcept}`);
 
     const summary = baseParts.length > 0
@@ -300,6 +302,8 @@ export async function processWhatsAppMessage(
 
   // ── 3. Respuesta de tipo ("1"=Gasto, "2"=Inventario) ──
   if (categoryReply && hasCtx && !conceptSelected) {
+    // Guardar el concepto clasificado del PDF antes de sobrescribir
+    (ctx as any)._pdfConcept = (ctx as any).concept;
     (ctx as any).concept = categoryReply; // "GASTO" o "INVENTARIO"
     (ctx as any)._conceptSelected = true;
     return await advanceAfterCategory(prisma, chatId, link, waSession);
@@ -611,13 +615,14 @@ async function advanceAfterCategory(prisma: any, chatId: string, link: any, waSe
   const ctx = waSession.dialogContext!;
   (ctx as any)._conceptSelected = true;
 
-  // Si seleccionó Inventario (2), cambiar type a COMPRA
+  // Aplicar tipo según selección, restaurando el concepto clasificado si existe
   if ((ctx as any).concept === 'INVENTARIO') {
     (ctx as any).type = 'COMPRA';
     (ctx as any).concept = 'Compra de mercancía';
   } else {
     (ctx as any).type = 'GASTO';
-    if (!(ctx as any).concept || (ctx as any).concept === 'GASTO') (ctx as any).concept = 'Gastos Varios';
+    // Restaurar concepto clasificado del PDF (Alimentación, etc.) si existe
+    (ctx as any).concept = (ctx as any)._pdfConcept || 'Gastos Varios';
   }
 
   if (!(ctx as any).paymentMethod) {
