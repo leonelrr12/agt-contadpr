@@ -430,7 +430,7 @@ async function sendOCRResult() {
   };
 
   const parts = [];
-  const conceptLabel = dialogContext.concept || 'productos';
+  const conceptLabel = (dialogContext.concept && dialogContext.concept !== 'Gastos Varios') ? dialogContext.concept : 'productos';
   if (provider) parts.push(`Compré ${conceptLabel} en ${provider}`);
   else parts.push(`Compré ${conceptLabel}`);
   if (total) parts.push(`por $${total}`);
@@ -697,7 +697,7 @@ async function sendQRResult() {
   };
 
   let message = '';
-  const conceptLabel = dialogContext.concept || 'productos';
+  const conceptLabel = (dialogContext.concept && dialogContext.concept !== 'Gastos Varios') ? dialogContext.concept : 'productos';
   if (provider) message += `Compré ${conceptLabel} en ${provider}`;
   else message += `Compré ${conceptLabel}`;
   if (total) message += ` por $${total}`;
@@ -751,7 +751,7 @@ async function sendPDFResult() {
   };
 
   let message = '';
-  const conceptLabel = dialogContext.concept || 'productos';
+  const conceptLabel = (dialogContext.concept && dialogContext.concept !== 'Gastos Varios') ? dialogContext.concept : 'productos';
   if (provider) message += `Compré ${conceptLabel} en ${provider}`;
   else message += `Compré ${conceptLabel}`;
   if (total) message += ` por $${total}`;
