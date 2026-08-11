@@ -74,7 +74,7 @@ export class AccountingAgent {
     switch (dialog.type) {
       case 'GASTO': {
         const expenseNet = this.declaraITBMS && dialog.itbmsAmount
-          ? dialog.amount - dialog.itbmsAmount
+          ? Math.round((dialog.amount - dialog.itbmsAmount) * 100) / 100
           : dialog.amount;
         entry.debit.push({ accountId: classification.accountId, name: classification.concept, amount: expenseNet });
         if (this.declaraITBMS && dialog.itbmsAmount && dialog.itbmsAmount > 0) {
