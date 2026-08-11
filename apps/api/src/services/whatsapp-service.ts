@@ -106,14 +106,10 @@ export async function processWhatsAppPDF(
     if (pdfData.itbms) baseParts.push(`📊 *ITBMS*: $${pdfData.itbms}`);
     if (pdfData.date) baseParts.push(`📅 *Fecha*: ${pdfData.date}`);
 
-    // Construir input sintético incluyendo items para clasificación por concepto.
-    // Usar "compré" en vez de "pagué" para que clasifique como GASTO/COMPRA, no PAGO_PROVEEDOR.
+    // Input sintético — descripción simple: "Compra en PROVEEDOR por $MONTO"
     const parts: string[] = ['compré'];
-    if (itemsDesc) parts.push(itemsDesc);
     if (pdfData.provider) parts.push(`en ${pdfData.provider}`);
     if (pdfData.total) parts.push(`$${pdfData.total}`);
-    if (pdfData.date) parts.push(`del ${pdfData.date}`);
-    if (pdfData.itbms) parts.push(`con ITBMS $${pdfData.itbms}`);
     const syntheticInput = parts.join(' ');
 
     const ocrContext: Record<string, any> = {};
