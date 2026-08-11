@@ -291,7 +291,6 @@ export async function processWhatsAppMessage(
   const hasCtx = !!waSession.dialogContext;
   const ctx = waSession.dialogContext || {};
   const conceptSelected = !!(ctx as any)._conceptSelected;
-  const customCategoryPending = !!(ctx as any)._awaitingCustomCategory;
 
   // ── 1. Comandos globales ──
   if (isCancel && hasCtx) { resetSession(chatId); return `❌ Transacción cancelada. ¿Qué deseas registrar ahora?`; }
@@ -303,21 +302,9 @@ export async function processWhatsAppMessage(
     // Si hay pendingResult pero no es OK ni XX, ignorar y seguir
   }
 
-  // ── 3. Categoría custom pendiente (el usuario debe escribir el nombre) ──
-  if (customCategoryPending) {
-    (ctx as any).concept = text.trim().substring(0, 60);
-    (ctx as any)._awaitingCustomCategory = false;
-    (ctx as any)._conceptSelected = true;
-    return await advanceAfterCategory(prisma, chatId, link, waSession);
-  }
-
-  // ── 4. Respuesta de categoría ("1"=Gastos Varios, "2"=Otra) ──
+  // ── 3. Respuesta de tipo ("1"=Gasto, "2"=Inventario) ──
   if (categoryReply && hasCtx && !conceptSelected) {
-    if (categoryReply === 'otra') {
-      (ctx as any)._awaitingCustomCategory = true;
-      return 'Escribe el nombre de la categoría (ej: _Papelería, Refrigerios, Mantenimiento_):';
-    }
-    (ctx as any).concept = categoryReply;
+    (ctx as any).concept = categoryReply; // "GASTO" o "INVENTARIO"
     (ctx as any)._conceptSelected = true;
     return await advanceAfterCategory(prisma, chatId, link, waSession);
   }
@@ -616,15 +603,14 @@ function extractInvoiceItems(pdfText: string): string[] {
 
 /** Formatea el prompt de categoría. */
 function formatCategoryPrompt(_dialogData: any): string {
-  return `📂 *Clasificar gasto*\n\n 1. Gastos Varios\n 2. Otra (especificar)\n\nResponde *1* o *2*.`;
+  return `📂 *Tipo de compra*\n\n 1. 📋 Gasto\n 2. 📦 Inventario\n\nResponde *1* o *2*.`;
 }
 
 /** Parsea la respuesta de categoría. */
 function parseCategoryReply(text: string): string | null {
   const t = text.toLowerCase().trim();
-  if (t === '1' || t === 'gastos varios' || t === 'varios') return 'Gastos Varios';
-  if (t === '2' || t === 'otra' || t === 'otro' || t === 'especificar') return 'otra';
-  // Si no es 1 ni 2 pero estamos en modo custom, devolver custom
+  if (t === '1' || t === 'gasto' || t === 'gastos') return 'GASTO';
+  if (t === '2' || t === 'inventario' || t === 'compra' || t === 'inventario de mercancia') return 'INVENTARIO';
   return null;
 }
 
@@ -632,6 +618,15 @@ function parseCategoryReply(text: string): string | null {
 async function advanceAfterCategory(prisma: any, chatId: string, link: any, waSession: any): Promise<string> {
   const ctx = waSession.dialogContext!;
   (ctx as any)._conceptSelected = true;
+
+  // Si seleccionó Inventario (2), cambiar type a COMPRA
+  if ((ctx as any).concept === 'INVENTARIO') {
+    (ctx as any).type = 'COMPRA';
+    (ctx as any).concept = 'Compra de mercancía';
+  } else {
+    (ctx as any).type = 'GASTO';
+    if (!(ctx as any).concept || (ctx as any).concept === 'GASTO') (ctx as any).concept = 'Gastos Varios';
+  }
 
   if (!(ctx as any).paymentMethod) {
     return formatPaymentPrompt(ctx);

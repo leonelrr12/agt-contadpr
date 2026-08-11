@@ -319,10 +319,5 @@ export async function extractFromPDF(
     };
   }
 
-  // Fallback: calcular ITBMS = total - subtotal si no se detectó
-  if (result.itbms == null && result.total != null && result.subtotal != null && result.total > result.subtotal) {
-    result.itbms = Math.round((result.total - result.subtotal) * 100) / 100;
-  }
-
   return result;
 }
