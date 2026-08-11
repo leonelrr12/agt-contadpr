@@ -283,7 +283,7 @@ export const KEYWORD_MAP: Record<string, string[]> = {
   transferencia: ['Comisiones Bancarias', 'Comisiones Bancarias'],
   ach: ['Comisiones Bancarias', 'Comisiones Bancarias'],
   // ITBMS / impuestos
-  itbms: ['ITBMS', 'ITBMS Gastado'],
+  // 'itbms' removido — es metadata de factura, no un concepto de gasto
   impuesto: ['ITBMS Gastado', 'Gastos de Impuestos', 'ITBMS'],
   timbre: ['Timbres y Otros Impuestos', 'Gastos de Impuestos'],
   // Depreciación

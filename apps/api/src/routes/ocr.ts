@@ -7,7 +7,14 @@ import { KEYWORD_MAP } from '@agt-contador/agents';
 
 function quickClassify(text: string): string | null {
   if (!text) return null;
-  const words = text.toLowerCase().split(/\s+/).filter(w => w.length >= 2);
+  const ignore = new Set(['itbms','total','subtotal','neto','exento','gravado','impuesto','pagado',
+    'vuelto','efectivo','página','pagina','fecha','emisión','emision','ruc','dv','dirección',
+    'direccion','teléfono','telefono','correo','electrónica','electronica','comprobante','auxiliar',
+    'operación','operacion','interna','factura','número','numero','cufe','protocolo','autorización',
+    'autorizacion','pac','punto','facturación','facturacion','cliente','receptor','consumidor','final',
+    'cédula','cedula','pasaporte','descripción','descripcion','cantidad','unidad','unitario','descuento',
+    'monto','valor','item','desglose','base','forma','pago','caja','bancos','banco','general']);
+  const words = text.toLowerCase().split(/\s+/).filter(w => w.length >= 2 && !ignore.has(w));
   for (const word of words) {
     const candidates = KEYWORD_MAP[word];
     if (candidates && candidates.length > 0) return candidates[0];
