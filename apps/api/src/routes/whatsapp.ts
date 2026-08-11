@@ -178,7 +178,8 @@ whatsappRouter.post('/verify', requireAuth, async (req, res) => {
       `• Responde con números para seleccionar opciones\n` +
       `• *OK* — guardar transacción\n` +
       `• *XX* — cancelar / empezar de nuevo\n` +
-      `• *HOLA* — ver estas instrucciones`;
+      `• *HOLA* — ver estas instrucciones\n` +
+      `• *saldo* / *banco* — ver saldos bancarios`;
     sendWhatsAppMessage(chatId, welcomeMsg).catch(() => {});
   }
 
