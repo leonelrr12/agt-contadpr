@@ -696,8 +696,9 @@ async function sendQRResult() {
   };
 
   let message = '';
-  if (provider) message += `Compra en ${provider}`;
-  else message += 'Compra';
+  const conceptLabel = dialogContext.concept || 'productos';
+  if (provider) message += `Compré ${conceptLabel} en ${provider}`;
+  else message += `Compré ${conceptLabel}`;
   if (total) message += ` por $${total}`;
   if (ruc) message += ` RUC ${ruc}`;
   if (invoiceNumber) message += `, factura ${invoiceNumber}`;
@@ -749,8 +750,9 @@ async function sendPDFResult() {
   };
 
   let message = '';
-  if (provider) message += `Compra en ${provider}`;
-  else message += 'Compra';
+  const conceptLabel = dialogContext.concept || 'productos';
+  if (provider) message += `Compré ${conceptLabel} en ${provider}`;
+  else message += `Compré ${conceptLabel}`;
   if (total) message += ` por $${total}`;
   if (ruc) message += ` RUC ${ruc}`;
   if (invoiceNumber) message += `, factura ${invoiceNumber}`;
