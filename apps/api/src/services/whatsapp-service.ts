@@ -123,6 +123,7 @@ export async function processWhatsAppPDF(
     if (pdfData.date) ocrContext.date = pdfData.date;
     if (pdfData.ruc) ocrContext.ruc = pdfData.ruc;
     ocrContext.itbms = !!pdfData.itbms;
+    if (pdfData.itbms) ocrContext.itbmsAmount = pdfData.itbms;
     ocrContext.source = 'pdf';
     if (items.length > 0) ocrContext.items = items;
 
@@ -193,6 +194,7 @@ export async function processWhatsAppImage(
     if (ocrData.date) ocrContext.date = ocrData.date;
     if (ocrData.ruc) ocrContext.ruc = ocrData.ruc;
     ocrContext.itbms = !!ocrData.itbms;
+    if (ocrData.itbms) ocrContext.itbmsAmount = ocrData.itbms;
     ocrContext.source = 'ocr';
 
     // Construir resumen de lo extraído por OCR

@@ -73,7 +73,14 @@ export class AccountingAgent {
 
     switch (dialog.type) {
       case 'GASTO': {
-        entry.debit.push({ accountId: classification.accountId, name: classification.concept, amount: dialog.amount });
+        const expenseNet = this.declaraITBMS && dialog.itbmsAmount
+          ? dialog.amount - dialog.itbmsAmount
+          : dialog.amount;
+        entry.debit.push({ accountId: classification.accountId, name: classification.concept, amount: expenseNet });
+        if (this.declaraITBMS && dialog.itbmsAmount && dialog.itbmsAmount > 0) {
+          entry.debit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: dialog.itbmsAmount });
+          entry.description = `${dialog.concept || dialog.description} — $${expenseNet} + ITBMS $${dialog.itbmsAmount}`;
+        }
         if (dialog.paymentMethod === 'TARJETA_CREDITO') {
           entry.credit.push({ accountId: 'tarjeta-credito', name: 'Tarjetas de Crédito', amount: dialog.amount });
         } else if (dialog.paymentMethod === 'CREDITO') {

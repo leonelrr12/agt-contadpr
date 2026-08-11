@@ -425,6 +425,7 @@ async function sendOCRResult() {
     provider: provider,
     date: finalDate,
     itbms: data.itbms != null,
+    itbmsAmount: data.itbms || null,
     concept: data.concept || null,
   };
 
