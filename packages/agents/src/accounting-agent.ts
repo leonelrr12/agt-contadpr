@@ -55,7 +55,7 @@ export class AccountingAgent {
     const entry: AccountingEntry = {
       debit: [],
       credit: [],
-      description: `${dialog.concept || dialog.concept || dialog.description} — $${dialog.amount}`,
+      description: `${dialog.concept || dialog.description} — $${dialog.amount}`,
     };
     const itbmsRate = dialog.itbmsRate ?? getItbmsRate();
     const useItbms = dialog.itbmsRate !== undefined || (process.env.ITBMS_ENABLED === 'true');
