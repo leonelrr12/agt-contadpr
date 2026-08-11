@@ -114,7 +114,8 @@ facturaRouter.post('/extract-url', async (req, res) => {
     }
 
     const result = await extractFromPDF(buffer, req.prisma);
-    res.json(result);
+    const concept = quickClassify(result.text) || quickClassify(result.provider || '');
+    res.json({ ...result, concept });
   } catch (error: any) {
     if (error.code === 'ERR_INVALID_URL') {
       res.status(400).json({ error: 'La URL proporcionada no es válida' });
