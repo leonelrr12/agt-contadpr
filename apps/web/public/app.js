@@ -429,8 +429,9 @@ async function sendOCRResult() {
   };
 
   const parts = [];
-  if (provider) parts.push(`Gasto en ${provider}`);
-  else parts.push('Gasto');
+  const conceptLabel = dialogContext.concept || 'productos';
+  if (provider) parts.push(`Compré ${conceptLabel} en ${provider}`);
+  else parts.push(`Compré ${conceptLabel}`);
   if (total) parts.push(`por $${total}`);
 
   const text = parts.join(' ');
@@ -695,8 +696,9 @@ async function sendQRResult() {
   };
 
   let message = '';
-  if (provider) message += `Gasto en ${provider}`;
-  else message += 'Gasto';
+  const conceptLabel = dialogContext.concept || 'productos';
+  if (provider) message += `Compré ${conceptLabel} en ${provider}`;
+  else message += `Compré ${conceptLabel}`;
   if (total) message += ` por $${total}`;
   if (ruc) message += ` RUC ${ruc}`;
   if (invoiceNumber) message += `, factura ${invoiceNumber}`;
@@ -748,8 +750,9 @@ async function sendPDFResult() {
   };
 
   let message = '';
-  if (provider) message += `Gasto en ${provider}`;
-  else message += 'Gasto';
+  const conceptLabel = dialogContext.concept || 'productos';
+  if (provider) message += `Compré ${conceptLabel} en ${provider}`;
+  else message += `Compré ${conceptLabel}`;
   if (total) message += ` por $${total}`;
   if (ruc) message += ` RUC ${ruc}`;
   if (invoiceNumber) message += `, factura ${invoiceNumber}`;
@@ -1146,9 +1149,13 @@ function showConfirmationModal(data) {
 
   if (dialog) {
     html += `• Tipo: ${dialog.type}<br>`;
+    const backendConcept = dialogContext?.concept;
     const classified = result.classification?.concept;
-    const conceptDisplay = classified && classified !== dialog.concept
-      ? `${dialog.concept} (${classified})` : dialog.concept;
+    const conceptDisplay = backendConcept && backendConcept !== dialog.concept
+      ? `${dialog.concept} (${backendConcept})`
+      : classified && classified !== dialog.concept
+        ? `${dialog.concept} (${classified})`
+        : dialog.concept;
     html += `• Concepto: ${conceptDisplay}<br>`;
     html += `• Monto: $${dialog.amount}<br>`;
     if (dialog.paymentMethod) html += `• Pago: ${dialog.paymentMethod}<br>`;
