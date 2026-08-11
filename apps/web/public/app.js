@@ -430,8 +430,8 @@ async function sendOCRResult() {
 
   const parts = [];
   const conceptLabel = dialogContext.concept || 'productos';
-  if (provider) parts.push(`Compré ${conceptLabel} en ${provider}`);
-  else parts.push(`Compré ${conceptLabel}`);
+  if (provider) parts.push(`Compra en ${provider}`);
+  else parts.push('Compra');
   if (total) parts.push(`por $${total}`);
 
   const text = parts.join(' ');
