@@ -371,6 +371,9 @@ async function processWithOrchestrator(
   text: string,
   context: any,
 ): Promise<string> {
+  // Asegurar que la sesión existe antes de guardar contexto
+  if (!getSession(chatId)) createSession(chatId, chatId);
+
   const { OrchestratorAgent } = await import('@agt-contador/agents');
   const orchestrator = new OrchestratorAgent({
     prisma,
