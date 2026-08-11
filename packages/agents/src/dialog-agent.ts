@@ -238,6 +238,9 @@ export class DialogAgent {
         if (!extracted.itbms && prev.itbms) {
           itbms = prev.itbms;
         }
+        if (!(extracted as any).itbmsAmount && (prev as any)?.itbmsAmount) {
+          (extracted as any).itbmsAmount = (prev as any).itbmsAmount;
+        }
         if (!extracted.provider && prev.provider) {
           provider = prev.provider;
         }
@@ -261,9 +264,11 @@ export class DialogAgent {
     }
 
     const itbmsRate = itbms ? (parseFloat(process.env.ITBMS_RATE || '') || 0.07) : undefined;
-    const itbmsAmount = itbms && (type === 'COMPRA' || type === 'VENTA')
-      ? Math.round(amount * itbmsRate! * 100) / 100
-      : undefined;
+    // Respetar itbmsAmount del contexto (PDF/OCR) para GASTO, calcular para COMPRA/VENTA
+    let itbmsAmount: number | undefined = (extracted as any).itbmsAmount;
+    if (!itbmsAmount && itbms && (type === 'COMPRA' || type === 'VENTA')) {
+      itbmsAmount = Math.round(amount * itbmsRate! * 100) / 100;
+    }
 
     return {
       type,
