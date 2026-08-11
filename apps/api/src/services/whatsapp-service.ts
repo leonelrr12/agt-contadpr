@@ -414,9 +414,12 @@ async function processWithOrchestrator(
       if (existingCtx?.paymentMethod) (dialogData as any).paymentMethod = existingCtx.paymentMethod;
       if (existingCtx?.amount && !dialogData.amount) (dialogData as any).amount = existingCtx.amount;
       if (existingCtx?._conceptSelected) (dialogData as any)._conceptSelected = true;
-      if (existingCtx?.concept) (dialogData as any).concept = existingCtx.concept;
-      // Forzar type y source desde el contexto de entrada (PDF/OCR)
+      if (existingCtx?.concept && !(existingCtx as any)._conceptSelected) (dialogData as any).concept = existingCtx.concept;
+      // Forzar type, source y concepto clasificado desde el contexto de entrada (PDF/OCR)
       const inputCtx = context?.extractedData;
+      if (inputCtx?.concept && inputCtx?.source && !(dialogData as any)._conceptSelected) {
+        (dialogData as any).concept = (inputCtx as any).concept;
+      }
       if (inputCtx?.type) (dialogData as any).type = inputCtx.type;
       if (inputCtx?.source) (dialogData as any).source = inputCtx.source;
       if ((inputCtx as any)?.itbmsAmount) (dialogData as any).itbmsAmount = (inputCtx as any).itbmsAmount;
