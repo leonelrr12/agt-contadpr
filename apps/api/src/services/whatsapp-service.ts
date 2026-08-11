@@ -302,8 +302,6 @@ export async function processWhatsAppMessage(
 
   // ── 3. Respuesta de tipo ("1"=Gasto, "2"=Inventario) ──
   if (categoryReply && hasCtx && !conceptSelected) {
-    // Guardar el concepto clasificado del PDF antes de sobrescribir
-    (ctx as any)._pdfConcept = (ctx as any).concept;
     (ctx as any).concept = categoryReply; // "GASTO" o "INVENTARIO"
     (ctx as any)._conceptSelected = true;
     return await advanceAfterCategory(prisma, chatId, link, waSession);
@@ -414,12 +412,11 @@ async function processWithOrchestrator(
       if (existingCtx?.paymentMethod) (dialogData as any).paymentMethod = existingCtx.paymentMethod;
       if (existingCtx?.amount && !dialogData.amount) (dialogData as any).amount = existingCtx.amount;
       if (existingCtx?._conceptSelected) (dialogData as any)._conceptSelected = true;
-      if (existingCtx?.concept && !(existingCtx as any)._conceptSelected) (dialogData as any).concept = existingCtx.concept;
-      // Forzar type, source y concepto clasificado desde el contexto de entrada (PDF/OCR)
+      // Forzar type y source desde el contexto de entrada (PDF/OCR)
       const inputCtx = context?.extractedData;
-      if (inputCtx?.concept && inputCtx?.source && inputCtx.concept !== 'GASTO' && inputCtx.concept !== 'INVENTARIO') {
-        (dialogData as any).concept = (inputCtx as any).concept;
-      }
+      if (inputCtx?.type) (dialogData as any).type = inputCtx.type;
+      if (inputCtx?.source) (dialogData as any).source = inputCtx.source;
+      if ((inputCtx as any)?.itbmsAmount) (dialogData as any).itbmsAmount = (inputCtx as any).itbmsAmount;
       if (inputCtx?.type) (dialogData as any).type = inputCtx.type;
       if (inputCtx?.source) (dialogData as any).source = inputCtx.source;
       if ((inputCtx as any)?.itbmsAmount) (dialogData as any).itbmsAmount = (inputCtx as any).itbmsAmount;
@@ -618,14 +615,11 @@ async function advanceAfterCategory(prisma: any, chatId: string, link: any, waSe
   const ctx = waSession.dialogContext!;
   (ctx as any)._conceptSelected = true;
 
-  // Aplicar tipo según selección, restaurando el concepto clasificado si existe
   if ((ctx as any).concept === 'INVENTARIO') {
     (ctx as any).type = 'COMPRA';
     (ctx as any).concept = 'Compra de mercancía';
   } else {
     (ctx as any).type = 'GASTO';
-    // Restaurar concepto clasificado del PDF (Alimentación, etc.) si existe
-    (ctx as any).concept = (ctx as any)._pdfConcept || 'Gastos Varios';
   }
 
   if (!(ctx as any).paymentMethod) {
