@@ -280,6 +280,11 @@ export async function processWhatsAppMessage(
     touchSession(chatId);
   }
 
+  // ── Comandos de consulta ──
+  if (/^(saldo|balance|banco|cuenta)\b/i.test(text)) {
+    return await handleBalanceQuery(prisma, link.companyId, text);
+  }
+
   // ── Determinar intención del mensaje ──
   const lower = text.toLowerCase().trim();
   const isConfirm = CMD_CONFIRM.test(text);
@@ -551,6 +556,48 @@ async function handleConfirm(
     console.error('[WhatsApp] Confirm error:', err.message);
     resetSession(chatId);
     return `❌ Error al guardar: ${err.message || 'Intenta de nuevo'}`;
+  }
+}
+
+/** Consulta saldos de cuentas (bancos, caja, etc.) */
+async function handleBalanceQuery(prisma: any, companyId: string, text: string): Promise<string> {
+  try {
+    // Determinar si pide una cuenta específica
+    const lower = text.toLowerCase();
+    const wantBank = /\b(banco|bank)\b/i.test(lower);
+    const wantCash = /\b(caja|cash|efectivo)\b/i.test(lower);
+    const wantAll = /^(saldo|balance)\b/i.test(lower) && !wantBank && !wantCash;
+
+    // Cuentas de banco y caja
+    const accountFilter: any = { companyId, isActive: true };
+    if (wantBank) {
+      accountFilter.name = { contains: 'Banco', mode: 'insensitive' };
+    } else if (wantCash) {
+      accountFilter.name = { contains: 'Caja', mode: 'insensitive' };
+    } else {
+      // Bancos + Caja por defecto
+      accountFilter.OR = [
+        { name: { contains: 'Banco', mode: 'insensitive' } },
+        { name: { contains: 'Caja', mode: 'insensitive' } },
+      ];
+    }
+
+    const accounts = await prisma.account.findMany({ where: accountFilter });
+    if (!accounts.length) return '📊 No encontré cuentas de banco o caja registradas.';
+
+    let response = '📊 *Saldos*\n\n';
+    for (const acc of accounts.slice(0, 10)) {
+      const lines = await prisma.journalLine.findMany({
+        where: { accountId: acc.id, journalEntry: { companyId, status: 'CONFIRMADO' } },
+        select: { debit: true, credit: true },
+      });
+      const balance = lines.reduce((sum: number, l: any) => sum + (l.debit || 0) - (l.credit || 0), 0);
+      const icon = acc.name.toLowerCase().includes('banco') ? '🏦' : '💵';
+      response += `${icon} *${acc.name}*: $${balance.toFixed(2)}\n`;
+    }
+    return response;
+  } catch (err: any) {
+    return '❌ Error al consultar saldos. Intenta más tarde.';
   }
 }
 
