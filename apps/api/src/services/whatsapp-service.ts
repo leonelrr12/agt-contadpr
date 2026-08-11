@@ -417,7 +417,7 @@ async function processWithOrchestrator(
       if (existingCtx?.concept && !(existingCtx as any)._conceptSelected) (dialogData as any).concept = existingCtx.concept;
       // Forzar type, source y concepto clasificado desde el contexto de entrada (PDF/OCR)
       const inputCtx = context?.extractedData;
-      if (inputCtx?.concept && inputCtx?.source && !(dialogData as any)._conceptSelected) {
+      if (inputCtx?.concept && inputCtx?.source && inputCtx.concept !== 'GASTO' && inputCtx.concept !== 'INVENTARIO') {
         (dialogData as any).concept = (inputCtx as any).concept;
       }
       if (inputCtx?.type) (dialogData as any).type = inputCtx.type;
