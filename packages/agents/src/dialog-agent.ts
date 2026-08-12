@@ -41,6 +41,7 @@ function parseInput(input: string): {
   paymentMethod: string | null;
   missingFields: string[];
   itbms: boolean;
+  itbmsAmount?: number | null;
   provider: string | null;
 } {
   const lower = input.toLowerCase();
@@ -128,6 +129,11 @@ function parseInput(input: string): {
 
   const itbms = lower.includes('itbms') || lower.includes('iva') || lower.includes('impuesto') || lower.includes('7%');
 
+  // Extraer monto de ITBMS explícito: "ITBMS por 7.54", "ITBMS $7.54", "ITBMS de 0.19"
+  let itbmsAmount: number | null = null;
+  const itbmsAmtMatch = input.match(/(?:itbms|iva|impuesto)\s+(?:por|de|:?\s*\$?)\s*(\d+(?:\.\d{1,2})?)/i);
+  if (itbmsAmtMatch) itbmsAmount = parseFloat(itbmsAmtMatch[1]);
+
   let provider: string | null = null;
   // Busca patrón "a [Nombre]", "proveedor [Nombre]", "de [Nombre]" con nombre propio
   // Cubre compras (compré a X), ventas (vendí a X, cliente X), y gastos (pagué a X)
@@ -149,7 +155,7 @@ function parseInput(input: string): {
   if (amount === 0) missingFields.push('amount');
   if (!paymentMethod) missingFields.push('paymentMethod');
 
-  return { amount, date, type, concept, paymentMethod, missingFields, itbms, provider };
+  return { amount, date, type, concept, paymentMethod, missingFields, itbms, itbmsAmount, provider };
 }
 
 /** Detecta si el usuario mencionó explícitamente una fecha válida en el mensaje.
