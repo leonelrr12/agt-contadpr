@@ -845,7 +845,7 @@ body {
     border-bottom: 1px solid rgba(255,255,255,0.15);
     margin-bottom: 8px;
   }
-  #sidebar.open #sidebar-subscription,
+  #sidebar.open #sidebar-subscription { display: none !important; }
   #sidebar.open #sidebar-nav,
   #sidebar.open #summary-content { display: flex; }
   #sidebar.open #sidebar-nav { flex-direction: column; }
