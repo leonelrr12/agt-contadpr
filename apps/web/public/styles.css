@@ -1067,8 +1067,7 @@ body {
 
 /* ── Sidebar user & logout ── */
 .sidebar-logout-btn {
-  margin-top: 8px;
-  width: 100%;
+  /* margin-top and width set inline for grid layout */
   padding: 8px 10px;
   font-size: 13px;
   font-weight: 600;
