@@ -855,6 +855,7 @@ body {
   #sidebar.open #sidebar-user {
     display: grid !important;
     flex: 1 1 auto;
+    min-width: 0;
     padding: 0 0 0 12px !important;
     border-bottom: none;
     margin: 0;
@@ -868,7 +869,7 @@ body {
     font-size: 15px;
   }
   #sidebar.open #sidebar-nav { flex-direction: column; }
-  #sidebar.open .hamburger-btn { position: static; margin-left: auto; }
+  #sidebar.open .hamburger-btn { position: static; margin-left: 4px; flex: 0 0 auto; }
 
   #main { height: auto; min-height: 0; }
 
