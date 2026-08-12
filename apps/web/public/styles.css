@@ -840,8 +840,9 @@ body {
 
   /* Drawer abierto */
   #sidebar.open {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
     justify-content: flex-start;
     position: absolute;
     top: 0; left: 0; right: 0;
@@ -850,17 +851,18 @@ body {
     padding: 12px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.5);
   }
-  #sidebar.open .sidebar-header { padding-right: 60px; /* espacio para el burger */ }
+  #sidebar.open .sidebar-header { flex: 0 0 auto; }
   #sidebar.open #sidebar-user {
     display: grid !important;
-    padding: 12px 0 !important;
-    border-bottom: 1px solid rgba(255,255,255,0.15);
-    margin-bottom: 8px;
+    flex: 1 1 auto;
+    padding: 0 0 0 12px !important;
+    border-bottom: none;
+    margin: 0;
   }
   #sidebar.open #sidebar-subscription { display: none !important; }
   #sidebar.open #sidebar-nav,
-  #sidebar.open #summary-content { display: flex; }
-  #sidebar.open #sidebar-nav { flex-direction: column; }
+  #sidebar.open #summary-content { display: flex; flex-basis: 100%; }
+  #sidebar.open #sidebar-nav { flex-direction: column; margin-top: 12px; }
   #sidebar.open #sidebar-nav .nav-link {
     padding: 10px 14px;
     font-size: 15px;
@@ -917,7 +919,8 @@ body {
 }
 
 @media (max-width: 480px) {
-  #sidebar { padding: 8px 10px; gap: 10px; }
+  #sidebar { padding: 8px 10px; gap: 35px; }
+  .sidebar-header { padding-left: 10px }
   .summary-card { padding: 8px 12px; min-width: 72px; }
   .summary-value { font-size: 16px; }
   .summary-label { font-size: 11px; }
