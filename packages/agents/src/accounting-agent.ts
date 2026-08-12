@@ -26,6 +26,8 @@ function getItbmsRate(): number {
   return parseFloat(process.env.ITBMS_RATE || '') || 0.07;
 }
 
+function r2(n: number): number { return Math.round(n * 100) / 100; }
+
 export class AccountingAgent {
   private prisma: any;
   private companyId: string;
@@ -74,7 +76,7 @@ export class AccountingAgent {
     switch (dialog.type) {
       case 'GASTO': {
         const expenseNet = this.declaraITBMS && dialog.itbmsAmount
-          ? Math.round((dialog.amount - dialog.itbmsAmount) * 100) / 100
+          ? r2(dialog.amount - dialog.itbmsAmount)
           : dialog.amount;
         entry.debit.push({ accountId: classification.accountId, name: classification.concept, amount: expenseNet });
         if (this.declaraITBMS && dialog.itbmsAmount && dialog.itbmsAmount > 0) {
@@ -93,7 +95,7 @@ export class AccountingAgent {
         break;
       }
       case 'VENTA': {
-        const totalAmount = dialog.amount + itbmsAmount;
+        const totalAmount = r2(dialog.amount + itbmsAmount);
         if (dialog.paymentMethod === 'EFECTIVO') {
           entry.debit.push({ accountId: 'caja', name: 'Caja', amount: totalAmount });
         } else {
@@ -115,9 +117,9 @@ export class AccountingAgent {
           entry.description = `${dialog.type}: ${dialog.concept || dialog.description} - $${netAmount} + ITBMS $${itbmsAmount}`;
         } else {
           // No declara: ITBMS como parte del costo
-          entry.debit.push({ accountId: 'inventario-mercancia', name: 'Inventario de Mercancía', amount: netAmount + itbmsAmount });
+          entry.debit.push({ accountId: 'inventario-mercancia', name: 'Inventario de Mercancía', amount: r2(netAmount + itbmsAmount) });
         }
-        const totalAmount = netAmount + itbmsAmount;
+        const totalAmount = r2(netAmount + itbmsAmount);
         if (dialog.paymentMethod === 'TARJETA_CREDITO') {
           entry.credit.push({ accountId: 'tarjeta-credito', name: 'Tarjetas de Crédito', amount: totalAmount });
         } else if (dialog.paymentMethod === 'EFECTIVO') {
