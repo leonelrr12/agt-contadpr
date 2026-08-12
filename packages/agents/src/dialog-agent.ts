@@ -306,7 +306,7 @@ export class DialogAgent {
       itbmsRate,
       itbmsAmount,
       provider,
-      source: (prev as any)?.source || undefined as any,
+      source: (prev as any)?.source || undefined,
       ruc: (prev as any)?.ruc || (extracted as any).ruc || null,
       suggestedResponse: missingFields.length === 0
         ? `He entendido: ${type === 'VENTA' ? 'Venta' : type === 'GASTO' ? 'Gasto' : type} de ${concept} por $${amount}${paymentMethod ? ` pagado con ${paymentMethod}` : ''}${itbms ? ` (ITBMS ${(itbmsRate! * 100).toFixed(0)}% incluido)` : ''}. ¿Confirmas?`
