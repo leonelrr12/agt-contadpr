@@ -75,22 +75,24 @@ export class AccountingAgent {
 
     switch (dialog.type) {
       case 'GASTO': {
-        const expenseNet = this.declaraITBMS && dialog.itbmsAmount
-          ? r2(dialog.amount - dialog.itbmsAmount)
-          : dialog.amount;
-        entry.debit.push({ accountId: classification.accountId, name: classification.concept, amount: expenseNet });
-        if (this.declaraITBMS && dialog.itbmsAmount && dialog.itbmsAmount > 0) {
-          entry.debit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: dialog.itbmsAmount });
-          entry.description = `${dialog.concept || dialog.description} — $${expenseNet} + ITBMS $${dialog.itbmsAmount}`;
+        const hasItbms = this.declaraITBMS && dialog.itbmsAmount && dialog.itbmsAmount > 0;
+        // amount es neto (sin ITBMS) para texto, total (incluye ITBMS) para PDF/OCR
+        const amountIsTotal = !!(dialog as any).source; // PDF/OCR
+        const netAmount = amountIsTotal && hasItbms ? r2(dialog.amount - dialog.itbmsAmount!) : dialog.amount;
+        const totalAmount = hasItbms && !amountIsTotal ? r2(dialog.amount + dialog.itbmsAmount!) : dialog.amount;
+        entry.debit.push({ accountId: classification.accountId, name: classification.concept, amount: netAmount });
+        if (hasItbms) {
+          entry.debit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: dialog.itbmsAmount! });
+          entry.description = `${dialog.concept || dialog.description} — $${dialog.amount} + ITBMS $${dialog.itbmsAmount}`;
         }
         if (dialog.paymentMethod === 'TARJETA_CREDITO') {
-          entry.credit.push({ accountId: 'tarjeta-credito', name: 'Tarjetas de Crédito', amount: dialog.amount });
+          entry.credit.push({ accountId: 'tarjeta-credito', name: 'Tarjetas de Crédito', amount: totalAmount });
         } else if (dialog.paymentMethod === 'CREDITO') {
-          entry.credit.push({ accountId: 'proveedores', name: 'Proveedores', amount: dialog.amount });
+          entry.credit.push({ accountId: 'proveedores', name: 'Proveedores', amount: totalAmount });
         } else if (dialog.paymentMethod === 'EFECTIVO') {
-          entry.credit.push({ accountId: 'caja', name: 'Caja', amount: dialog.amount });
+          entry.credit.push({ accountId: 'caja', name: 'Caja', amount: totalAmount });
         } else {
-          entry.credit.push({ accountId: 'banco-general', name: 'Bancos', amount: dialog.amount });
+          entry.credit.push({ accountId: 'banco-general', name: 'Bancos', amount: totalAmount });
         }
         break;
       }
