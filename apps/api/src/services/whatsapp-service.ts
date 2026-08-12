@@ -405,9 +405,11 @@ export async function processWhatsAppMessage(
   }
 
   // ── 7. Default: nueva transacción ──
+  if (!isTransactionText(text)) {
+    return null; // Silencioso: el mensaje no parece una transacción
+  }
   const context: any = {};
   if (hasCtx && !conceptSelected) {
-    // Si hay contexto pero no se ha procesado, pasarlo (puede ser un follow-up no reconocido)
     context.extractedData = ctx;
   }
   return await processWithOrchestrator(prisma, chatId, link, text, context);
@@ -664,6 +666,13 @@ async function handleBalanceQuery(prisma: any, companyId: string, text: string):
   } catch (err: any) {
     return '❌ Error al consultar saldos. Intenta más tarde.';
   }
+}
+
+/** Verifica que el texto contenga al menos un verbo de transacción. */
+const TX_KEYWORDS = /\b(compr[éeoa]|compra|gast[éeoa]|gasto|ech[éeoa]|hech[oa]|vend[iíoa]|venta|almuer[cz]|cen[ae]|desayun[oa]|pagu[éeoa]|pago|cobr[éeoa]|cobro|factur[aeo]|recib[iíoa]|recibo|abon[éeoa]|deposit[éeoa]|transfer[ií]|transferencia|retir[éeoa]|retiro)\b/i;
+
+function isTransactionText(text: string): boolean {
+  return TX_KEYWORDS.test(text);
 }
 
 /** Clasifica un texto usando el KEYWORD_MAP del classification-agent (misma lógica). */

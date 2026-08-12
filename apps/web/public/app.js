@@ -907,6 +907,13 @@ async function sendMessage() {
     return;
   }
 
+  // Validar que el texto contenga un verbo de transacción
+  if (!/\b(compr[éeoa]|compra|gast[éeoa]|gasto|ech[éeoa]|hech[oa]|vend[iíoa]|venta|almuer[cz]|cen[ae]|desayun[oa]|pagu[éeoa]|pago|cobr[éeoa]|cobro|factur[aeo]|recib[iíoa]|recibo|abon[éeoa]|deposit[éeoa]|transfer[ií]|transferencia|retir[éeoa]|retiro)\b/i.test(text)) {
+    addMessage('📝 Usa un verbo para describir la transacción. Ejemplos:\n• "compré gasolina $40"\n• "pagué internet $65"\n• "vendí mercancía $100"', 'assistant');
+    cancelInput();
+    return;
+  }
+
   showLoading();
 
   try {
