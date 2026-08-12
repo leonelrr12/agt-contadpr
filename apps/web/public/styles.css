@@ -857,7 +857,7 @@ body {
     font-size: 15px;
   }
   #sidebar.open #sidebar-nav { flex-direction: column; }
-  #sidebar.open .hamburger-btn { /* se queda a la derecha vía space-between del header */ }
+  #sidebar.open .hamburger-btn { position: absolute; top: 8px; right: 12px; }
 
   #main { height: auto; min-height: 0; }
 
