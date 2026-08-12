@@ -836,6 +836,7 @@ body {
   #sidebar-nav,
   #summary-content { display: none; }
   #sidebar-subscription { display: none !important; }
+  #sidebar-user { display: grid; margin: 0; border-bottom: none; }
 
   /* Drawer abierto */
   #sidebar.open {
@@ -916,7 +917,7 @@ body {
 }
 
 @media (max-width: 480px) {
-  #sidebar { padding: 8px 10px; gap: 6px; }
+  #sidebar { padding: 8px 10px; gap: 10px; }
   .summary-card { padding: 8px 12px; min-width: 72px; }
   .summary-value { font-size: 16px; }
   .summary-label { font-size: 11px; }
