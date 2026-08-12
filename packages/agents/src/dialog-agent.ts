@@ -192,17 +192,22 @@ export class DialogAgent {
       provider?: string | null;
     } | null = null;
 
+    // Guardar parseInput como fallback para campos que el LLM no extrae
+    const parsed = parseInput(input);
+
     if (this.llm.isEnabled) {
       const llmResult = await this.llm.extract(input);
-      // Solo usar resultado del LLM si type es válido (no vacío) y no está en missingFields.
-      // Evita que el LLM devuelva type="" y se tome como válido.
       if (llmResult && llmResult.type && !llmResult.missingFields.includes('type')) {
         extracted = llmResult;
+        // Si el LLM no extrajo itbmsAmount, usar el de parseInput
+        if (!(extracted as any).itbmsAmount && (parsed as any).itbmsAmount) {
+          (extracted as any).itbmsAmount = (parsed as any).itbmsAmount;
+        }
       }
     }
 
     if (!extracted) {
-      extracted = parseInput(input);
+      extracted = parsed;
     }
 
     const prev = context?.extractedData;
