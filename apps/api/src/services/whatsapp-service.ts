@@ -20,6 +20,8 @@ import {
 import { extractFromImage } from './ocr';
 import { extractFromPDF } from './pdf-extractor';
 import { KEYWORD_MAP } from '@agt-contador/agents';
+import jsQR from 'jsqr';
+import sharp from 'sharp';
 
 const OPENWA_URL = process.env.OPENWA_API_URL || 'http://localhost:2785';
 const OPENWA_KEY = process.env.OPENWA_API_KEY || '';
@@ -71,6 +73,62 @@ export function generateCode(): string {
 const CMD_CONFIRM = /^(ok|confirmar|s[ií]|dale|aceptar|yes)$/i;
 const CMD_CANCEL = /^(xx|cancelar|no|nop|abortar)$/i;
 const CMD_RESET = /^(reiniciar|empezar de nuevo|nueva transacc[ió]on)$/i;
+
+/** Intenta decodificar un QR desde un buffer de imagen. Retorna la URL o null. */
+async function tryDecodeQR(buffer: Buffer): Promise<string | null> {
+  try {
+    const { data, info } = await sharp(buffer)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const result = jsQR(new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength), info.width, info.height);
+    if (result?.data && /^https?:\/\//i.test(result.data)) {
+      return result.data;
+    }
+  } catch {}
+  return null;
+}
+
+/**
+ * Procesa un QR de factura DGI: descarga el PDF y lo procesa igual que extract-url.
+ */
+async function processWhatsAppQR(
+  prisma: any,
+  phoneNumber: string,
+  chatId: string,
+  qrUrl: string,
+): Promise<string | null> {
+  try {
+    const response = await fetch(qrUrl, { signal: AbortSignal.timeout(30000) });
+    if (!response.ok) return '❌ No se pudo acceder a la URL del QR.';
+
+    let buffer = Buffer.from(await response.arrayBuffer());
+    const headStr = buffer.slice(0, 500).toString();
+
+    // Detectar visor web DGI y descargar el PDF real
+    if (headStr.includes('facturaXML') && headStr.includes('DescargarFacturaPDF')) {
+      const match = headStr.match(/id="facturaXML"[^>]*value="([^"]*)"/);
+      if (match?.[1]) {
+        const facturaXML = match[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+        const baseUrl = new URL(qrUrl);
+        const pdfRes = await fetch(`${baseUrl.protocol}//${baseUrl.host}/Consultas/DescargarFacturaPDF`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', Referer: qrUrl },
+          body: `facturaXML=${encodeURIComponent(facturaXML)}`,
+          signal: AbortSignal.timeout(30000),
+        });
+        if (pdfRes.ok) buffer = Buffer.from(await pdfRes.arrayBuffer());
+      }
+    }
+
+    // Procesar como PDF normal
+    return await processWhatsAppPDF(prisma, phoneNumber, chatId, 'data:application/pdf;base64,' + buffer.toString('base64'));
+  } catch (err: any) {
+    console.error('[WhatsApp] QR process error:', err.message);
+    return '❌ Error al procesar el QR. Intenta con una foto más clara del código.';
+  }
+}
 
 /**
  * Procesa un PDF de factura electrónica (DGI) enviado por WhatsApp.
@@ -167,6 +225,13 @@ export async function processWhatsAppImage(
     const imgRes = await fetch(imageUrl);
     if (!imgRes.ok) return '❌ No pude descargar la imagen. Intenta de nuevo.';
     const buffer = Buffer.from(await imgRes.arrayBuffer());
+
+    // Intentar leer QR (factura DGI) antes de OCR
+    const qrUrl = await tryDecodeQR(buffer);
+    if (qrUrl) {
+      console.log('[WhatsApp] QR detectado:', qrUrl);
+      return await processWhatsAppQR(prisma, phoneNumber, chatId, qrUrl);
+    }
 
     // OCR
     const ocrData = await extractFromImage(buffer, prisma);
