@@ -827,6 +827,7 @@ body {
   #sidebar-subscription,
   #sidebar-nav,
   #summary-content { display: none; }
+  #sidebar-subscription { display: none !important; }
 
   /* Drawer abierto */
   #sidebar.open {
