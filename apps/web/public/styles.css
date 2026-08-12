@@ -868,7 +868,7 @@ body {
     font-size: 15px;
   }
   #sidebar.open #sidebar-nav { flex-direction: column; }
-  #sidebar.open .hamburger-btn { position: absolute; top: 8px; right: 12px; }
+  #sidebar.open .hamburger-btn { position: static; margin-left: auto; }
 
   #main { height: auto; min-height: 0; }
 
