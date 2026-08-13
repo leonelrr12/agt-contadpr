@@ -86,13 +86,19 @@ export async function generateUpcomingObligations(
     const existing = await prisma.taxObligation.findFirst({
       where: { companyId, type: obl.type, period: obl.period },
     });
-    if (!existing) {
-      // Calcular estimado para ITBMS
-      let estimatedAmount: number | null = null;
-      if (obl.type === 'ITBMS') {
-        estimatedAmount = await estimateITBMS(prisma, companyId, obl.period);
+    if (obl.type === 'ITBMS') {
+      // Recalcular el estimado siempre (si no hay monto real) — el saldo pendiente
+      // de 2.1.05 cambia con cada asiento; el estimado viejo queda obsoleto.
+      const estimatedAmount = await estimateITBMS(prisma, companyId, obl.period);
+      if (existing) {
+        if (existing.status === 'PENDING' && existing.actualAmount == null && existing.estimatedAmount !== estimatedAmount) {
+          await prisma.taxObligation.update({
+            where: { id: existing.id },
+            data: { estimatedAmount },
+          });
+        }
+        continue;
       }
-
       await prisma.taxObligation.create({
         data: {
           companyId,
@@ -101,6 +107,20 @@ export async function generateUpcomingObligations(
           label: obl.label,
           dueDate: obl.dueDate,
           estimatedAmount,
+        },
+      });
+      created++;
+      continue;
+    }
+
+    if (!existing) {
+      await prisma.taxObligation.create({
+        data: {
+          companyId,
+          type: obl.type,
+          period: obl.period,
+          label: obl.label,
+          dueDate: obl.dueDate,
         },
       });
       created++;
@@ -125,17 +145,18 @@ export async function generateUpcomingObligations(
  */
 async function estimateITBMS(prisma: any, companyId: string, period: string): Promise<number> {
   const [year, month] = period.split('-').map(Number);
-  const startDate = new Date(year, month - 1, 1);
   const endDate = new Date(year, month, 0);
 
-  // ITBMS por pagar = ITBMS de ventas - ITBMS de compras
+  // ITBMS por pagar = saldo acumulado pendiente de la cuenta 2.1.05 (hasta el fin
+  // del período): créditos (ventas) - débitos (compras y pagos parciales a DGI).
+  // Refleja lo realmente adeudado, incluyendo períodos anteriores sin declarar.
   const lines = await prisma.journalLine.findMany({
     where: {
       account: { code: '2.1.05' }, // ITBMS por Pagar
       journalEntry: {
         companyId,
         status: 'CONFIRMADO',
-        date: { gte: startDate, lte: endDate },
+        date: { lte: endDate },
       },
     },
   });
