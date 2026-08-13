@@ -198,8 +198,8 @@ Mejoras estructurales recomendadas a mediano plazo:
 - [ ] **Workers de Tesseract:** Nunca se liberan (memory leak)
 - [ ] **Paginación real:** Journal listing actualmente pagina en memoria
 - [x] **Stubs de tests desactualizados:** ✅ CORREGIDOS (2026-08-13) — 55/55 tests pasando
-- [ ] **Email verification:** No existe verificación de correo ni recuperación de contraseña
-- [ ] **CI/CD:** No hay pipeline de integración continua
+- [x] **Email verification:** ✅ IMPLEMENTADO (2026-08-13) — verificación por token + recuperación de contraseña vía MailerApi local
+- [x] **CI/CD:** ✅ IMPLEMENTADO (2026-08-13) — GitHub Actions (tests + typecheck en push/PR, solo validación)
 
 ---
 

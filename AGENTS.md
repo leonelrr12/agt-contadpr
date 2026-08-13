@@ -85,6 +85,8 @@ Campos nuevos en JournalEntry: `reviewedById`, `reviewedAt`, `reviewNotes`. Enum
 - **PM2** manages the API process (`pm2 start ecosystem.config.js` from root, auto-restarts on crash/reboot). Tras cambios de backend: `pm2 restart agt-contador-api --update-env`.
 - `NODE_ENV=production` está en `ecosystem.config.js` y `.env` (el error handler global oculta mensajes internos con este flag).
 - `.env` with `DATABASE_URL` must exist at root and `packages/prisma-schema/`.
+- Email: `MAILER_API_URL`/`MAILER_API_KEY`/`APP_URL` — el MailerApi local corre en el puerto 3004 (PM2 `mailer-api`); sin key, los envíos se simulan en logs.
+- CI: `.github/workflows/ci.yml` corre tests + typecheck en cada push/PR (sin deploy).
 
 ## Local dev URLs
 
@@ -95,7 +97,7 @@ Campos nuevos en JournalEntry: `reviewedById`, `reviewedAt`, `reviewNotes`. Enum
 
 - **LLM integrado**: DeepSeek via OpenAI-compatible API, con fallback a keywords
 - Tests: **55/55 pasando** via Vitest. **Lint**: ESLint configurado con `typescript-eslint`
-- Auth JWT + API Keys, multi-tenant, SaaS (planes/suscripciones/cuotas), OCR+PDF+QR, conciliación bancaria, importación masiva, recurrentes, WhatsApp bot, calendario fiscal PA, dashboard de salud financiera con IA (`/api/salud`), audit log
+- Auth JWT + API Keys, multi-tenant, SaaS (planes/suscripciones/cuotas), OCR+PDF+QR, conciliación bancaria, importación masiva, recurrentes, WhatsApp bot, calendario fiscal PA, dashboard de salud financiera con IA (`/api/salud`), email verification/reset (vía MailerApi local), audit log
 - **Frontend modularizado**: vanilla HTML/JS/CSS (no React/Next.js) — 13 scripts classic en `public/js/` + `js/shared.js` para páginas standalone. Ver `Estado.md` para el detalle.
 - Backend con middleware global de errores (`error-handler.ts`) y tareas de inicio en `services/startup.ts` (multi-empresa)
 - Prisma generates client to `node_modules/@prisma/client` by default (turbo `outputs: ["src/generated/**"]` in `turbo.json` may be stale)

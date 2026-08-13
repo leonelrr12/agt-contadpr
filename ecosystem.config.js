@@ -40,6 +40,9 @@ module.exports = {
       OPENWA_SESSION_NAME: process.env.OPENWA_SESSION_NAME || 'contador507',
       APP_HOST: process.env.APP_HOST || 'http://147.93.145.67:3001',
       WA_BOT_PHONE: process.env.WA_BOT_PHONE || '+507 6403-4863',
+      MAILER_API_URL: process.env.MAILER_API_URL || 'http://localhost:3004',
+      MAILER_API_KEY: process.env.MAILER_API_KEY || '',
+      APP_URL: process.env.APP_URL || 'https://contador507.com',
     },
   }],
 };

@@ -43,10 +43,12 @@ model User {
   role      String   @default("contador")
   companyId String
   isActive  Boolean  @default(true)
+  emailVerified DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   company        Company         @relation(fields: [companyId], references: [id])
+  authTokens     AuthToken[]
   transactions   Transaction[]
   journalEntries JournalEntry[]
   reviewedEntries JournalEntry[] @relation("ReviewedEntries")
@@ -413,6 +415,21 @@ model RecurringTemplate {
   @@index([companyId])
   @@index([nextRunAt])
   @@map("recurring_template")
+}
+
+model AuthToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique   // SHA-256 del token — nunca se guarda el token en claro
+  type      String    // VERIFY_EMAIL | RESET_PASSWORD
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_token")
 }
 
 model BankStatement {

@@ -20,6 +20,8 @@ El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones 
 - ✅ Calendario fiscal panameño: `tax-calendar.ts` + `TaxObligation`, generación automática multi-empresa
 - ✅ Auto-aprendizaje de conceptos: `Concept.keywords` + quickClassify desde BD
 - ✅ Dashboard de Salud Financiera con IA: `/api/salud` + panel 🩺 — ratios (liquidez, endeudamiento, margen, DSO/DPO), proyección de caja 3m, alertas por reglas y narrativa DeepSeek con caché de 5 min
+- ✅ CI con GitHub Actions: tests (55) + typecheck en cada push/PR (solo validación, sin deploy)
+- ✅ Email verification + recuperación de contraseña: modelo `AuthToken` (hash SHA-256, un solo uso), endpoints `forgot/reset-password` y `verify-email`, envío vía MailerApi local (`services/mailer.ts`), página `forgot-password.html`
 - ✅ Extracción de ITBMS explícito y neto vs total según fuente (PDF=total, texto=neto)
 
 **Arquitectura / deuda técnica pagada:**
@@ -39,7 +41,7 @@ El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones 
 | Fase 2: Documentos y Terceros | ✅ OCR, Clientes, Proveedores, **Bancario (conciliación)**, Export |
 | Fase 3: Módulos Avanzados | ❌ Inventario, Nómina, Impuestos, Auditor |
 | Fase 4: IA Avanzada | ❌ Predicción, Fraude, Rentabilidad |
-| Seguridad Transversal | ✅ JWT, roles, backups, logs · ❌ Cifrado en reposo |
+| Seguridad Transversal | ✅ JWT, roles, backups, logs, email verification · ❌ Cifrado en reposo |
 | DevOps | ✅ Docker, PM2, nginx · ❌ CI/CD |
 
 ---

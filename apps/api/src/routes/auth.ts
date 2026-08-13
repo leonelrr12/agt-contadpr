@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { generateToken, requireAuth } from '../middleware/auth';
+import { sendEmail, APP_URL } from '../services/mailer';
 
 export const authRouter = Router();
 
@@ -211,6 +212,9 @@ authRouter.post('/register', async (req, res) => {
       },
     },
   });
+
+  // Email de verificación (no bloquea el registro; fallos solo se loguean)
+  sendVerificationEmail(req.prisma, result.user);
   } catch (err: any) {
     console.error('[Register] Error:', err.message);
     if (err.code === 'P2002') {
@@ -248,3 +252,105 @@ authRouter.get('/me', requireAuth, async (req, res) => {
     },
   });
 });
+
+// ── Verificación de email y recuperación de contraseña ──
+
+// Crea un token de un solo uso (VERIFY_EMAIL | RESET_PASSWORD) y guarda su hash SHA-256.
+async function createAuthToken(prisma: any, userId: string, type: string, ttlMinutes = 30): Promise<string> {
+  const raw = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(raw).digest('hex');
+  await prisma.authToken.create({
+    data: {
+      userId,
+      tokenHash,
+      type,
+      expiresAt: new Date(Date.now() + ttlMinutes * 60 * 1000),
+    },
+  });
+  return raw;
+}
+
+/** POST /api/auth/forgot-password — siempre responde genérico (no filtra si el email existe). */
+authRouter.post('/forgot-password', async (req, res) => {
+  const { email } = req.body || {};
+  if (!email) { res.status(400).json({ error: 'Email requerido' }); return; }
+  try {
+    const user = await req.prisma.user.findUnique({ where: { email } });
+    if (user && user.isActive) {
+      const token = await createAuthToken(req.prisma, user.id, 'RESET_PASSWORD', 30);
+      const link = `${APP_URL}/forgot-password.html?token=${token}&mode=reset`;
+      await sendEmail(
+        email,
+        'Restablece tu contraseña — Contador507',
+        `Hola ${user.name},\n\nRecibimos una solicitud para restablecer tu contraseña.\nUsa este enlace (expira en 30 minutos):\n${link}\n\nSi no fuiste tú, ignora este correo.`,
+        `<p>Hola <strong>${user.name}</strong>,</p><p>Recibimos una solicitud para restablecer tu contraseña.</p><p><a href="${link}">Restablecer contraseña</a> (expira en 30 minutos)</p><p>Si no fuiste tú, ignora este correo.</p>`,
+      );
+    }
+    res.json({ message: 'Si el correo existe, recibirás un enlace para restablecer tu contraseña.' });
+  } catch (error: any) {
+    console.error('[Auth] forgot-password:', error?.message);
+    res.status(500).json({ error: 'Error al procesar la solicitud' });
+  }
+});
+
+/** POST /api/auth/reset-password — valida token de un solo uso y cambia la contraseña. */
+authRouter.post('/reset-password', async (req, res) => {
+  const { token, password } = req.body || {};
+  if (!token || !password) { res.status(400).json({ error: 'Token y contraseña requeridos' }); return; }
+  if (password.length < 6) { res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' }); return; }
+  try {
+    const tokenHash = crypto.createHash('sha256').update(String(token)).digest('hex');
+    const record = await req.prisma.authToken.findUnique({ where: { tokenHash } });
+    if (!record || record.type !== 'RESET_PASSWORD' || record.usedAt || record.expiresAt < new Date()) {
+      res.status(400).json({ error: 'El enlace es inválido o expiró. Solicita uno nuevo.' });
+      return;
+    }
+    const hashed = await bcrypt.hash(password, 10);
+    await req.prisma.$transaction([
+      req.prisma.user.update({ where: { id: record.userId }, data: { password: hashed } }),
+      req.prisma.authToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
+    ]);
+    res.json({ message: 'Contraseña actualizada. Ya puedes iniciar sesión.' });
+  } catch (error: any) {
+    console.error('[Auth] reset-password:', error?.message);
+    res.status(500).json({ error: 'Error al restablecer la contraseña' });
+  }
+});
+
+/** GET /api/auth/verify-email?token=... — marca el email como verificado. */
+authRouter.get('/verify-email', async (req, res) => {
+  const token = String(req.query.token || '');
+  if (!token) { res.status(400).json({ error: 'Token requerido' }); return; }
+  try {
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const record = await req.prisma.authToken.findUnique({ where: { tokenHash } });
+    if (!record || record.type !== 'VERIFY_EMAIL' || record.usedAt || record.expiresAt < new Date()) {
+      res.status(400).json({ error: 'El enlace es inválido o expiró.' });
+      return;
+    }
+    await req.prisma.$transaction([
+      req.prisma.user.update({ where: { id: record.userId }, data: { emailVerified: new Date() } }),
+      req.prisma.authToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
+    ]);
+    res.json({ message: 'Email verificado. ¡Gracias!' });
+  } catch (error: any) {
+    console.error('[Auth] verify-email:', error?.message);
+    res.status(500).json({ error: 'Error al verificar el email' });
+  }
+});
+
+/** Envía el email de verificación al recién registrado (no bloquea el registro). */
+async function sendVerificationEmail(prisma: any, user: any): Promise<void> {
+  try {
+    const token = await createAuthToken(prisma, user.id, 'VERIFY_EMAIL', 24 * 60);
+    const link = `${APP_URL}/forgot-password.html?token=${token}&mode=verify`;
+    await sendEmail(
+      user.email,
+      'Verifica tu email — Contador507',
+      `Hola ${user.name},\n\nVerifica tu correo con este enlace (expira en 24 horas):\n${link}`,
+      `<p>Hola <strong>${user.name}</strong>,</p><p>Verifica tu correo con este enlace (expira en 24 horas):</p><p><a href="${link}">Verificar email</a></p>`,
+    );
+  } catch (e: any) {
+    console.error('[Auth] Error enviando verificación:', e?.message);
+  }
+}
