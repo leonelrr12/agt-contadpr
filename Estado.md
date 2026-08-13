@@ -8,7 +8,7 @@
 
 ## Resumen Ejecutivo
 
-El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones vía chat, procesa facturas por OCR/imagen y PDF (DGI), genera asientos contables de partida doble automáticamente, y tiene un flujo de revisión BORRADOR → CONFIRMADO/RECHAZADO. Frontend modularizado en **14 scripts JS** (`public/js/`), panel de reportes con dashboard unificado (4 cards + 3 charts), y corre en PM2 + nginx. Tests: **55/55 pasando** en `packages/agents`.
+El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones vía chat, procesa facturas por OCR/imagen y PDF (DGI), genera asientos contables de partida doble automáticamente, y tiene un flujo de revisión BORRADOR → CONFIRMADO/RECHAZADO. Frontend modularizado en **15 scripts JS** (`public/js/`), panel de reportes con dashboard unificado (4 cards + 3 charts), dashboard de salud financiera con IA, y corre en PM2 + nginx. Tests: **55/55 pasando** en `packages/agents`.
 
 ### 🆕 Novedades desde el último análisis (2026-07-15 → 2026-08-13)
 
@@ -19,6 +19,7 @@ El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones 
 - ✅ Bot de WhatsApp: webhook OpenWa, OCR de imágenes, QR de facturas DGI, comandos `/saldo`
 - ✅ Calendario fiscal panameño: `tax-calendar.ts` + `TaxObligation`, generación automática multi-empresa
 - ✅ Auto-aprendizaje de conceptos: `Concept.keywords` + quickClassify desde BD
+- ✅ Dashboard de Salud Financiera con IA: `/api/salud` + panel 🩺 — ratios (liquidez, endeudamiento, margen, DSO/DPO), proyección de caja 3m, alertas por reglas y narrativa DeepSeek con caché de 5 min
 - ✅ Extracción de ITBMS explícito y neto vs total según fuente (PDF=total, texto=neto)
 
 **Arquitectura / deuda técnica pagada:**

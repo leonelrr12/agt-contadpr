@@ -28,7 +28,7 @@
   <meta name="twitter:description" content="Agente contable con IA para Panamá. Facturas, asientos y reportes automatizados.">
   <meta name="twitter:image" content="https://contador507.com/Logo2.png?v=2">
 
-  <link rel="stylesheet" href="styles.css?v=29">
+  <link rel="stylesheet" href="styles.css?v=30">
 </head>
 <body>
   <div id="app">
@@ -65,6 +65,7 @@
         <button class="nav-link" data-view="panel-informes" id="nav-informes-link">📊 Informes</button>
         <button class="nav-link" data-view="panel-auxiliares" id="nav-auxiliares-link">📒 Auxiliares</button>
         <button class="nav-link" data-view="panel-taxcalendar" id="nav-taxcalendar-link">📅 Calendario Fiscal</button>
+        <button class="nav-link" data-view="panel-salud" id="nav-salud-link">🩺 Salud Financiera</button>
         <button class="nav-link" data-view="panel-whatsapp" id="nav-whatsapp-link">📱 WhatsApp</button>
         <button class="nav-link" data-view="panel-admin" id="nav-admin-link" style="display:none">⚙️ Panel Admin</button>
         <a class="nav-link" href="/admin.html" id="nav-saas-link" style="display:none">🖥️ SaaS Admin</a>
@@ -293,6 +294,20 @@
       </div>
 
       <!-- Panel de Calendario Fiscal -->
+      <!-- Panel de Salud Financiera -->
+      <div id="panel-salud-content" class="hidden" style="padding:24px;max-width:1000px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+          <div>
+            <h2 style="margin:0;color:#1a1a2e">🩺 Salud Financiera</h2>
+            <p style="margin:4px 0 0 0;color:#6b7280;font-size:13px">Ratios, proyección de caja y análisis con IA</p>
+          </div>
+          <button class="btn-primary" onclick="loadPanelSalud(true)" style="padding:10px 20px;font-size:14px">🔄 Actualizar</button>
+        </div>
+        <div id="salud-inline-list">
+          <div style="text-align:center;padding:32px;color:#6b7280">Cargando salud financiera...</div>
+        </div>
+      </div>
+
       <div id="panel-taxcalendar-content" class="hidden" style="padding:24px;max-width:900px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
           <div>
@@ -444,19 +459,20 @@
 
   <script src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="js/core.js?v=61"></script>
-  <script src="js/capture.js?v=61"></script>
-  <script src="js/capture-qr.js?v=61"></script>
-  <script src="js/chat.js?v=61"></script>
-  <script src="js/router.js?v=61"></script>
-  <script src="js/admin.js?v=61"></script>
-  <script src="js/init.js?v=61"></script>
-  <script src="js/panels-sidebar.js?v=61"></script>
-  <script src="js/import.js?v=61"></script>
-  <script src="js/auxiliares-revision.js?v=61"></script>
-  <script src="js/entry-modals.js?v=61"></script>
-  <script src="js/informes.js?v=61"></script>
-  <script src="js/tax-calendar.js?v=61"></script>
+  <script src="js/core.js?v=62"></script>
+  <script src="js/capture.js?v=62"></script>
+  <script src="js/capture-qr.js?v=62"></script>
+  <script src="js/chat.js?v=62"></script>
+  <script src="js/router.js?v=62"></script>
+  <script src="js/admin.js?v=62"></script>
+  <script src="js/init.js?v=62"></script>
+  <script src="js/panels-sidebar.js?v=62"></script>
+  <script src="js/import.js?v=62"></script>
+  <script src="js/auxiliares-revision.js?v=62"></script>
+  <script src="js/entry-modals.js?v=62"></script>
+  <script src="js/informes.js?v=62"></script>
+  <script src="js/tax-calendar.js?v=62"></script>
+  <script src="js/salud.js?v=62"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </body>
 </html>

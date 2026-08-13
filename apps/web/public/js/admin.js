@@ -1,4 +1,4 @@
-// admin.js (6/13) — CRUD de cuentas/conceptos y configuración
+// admin.js (6/14) — CRUD de cuentas/conceptos y configuración
 /* ── Administración: Cuentas Contables ── */
 let cuentasCache = [];
 

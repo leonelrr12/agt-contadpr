@@ -1,4 +1,4 @@
-// panels-sidebar.js (8/13) — auxiliar, recurrentes y vinculación WhatsApp
+// panels-sidebar.js (8/14) — auxiliar, recurrentes y vinculación WhatsApp
 // ── Auxiliar de Cuenta ──
 let _auxiliarAccounts = [];
 

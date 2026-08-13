@@ -1,4 +1,4 @@
-// informes.js (12/13) — panel informes con tabs y export
+// informes.js (12/14) — panel informes con tabs y export
 /* ── Panel: Informes (inline) ── */
 function loadPanelInformes() {
   document.getElementById('chat-messages').classList.add('hidden');

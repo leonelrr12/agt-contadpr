@@ -9,7 +9,7 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
     // Helpers
     function hideAllPanels() {
       ['panel-recurring-content','panel-import-content',
-       'panel-conciliacion-content','panel-taxcalendar-content','panel-whatsapp-content',
+       'panel-conciliacion-content','panel-taxcalendar-content','panel-salud-content','panel-whatsapp-content',
        'panel-auxiliares-content','panel-revision-content',
        'panel-informes-content','panel-admin-content'].forEach(id => {
         const el = document.getElementById(id); if (el) el.classList.add('hidden');
@@ -35,6 +35,7 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
     if (view === 'panel-import') { hideAllPanels(); loadPanelImport(); return; }
     if (view === 'panel-conciliacion') { hideAllPanels(); loadPanelConciliacion(); return; }
     if (view === 'panel-taxcalendar') { hideAllPanels(); loadPanelTaxCalendar(); return; }
+    if (view === 'panel-salud') { hideAllPanels(); loadPanelSalud(); return; }
     if (view === 'panel-auxiliares') { hideAllPanels(); loadPanelAuxiliares(); return; }
     if (view === 'panel-revision') { hideAllPanels(); loadPanelRevision(); return; }
     if (view === 'panel-informes') { hideAllPanels(); loadPanelInformes(); return; }

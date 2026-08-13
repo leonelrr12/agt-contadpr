@@ -96,15 +96,16 @@ Diferenciación fuerte para el mercado meta:
 
 ---
 
-#### 6. Dashboard de Salud Financiera con IA ❌ Pendiente
-Más allá de reportes estáticos:
+#### 6. Dashboard de Salud Financiera con IA ✅ Implementado (2026-08-13)
+Panel 🩺 en el sidebar (`GET /api/salud` + `js/salud.js`):
 
-- [ ] Ratios clave automáticos: liquidez, endeudamiento, margen neto, rotación
-- [ ] Explicación en lenguaje natural: "Tu margen neto bajó 3% porque los gastos de envío aumentaron 40%"
-- [ ] Alertas predictivas inteligentes: "Tu flujo de caja proyectado será negativo en 2 meses"
-- [ ] Recomendaciones accionables generadas por LLM
+- [x] Ratios automáticos: liquidez corriente, endeudamiento, margen neto YTD, días de cobro (DSO) y días de pago (DPO) con deltas mes actual vs anterior
+- [x] Explicación en lenguaje natural (DeepSeek): resumen con las razones de los cambios, máx. 4 alertas y 4 recomendaciones en español
+- [x] Alertas por reglas (sin LLM): liquidez <1, endeudamiento >70%, margen negativo, DSO/DPO altos, flujo de caja proyectado negativo, obligaciones fiscales vencidas/próximas, CxC/CxP vencidas
+- [x] Proyección de caja a 3 meses: recurrentes activas + obligaciones fiscales (ITBMS/CSS/ISR) con saldo acumulado
+- [x] Fallback sin IA: si DeepSeek no responde, ratios y alertas siguen funcionando; caché de 5 min por empresa (`?refresh=1` la bypassa)
 
-**Fundamento:** Ya existen todos los datos. Solo falta la capa de análisis y narrativa.
+**Archivos:** `services/salud.ts`, `routes/salud.ts`, `js/salud.js` (panel), vista "Salud Financiera" en el SPA
 
 ---
 

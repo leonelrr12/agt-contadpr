@@ -95,6 +95,7 @@ body {
 #panel-conciliacion-content:not(.hidden),
 #panel-import-content:not(.hidden),
 #panel-taxcalendar-content:not(.hidden),
+#panel-salud-content:not(.hidden),
 #panel-whatsapp-content:not(.hidden),
 #panel-admin-content:not(.hidden) {
   flex: 1;
@@ -111,6 +112,7 @@ body {
 #import-inline-zone,
 #import-inline-preview,
 #taxcalendar-inline-list,
+#salud-inline-list,
 #wa-links-list,
 #cuentas-admin-content,
 #conceptos-admin-content,
@@ -1170,6 +1172,7 @@ body {
   #panel-conciliacion-content,
   #panel-import-content,
   #panel-taxcalendar-content,
+  #panel-salud-content,
   #panel-whatsapp-content {
     padding-left: 32px !important;
     padding-right: 32px !important;
