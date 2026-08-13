@@ -116,17 +116,29 @@ journalRouter.get('/', async (req, res) => {
   const page = Math.max(1, parseInt(pageStr as string) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(pageSizeStr as string) || 50));
 
-  const allEntries = await req.prisma.journalEntry.findMany({
-    where,
-    include: {
-      lines: { include: { account: true } },
-      createdBy: { select: { name: true } },
-      transactions: { select: { metadata: true, concept: true } },
-    },
-    orderBy: { date: 'desc' },
-  });
+  // Filtro de proveedor en BD: busca el substring en el metadata JSON de la transacción
+  // (antes se filtraba en JS tras cargar TODO el libro; now con contains insensitive)
+  if (providerFilter) {
+    where.transactions = { some: { metadata: { contains: String(providerFilter), mode: 'insensitive' } } };
+  }
 
-  const enriched = allEntries.map((e: any) => {
+  // Paginación real en BD: count + skip/take (antes se cargaba todo y se paginaba en memoria)
+  const [total, entries] = await Promise.all([
+    req.prisma.journalEntry.count({ where }),
+    req.prisma.journalEntry.findMany({
+      where,
+      include: {
+        lines: { include: { account: true } },
+        createdBy: { select: { name: true } },
+        transactions: { select: { metadata: true, concept: true } },
+      },
+      orderBy: { date: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+
+  const enriched = entries.map((e: any) => {
     const tx = e.transactions?.[0];
     let provider: string | null = null;
     if (tx?.metadata) {
@@ -135,15 +147,9 @@ journalRouter.get('/', async (req, res) => {
     return { ...e, provider };
   });
 
-  const filtered = providerFilter
-    ? enriched.filter((e: any) => e.provider && e.provider.toLowerCase().includes((providerFilter as string).toLowerCase()))
-    : enriched;
-
-  const total = filtered.length;
   const totalPages = Math.ceil(total / pageSize);
-  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
 
-  res.json({ entries: paginated, total, page, pageSize, totalPages });
+  res.json({ entries: enriched, total, page, pageSize, totalPages });
 });
 
 journalRouter.get('/:id', async (req, res) => {

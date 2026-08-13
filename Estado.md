@@ -131,21 +131,13 @@ const ALIAS_TO_CODE: Record<string, string> = {
 ```
 El `AccountingAgent.generateEntry()` usa strings alias en lugar de accountIds reales. Luego `OrchestratorAgent.process()` llama a `resolveAlias()` para traducirlos. Si se agrega una cuenta nueva, hay que modificar código en 2 lugares.
 
-### 3.5 Reportes cargan TODOS los datos en memoria
-```ts
-// reportsRouter.get('/balance-comprobacion')
-const lines = await req.prisma.journalLine.findMany({ where, include: { account: true } });
-// Agrega en JS, sin GROUP BY en BD
-```
-Para 1000 transacciones funciona, para 100,000 va a colapsar. Ningún reporte usa agregación SQL.
+### 3.5 Reportes cargan TODOS los datos en memoria ✅ CORREGIDO (2026-08-13)
+- ~~Ningún reporte usaba agregación SQL.~~
+- **Corregido**: `balance-comprobacion`, `balance-general`, `estado-resultados` y `dashboard` ahora usan `groupBy` por cuenta + `$queryRaw` para el mensual del dashboard (la lógica de signos queda en JS por cuenta). `flujo-caja` mantiene carga por filas (necesita orden cronológico para el saldo corrido; subset solo de cuentas de caja). Verificado con diff antes/después sobre datos reales: salidas idénticas (mejora de precisión de floats incluida).
 
-### 3.6 `GET /api/journal` también pagina en memoria
-```ts
-// journal.ts:89-114
-const allEntries = await req.prisma.journalEntry.findMany({ where, ... });
-// ... enrich + filter + paginate in JS
-```
-Carga TODOS los asientos y pagina en JavaScript. No escala.
+### 3.6 `GET /api/journal` también pagina en memoria ✅ CORREGIDO (2026-08-13)
+- ~~Cargaba TODOS los asientos y paginaba en JavaScript.~~
+- **Corregido**: paginación real en BD con `count` + `skip/take`; el filtro de proveedor ahora usa `transactions.some.metadata.contains` insensitive (antes cargaba todo y filtraba en JS). Verificado con diff antes/después: respuestas idénticas.
 
 ### 3.7 El modelo `AuditLog` nunca se escribe ✅ COMPLETADO
 - ~~Está definido en Prisma pero ningún endpoint crea registros de auditoría.~~

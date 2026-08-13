@@ -17,67 +17,65 @@ reportsRouter.get('/balance-comprobacion', async (req, res) => {
 
   const where = { journalEntry };
 
-  const lines = await req.prisma.journalLine.findMany({
+  // Agregación en BD (GROUP BY accountId) — antes se cargaban todas las líneas a memoria
+  const grouped = await req.prisma.journalLine.groupBy({
+    by: ['accountId'],
+    _sum: { debit: true, credit: true },
     where,
-    include: { account: true },
   });
 
-  const balanceMap = new Map<string, { account: { code: string; name: string; type: string }; totalDebit: number; totalCredit: number }>();
+  const accounts = await req.prisma.account.findMany({
+    where: { id: { in: grouped.map(g => g.accountId) } },
+    select: { id: true, code: true, name: true, type: true },
+  });
+  const byId = new Map(accounts.map(a => [a.id, a]));
 
-  for (const line of lines) {
-    const key = line.accountId;
-    const existing = balanceMap.get(key) || {
-      account: { code: line.account.code, name: line.account.name, type: line.account.type },
-      totalDebit: 0,
-      totalCredit: 0,
-    };
-    existing.totalDebit += line.debit;
-    existing.totalCredit += line.credit;
-    balanceMap.set(key, existing);
-  }
-
-  const result = Array.from(balanceMap.values())
-    .map((b) => ({
-      ...b,
-      balance: Math.abs(b.totalDebit - b.totalCredit),
-      balanceType: b.totalDebit > b.totalCredit ? 'DEUDOR' : 'ACREEDOR',
-    }))
+  const result = grouped
+    .map((g) => {
+      const a = byId.get(g.accountId)!;
+      const totalDebit = g._sum.debit || 0;
+      const totalCredit = g._sum.credit || 0;
+      return {
+        account: { code: a.code, name: a.name, type: a.type },
+        totalDebit,
+        totalCredit,
+        balance: Math.abs(totalDebit - totalCredit),
+        balanceType: totalDebit > totalCredit ? 'DEUDOR' : 'ACREEDOR',
+      };
+    })
     .sort((a, b) => a.account.code.localeCompare(b.account.code, undefined, { numeric: true }));
 
   res.json(result);
 });
 
 reportsRouter.get('/balance-general', async (req, res) => {
-  const lines = await req.prisma.journalLine.findMany({
+  // Agregación en BD (GROUP BY accountId); la lógica de signos queda en JS por cuenta
+  const grouped = await req.prisma.journalLine.groupBy({
+    by: ['accountId'],
+    _sum: { debit: true, credit: true },
     where: {
       journalEntry: {
         companyId: req.user!.companyId,
         status: { notIn: ['RECHAZADO', 'ANULADO'] },
       },
     },
-    include: { account: true },
   });
+
+  const accounts = await req.prisma.account.findMany({
+    where: { id: { in: grouped.map(g => g.accountId) } },
+    select: { id: true, type: true },
+  });
+  const byId = new Map(accounts.map(a => [a.id, a]));
 
   let totalActivos = 0;
   let totalPasivos = 0;
   let totalPatrimonio = 0;
 
-  const accountBalances = new Map<string, { account: { code: string; name: string; type: string }; balance: number }>();
-
-  for (const line of lines) {
-    const key = line.accountId;
-    const existing = accountBalances.get(key) || {
-      account: { code: line.account.code, name: line.account.name, type: line.account.type },
-      balance: 0,
-    };
-    existing.balance += line.debit - line.credit;
-    accountBalances.set(key, existing);
-  }
-
-  for (const [, value] of accountBalances) {
-    const rawBal = value.balance; // debit - credit
-    if (rawBal !== 0) {
-      switch (value.account.type) {
+  for (const g of grouped) {
+    const type = byId.get(g.accountId)?.type;
+    const rawBal = (g._sum.debit || 0) - (g._sum.credit || 0); // debit - credit
+    if (rawBal !== 0 && type) {
+      switch (type) {
         case 'ACTIVO':
           totalActivos += rawBal;
           break;
@@ -125,10 +123,18 @@ reportsRouter.get('/estado-resultados', async (req, res) => {
     account: { type: { in: ['INGRESO', 'GASTO', 'COSTO'] } },
   };
 
-  const lines = await req.prisma.journalLine.findMany({
+  // Agregación en BD (GROUP BY accountId)
+  const grouped = await req.prisma.journalLine.groupBy({
+    by: ['accountId'],
+    _sum: { debit: true, credit: true },
     where,
-    include: { account: true },
   });
+
+  const accounts = await req.prisma.account.findMany({
+    where: { id: { in: grouped.map(g => g.accountId) } },
+    select: { id: true, name: true, type: true },
+  });
+  const byId = new Map(accounts.map(a => [a.id, a]));
 
   let totalIngresos = 0;
   let totalGastos = 0;
@@ -137,20 +143,22 @@ reportsRouter.get('/estado-resultados', async (req, res) => {
   const gastos: Record<string, number> = {};
   const costos: Record<string, number> = {};
 
-  for (const line of lines) {
-    const amount = line.credit - line.debit;
-    switch (line.account.type) {
+  for (const g of grouped) {
+    const acc = byId.get(g.accountId);
+    if (!acc) continue;
+    const amount = (g._sum.credit || 0) - (g._sum.debit || 0);
+    switch (acc.type) {
       case 'INGRESO':
         totalIngresos += amount;
-        ingresos[line.account.name] = (ingresos[line.account.name] || 0) + amount;
+        ingresos[acc.name] = (ingresos[acc.name] || 0) + amount;
         break;
       case 'GASTO':
         totalGastos += Math.abs(amount);
-        gastos[line.account.name] = (gastos[line.account.name] || 0) + Math.abs(amount);
+        gastos[acc.name] = (gastos[acc.name] || 0) + Math.abs(amount);
         break;
       case 'COSTO':
         totalCostos += Math.abs(amount);
-        costos[line.account.name] = (costos[line.account.name] || 0) + Math.abs(amount);
+        costos[acc.name] = (costos[acc.name] || 0) + Math.abs(amount);
         break;
     }
   }
@@ -190,44 +198,68 @@ reportsRouter.get('/flujo-caja', async (req, res) => {
 });
 
 reportsRouter.get('/dashboard', async (req, res) => {
-  const lines = await req.prisma.journalLine.findMany({
-    where: {
-      journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] } },
-      account: { type: { in: ['INGRESO', 'GASTO', 'COSTO'] } },
-    },
-    include: { account: true, journalEntry: { select: { date: true, description: true } } },
-    orderBy: { journalEntry: { date: 'asc' } },
+  const baseWhere = {
+    journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] } },
+    account: { type: { in: ['INGRESO', 'GASTO', 'COSTO'] } },
+  };
+
+  // Totales y top-8 por cuenta en BD (GROUP BY accountId)
+  const grouped = await req.prisma.journalLine.groupBy({
+    by: ['accountId'],
+    _sum: { debit: true, credit: true },
+    where: baseWhere,
   });
 
-  const monthlyMap = new Map<string, { ingresos: number; gastos: number; costos: number }>();
+  const accounts = await req.prisma.account.findMany({
+    where: { id: { in: grouped.map(g => g.accountId) } },
+    select: { id: true, name: true, type: true },
+  });
+  const byId = new Map(accounts.map(a => [a.id, a]));
+
   const gastosPorCategoria: Record<string, number> = {};
   const ingresosPorCategoria: Record<string, number> = {};
   let totalIngresos = 0;
   let totalGastos = 0;
   let totalCostos = 0;
 
-  for (const line of lines) {
-    const month = line.journalEntry.date.toISOString().slice(0, 7);
-    if (!monthlyMap.has(month)) monthlyMap.set(month, { ingresos: 0, gastos: 0, costos: 0 });
-    const m = monthlyMap.get(month)!;
-
-    if (line.account.type === 'INGRESO') {
-      const amount = line.credit - line.debit;
+  for (const g of grouped) {
+    const acc = byId.get(g.accountId);
+    if (!acc) continue;
+    if (acc.type === 'INGRESO') {
+      const amount = (g._sum.credit || 0) - (g._sum.debit || 0);
       totalIngresos += amount;
-      m.ingresos += amount;
-      const cat = line.account.name;
-      ingresosPorCategoria[cat] = (ingresosPorCategoria[cat] || 0) + amount;
-    } else if (line.account.type === 'GASTO') {
-      const amount = line.debit - line.credit;
+      ingresosPorCategoria[acc.name] = (ingresosPorCategoria[acc.name] || 0) + amount;
+    } else if (acc.type === 'GASTO') {
+      const amount = (g._sum.debit || 0) - (g._sum.credit || 0);
       totalGastos += amount;
-      m.gastos += amount;
-      const cat = line.account.name;
-      gastosPorCategoria[cat] = (gastosPorCategoria[cat] || 0) + amount;
-    } else if (line.account.type === 'COSTO') {
-      const amount = line.debit - line.credit;
-      totalCostos += amount;
-      m.costos += amount;
+      gastosPorCategoria[acc.name] = (gastosPorCategoria[acc.name] || 0) + amount;
+    } else if (acc.type === 'COSTO') {
+      totalCostos += (g._sum.debit || 0) - (g._sum.credit || 0);
     }
+  }
+
+  // Mensual agregado en BD (GROUP BY mes + tipo) — parametrizado, sin interpolación de usuario
+  const monthlyRows: any[] = await req.prisma.$queryRaw`
+    SELECT to_char(je.date, 'YYYY-MM') AS month, a.type,
+           SUM(l.debit) AS deb, SUM(l.credit) AS cred
+    FROM "JournalLine" l
+    JOIN "JournalEntry" je ON l."journalEntryId" = je.id
+    JOIN "Account" a ON l."accountId" = a.id
+    WHERE je."companyId" = ${req.user!.companyId}
+      AND je.status NOT IN ('RECHAZADO', 'ANULADO')
+      AND a.type IN ('INGRESO', 'GASTO', 'COSTO')
+    GROUP BY 1, 2
+    ORDER BY 1
+  `;
+
+  const monthlyMap = new Map<string, { ingresos: number; gastos: number; costos: number }>();
+  for (const row of monthlyRows) {
+    const m = monthlyMap.get(row.month) || { ingresos: 0, gastos: 0, costos: 0 };
+    const amount = Number(row.cred) - Number(row.deb);
+    if (row.type === 'INGRESO') m.ingresos += amount;
+    else if (row.type === 'GASTO') m.gastos += Math.abs(amount);
+    else if (row.type === 'COSTO') m.costos += Math.abs(amount);
+    monthlyMap.set(row.month, m);
   }
 
   const monthly = Array.from(monthlyMap.entries()).map(([month, data]) => ({
