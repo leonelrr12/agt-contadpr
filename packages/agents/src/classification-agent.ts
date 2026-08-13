@@ -1,4 +1,5 @@
 import type { ClassificationResult } from '@agt-contador/shared';
+import type { PrismaLike } from './types';
 
 // Palabras clave que mapean a nombres de conceptos en BD.
 // La clave es la palabra que puede aparecer en una descripción,
@@ -295,13 +296,13 @@ export const KEYWORD_MAP: Record<string, string[]> = {
 };
 
 export interface ClassificationAgentConfig {
-  prisma: any;
+  prisma: PrismaLike;
   companyId: string;
   deepseekApiKey?: string;
 }
 
 export class ClassificationAgent {
-  private prisma: any;
+  private prisma: PrismaLike;
   private companyId: string;
 
   constructor(config: ClassificationAgentConfig) {

@@ -151,17 +151,9 @@ Carga TODOS los asientos y pagina en JavaScript. No escala.
 - ~~Está definido en Prisma pero ningún endpoint crea registros de auditoría.~~
 - **Implementado**: Servicio `audit-log.ts` con función `logAudit()`. Integrado en: creación de asiento (JOURNAL_CREATED), revisión (JOURNAL_APPROVED/REJECTED), anulación (JOURNAL_ANNULED). Registra userId, before/after en JSON.
 
-### 3.8 Workers de OCR nunca se liberan
-```ts
-// ocr.ts:17-31
-async function getWorkers() {
-  if (!workers) {
-    workers = await Promise.all([...]); // Nunca se termina/libera
-  }
-  return workers;
-}
-```
-Se crean 3 workers de Tesseract que quedan en memoria para siempre.
+### 3.8 Workers de OCR nunca se liberan ✅ CORREGIDO
+- ~~Se creaban 3 workers de Tesseract que quedaban en memoria para siempre.~~
+- **Corregido**: `ocr.ts` libera los workers tras 10 minutos de inactividad (`scheduleWorkerIdleTermination()` + `terminateWorkers()`).
 
 ---
 

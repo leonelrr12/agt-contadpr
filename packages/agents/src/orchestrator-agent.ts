@@ -1,7 +1,7 @@
 import { DialogAgent } from './dialog-agent';
 import { ClassificationAgent, type ClassificationAgentConfig } from './classification-agent';
 import { AccountingAgent } from './accounting-agent';
-import type { DialogResult, DialogContext } from './types';
+import type { DialogResult, DialogContext, PrismaLike } from './types';
 import type { AccountingEntry } from './accounting-agent';
 
 /** Parsea una fecha YYYY-MM-DD usando mediodía local para evitar
@@ -34,7 +34,7 @@ export class OrchestratorAgent {
   private dialogAgent: DialogAgent;
   private classificationAgent: ClassificationAgent;
   private accountingAgent: AccountingAgent;
-  private prisma: any;
+  private prisma: PrismaLike;
   private companyId: string;
   private userId: string;
 

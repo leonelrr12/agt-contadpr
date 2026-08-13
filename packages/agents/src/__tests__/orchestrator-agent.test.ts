@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { OrchestratorAgent } from '../orchestrator-agent';
+import { basePrismaStub } from './stubs';
 
 function makePrismaStub() {
   let entryIdCounter = 0;
   return {
+    ...basePrismaStub(),
     company: {
       findUnique: async () => ({ declaraITBMS: true }),
     },

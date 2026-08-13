@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { AccountingAgent } from '../accounting-agent';
+import { basePrismaStub } from './stubs';
 import type { DialogResult } from '../types';
 import type { ClassificationResult } from '@agt-contador/shared';
 
 function makePrismaStub() {
   return {
+    ...basePrismaStub(),
     company: {
       findUnique: async () => ({ declaraITBMS: true }),
     },

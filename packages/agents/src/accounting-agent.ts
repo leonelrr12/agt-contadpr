@@ -1,4 +1,4 @@
-import type { DialogResult } from './types';
+import type { DialogResult, PrismaLike } from './types';
 import type { ClassificationResult } from '@agt-contador/shared';
 
 export interface AccountingEntry {
@@ -29,12 +29,12 @@ function getItbmsRate(): number {
 function r2(n: number): number { return Math.round(n * 100) / 100; }
 
 export class AccountingAgent {
-  private prisma: any;
+  private prisma: PrismaLike;
   private companyId: string;
   private declaraITBMS: boolean;
   private codeToId: Record<string, string> = {};
 
-  constructor(prisma: any, companyId: string, declaraITBMS = true) {
+  constructor(prisma: PrismaLike, companyId: string, declaraITBMS = true) {
     this.prisma = prisma;
     this.companyId = companyId;
     this.declaraITBMS = declaraITBMS;

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ClassificationAgent } from '../classification-agent';
+import { basePrismaStub } from './stubs';
 
 function makePrismaStub() {
   const concepts = [
@@ -18,6 +19,7 @@ function makePrismaStub() {
   ];
 
   return {
+    ...basePrismaStub(),
     concept: {
       findMany: async () => concepts,
     },
