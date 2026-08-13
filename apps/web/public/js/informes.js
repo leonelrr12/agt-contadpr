@@ -1,4 +1,4 @@
-// informes.js (13/14) — panel informes con tabs y export
+// informes.js (12/13) — panel informes con tabs y export
 /* ── Panel: Informes (inline) ── */
 function loadPanelInformes() {
   document.getElementById('chat-messages').classList.add('hidden');
@@ -45,7 +45,7 @@ function showInformesLoading() {
   document.getElementById('informes-inline-result').innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Cargando reporte...</div>';
 }
 
-let _informesChart = null;
+let _informesCharts = [];
 
 async function loadReportDiario() {
   const el = document.getElementById('informes-inline-result');
@@ -143,37 +143,109 @@ async function loadReportResultados() {
       </div>`;
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
+// Carga Chart.js desde CDN si aún no está disponible (primer uso o sin panel dashboard previo)
+async function ensureChartJs() {
+  if (typeof Chart !== 'undefined') return true;
+  try {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js';
+      s.onload = resolve; s.onerror = reject;
+      document.head.appendChild(s);
+    });
+    return true;
+  } catch { return false; }
+}
+
 async function loadReportDashboard() {
   const el = document.getElementById('informes-inline-result');
+  _informesCharts.forEach(c => c.destroy());
+  _informesCharts = [];
+  if (typeof Chart === 'undefined') {
+    el.innerHTML = '<div class="empty">Cargando librería de gráficos...</div>';
+    const ok = await ensureChartJs();
+    if (!ok) { el.innerHTML = '<div class="empty">Error al cargar gráficos. Recarga la página.</div>'; return; }
+  }
   try {
     const res = await authFetch(`${API_URL}/reports/dashboard`);
     if (!res || !res.ok) { el.innerHTML = '<div class="empty">Error</div>'; return; }
     const d = await res.json();
-    const r = d.resumen || {};
-    el.innerHTML = `
-      <div class="stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">
-        <div style="background:#fff;border-radius:8px;padding:14px;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:4px">Ingresos</div><div style="font-size:20px;font-weight:700;color:#2e7d32">$${r.totalIngresos.toLocaleString()}</div></div>
-        <div style="background:#fff;border-radius:8px;padding:14px;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:4px">Gastos</div><div style="font-size:20px;font-weight:700;color:#c62828">$${r.totalGastos.toLocaleString()}</div></div>
-        <div style="background:#fff;border-radius:8px;padding:14px;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:4px">Utilidad Neta</div><div style="font-size:20px;font-weight:700;color:${r.utilidadNeta>=0?'#2e7d32':'#c62828'}">$${r.utilidadNeta.toLocaleString()}</div></div>
-        <div style="background:#fff;border-radius:8px;padding:14px;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:4px">Meses</div><div style="font-size:20px;font-weight:700;color:#1a1a2e">${r.meses||'—'}</div></div>
-      </div>
-      <canvas id="dashboardChart" height="200"></canvas>`;
-    if (_informesChart) _informesChart.destroy();
-    const ctx = document.getElementById('dashboardChart');
-    if (ctx && d.monthly && d.monthly.length && typeof Chart !== 'undefined') {
-      _informesChart = new Chart(ctx, {
+
+    let html = `
+    <div class="dash-summary">
+      <div class="dash-card dash-card-ing"><span>Ingresos</span><strong>$${d.resumen.totalIngresos.toFixed(2)}</strong></div>
+      <div class="dash-card dash-card-gas"><span>Gastos</span><strong>$${d.resumen.totalGastos.toFixed(2)}</strong></div>
+      <div class="dash-card dash-card-cost"><span>Costos</span><strong>$${d.resumen.totalCostos.toFixed(2)}</strong></div>
+      <div class="dash-card ${d.resumen.utilidadNeta >= 0 ? 'dash-card-pos' : 'dash-card-neg'}"><span>Utilidad Neta</span><strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong></div>
+    </div>
+    <div class="dash-grid">
+      <div class="dash-chart-card"><h4>Ingresos vs Gastos por Mes</h4><canvas id="chart-monthly"></canvas></div>
+      <div class="dash-chart-card"><h4>Gastos por Categoría</h4><canvas id="chart-gastos"></canvas></div>
+    </div>`;
+
+    if (d.topIngresos.length) {
+      html += `<div class="dash-grid"><div class="dash-chart-card"><h4>Ingresos por Categoría</h4><canvas id="chart-ingresos"></canvas></div><div></div></div>`;
+    }
+
+    el.innerHTML = html;
+
+    const months = d.monthly.map(m => {
+      const [y, mo] = m.month.split('-');
+      const dt = new Date(parseInt(y), parseInt(mo) - 1);
+      return dt.toLocaleDateString('es-PA', { month: 'short', year: 'numeric' });
+    });
+
+    const ctx1 = document.getElementById('chart-monthly');
+    if (ctx1) {
+      _informesCharts.push(new Chart(ctx1, {
         type: 'bar',
         data: {
-          labels: d.monthly.map(m => m.month),
+          labels: months,
           datasets: [
-            { label: 'Ingresos', data: d.monthly.map(m => m.ingresos), backgroundColor: '#10b981' },
-            { label: 'Gastos', data: d.monthly.map(m => m.gastos), backgroundColor: '#ef4444' }
-          ]
+            { label: 'Ingresos', data: d.monthly.map(m => m.ingresos), backgroundColor: '#2e7d32', borderRadius: 4 },
+            { label: 'Gastos', data: d.monthly.map(m => m.gastos), backgroundColor: '#c62828', borderRadius: 4 },
+          ],
         },
-        options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
-      });
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } } },
+          scales: { y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.06)' } }, x: { grid: { display: false } } },
+        },
+      }));
     }
-  } catch(e) { el.innerHTML = '<div class="empty">Error de conexión</div>'; }
+
+    const ctx2 = document.getElementById('chart-gastos');
+    if (ctx2 && d.topGastos.length) {
+      const colors = ['#c62828', '#e53935', '#ef5350', '#e57373', '#ef9a9a', '#ffcdd2', '#b71c1c', '#d32f2f'];
+      _informesCharts.push(new Chart(ctx2, {
+        type: 'doughnut',
+        data: {
+          labels: d.topGastos.map(g => g.nombre),
+          datasets: [{ data: d.topGastos.map(g => g.total), backgroundColor: colors.slice(0, d.topGastos.length) }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 10, font: { size: 11 } } } },
+        },
+      }));
+    }
+
+    const ctx3 = document.getElementById('chart-ingresos');
+    if (ctx3 && d.topIngresos.length) {
+      const colors = ['#2e7d32', '#388e3c', '#43a047', '#4caf50', '#66bb6a', '#81c784', '#a5d6a7', '#c8e6c9'];
+      _informesCharts.push(new Chart(ctx3, {
+        type: 'doughnut',
+        data: {
+          labels: d.topIngresos.map(g => g.nombre),
+          datasets: [{ data: d.topIngresos.map(g => g.total), backgroundColor: colors.slice(0, d.topIngresos.length) }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 10, font: { size: 11 } } } },
+        },
+      }));
+    }
+  } catch (e) { el.innerHTML = '<div class="empty">Error de conexión</div>'; }
 }
 function loadReportAuxiliares() {
   const el = document.getElementById('informes-inline-result');

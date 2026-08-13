@@ -1,4 +1,4 @@
-// tax-calendar.js (14/14) — calendario fiscal panameño
+// tax-calendar.js (13/13) — calendario fiscal panameño
 /* ── Panel: Calendario Fiscal (inline) ── */
 function loadPanelTaxCalendar() {
   document.getElementById('chat-messages').classList.add('hidden');

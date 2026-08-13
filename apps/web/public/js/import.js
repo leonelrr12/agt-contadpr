@@ -1,4 +1,4 @@
-// import.js (10/14) — importación masiva inline y conciliación
+// import.js (9/13) — importación masiva inline y conciliación
 /* ── Panel: Importar (inline) ── */
 let importInlineFile = null;
 let importInlinePreview = null;

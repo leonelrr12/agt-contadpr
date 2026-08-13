@@ -1,4 +1,4 @@
-// entry-modals.js (12/14) — modales de edición/corrección de asientos
+// entry-modals.js (11/13) — modales de edición/corrección de asientos
 /* ── Maquinaria compartida de líneas editables (edit/create de asientos) ── */
 // Expone en window: <ns>Lines, <ns>UpdateLine, <ns>RemoveLine, <ns>AddLine, <ns>UpdateBalance
 // para los onchange/onclick inline del modal. Retorna helpers para el flujo de guardado.

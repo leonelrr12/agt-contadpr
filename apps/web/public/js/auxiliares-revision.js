@@ -1,4 +1,4 @@
-// auxiliares-revision.js (11/14) — panel auxiliares y revisión de asientos
+// auxiliares-revision.js (10/13) — panel auxiliares y revisión de asientos
 /* ── Panel: Auxiliares (sidebar) ── */
 function loadPanelAuxiliares() {
   document.getElementById('chat-messages').classList.add('hidden');

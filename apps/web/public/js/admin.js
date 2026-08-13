@@ -1,4 +1,4 @@
-// admin.js (7/14) — CRUD de cuentas/conceptos y configuración
+// admin.js (6/13) — CRUD de cuentas/conceptos y configuración
 /* ── Administración: Cuentas Contables ── */
 let cuentasCache = [];
 
@@ -9,7 +9,7 @@ async function loadPanelCuentasAdmin() {
     cuentasCache = await res.json();
     if (!cuentasCache.length) { el.innerHTML = '<div class="empty">No hay cuentas registradas</div>'; return; }
     document.getElementById('cuentas-admin-count').textContent = `${cuentasCache.length} cuentas`;
-    // Árbol y mapas compartidos con el catálogo (panels.js)
+    // Árbol y mapas definidos abajo (heredados de panels.js)
     renderCuentaGroups(el, cuentasCache, true);
   } catch (e) { el.innerHTML = '<div class="empty">Error al cargar cuentas</div>'; }
 }
@@ -251,3 +251,41 @@ document.getElementById('message-input').addEventListener('keydown', (e) => {
   }
 });
 
+// Mapas compartidos con el panel de administración (admin.js)
+const CUENTA_TIPOS = ['ACTIVO', 'PASIVO', 'PATRIMONIO', 'INGRESO', 'COSTO', 'GASTO'];
+const CUENTA_COLORES = { ACTIVO: '#1565c0', PASIVO: '#e65100', PATRIMONIO: '#6a1b9a', INGRESO: '#2e7d32', COSTO: '#c62828', GASTO: '#d84315' };
+const CUENTA_LABELS = { ACTIVO: 'Activos', PASIVO: 'Pasivos', PATRIMONIO: 'Patrimonio', INGRESO: 'Ingresos', COSTO: 'Costos', GASTO: 'Gastos' };
+
+// Render agrupado del plan de cuentas; admin=true agrega estado inactivo y botón editar
+function renderCuentaGroups(el, cuentas, admin = false) {
+  if (!cuentas.length) { el.innerHTML = '<div class="empty">No hay cuentas registradas</div>'; return; }
+  let html = '';
+  for (const tipo of CUENTA_TIPOS) {
+    const filtradas = cuentas.filter(c => c.type === tipo && !c.parentId);
+    if (!filtradas.length) continue;
+    html += `<div class="cuenta-grupo"><div class="cuenta-tipo" style="background:${CUENTA_COLORES[tipo]}">${CUENTA_LABELS[tipo]}</div>`;
+    for (const root of filtradas) {
+      html += buildCuentaTree(root, cuentas, 0, admin);
+    }
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function buildCuentaTree(account, all, depth = 0, admin = false) {
+  const children = all.filter(c => c.parentId === account.id);
+  const inactiveStyle = admin && !account.isActive ? ' style="opacity:0.5"' : '';
+  const inactiveLabel = admin && !account.isActive ? ' (inactiva)' : '';
+  const actions = admin
+    ? `<span class="cuenta-actions"><button onclick="editCuenta('${account.id}')" class="btn-sm" title="Editar">✏️</button></span>`
+    : '';
+  let html = `<div class="cuenta-row" style="padding-left:${depth * 20 + 8}px"${inactiveStyle}>
+    <span class="cuenta-code">${account.code}</span>
+    <span class="cuenta-name">${account.name}${inactiveLabel}</span>
+    ${actions}
+  </div>`;
+  for (const child of children) {
+    html += buildCuentaTree(child, all, depth + 1, admin);
+  }
+  return html;
+}
