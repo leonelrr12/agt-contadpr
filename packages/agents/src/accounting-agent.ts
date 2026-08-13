@@ -7,21 +7,6 @@ export interface AccountingEntry {
   description: string;
 }
 
-const ALIAS_TO_CODE: Record<string, string> = {
-  caja: '1.1.01',
-  'banco-general': '1.1.02.01',
-  'banco-nacional': '1.1.02.02',
-  clientes: '1.1.03.01',
-  proveedores: '2.1.01',
-  'tarjeta-credito': '2.1.03',
-  'inventario-mercancia': '1.1.04.01',
-  'prestamos-lp': '2.2.01',
-  ventas: '4.01.01',
-  gasto: '6.06.01',
-  'itbms-por-pagar': '2.1.05',  // Cuenta única de ITBMS (pasivo) — neteo
-  'itbms-gastado': '6.05.01',   // ITBMS no recuperable (gasto)
-};
-
 function getItbmsRate(): number {
   return parseFloat(process.env.ITBMS_RATE || '') || 0.07;
 }
@@ -33,6 +18,7 @@ export class AccountingAgent {
   private companyId: string;
   private declaraITBMS: boolean;
   private codeToId: Record<string, string> = {};
+  private aliasToId: Record<string, string> = {};
 
   constructor(prisma: PrismaLike, companyId: string, declaraITBMS = true) {
     this.prisma = prisma;
@@ -43,9 +29,13 @@ export class AccountingAgent {
   async init(): Promise<void> {
     const accounts = await this.prisma.account.findMany({
       where: { companyId: this.companyId },
-      select: { code: true, id: true },
+      select: { code: true, id: true, aliases: true },
     });
-    for (const a of accounts) this.codeToId[a.code] = a.id;
+    for (const a of accounts) {
+      this.codeToId[a.code] = a.id;
+      // Alias por empresa desde la BD (antes ALIAS_TO_CODE hardcodeado)
+      for (const alias of (a.aliases || [])) this.aliasToId[alias] = a.id;
+    }
     // Leer si la empresa declara ITBMS
     const company = await this.prisma.company.findUnique({
       where: { id: this.companyId },
@@ -55,7 +45,7 @@ export class AccountingAgent {
   }
 
   resolveAlias(alias: string): string {
-    if (ALIAS_TO_CODE[alias] && this.codeToId[ALIAS_TO_CODE[alias]]) return this.codeToId[ALIAS_TO_CODE[alias]];
+    if (this.aliasToId[alias]) return this.aliasToId[alias];
     if (this.codeToId[alias]) return this.codeToId[alias];
     if (Object.values(this.codeToId).includes(alias)) return alias;
     throw new Error(`Cuenta contable no encontrada: "${alias}"`);

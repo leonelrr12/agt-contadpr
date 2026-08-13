@@ -174,6 +174,21 @@ async function main() {
     return;
   }
 
+const ALIAS_BY_CODE: Record<string, string[]> = {
+  '1.1.01': ['caja'],
+  '1.1.02.01': ['banco-general'],
+  '1.1.02.02': ['banco-nacional'],
+  '1.1.03.01': ['clientes'],
+  '2.1.01': ['proveedores'],
+  '2.1.03': ['tarjeta-credito'],
+  '1.1.04.01': ['inventario-mercancia'],
+  '2.2.01': ['prestamos-lp'],
+  '4.01.01': ['ventas'],
+  '6.06.01': ['gasto'],
+  '2.1.05': ['itbms-por-pagar'],
+  '6.05.01': ['itbms-gastado'],
+};
+
   const accounts = [
     // ACTIVOS (1)
     { code: '1', name: 'ACTIVO', type: 'ACTIVO', parentCode: null },
@@ -296,6 +311,7 @@ async function main() {
         type: acc.type,
         companyId: company.id,
         parentId: acc.parentCode ? accountMap[acc.parentCode] : null,
+        aliases: ALIAS_BY_CODE[acc.code] || [],
       },
     });
     accountMap[acc.code] = created.id;

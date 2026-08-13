@@ -65,6 +65,7 @@ model Account {
   parentId  String?
   companyId String
   isActive  Boolean  @default(true)
+  aliases   String[] @default([])  // Alias del motor contable (ej. 'caja', 'ventas')
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -121,6 +121,7 @@ authRouter.post('/register', async (req, res) => {
           type: acc.type,
           parentId: null, // se actualiza abajo
           companyId: company.id,
+          aliases: acc.aliases || [],
         },
       });
       accountMap[acc.code] = created.id;
