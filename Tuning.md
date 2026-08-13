@@ -192,11 +192,11 @@ Convertir una venta registrada en factura profesional:
 Mejoras estructurales recomendadas a mediano plazo:
 
 - [x] **Refactor del frontend:** ✅ COMPLETADO (2026-08-13). `app.js` (3,909 líneas) → 13 scripts classic en `public/js/` + `shared.js` para páginas standalone, con dedup de duplicados y reportes unificados
-- [~] **Tipado estricto:** Parcial — `OrchestratorAgent.userId` requerido y resuelto por empresa; `prisma: any` en los 3 agents sigue pendiente
-- [ ] **Alias de cuentas dinámicos:** Mover `ALIAS_TO_CODE` del AccountingAgent a la BD
-- [ ] **Agregaciones en SQL:** Reports actualmente procesan todos los datos en JS
-- [ ] **Workers de Tesseract:** Nunca se liberan (memory leak)
-- [ ] **Paginación real:** Journal listing actualmente pagina en memoria
+- [x] **Tipado estricto:** ✅ COMPLETADO (2026-08-13) — interfaz `PrismaLike` en agents (12 modelos/métodos usados); cero `prisma: any` en los 3 agents
+- [x] **Alias de cuentas dinámicos:** ✅ COMPLETADO (2026-08-13) — `Account.aliases` en BD (migración 0005), seed + backfill, `ALIAS_TO_CODE` eliminado
+- [x] **Agregaciones en SQL:** ✅ COMPLETADO (2026-08-13) — groupBy + raw SQL en los 4 reportes principales (flujo-caja mantiene filas por saldo corrido)
+- [x] **Workers de Tesseract:** ✅ CORREGIDO — liberación por inactividad de 10 min (`scheduleWorkerIdleTermination`)
+- [x] **Paginación real:** ✅ COMPLETADO (2026-08-13) — count + skip/take en BD; filtro de proveedor en BD
 - [x] **Stubs de tests desactualizados:** ✅ CORREGIDOS (2026-08-13) — 55/55 tests pasando
 - [x] **Email verification:** ✅ IMPLEMENTADO (2026-08-13) — verificación por token + recuperación de contraseña vía MailerApi local
 - [x] **CI/CD:** ✅ IMPLEMENTADO (2026-08-13) — GitHub Actions (tests + typecheck en push/PR, solo validación)
