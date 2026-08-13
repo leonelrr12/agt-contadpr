@@ -44,6 +44,7 @@ module.exports = {
       // MAILER_API_KEY se carga vía dotenv desde .env (no en el bloque env:
       // PM2 congela aquí valores viejos y dotenv no sobreescribe vars existentes)
       APP_URL: process.env.APP_URL || 'https://contador507.com',
+      FIELD_ENC_KEY: process.env.FIELD_ENC_KEY || '',
     },
   }],
 };

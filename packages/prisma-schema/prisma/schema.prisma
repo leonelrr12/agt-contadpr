@@ -10,7 +10,8 @@ datasource db {
 model Company {
   id        String   @id @default(cuid())
   name      String
-  taxId     String   @unique
+  taxId     String
+  taxIdHash String?  @unique  // HMAC-SHA256 con clave derivada — dedupe de RUC sin filtrar el valor
   address   String?
   phone     String?
   email     String?

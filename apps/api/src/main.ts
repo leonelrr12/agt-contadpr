@@ -27,9 +27,35 @@ import { saludRouter } from './routes/salud';
 import { planRateLimiter } from './middleware/plan-rate-limit';
 import { requireAuth, requireRole } from './middleware/auth';
 import { errorHandler, notFoundHandler } from './middleware/error-handler';
+import { encryptData, decryptResult, hashField } from './services/crypto-fields';
 
 const app = express();
-const prisma = new PrismaClient();
+const prisma: any = new PrismaClient().$extends({
+  // Cifrado de campos en reposo (Company/Client/Supplier/PaymentRecord).
+  // Pass-through si FIELD_ENC_KEY no está definida (ver services/crypto-fields.ts).
+  query: {
+    $allModels: {
+      $allOperations: async ({ model, operation, args, query }) => {
+        if (model === 'Company' && ['create', 'createMany', 'update', 'updateMany'].includes(operation)) {
+          // taxIdHash determinista para dedupe de RUC sin filtrar el valor
+          const d: any = (args as any).data;
+          const taxIdPlain = d?.taxId;
+          if (typeof taxIdPlain === 'string' && taxIdPlain && !taxIdPlain.startsWith('v1:')) {
+            d.taxIdHash = hashField(taxIdPlain);
+          }
+        }
+        if (['create', 'createMany', 'update', 'updateMany'].includes(operation)) {
+          (args as any).data = encryptData((args as any).data, model as string);
+        }
+        const result = await query(args);
+        if (['findUnique', 'findFirst', 'findMany', 'findUniqueOrThrow', 'findFirstOrThrow'].includes(operation)) {
+          return decryptResult(result);
+        }
+        return result;
+      },
+    },
+  },
+});
 
 // Trust proxy — necesario si la API está detrás de nginx o load balancer
 // para que express-rate-limit use la IP real del cliente (X-Forwarded-For)

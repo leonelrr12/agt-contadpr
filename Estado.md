@@ -22,6 +22,7 @@ El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones 
 - ✅ Dashboard de Salud Financiera con IA: `/api/salud` + panel 🩺 — ratios (liquidez, endeudamiento, margen, DSO/DPO), proyección de caja 3m, alertas por reglas y narrativa DeepSeek con caché de 5 min
 - ✅ CI con GitHub Actions: tests (55) + typecheck en cada push/PR (solo validación, sin deploy)
 - ✅ Email verification + recuperación de contraseña: modelo `AuthToken` (hash SHA-256, un solo uso), endpoints `forgot/reset-password` y `verify-email`, envío vía MailerApi local (`services/mailer.ts`), página `forgot-password.html`
+- ✅ **Cifrado en reposo**: AES-256-GCM sobre campos sensibles (taxId/email/phone de Company/Client/Supplier, reference de pagos) vía middleware `$extends` en el PrismaClient; `taxIdHash` HMAC para dedupe de RUC; scripts idempotentes `encrypt/decrypt-fields.ts`; clave `FIELD_ENC_KEY` en .env
 - ✅ Extracción de ITBMS explícito y neto vs total según fuente (PDF=total, texto=neto)
 
 **Arquitectura / deuda técnica pagada:**
@@ -41,7 +42,7 @@ El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones 
 | Fase 2: Documentos y Terceros | ✅ OCR, Clientes, Proveedores, **Bancario (conciliación)**, Export |
 | Fase 3: Módulos Avanzados | ❌ Inventario, Nómina, Impuestos, Auditor |
 | Fase 4: IA Avanzada | ❌ Predicción, Fraude, Rentabilidad |
-| Seguridad Transversal | ✅ JWT, roles, backups, logs, email verification · ❌ Cifrado en reposo |
+| Seguridad Transversal | ✅ JWT, roles, backups, logs, email verification, **cifrado en reposo** |
 | DevOps | ✅ Docker, PM2, nginx · ❌ CI/CD |
 
 ---
