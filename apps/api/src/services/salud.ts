@@ -73,13 +73,13 @@ async function computeSalud(prisma: any, companyId: string): Promise<SaludPayloa
   const start6 = new Date(now.getFullYear(), now.getMonth() - 5, 1); // 1er día de hace 5 meses = 6 meses de ventana
   const jan1 = new Date(now.getFullYear(), 0, 1);
 
-  // Pasada principal: líneas de asientos no rechazados/anulados de los últimos 6 meses
+  // Pasada principal: TODO el libro (sin ventana) — balance, caja y ratios son acumulativos.
+  // La ventana de 6 meses solo aplica al chart mensual (ver abajo).
   const lines = await prisma.journalLine.findMany({
     where: {
       journalEntry: {
         companyId,
         status: { notIn: ['RECHAZADO', 'ANULADO'] },
-        date: { gte: start6 },
       },
     },
     include: { account: true, journalEntry: { select: { date: true } } },
@@ -121,18 +121,12 @@ async function computeSalud(prisma: any, companyId: string): Promise<SaludPayloa
     }
   }
 
-  // P&L YTD (desde 1 de enero) para margen, DSO y DPO
-  const ytdLines = await prisma.journalLine.findMany({
-    where: {
-      journalEntry: { companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] }, date: { gte: jan1 } },
-      account: { type: { in: ['INGRESO', 'GASTO', 'COSTO'] } },
-    },
-    include: { account: true },
-  });
+  // P&L YTD (desde 1 de enero) para margen, DSO y DPO — derivado del mismo set
   let ingresosYTD = 0, gastosCostosYTD = 0;
-  for (const l of ytdLines) {
+  for (const l of lines) {
+    if (new Date(l.journalEntry.date) < jan1) continue;
     if (l.account.type === 'INGRESO') ingresosYTD += (l.credit || 0) - (l.debit || 0);
-    else gastosCostosYTD += (l.debit || 0) - (l.credit || 0);
+    else if (l.account.type === 'GASTO' || l.account.type === 'COSTO') gastosCostosYTD += (l.debit || 0) - (l.credit || 0);
   }
 
   // CxC / CxP pendientes (patrón clients.ts/suppliers.ts)
@@ -165,7 +159,9 @@ async function computeSalud(prisma: any, companyId: string): Promise<SaludPayloa
     monthlyMap.set(monthKey(m), { ingresos: 0, gastos: 0, costos: 0, neto: 0 });
   }
   for (const l of lines) {
-    const key = monthKey(new Date(l.journalEntry.date));
+    const d = new Date(l.journalEntry.date);
+    if (d < start6) continue; // solo la ventana de 6 meses alimenta el chart mensual
+    const key = monthKey(d);
     const b = monthlyMap.get(key);
     if (!b) continue;
     if (l.account.type === 'INGRESO') { const v = (l.credit || 0) - (l.debit || 0); b.ingresos += v; b.neto += v; }
