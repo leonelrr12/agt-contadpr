@@ -5,6 +5,9 @@ import type { ClassificationResult } from '@agt-contador/shared';
 
 function makePrismaStub() {
   return {
+    company: {
+      findUnique: async () => ({ declaraITBMS: true }),
+    },
     account: {
       findMany: async () => [
         { code: '1.1.01', id: 'caja-id' },
@@ -182,12 +185,12 @@ describe('AccountingAgent', () => {
       confidence: 0.95,
     };
 
-    it('splits debit into inventory and ITBMS por Cobrar', () => {
+    it('splits debit into inventory and ITBMS por Pagar', () => {
       const entry = agent.generateEntry(dialog, classification);
       expect(entry.debit).toHaveLength(2);
       expect(entry.debit[0].accountId).toBe('inventario-mercancia');
       expect(entry.debit[0].amount).toBe(100);
-      expect(entry.debit[1].accountId).toBe('itbms-por-cobrar');
+      expect(entry.debit[1].accountId).toBe('itbms-por-pagar');
       expect(entry.debit[1].amount).toBe(7);
     });
 

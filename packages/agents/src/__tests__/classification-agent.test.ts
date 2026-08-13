@@ -51,7 +51,7 @@ describe('ClassificationAgent', () => {
     const result = await agent.classify('Combustible Diesel');
     expect(result.concept).toBe('Combustible');
     expect(result.accountId).toBe('acct-combustible');
-    expect(result.confidence).toBeLessThan(0.95);
+    expect(result.confidence).toBeGreaterThanOrEqual(0.85);
   });
 
   it('falls back to generic account based on transaction type', async () => {

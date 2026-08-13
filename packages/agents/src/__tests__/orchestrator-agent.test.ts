@@ -4,6 +4,9 @@ import { OrchestratorAgent } from '../orchestrator-agent';
 function makePrismaStub() {
   let entryIdCounter = 0;
   return {
+    company: {
+      findUnique: async () => ({ declaraITBMS: true }),
+    },
     concept: {
       findMany: async () => [
         { name: 'Combustible', accountId: 'acct-combustible', confidence: 0.95, account: { name: 'Gastos de Combustible' } },

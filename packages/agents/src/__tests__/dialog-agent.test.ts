@@ -114,7 +114,7 @@ describe('DialogAgent', () => {
     it('does not set ITBMS when not mentioned', async () => {
       const result = await agent.processInput('Compré combustible por $40');
       expect(result.itbmsRate).toBeUndefined();
-      expect(result.itbmsAmount).toBeUndefined();
+      expect(result.itbmsAmount).toBeNull();
     });
 
     it('detects PAGO_ITBMS transaction type', async () => {

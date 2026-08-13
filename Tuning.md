@@ -196,7 +196,7 @@ Mejoras estructurales recomendadas a mediano plazo:
 - [ ] **Agregaciones en SQL:** Reports actualmente procesan todos los datos en JS
 - [ ] **Workers de Tesseract:** Nunca se liberan (memory leak)
 - [ ] **Paginación real:** Journal listing actualmente pagina en memoria
-- [ ] **Stubs de tests desactualizados:** 8 tests fallando en `packages/agents` (preexistentes)
+- [x] **Stubs de tests desactualizados:** ✅ CORREGIDOS (2026-08-13) — 55/55 tests pasando
 - [ ] **Email verification:** No existe verificación de correo ni recuperación de contraseña
 - [ ] **CI/CD:** No hay pipeline de integración continua
 

@@ -8,7 +8,7 @@
 
 ## Resumen Ejecutivo
 
-El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones vía chat, procesa facturas por OCR/imagen y PDF (DGI), genera asientos contables de partida doble automáticamente, y tiene un flujo de revisión BORRADOR → CONFIRMADO/RECHAZADO. Frontend modularizado en **14 scripts JS** (`public/js/`), panel de reportes con dashboard unificado (4 cards + 3 charts), y corre en PM2 + nginx. Tests: **47 pasando / 8 fallando** (stubs de agents desactualizados — ver §6).
+El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones vía chat, procesa facturas por OCR/imagen y PDF (DGI), genera asientos contables de partida doble automáticamente, y tiene un flujo de revisión BORRADOR → CONFIRMADO/RECHAZADO. Frontend modularizado en **14 scripts JS** (`public/js/`), panel de reportes con dashboard unificado (4 cards + 3 charts), y corre en PM2 + nginx. Tests: **55/55 pasando** en `packages/agents`.
 
 ### 🆕 Novedades desde el último análisis (2026-07-15 → 2026-08-13)
 
@@ -212,13 +212,13 @@ No hay GitHub Actions ni otro pipeline configurado.
 
 ---
 
-## 6. Tests — 🟡 Necesitan mantenimiento (2026-08-13)
+## 6. Tests — 🟢 Verde (2026-08-13)
 
-- **47 pasando / 8 fallando** en `packages/agents` (los stubs de Prisma quedaron desactualizados — p. ej. `declaraITBMS` no está en el stub de `accounting-agent`). Verificado: los 8 fallos son preexistentes, no regresiones de los refactors de agosto.
+- **55/55 pasando** en `packages/agents` (los 8 fallos de stubs desactualizados — `declaraITBMS` en `company.findUnique`, expectativas viejas de ITBMS/confianza — fueron corregidos).
 - Cubren: `dialog-agent` (150 líneas de tests), `classification-agent` (82), `accounting-agent` (329), `orchestrator-agent` (78).
 - Los tests usan stubs de Prisma (sin BD real), lo cual es correcto para unit testing.
 - **Smoke tests jsdom** (fuera del repo, `/tmp/jsdom-smoke`): comparativo split vs app.js monolítico + smoke por página standalone — usados en cada refactor del frontend.
-- **Falta**: arreglar los 8 stubs, tests de integración para los endpoints de la API, tests de OCR/PDF.
+- **Falta**: tests de integración para los endpoints de la API, tests de OCR/PDF.
 
 ---
 
