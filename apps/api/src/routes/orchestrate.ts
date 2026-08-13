@@ -79,14 +79,16 @@ orchestrateRouter.post('/', validate(orchestrateSchema), async (req, res) => {
   const { input, context } = req.body;
 
   const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
-  const orchestrator = new OrchestratorAgent({
-    prisma: req.prisma,
-    companyId: req.user!.companyId,
-    userId: req.user!.userId,
-    deepseekApiKey,
-  });
 
   try {
+    // Constructor dentro del try: si userId falta, el throw llega al catch
+    // y responde JSON en lugar de colgar la petición (unhandledRejection).
+    const orchestrator = new OrchestratorAgent({
+      prisma: req.prisma,
+      companyId: req.user!.companyId,
+      userId: req.user!.userId,
+      deepseekApiKey,
+    });
     const result = await orchestrator.process(input, context);
     res.json(result);
   } catch (error: any) {
@@ -104,14 +106,16 @@ orchestrateRouter.post('/confirm', requireQuota, validate(orchestrateConfirmSche
   const { result } = req.body;
 
   const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
-  const orchestrator = new OrchestratorAgent({
-    prisma: req.prisma,
-    companyId: req.user!.companyId,
-    userId: req.user!.userId,
-    deepseekApiKey,
-  });
 
   try {
+    // Constructor dentro del try: si userId falta, el throw llega al catch
+    // y responde JSON en lugar de colgar la petición (unhandledRejection).
+    const orchestrator = new OrchestratorAgent({
+      prisma: req.prisma,
+      companyId: req.user!.companyId,
+      userId: req.user!.userId,
+      deepseekApiKey,
+    });
     const saved = await orchestrator.confirm(result);
 
     // Incrementar contador de uso

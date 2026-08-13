@@ -13,7 +13,9 @@ const isProduction = process.env.NODE_ENV === 'production';
  */
 export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction) {
   console.error('[ErrorHandler]', err.message || err, err.stack);
-  res.status(500).json({
+  // Errores de body-parser traen status (400 para JSON malformado); el resto, 500
+  const status = (err as any).status || (err as any).statusCode || 500;
+  res.status(status).json({
     status: 'error',
     message: isProduction ? 'Error interno del servidor' : err.message || 'Error interno del servidor',
   });
