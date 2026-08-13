@@ -79,6 +79,15 @@ const llmLimiter = rateLimit({
   message: { error: 'Demasiadas solicitudes al agente. Intente de nuevo en 1 minuto.' },
 });
 
+// Rate limiting estricto para forgot-password (anti-abuso de envío de links)
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas solicitudes. Intente de nuevo en 1 minuto.' },
+});
+
 // Rate limiting para procesamiento pesado (OCR / PDF)
 const heavyLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minuto
@@ -106,6 +115,7 @@ process.on('uncaughtException', (error) => {
 
 // Aplica rate limiting por ruta (antes de los routers)
 app.use('/api/', generalLimiter);
+app.use('/api/auth/forgot-password', authLimiter);
 app.use('/api/import', heavyLimiter);
 app.use('/api/reconcile', heavyLimiter);
 app.use('/api/orchestrate', llmLimiter);
