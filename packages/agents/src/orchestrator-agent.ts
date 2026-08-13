@@ -38,13 +38,16 @@ export class OrchestratorAgent {
   private companyId: string;
   private userId: string;
 
-  constructor(config: ClassificationAgentConfig & { userId?: string }) {
+  constructor(config: ClassificationAgentConfig & { userId: string }) {
+    if (!config.userId) {
+      throw new Error('OrchestratorAgent: userId es requerido (FK createdById en asiento/transacción)');
+    }
     this.dialogAgent = new DialogAgent(config.deepseekApiKey);
     this.classificationAgent = new ClassificationAgent(config);
     this.accountingAgent = new AccountingAgent(config.prisma, config.companyId);
     this.prisma = config.prisma;
     this.companyId = config.companyId;
-    this.userId = config.userId || 'demo-user';
+    this.userId = config.userId;
   }
 
   async process(input: string, context?: DialogContext): Promise<{

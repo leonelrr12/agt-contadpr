@@ -28,6 +28,23 @@ const OPENWA_KEY = process.env.OPENWA_API_KEY || '';
 const OPENWA_SESSION = process.env.OPENWA_SESSION_NAME || 'contador507';
 const APP_HOST = process.env.APP_HOST || `http://localhost:${process.env.PORT || 3001}`;
 
+/**
+ * Resuelve el userId real del usuario que opera por WhatsApp para una empresa.
+ * Prefiere un admin activo; si no hay, cualquier usuario activo.
+ * Lanza si la empresa no tiene usuarios activos: en la práctica no ocurre
+ * (el registro crea siempre un admin), y así se evita atribuir transacciones
+ * a un usuario fantasma.
+ */
+async function resolveWhatsAppUserId(prisma: any, companyId: string): Promise<string> {
+  const user =
+    (await prisma.user.findFirst({ where: { companyId, role: 'admin', isActive: true } })) ||
+    (await prisma.user.findFirst({ where: { companyId, isActive: true } }));
+  if (!user) {
+    throw new Error(`La empresa ${companyId} no tiene usuarios activos para operar por WhatsApp`);
+  }
+  return user.id;
+}
+
 function waHeaders() {
   return {
     'X-API-Key': OPENWA_KEY,
@@ -448,7 +465,7 @@ async function processWithOrchestrator(
   const orchestrator = new OrchestratorAgent({
     prisma,
     companyId: link.companyId,
-    userId: link.companyId === 'demo-company' ? 'demo-user' : link.companyId,
+    userId: await resolveWhatsAppUserId(prisma, link.companyId),
     deepseekApiKey: process.env.DEEPSEEK_API_KEY,
   });
 
@@ -527,7 +544,7 @@ async function processWithOrchestrator(
       // 3. Nada falta → ejecutar orquestador para obtener confirmación con asiento contable
       if (missing.length === 0) {
         const { OrchestratorAgent: OA2 } = await import('@agt-contador/agents');
-        const o2 = new OA2({ prisma, companyId: link.companyId, userId: link.companyId === 'demo-company' ? 'demo-user' : link.companyId, deepseekApiKey: process.env.DEEPSEEK_API_KEY });
+        const o2 = new OA2({ prisma, companyId: link.companyId, userId: await resolveWhatsAppUserId(prisma, link.companyId), deepseekApiKey: process.env.DEEPSEEK_API_KEY });
         const r2 = await o2.process(text, { messages: [], extractedData: dialogData });
         if (r2.needsConfirmation && r2.prompt) { setPendingResult(chatId, r2.result); return r2.prompt; }
         // Si el orquestador pide categoría pero ya tenemos concepto, ignorar y usar el resultado actual
@@ -588,7 +605,7 @@ async function handleConfirm(
   const orchestrator = new OrchestratorAgent({
     prisma,
     companyId: link.companyId,
-    userId: link.companyId === 'demo-company' ? 'demo-user' : link.companyId,
+    userId: await resolveWhatsAppUserId(prisma, link.companyId),
     deepseekApiKey: process.env.DEEPSEEK_API_KEY,
   });
 
@@ -752,7 +769,7 @@ async function advanceAfterCategory(prisma: any, chatId: string, link: any, waSe
   const { OrchestratorAgent: OA3 } = await import('@agt-contador/agents');
   const o3 = new OA3({
     prisma, companyId: link.companyId,
-    userId: link.companyId === 'demo-company' ? 'demo-user' : link.companyId,
+    userId: await resolveWhatsAppUserId(prisma, link.companyId),
     deepseekApiKey: process.env.DEEPSEEK_API_KEY,
   });
   const result3 = await o3.process(reprocessText, { messages: [], extractedData: ctx });

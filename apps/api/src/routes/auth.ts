@@ -5,6 +5,11 @@ import { generateToken, requireAuth } from '../middleware/auth';
 
 export const authRouter = Router();
 
+// ID de la empresa semilla usada como plantilla de plan de cuentas y conceptos
+// al registrar una empresa nueva. Si no existe en la DB, el registro crea
+// empresas sin plan de cuentas (ver warn abajo).
+const TEMPLATE_COMPANY_ID = 'demo-company';
+
 /**
  * POST /api/auth/login
  * Body: { email, password }
@@ -99,8 +104,12 @@ authRouter.post('/register', async (req, res) => {
 
     // Copiar plan de cuentas desde demo
     const demoAccounts = await tx.account.findMany({
-      where: { companyId: 'demo-company' },
+      where: { companyId: TEMPLATE_COMPANY_ID },
     });
+
+    if (demoAccounts.length === 0) {
+      console.warn('[Register] Plantilla demo sin cuentas — la empresa quedará sin plan de cuentas');
+    }
 
     const accountMap: Record<string, string> = {};
     for (const acc of demoAccounts) {
@@ -131,7 +140,7 @@ authRouter.post('/register', async (req, res) => {
 
     // Copiar conceptos
     const demoConcepts = await tx.concept.findMany({
-      where: { companyId: 'demo-company' },
+      where: { companyId: TEMPLATE_COMPANY_ID },
     });
 
     for (const c of demoConcepts) {

@@ -43,6 +43,7 @@ describe('OrchestratorAgent', () => {
     orchestrator = new OrchestratorAgent({
       prisma: makePrismaStub(),
       companyId: 'demo-company',
+      userId: 'demo-user',
     });
   });
 

@@ -25,6 +25,7 @@ import { whatsappRouter } from './routes/whatsapp';
 import { taxCalendarRouter } from './routes/tax-calendar';
 import { planRateLimiter } from './middleware/plan-rate-limit';
 import { requireAuth, requireRole } from './middleware/auth';
+import { errorHandler, notFoundHandler } from './middleware/error-handler';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -124,31 +125,18 @@ app.use('/api/config', requireRole('admin'), configRouter);
 app.use('/api/keys', apiKeysRouter);
 app.use('/api/admin', requireRole('admin'), adminRouter);
 
-// ── Procesar transacciones recurrentes al iniciar + Registrar webhook WhatsApp ──
-import { processDueItems } from './services/recurring-processor';
-import { registerOpenWaWebhook } from './services/whatsapp-service';
-import { generateUpcomingObligations } from './services/tax-calendar';
-prisma.$connect().then(() => {
-  // Registrar webhook de WhatsApp con OpenWa
-  registerOpenWaWebhook().catch(err => console.error('[WhatsApp] Webhook registration failed:', err.message));
-  // Generar obligaciones fiscales para todas las empresas
-  generateUpcomingObligations(prisma, 'demo-company').catch(() => {});
-  processDueItems(prisma).then(result => {
-    if (result.processed > 0) {
-      console.log(`[Recurring] Startup: ${result.processed} transacciones recurrentes procesadas`);
-    }
-    if (result.errors.length > 0) {
-      console.warn(`[Recurring] Startup: ${result.errors.length} errores`);
-    }
-  }).catch(err => {
-    console.error('[Recurring] Startup error:', err.message);
-  });
-});
+// ── 404 y manejo global de errores (siempre al final de la pila) ──
+app.use(notFoundHandler);
+app.use(errorHandler);
 
-// Fallback: verificar recurrentes cada 30 minutos
-setInterval(() => {
-  processDueItems(prisma).catch(() => {});
-}, 30 * 60 * 1000);
+// ── Tareas de inicio (webhook WhatsApp, obligaciones fiscales, recurrentes) ──
+import { runStartupTasks, startRecurringCron } from './services/startup';
+prisma.$connect().then(() => {
+  runStartupTasks(prisma).catch(err => {
+    console.error('[Startup] Error en tareas de inicio:', err.message);
+  });
+  startRecurringCron(prisma);
+});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
