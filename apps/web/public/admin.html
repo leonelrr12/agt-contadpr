@@ -111,6 +111,7 @@
     .text-muted { color: var(--muted); font-size: 13px; }
     .loading { text-align: center; padding: 32px; color: var(--muted); }
   </style>
+  <script src="js/shared.js?v=1"></script>
 </head>
 <body>
 
@@ -188,32 +189,8 @@
   <div class="modal" id="modalContent"></div>
 </div>
 
-<script> 
-function showAlert(msg){return new Promise(r=>{const o=document.createElement("div");o.className="app-dialog-overlay";o.innerHTML=`<div class="app-dialog"><div class="app-dialog-icon">⚠️</div><div class="app-dialog-msg">${msg}</div><div class="app-dialog-buttons"><button class="app-dialog-btn primary">Aceptar</button></div></div>`;document.body.appendChild(o);o.querySelector("button").onclick=()=>{o.remove();r(true)};o.addEventListener("click",e=>{if(e.target===o){o.remove();r(false)}})});}
-function showConfirm(msg){return new Promise(r=>{const o=document.createElement("div");o.className="app-dialog-overlay";o.innerHTML=`<div class="app-dialog"><div class="app-dialog-icon">🤔</div><div class="app-dialog-msg">${msg}</div><div class="app-dialog-buttons"><button class="app-dialog-btn secondary">Cancelar</button><button class="app-dialog-btn danger">Confirmar</button></div></div>`;document.body.appendChild(o);o.querySelectorAll("button")[1].onclick=()=>{o.remove();r(true)};o.querySelectorAll("button")[0].onclick=()=>{o.remove();r(false)};o.addEventListener("click",e=>{if(e.target===o){o.remove();r(false)}})});}
-
+<script>
 const API = '/api';
-
-// ── Auth ──
-function getToken() { return localStorage.getItem('agt_token'); }
-function getUser() { try { return JSON.parse(localStorage.getItem('agt_user')); } catch { return null; } }
-
-async function api(url, opts = {}) {
-  const token = getToken();
-  if (!token) { window.location = '/login.html'; return; }
-  const res = await fetch(url, {
-    ...opts,
-    headers: {
-      ...(opts.headers || {}),
-      'Authorization': `Bearer ${token}`,
-      ...(opts.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-    },
-  });
-  if (res.status === 401) { localStorage.clear(); window.location = '/login.html'; return; }
-  return res;
-}
-
-function logout() { localStorage.clear(); window.location = '/login.html'; }
 
 // ── Init ──
 const user = getUser();

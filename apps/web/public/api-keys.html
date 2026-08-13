@@ -100,6 +100,7 @@
     .nav-links a { color: #64748b; font-size: 14px; font-weight: 500; text-decoration: none; padding: 4px 0; border-bottom: 2px solid transparent; }
     .nav-links a:hover, .nav-links a.active { color: #1e293b; border-bottom-color: var(--primary); }
   </style>
+  <script src="js/shared.js?v=1"></script>
 </head>
 <body>
 
@@ -173,26 +174,9 @@ Content-Type: application/json</div>
 </div>
 
 <script>
-function showAlert(msg){return new Promise(r=>{const o=document.createElement("div");o.className="app-dialog-overlay";o.innerHTML=`<div class="app-dialog"><div class="app-dialog-icon">⚠️</div><div class="app-dialog-msg">${msg}</div><div class="app-dialog-buttons"><button class="app-dialog-btn primary">Aceptar</button></div></div>`;document.body.appendChild(o);o.querySelector("button").onclick=()=>{o.remove();r(true)};o.addEventListener("click",e=>{if(e.target===o){o.remove();r(false)}})});}
-function showConfirm(msg){return new Promise(r=>{const o=document.createElement("div");o.className="app-dialog-overlay";o.innerHTML=`<div class="app-dialog"><div class="app-dialog-icon">🤔</div><div class="app-dialog-msg">${msg}</div><div class="app-dialog-buttons"><button class="app-dialog-btn secondary">Cancelar</button><button class="app-dialog-btn danger">Confirmar</button></div></div>`;document.body.appendChild(o);o.querySelectorAll("button")[1].onclick=()=>{o.remove();r(true)};o.querySelectorAll("button")[0].onclick=()=>{o.remove();r(false)};o.addEventListener("click",e=>{if(e.target===o){o.remove();r(false)}})});}
-
 const API = '/api';
-function getToken() { return localStorage.getItem('agt_token'); }
-function authFetch(url, opts = {}) {
-  const token = getToken();
-  if (!token) { window.location = '/login.html'; return Promise.reject(); }
-  return fetch(url, {
-    ...opts,
-    headers: {
-      ...(opts.headers || {}),
-      'Authorization': `Bearer ${token}`,
-      ...(opts.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-    },
-  }).then(r => { if (r.status === 401) { localStorage.clear(); window.location = '/login.html'; } return r; });
-}
 
 // Init
-function getUser() { try { return JSON.parse(localStorage.getItem('agt_user')); } catch { return null; } }
 if (!getToken()) { window.location = '/login.html'; } else {
   const u = getUser();
   if (u) document.getElementById('userInfo').textContent = `${u.name}`;

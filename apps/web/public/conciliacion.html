@@ -58,6 +58,7 @@
     .form-grid label { font-size: 12px; color: #6b7280; display: block; margin-bottom: 2px; }
     .form-grid input, .form-grid select { width: 100%; padding: 8px; border: 1px solid #d0d5dd; border-radius: 6px; box-sizing: border-box; }
   </style>
+  <script src="js/shared.js?v=1"></script>
 </head>
 <body>
 <div class="reconcile-container">
@@ -140,23 +141,6 @@
 
 <script>
 const API_URL = '/api';
-
-function getToken() { return localStorage.getItem('agt_token'); }
-function authFetch(url, options = {}) {
-  const token = getToken();
-  if (!token) { window.location.href = '/login.html'; return Promise.reject('No auth'); }
-  return fetch(url, {
-    ...options,
-    headers: {
-      ...(options.headers || {}),
-      'Authorization': `Bearer ${token}`,
-      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-    },
-  }).then(res => {
-    if (res.status === 401) { localStorage.clear(); window.location.href = '/login.html'; }
-    return res;
-  });
-}
 
 if (!getToken()) { window.location.href = '/login.html'; }
 
