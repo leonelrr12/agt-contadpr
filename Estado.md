@@ -2,7 +2,7 @@
 
 **Fecha del análisis**: 2026-08-13
 **Branch**: `main` (clean)
-**Último commit**: `fc6cf79` — refactor(web): shared.js para páginas standalone y limpiar onclick muerto
+**Último commit**: `1cac805` — test(agents): arreglar 8 tests fallidos — stubs y expectativas al día
 
 ---
 
@@ -64,7 +64,6 @@ El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones 
 ### 1.5 Sin validación de entrada ✅ COMPLETADO
 - ~~Los endpoints aceptan cualquier JSON sin sanitizar (más allá del parseo de Express).~~
 - **Implementado**: `zod` v4 con schemas para todos los endpoints (accounts, concepts, transactions, journal, orchestrate, ocr). Schema en `apps/api/src/validation/schemas.ts`, middleware en `apps/api/src/middleware/validate.ts`.
-- **Commit**: (pendiente)
 
 ---
 
