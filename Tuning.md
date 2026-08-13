@@ -1,7 +1,7 @@
 # Tuning — Recomendaciones de Evolución
 
 > Documento vivo de ideas para expandir **agt-contadpr** usando IA en procesos contables de PyMEs.
-> Actualizado: 2026-07-17
+> Actualizado: 2026-08-13
 
 ---
 
@@ -38,7 +38,7 @@ El dolor #1 de todo contador. Subir un extracto bancario (PDF o CSV) y que el si
 - [x] Sugiera asientos para comisiones bancarias, intereses, diferencias de redondeo
 - [x] Dashboard de conciliación con % de avance
 
-**Archivos:** `reconcile.ts`, `bank-matcher.ts`, `conciliacion.html`, modelos `BankStatement`/`BankStatementRow`
+**Archivos:** `reconcile.ts`, `bank-matcher.ts`, `conciliacion.html` (página standalone), modelos `BankStatement`/`BankStatementRow`
 
 ---
 
@@ -52,7 +52,7 @@ Muchos negocios vienen de Excel. Un asistente donde:
 - [x] Importación en lote con confirmación
 - [x] Selector de fecha por defecto para filas sin fecha (ej. saldos iniciales a 1° enero)
 
-**Archivos:** `import.ts`, `csv-parser.ts`, `importar.html`
+**Archivos:** `import.ts`, `csv-parser.ts` (vista "Importar" dentro del SPA `index.html`)
 
 ---
 
@@ -92,7 +92,7 @@ Diferenciación fuerte para el mercado meta:
 - [x] Checklist de cumplimiento por mes con progreso visual
 - [x] Recordatorios configurables (email, in-app, WhatsApp)
 
-**Archivos:** `tax-calendar.ts` (ruta + servicio), `calendario-fiscal.html`, modelo `TaxObligation`
+**Archivos:** `tax-calendar.ts` (ruta + servicio), vista "Calendario Fiscal" en el SPA, modelo `TaxObligation`
 
 ---
 
@@ -190,12 +190,13 @@ Convertir una venta registrada en factura profesional:
 
 Mejoras estructurales recomendadas a mediano plazo:
 
-- [ ] **Tipado estricto:** Eliminar `any` en agentes (PrismaClient genérico)
-- [ ] **Refactor del frontend:** Modularizar `app.js` (~2166 líneas en un solo archivo)
+- [x] **Refactor del frontend:** ✅ COMPLETADO (2026-08-13). `app.js` (3,909 líneas) → 13 scripts classic en `public/js/` + `shared.js` para páginas standalone, con dedup de duplicados y reportes unificados
+- [~] **Tipado estricto:** Parcial — `OrchestratorAgent.userId` requerido y resuelto por empresa; `prisma: any` en los 3 agents sigue pendiente
 - [ ] **Alias de cuentas dinámicos:** Mover `ALIAS_TO_CODE` del AccountingAgent a la BD
 - [ ] **Agregaciones en SQL:** Reports actualmente procesan todos los datos en JS
 - [ ] **Workers de Tesseract:** Nunca se liberan (memory leak)
 - [ ] **Paginación real:** Journal listing actualmente pagina en memoria
+- [ ] **Stubs de tests desactualizados:** 8 tests fallando en `packages/agents` (preexistentes)
 - [ ] **Email verification:** No existe verificación de correo ni recuperación de contraseña
 - [ ] **CI/CD:** No hay pipeline de integración continua
 

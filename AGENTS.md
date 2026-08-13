@@ -19,12 +19,12 @@ packages/
 | `npm run dev` | `turbo dev` — runs all dev scripts in parallel |
 | `npm run build` | `turbo build` — compiles TS via `tsc` |
 | `npm run db:generate` | `turbo run db:generate` → `prisma generate` in prisma-schema |
-| `npm run db:push` | `turbo run db:push` → pushes schema to PostgreSQL (depends on db:generate) |
+| `npm run db:push` | `turbo run db:push` → pushes schema to PostgreSQL (dev; en producción usar `prisma migrate deploy`) |
 | `npm run db:seed` | seeds Panamanian chart of accounts + concept catalog (depends on db:push) |
 | `npm run format` | `prettier --write "**/*.{ts,tsx,json,md}"` |
 | `npm run test` / `lint` | stub — all packages echo placeholder |
 
-**Order for fresh setup:** `db:generate → db:push → db:seed → dev`
+**Order for fresh setup:** `db:generate → db:push → db:seed → dev` (producción: `migrate deploy`).
 
 ## Database
 
@@ -47,9 +47,11 @@ packages/
 - Puerto `5433`: PostgreSQL (expuesto al host)
 - El entrypoint del contenedor API ejecuta `prisma db push` + seed automáticamente al arrancar
 
-## Hardcoded IDs (no auth yet)
+## Auth y Multi-tenancy
 
-All routes use `companyId: 'demo-company'` and `createdById: 'demo-user'`. Add auth middleware before removing these.
+- **JWT + API Keys** vía `requireAuth` (`apps/api/src/middleware/auth.ts`): modo sesión web (JWT 24h) y modo programático (`sk_live_...` con SHA-256). Roles: `admin` / `contador` / `asistente`.
+- Todo está scoped por `companyId` desde `req.user!.companyId`. La única referencia legítima a `demo-company` es `TEMPLATE_COMPANY_ID` en `apps/api/src/routes/auth.ts` (plantilla de plan de cuentas al registrar empresa).
+- `OrchestratorAgent` exige `userId` real en el constructor (FK `createdById`). WhatsApp resuelve el admin de la empresa con `resolveWhatsAppUserId()`.
 
 ## Agent pipeline
 
@@ -79,8 +81,9 @@ Campos nuevos en JournalEntry: `reviewedById`, `reviewedAt`, `reviewNotes`. Enum
 
 ## Deployment
 
-- **nginx** serves frontend static files at `http://localhost:8090` and proxies `/api/*` to the Express backend.
-- **PM2** manages the API process (`pm2 start ecosystem.config.js` from root, auto-restarts on crash/reboot).
+- **nginx** (host, `/etc/nginx/sites-available/contador507.com`) serves frontend statics from `apps/web/public` (sin build) y proxea `/api/*` a `localhost:3001`. Fallback SPA `try_files … /index.html` (ojo: un `.js` mal escrito devuelve 200+HTML, no 404).
+- **PM2** manages the API process (`pm2 start ecosystem.config.js` from root, auto-restarts on crash/reboot). Tras cambios de backend: `pm2 restart agt-contador-api --update-env`.
+- `NODE_ENV=production` está en `ecosystem.config.js` y `.env` (el error handler global oculta mensajes internos con este flag).
 - `.env` with `DATABASE_URL` must exist at root and `packages/prisma-schema/`.
 
 ## Local dev URLs
@@ -88,11 +91,12 @@ Campos nuevos en JournalEntry: `reviewedById`, `reviewedAt`, `reviewNotes`. Enum
 - Frontend (nginx): `http://localhost:8090` and `http://147.93.145.67` (port 80)
 - API direct: `http://localhost:3001`
 
-## Current state (MVP Phase 1 - completo)
+## Current state (MVP Phase 1 completo + Fase 2 completa)
 
 - **LLM integrado**: DeepSeek via OpenAI-compatible API, con fallback a keywords
-- Tests: **37 tests** (dialog, accounting, orchestrator, classification) via Vitest. **Lint**: ESLint configurado con `typescript-eslint`
-- No auth, no Docker, no Husky
-- Frontend is vanilla HTML/JS/CSS (not React/Next.js as Plan.md describes)
+- Tests: **47 pasando / 8 fallando** (stubs desactualizados, preexistentes) via Vitest. **Lint**: ESLint configurado con `typescript-eslint`
+- Auth JWT + API Keys, multi-tenant, SaaS (planes/suscripciones/cuotas), OCR+PDF+QR, conciliación bancaria, importación masiva, recurrentes, WhatsApp bot, calendario fiscal PA, audit log
+- **Frontend modularizado**: vanilla HTML/JS/CSS (no React/Next.js) — 13 scripts classic en `public/js/` + `js/shared.js` para páginas standalone. Ver `Estado.md` para el detalle.
+- Backend con middleware global de errores (`error-handler.ts`) y tareas de inicio en `services/startup.ts` (multi-empresa)
 - Prisma generates client to `node_modules/@prisma/client` by default (turbo `outputs: ["src/generated/**"]` in `turbo.json` may be stale)
 - Accounts seeded: full Panamanian chart (ACTIVO 1, PASIVO 2, PATRIMONIO 3, INGRESOS 4, COSTOS 5, GASTOS 6)

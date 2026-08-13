@@ -1,41 +1,41 @@
 # Estado del Proyecto — Agente Contable (Panamá)
 
-**Fecha del análisis**: 2026-07-15
+**Fecha del análisis**: 2026-08-13
 **Branch**: `main` (clean)
-**Último commit**: `b180f34` — feat: Prisma Migrate — migraciones versionadas para producción
+**Último commit**: `fc6cf79` — refactor(web): shared.js para páginas standalone y limpiar onclick muerto
 
 ---
 
 ## Resumen Ejecutivo
 
-El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones vía chat, procesa facturas por OCR/imagen y PDF (DGI), genera asientos contables de partida doble automáticamente, y tiene un flujo de revisión BORRADOR → CONFIRMADO/RECHAZADO. Tiene **55 tests pasando**, panel de reportes con dashboard, y corre en Docker + nginx + PM2.
+El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones vía chat, procesa facturas por OCR/imagen y PDF (DGI), genera asientos contables de partida doble automáticamente, y tiene un flujo de revisión BORRADOR → CONFIRMADO/RECHAZADO. Frontend modularizado en **14 scripts JS** (`public/js/`), panel de reportes con dashboard unificado (4 cards + 3 charts), y corre en PM2 + nginx. Tests: **47 pasando / 8 fallando** (stubs de agents desactualizados — ver §6).
 
-### 🆕 Novedades desde el último análisis (2026-07-14 → 2026-07-15)
+### 🆕 Novedades desde el último análisis (2026-07-15 → 2026-08-13)
 
-**SaaS implementado (Fases 1-3 completadas):**
-- ✅ Planes y suscripciones: 4 planes (Demo, Emprendedor, Pyme, Despacho)
-- ✅ Panel de admin: `/admin.html` con stats, gestión de suscripciones, registro de pagos (Yappy/Transferencia)
-- ✅ API Keys: generación segura SHA-256, middleware unificado JWT + API Key
-- ✅ Control de cuotas: `requireQuota` + `incrementUsage` en asientos contables
-- ✅ Rate limiting por plan: Demo 5, Emprendedor 10, Pyme 25, Despacho 50 req/s
-- ✅ Página pública de planes: `/planes.html`
-- ✅ Gestión de API Keys: `/api-keys.html` con ejemplos cURL, JS, Zapier
-- ✅ Navegación consolidada entre todas las páginas
-- ✅ Errores amigables en `/api/orchestrate` con `friendlyError()`
+**Funcionalidades nuevas:**
+- ✅ Conciliación bancaria: `reconcile.ts` + `bank-matcher.ts` + `conciliacion.html` (matching por monto/fecha, no conciliadas, sugerencias)
+- ✅ Importación masiva CSV/XLSX: `import.ts` + `csv-parser.ts` con mapeo de columnas por IA
+- ✅ Transacciones recurrentes: `recurring.ts` + `recurring-processor.ts` + cron 30 min
+- ✅ Bot de WhatsApp: webhook OpenWa, OCR de imágenes, QR de facturas DGI, comandos `/saldo`
+- ✅ Calendario fiscal panameño: `tax-calendar.ts` + `TaxObligation`, generación automática multi-empresa
+- ✅ Auto-aprendizaje de conceptos: `Concept.keywords` + quickClassify desde BD
+- ✅ Extracción de ITBMS explícito y neto vs total según fuente (PDF=total, texto=neto)
 
-**Infraestructura:**
-- ✅ Backup automático diario + disaster recovery semanal (cron)
-- ✅ Prisma Migrate versionado (`prisma migrate deploy` reemplaza `prisma db push`)
-- ✅ Bug multi-tenancy corregido (13 `companyId: 'demo-company'` → `req.user!.companyId`)
-- ✅ `AccountingAgent` con filtro `companyId` (corregía error "Cuenta contable no encontrada")
-- ✅ Rate limiter corregido (sin crash IPv6, solo aplica a escrituras)
+**Arquitectura / deuda técnica pagada:**
+- ✅ **Frontend modularizado**: `app.js` (3,909 líneas) → 13 scripts en `public/js/` + `shared.js` para páginas standalone. Split mecánico byte-a-byte + dedup (escapeHtml único, statusTag, finalizeCapture, renderCuentaGroups, setupEntryLines, detailAccounts). Reportes de panel muertos eliminados; dashboard unificado en informes con `ensureChartJs()` (bug de Chart.js corregido)
+- ✅ Tareas de inicio extraídas de `main.ts` → `services/startup.ts` (`runStartupTasks` + `startRecurringCron`)
+- ✅ Obligaciones fiscales generadas para **todas las empresas** al arrancar (antes solo `demo-company`)
+- ✅ Middleware global de errores: `error-handler.ts` (404 JSON + 500 con mensaje oculto en producción); `errorHandler` respeta `err.status` (400 en JSON malformado)
+- ✅ Hardcodes eliminados: `demo-company`/`demo-user` fuera del código operativo (solo `TEMPLATE_COMPANY_ID` documentada en `auth.ts` y seeds); `OrchestratorAgent` exige `userId` real (throw claro si falta)
+- ✅ `NODE_ENV=production` en `ecosystem.config.js` + `.env` (oculta mensajes internos a clientes)
+- ✅ Multi-tenancy de WhatsApp: `resolveWhatsAppUserId()` usa el admin real de la empresa (antes pasaba `companyId` a una FK de User)
 
 **Pendiente del plan original (Plan.md):**
 
 | Fase | Estado |
 |---|---|
 | Fase 1: MVP Motor Contable | ✅ 100% completo |
-| Fase 2: Documentos y Terceros | 🟡 OCR ✅ · Clientes ✅ · Proveedores ✅ · Bancario ❌ · Export ✅ |
+| Fase 2: Documentos y Terceros | ✅ OCR, Clientes, Proveedores, **Bancario (conciliación)**, Export |
 | Fase 3: Módulos Avanzados | ❌ Inventario, Nómina, Impuestos, Auditor |
 | Fase 4: IA Avanzada | ❌ Predicción, Fraude, Rentabilidad |
 | Seguridad Transversal | ✅ JWT, roles, backups, logs · ❌ Cifrado en reposo |
@@ -55,8 +55,7 @@ El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones 
 
 ### 1.3 Rate limiting inexistente ✅ COMPLETADO
 - ~~No hay protección contra fuerza bruta, spam o DoS.~~
-- **Implementado**: `express-rate-limit` con 3 niveles: general (200 req/15min), LLM (15 req/min), OCR/PDF (10 req/min). Archivo: `apps/api/src/main.ts`.
-- **Commit**: (pendiente)
+- **Implementado**: `express-rate-limit` con 3 niveles: general (200 req/15min), LLM (15 req/min), OCR/PDF (10 req/min) + rate limiting por plan en `middleware/plan-rate-limit.ts`. Archivo: `apps/api/src/main.ts`.
 
 ### 1.4 Secretos en el código ✅ COMPLETADO
 - ~~Credenciales de PostgreSQL en texto plano en docker-compose.yml.~~
@@ -94,13 +93,15 @@ El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones 
 
 ## 3. Arquitectura y Diseño — 🟡 Media prioridad
 
-### 3.1 Tipos `any` por todas partes
+### 3.1 Tipos `any` por todas partes 🟡 PARCIAL (2026-08-13)
 ```ts
 // classification-agent.ts:9-10
 private prisma: any;
 private companyId: string;
 ```
 El PrismaClient se pasa como `any` en ClassificationAgent, AccountingAgent, y OrchestratorAgent. No hay type safety para queries de BD.
+- ✅ `OrchestratorAgent.userId` ahora es requerido en el constructor (sin default `demo-user`); `whatsapp-service.ts` resuelve el userId real del admin de la empresa.
+- ❌ `prisma: any` en los 3 agents sigue pendiente (tipar con `PrismaClient` de `@agt-contador/prisma-schema`).
 
 ### 3.2 Lógica duplicada backend ↔ frontend
 | Funcionalidad | Backend | Frontend |
@@ -112,8 +113,9 @@ El PrismaClient se pasa como `any` en ClassificationAgent, AccountingAgent, y Or
 | Cliente LLM | `ocr.ts:getLLMClient()` | `pdf-extractor.ts:getLLMClient()` |
 | Few-shot examples | `ocr.ts:findSimilarExamples()` | `pdf-extractor.ts:findSimilarExamples()` |
 
-### 3.3 `app.js` monolítico (1314 líneas)
-Todo el frontend está en un solo archivo: chat, OCR, PDF, reportes, dashboard, revisión. Es difícil de mantener.
+### 3.3 `app.js` monolítico ✅ COMPLETADO (2026-08-13)
+- ~~Todo el frontend estaba en un solo archivo (llegó a 3,909 líneas).~~
+- **Implementado**: split mecánico byte-a-byte en 13 scripts classic bajo `apps/web/public/js/` (core, capture, capture-qr, chat, router, admin, init, panels-sidebar, import, auxiliares-revision, entry-modals, informes, tax-calendar) + `js/shared.js` para páginas standalone (admin/api-keys/conciliación). Consolidación de duplicados: `escapeHtml` único, `statusTag()`, `finalizeCapture()`, `renderCuentaGroups()`, `setupEntryLines()`, `detailAccounts()`. Reportes de panel muertos eliminados; dashboard unificado en informes. Verificado con smoke jsdom comparativo contra el app.js monolítico.
 
 ### 3.4 Sistema de aliases de cuentas frágil
 ```ts
@@ -210,12 +212,13 @@ No hay GitHub Actions ni otro pipeline configurado.
 
 ---
 
-## 6. Tests — 🟢 Bien
+## 6. Tests — 🟡 Necesitan mantenimiento (2026-08-13)
 
-- **55 tests pasando** (18 nuevos en el último commit).
+- **47 pasando / 8 fallando** en `packages/agents` (los stubs de Prisma quedaron desactualizados — p. ej. `declaraITBMS` no está en el stub de `accounting-agent`). Verificado: los 8 fallos son preexistentes, no regresiones de los refactors de agosto.
 - Cubren: `dialog-agent` (150 líneas de tests), `classification-agent` (82), `accounting-agent` (329), `orchestrator-agent` (78).
 - Los tests usan stubs de Prisma (sin BD real), lo cual es correcto para unit testing.
-- **Falta**: Tests de integración para los endpoints de la API, tests de OCR/PDF, tests de frontend.
+- **Smoke tests jsdom** (fuera del repo, `/tmp/jsdom-smoke`): comparativo split vs app.js monolítico + smoke por página standalone — usados en cada refactor del frontend.
+- **Falta**: arreglar los 8 stubs, tests de integración para los endpoints de la API, tests de OCR/PDF.
 
 ---
 

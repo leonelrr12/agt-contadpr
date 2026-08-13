@@ -15,9 +15,9 @@
 | **Auth (JWT + roles)** | ✅ Implementado | `jsonwebtoken` con roles `admin`/`contador`/`asistente`, expiración 24h |
 | **Procesamiento contable** | ✅ Implementado | OCR (Tesseract.js) + DeepSeek LLM + generación de asientos doble entrada |
 | **Reportes** | ✅ Implementado | Balance, estado de resultados, flujo de caja, dashboard, export a Excel |
-| **Rate limiting** | ⚠️ Parcial | Global con `express-rate-limit`. No por plan ni por tenant |
-| **Frontend** | ✅ Funcional | HTML/CSS/JS vanilla (SPA con sidebar + chat + panel de reportes) |
-| **ORM** | ✅ Prisma | PostgreSQL con 11 modelos |
+| **Rate limiting** | ✅ Implementado | Global con `express-rate-limit` + `planRateLimiter` por plan (Demo 5, Emprendedor 10, Pyme 25, Despacho 50 req/s) |
+| **Frontend** | ✅ Funcional | HTML/CSS/JS vanilla — 13 módulos en `public/js/` + `shared.js` para páginas standalone |
+| **ORM** | ✅ Prisma | PostgreSQL con 25 modelos |
 | **Audit Log** | ✅ Implementado | Registro de acciones (login, create, review, etc.) |
 
 ### ❌ Lo que falta para ser SaaS
@@ -35,7 +35,7 @@
 
 ### 🐛 Bugs críticos a corregir antes del SaaS
 
-- [x] **~~Multi-tenancy roto~~** — ✅ **IMPLEMENTADO** (2026-07-15). Se corrigieron 13 ocurrencias de `companyId: 'demo-company'` hardcodeado en `accounts.ts` (2), `journal.ts` (7) y `reports.ts` (6). Quedan solo 2 referencias legítimas en `auth.ts` (plantilla para copiar plan de cuentas durante registro).
+- [x] **~~Multi-tenancy roto~~** — ✅ **IMPLEMENTADO** (2026-07-15; reforzado 2026-08-13). Se corrigieron 13 ocurrencias de `companyId: 'demo-company'` hardcodeado en `accounts.ts` (2), `journal.ts` (7) y `reports.ts` (6). La única referencia restante es la constante `TEMPLATE_COMPANY_ID` en `auth.ts` (plantilla para copiar plan de cuentas durante registro). En 2026-08 también se eliminaron: startup hardcodeado a `demo-company` (ahora itera todas las empresas), default `demo-user` en `OrchestratorAgent` (userId requerido) y el ternario de WhatsApp que pasaba `companyId` a una FK de User (ahora `resolveWhatsAppUserId`).
 
 ---
 

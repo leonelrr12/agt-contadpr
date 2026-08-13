@@ -1,5 +1,7 @@
 # Plan de Implementación: Agente Contable (Panamá)
 
+> **Nota (2026-08-13):** este es el plan original de diseño. La implementación real divergió en el stack: **Express + vanilla JS** (no NestJS/React/Next.js), DeepSeek como LLM, PostgreSQL + Prisma, PM2 + nginx. El estado actual y la deuda pendiente viven en [`Estado.md`](./Estado.md) y [`Tuning.md`](./Tuning.md).
+
 ## Arquitectura General
 
 ```
