@@ -1,3 +1,4 @@
+// router.js (5/14) — navegación sidebar y tabs de admin
 /* ── Sidebar navigation ── */
 document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
   btn.addEventListener('click', () => {

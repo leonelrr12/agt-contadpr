@@ -1,3 +1,4 @@
+// init.js (8/14) — export, logout y bootstrap DOMContentLoaded
 /* ── Exportar reportes ── */
 async function exportReport(reportType, format = 'xlsx') {
   const from = document.getElementById(`filter-${reportType === 'diario' ? 'diario' : reportType === 'balance-comprobacion' ? 'balance' : 'resultados'}-from`);

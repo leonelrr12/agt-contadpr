@@ -1,3 +1,4 @@
+// import.js (10/14) — importación masiva inline y conciliación
 /* ── Panel: Importar (inline) ── */
 let importInlineFile = null;
 let importInlinePreview = null;
@@ -52,12 +53,12 @@ function showAccountPickerInline(rowIndex, currentAccountId, event) {
     filtered.forEach(a => {
       if (a.type && a.type !== lastType) {
         lastType = a.type;
-        html += `<div style="padding:4px 12px;font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;background:#f9fafb">${escHtml(lastType)}</div>`;
+        html += `<div style="padding:4px 12px;font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;background:#f9fafb">${escapeHtml(lastType)}</div>`;
       }
       const sel = a.id === currentAccountId;
-      html += `<div data-id="${a.id}" data-name="${escHtml(a.name)}" data-code="${escHtml(a.code)}" data-type="${escHtml(a.type||'')}"
+      html += `<div data-id="${a.id}" data-name="${escapeHtml(a.name)}" data-code="${escapeHtml(a.code)}" data-type="${escapeHtml(a.type||'')}"
         style="padding:6px 12px;cursor:pointer;font-size:13px;${sel?'background:#e0e7ff;font-weight:600':''}">
-        <span style="color:#6b7280;font-size:11px;margin-right:6px">${escHtml(a.code)}</span>${escHtml(a.name)}
+        <span style="color:#6b7280;font-size:11px;margin-right:6px">${escapeHtml(a.code)}</span>${escapeHtml(a.name)}
       </div>`;
     });
     list.innerHTML = html;
@@ -207,13 +208,13 @@ function renderImportInlinePreview() {
       const isErr = r.status !== 'ok';
       const accountLabel = r.matchedAccount ? `${r.matchedAccount.code} - ${r.matchedAccount.name}` : '';
       html += `<tr>
-        <td>${i+1}</td><td>${escHtml(r.accountType)}</td><td>${escHtml(r.accountName)}</td>
+        <td>${i+1}</td><td>${escapeHtml(r.accountType)}</td><td>${escapeHtml(r.accountName)}</td>
         <td>$${r.amount.toFixed(2)}</td><td>${r.side}</td>
         <td>
           <button class="account-picker-btn"
             style="font-size:11px;text-align:left;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 8px;border-radius:4px;cursor:pointer;background:${isErr?'#fee2e2':'#f0fdf4'};border:1px solid ${isErr?'#fecaca':'#bbf7d0'};color:${isErr?'#991b1b':'#065f46'}"
             data-row="${i}" data-account-id="${r.matchedAccount?r.matchedAccount.id:''}">
-            ${r.matchedAccount ? escHtml(accountLabel) : '🔍 Seleccionar...'}
+            ${r.matchedAccount ? escapeHtml(accountLabel) : '🔍 Seleccionar...'}
           </button>
         </td>
         <td>${r.status==='ok'?'✅':'<span style="color:#dc2626">❌</span>'}</td></tr>`;
@@ -262,11 +263,11 @@ function renderImportInlinePreview() {
     previewRows.forEach((r, i) => {
       const conf = r.classification;
       html += `<tr>
-        <td>${i+1}</td><td>${r.date||'—'}</td><td>${escHtml(r.description||'')}</td>
+        <td>${i+1}</td><td>${r.date||'—'}</td><td>${escapeHtml(r.description||'')}</td>
         <td>${r.amount?'$'+r.amount.toFixed(2):'—'}</td>
-        <td>${escHtml(r.reference||'')}</td><td>${escHtml(r.ruc||'')}</td>
-        <td>${escHtml(r.concept||'')}</td>
-        <td>${conf?escHtml(conf.concept):'—'}</td>
+        <td>${escapeHtml(r.reference||'')}</td><td>${escapeHtml(r.ruc||'')}</td>
+        <td>${escapeHtml(r.concept||'')}</td>
+        <td>${conf?escapeHtml(conf.concept):'—'}</td>
         <td>${conf?Math.round(conf.confidence*100)+'%':'—'}</td></tr>`;
     });
     document.getElementById('import-inline-tbody').innerHTML = html;
@@ -392,7 +393,7 @@ async function loadConciliacionList() {
     let html = '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>Archivo</th><th>Fecha subida</th><th>Estado</th><th>Filas</th><th></th></tr></thead><tbody>';
     for (const s of statements) {
       html += `<tr>
-        <td><strong>${escHtml(s.fileName||'Extracto')}</strong></td>
+        <td><strong>${escapeHtml(s.fileName||'Extracto')}</strong></td>
         <td>${new Date(s.uploadDate).toLocaleDateString('es-PA')}</td>
         <td>${s.status}</td>
         <td>${s._count?.rows||'—'}</td>

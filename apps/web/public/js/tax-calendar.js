@@ -1,3 +1,4 @@
+// tax-calendar.js (14/14) — calendario fiscal panameño
 /* ── Panel: Calendario Fiscal (inline) ── */
 function loadPanelTaxCalendar() {
   document.getElementById('chat-messages').classList.add('hidden');
@@ -37,8 +38,8 @@ async function loadTaxCalendarInline() {
       return `<div style="background:#fff;border:1px solid #e5e7eb;border-left:4px solid ${statusColor};border-radius:10px;padding:16px;margin-bottom:10px;display:flex;align-items:center;gap:14px">
         <div style="font-size:32px">${icon}</div>
         <div style="flex:1;min-width:0">
-          <div style="font-weight:700;font-size:14px;color:#1a1a2e">${escHtml(label)}</div>
-          <div style="font-size:12px;color:#6b7280;margin-top:2px">${escHtml(o.label)}</div>
+          <div style="font-weight:700;font-size:14px;color:#1a1a2e">${escapeHtml(label)}</div>
+          <div style="font-size:12px;color:#6b7280;margin-top:2px">${escapeHtml(o.label)}</div>
           <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
             <span style="font-size:12px;color:${statusColor};font-weight:600">📅 ${due.toLocaleDateString('es-PA',{month:'short',day:'numeric',year:'numeric'})}</span>
             <span style="font-size:11px;background:${statusBg};color:${statusColor};padding:2px 8px;border-radius:10px;font-weight:600">${badge} · ${diasText}</span>

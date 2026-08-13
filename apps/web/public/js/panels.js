@@ -1,3 +1,4 @@
+// panels.js (6/14) — paneles diario/balance/resultados/dashboard y catálogos
 /* ── Diario state ── */
 let diarioPage = 1;
 const DIARIO_PAGE_SIZE = 20;
@@ -30,17 +31,13 @@ async function loadPanelDiario() {
     let html = '<table><thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th><th>Estado</th></tr></thead><tbody>';
     for (const e of data.entries) {
       const date = new Date(e.date).toLocaleDateString('es-PA');
-      let statusTag = '';
-      if (e.status === 'BORRADOR') statusTag = '<span class="tag tag-draft">BORRADOR</span>';
-      else if (e.status === 'CONFIRMADO') statusTag = '<span class="tag tag-conf">CONFIRMADO</span>';
-      else if (e.status === 'RECHAZADO') statusTag = `<span class="tag tag-rejected" title="${e.reviewNotes || ''}">RECHAZADO</span>`;
-      else if (e.status === 'ANULADO') statusTag = '<span class="tag tag-void">ANULADO</span>';
+      const statusHtml = statusTag(e.status, e.reviewNotes || '');
       const providerHtml = e.provider ? ` — <span style="font-size:11px;color:#6b7280">${e.provider}</span>` : '';
       const firstLine = e.lines[0];
       if (firstLine) {
         const canUndo = e.status === 'CONFIRMADO' && !e.description.startsWith('ANULACIÓN:');
         const undoBtn = canUndo ? `<button onclick="anularPanel('${e.id}')" class="btn-undo" title="Anular asiento">↩</button>` : '';
-        html += `<tr><td>${date}</td><td>${e.description}${providerHtml}${e.reviewNotes ? `<br><small style="color:#c62828">${e.reviewNotes}</small>` : ''}</td><td>${firstLine.account?.name || ''}</td><td class="debit">${firstLine.debit ? '$' + firstLine.debit.toFixed(2) : ''}</td><td class="credit">${firstLine.credit ? '$' + firstLine.credit.toFixed(2) : ''}</td><td>${statusTag} ${undoBtn}</td></tr>`;
+        html += `<tr><td>${date}</td><td>${e.description}${providerHtml}${e.reviewNotes ? `<br><small style="color:#c62828">${e.reviewNotes}</small>` : ''}</td><td>${firstLine.account?.name || ''}</td><td class="debit">${firstLine.debit ? '$' + firstLine.debit.toFixed(2) : ''}</td><td class="credit">${firstLine.credit ? '$' + firstLine.credit.toFixed(2) : ''}</td><td>${statusHtml} ${undoBtn}</td></tr>`;
       }
       for (let i = 1; i < e.lines.length; i++) {
         const line = e.lines[i];
@@ -256,39 +253,50 @@ async function loadPanelDashboard() {
 }
 
 /* ── Catálogo de Cuentas ── */
+// Mapas compartidos con el panel de administración (admin.js)
+const CUENTA_TIPOS = ['ACTIVO', 'PASIVO', 'PATRIMONIO', 'INGRESO', 'COSTO', 'GASTO'];
+const CUENTA_COLORES = { ACTIVO: '#1565c0', PASIVO: '#e65100', PATRIMONIO: '#6a1b9a', INGRESO: '#2e7d32', COSTO: '#c62828', GASTO: '#d84315' };
+const CUENTA_LABELS = { ACTIVO: 'Activos', PASIVO: 'Pasivos', PATRIMONIO: 'Patrimonio', INGRESO: 'Ingresos', COSTO: 'Costos', GASTO: 'Gastos' };
+
 async function loadPanelCuentas() {
   const el = document.getElementById('cuentas-content');
   try {
     const res = await authFetch(`${API_URL}/accounts`);
     const cuentas = await res.json();
-    if (!cuentas.length) { el.innerHTML = '<div class="empty">No hay cuentas registradas</div>'; return; }
-
-    const tipos = ['ACTIVO', 'PASIVO', 'PATRIMONIO', 'INGRESO', 'COSTO', 'GASTO'];
-    const colores = { ACTIVO: '#1565c0', PASIVO: '#e65100', PATRIMONIO: '#6a1b9a', INGRESO: '#2e7d32', COSTO: '#c62828', GASTO: '#d84315' };
-    const labels = { ACTIVO: 'Activos', PASIVO: 'Pasivos', PATRIMONIO: 'Patrimonio', INGRESO: 'Ingresos', COSTO: 'Costos', GASTO: 'Gastos' };
-
-    let html = '';
-    for (const tipo of tipos) {
-      const filtradas = cuentas.filter(c => c.type === tipo && !c.parentId);
-      if (!filtradas.length) continue;
-      html += `<div class="cuenta-grupo"><div class="cuenta-tipo" style="background:${colores[tipo]}">${labels[tipo]}</div>`;
-      for (const root of filtradas) {
-        html += buildCuentaTree(root, cuentas);
-      }
-      html += '</div>';
-    }
-    el.innerHTML = html;
+    renderCuentaGroups(el, cuentas);
   } catch (e) { el.innerHTML = '<div class="empty">Error al cargar cuentas</div>'; }
 }
 
-function buildCuentaTree(account, all, depth = 0) {
+// Render agrupado del plan de cuentas; admin=true agrega estado inactivo y botón editar
+function renderCuentaGroups(el, cuentas, admin = false) {
+  if (!cuentas.length) { el.innerHTML = '<div class="empty">No hay cuentas registradas</div>'; return; }
+  let html = '';
+  for (const tipo of CUENTA_TIPOS) {
+    const filtradas = cuentas.filter(c => c.type === tipo && !c.parentId);
+    if (!filtradas.length) continue;
+    html += `<div class="cuenta-grupo"><div class="cuenta-tipo" style="background:${CUENTA_COLORES[tipo]}">${CUENTA_LABELS[tipo]}</div>`;
+    for (const root of filtradas) {
+      html += buildCuentaTree(root, cuentas, 0, admin);
+    }
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function buildCuentaTree(account, all, depth = 0, admin = false) {
   const children = all.filter(c => c.parentId === account.id);
-  let html = `<div class="cuenta-row" style="padding-left:${depth * 20 + 8}px">
+  const inactiveStyle = admin && !account.isActive ? ' style="opacity:0.5"' : '';
+  const inactiveLabel = admin && !account.isActive ? ' (inactiva)' : '';
+  const actions = admin
+    ? `<span class="cuenta-actions"><button onclick="editCuenta('${account.id}')" class="btn-sm" title="Editar">✏️</button></span>`
+    : '';
+  let html = `<div class="cuenta-row" style="padding-left:${depth * 20 + 8}px"${inactiveStyle}>
     <span class="cuenta-code">${account.code}</span>
-    <span class="cuenta-name">${account.name}</span>
+    <span class="cuenta-name">${account.name}${inactiveLabel}</span>
+    ${actions}
   </div>`;
   for (const child of children) {
-    html += buildCuentaTree(child, all, depth + 1);
+    html += buildCuentaTree(child, all, depth + 1, admin);
   }
   return html;
 }

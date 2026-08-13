@@ -1,3 +1,4 @@
+// chat.js (4/14) — pipeline de chat, widgets, confirmación y revisión rápida
 function showEntityMatchSelector(data) {
   const matches = data.entityMatches;
   const providerName = data.plan?.dialog?.provider || '';

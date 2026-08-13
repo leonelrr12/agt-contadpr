@@ -1,3 +1,4 @@
+// informes.js (13/14) — panel informes con tabs y export
 /* ── Panel: Informes (inline) ── */
 function loadPanelInformes() {
   document.getElementById('chat-messages').classList.add('hidden');
@@ -58,9 +59,8 @@ async function loadReportDiario() {
     let html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th><th>Estado</th></tr></thead><tbody>';
     for (const e of d.entries) {
       const date = new Date(e.date).toLocaleDateString('es-PA');
-      const desc = escHtml(e.description||'');
-      const statusClass = { BORRADOR: 'tag-draft', CONFIRMADO: 'tag-conf', RECHAZADO: 'tag-rejected', ANULADO: 'tag-void' };
-      const statusHtml = `<span class="tag ${statusClass[e.status]||''}">${e.status}</span>`;
+      const desc = escapeHtml(e.description||'');
+      const statusHtml = statusTag(e.status);
       // Bloquear corrección si ya fue revertido/corregido antes
       const alreadyCorrected = (e.description||'').includes('[ref:') || d.entries.some(x => (x.description||'').includes(`[ref:${e.id.slice(0,12)}]`));
       const canCorrect = e.status === 'CONFIRMADO' && !(e.description||'').startsWith('ANULACIÓN:') && !(e.description||'').startsWith('REVERSIÓN') && !alreadyCorrected;
@@ -74,7 +74,7 @@ async function loadReportDiario() {
         html += `<tr>
           <td>${i===0 ? date : ''}</td>
           <td>${i===0 ? desc : ''}</td>
-          <td>${escHtml(l.account?.code||'')} — ${escHtml(l.account?.name||'')}</td>
+          <td>${escapeHtml(l.account?.code||'')} — ${escapeHtml(l.account?.name||'')}</td>
           <td style="color:#2e7d32;font-weight:600">${l.debit ? fmt(l.debit) : '—'}</td>
           <td style="color:#c62828;font-weight:600">${l.credit ? fmt(l.credit) : '—'}</td>
           <td>${i===0 ? statusHtml + actionsHtml : ''}</td>
@@ -101,7 +101,7 @@ async function loadReportBalance() {
       totDeb += (a.totalDebit||0);
       totCred += (a.totalCredit||0);
       return [
-        escHtml(a.account?.code), escHtml(a.account?.name),
+        escapeHtml(a.account?.code), escapeHtml(a.account?.name),
         `<span style="color:#2e7d32">${fmt(a.totalDebit||0)}</span>`,
         `<span style="color:#c62828">${fmt(a.totalCredit||0)}</span>`,
         `<strong style="color:${a.balanceType==='DEUDOR'?'#2e7d32':'#c62828'}">${a.balanceType==='DEUDOR'?'+':'−'}${fmt(Math.abs(a.balance||0)).replace('$','')}</strong>`
@@ -117,7 +117,7 @@ async function loadReportResultados() {
     const params = getInformesDateParams();
     const res = await authFetch(`${API_URL}/reports/estado-resultados?${params}`);
     const d = await res.json();
-    const items = (obj) => Object.entries(obj||{}).map(([k,v]) => `<tr><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb">${escHtml(k)}</td><td style="text-align:right;padding:6px 10px;border-bottom:1px solid #e5e7eb;font-weight:600">$${Number(v).toLocaleString()}</td></tr>`).join('');
+    const items = (obj) => Object.entries(obj||{}).map(([k,v]) => `<tr><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb">${escapeHtml(k)}</td><td style="text-align:right;padding:6px 10px;border-bottom:1px solid #e5e7eb;font-weight:600">$${Number(v).toLocaleString()}</td></tr>`).join('');
     el.innerHTML = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div>
@@ -201,7 +201,7 @@ function switchAuxTab(tab, btn) {
 
 async function loadAuxCuenta(el) {
   el.innerHTML = '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center"><select id="informes-aux-select" onchange="loadAuxiliarData()" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;min-width:280px"><option value="">Selecciona una cuenta...</option></select><input type="date" id="aux-from" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px"><input type="date" id="aux-to" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px"><button onclick="loadAuxiliarData()" style="padding:8px 14px;border:1px solid #1565c0;border-radius:6px;background:#1565c0;color:#fff;cursor:pointer;font-size:12px">🔍 Buscar</button></div><div id="informes-aux-data"><div style="text-align:center;padding:32px;color:#6b7280">Selecciona una cuenta</div></div>';
-  try { const res = await authFetch(`${API_URL}/accounts`); const accounts = await res.json(); const sel = document.getElementById('informes-aux-select'); const sorted = accounts.filter(a => a.code.split('.').length >= 2).sort((a,b) => a.code.localeCompare(b.code, undefined, {numeric:true})); if (sel) sorted.forEach(a => { sel.innerHTML += `<option value="${a.id}">${a.code} — ${a.name}</option>`; }); } catch(e) {}
+  try { const res = await authFetch(`${API_URL}/accounts`); const accounts = await res.json(); const sel = document.getElementById('informes-aux-select'); const sorted = detailAccounts(accounts); if (sel) sorted.forEach(a => { sel.innerHTML += `<option value="${a.id}">${a.code} — ${a.name}</option>`; }); } catch(e) {}
 }
 async function loadAuxiliarData() {
   const id = document.getElementById('informes-aux-select')?.value;
@@ -220,7 +220,7 @@ async function loadAuxiliarData() {
     const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
     el.innerHTML = `<div style="margin-bottom:8px;font-weight:600">${d.account.code} — ${d.account.name}</div>` +
       buildInformesTable(['Fecha','Detalle','Débito','Crédito','Saldo'],
-        d.detail.map(e => [new Date(e.date).toLocaleDateString('es-PA'), escHtml(e.description||''), `<span style="color:#2e7d32">${fmt(e.debit||0)}</span>`, `<span style="color:#c62828">${fmt(e.credit||0)}</span>`, `<strong>${fmt(e.balance||0)}</strong>`]));
+        d.detail.map(e => [new Date(e.date).toLocaleDateString('es-PA'), escapeHtml(e.description||''), `<span style="color:#2e7d32">${fmt(e.debit||0)}</span>`, `<span style="color:#c62828">${fmt(e.credit||0)}</span>`, `<strong>${fmt(e.balance||0)}</strong>`]));
   } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; }
 }
 async function loadAuxCxC(el) {
@@ -234,7 +234,7 @@ async function loadAuxCxC(el) {
       `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Vencidas</div><div style="font-size:20px;font-weight:700;color:#ef4444">${sum.overdueInvoices}</div></div>`+
     '</div>';
     html += clients.filter(c => c.totalDue > 0).length
-      ? buildInformesTable(['Cliente','RUC','Pendiente','Facturas',''], clients.filter(c => c.totalDue > 0).map(c => [escHtml(c.name), escHtml(c.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${c.totalDue.toLocaleString()}</span>`, c.invoiceCount||'—', `<button onclick="toggleFacturas('${c.id}','invoices')" style="padding:4px 10px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📋 Ver</button><div id="detalle-${c.id}" class="hidden" style="margin-top:8px"></div>`]))
+      ? buildInformesTable(['Cliente','RUC','Pendiente','Facturas',''], clients.filter(c => c.totalDue > 0).map(c => [escapeHtml(c.name), escapeHtml(c.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${c.totalDue.toLocaleString()}</span>`, c.invoiceCount||'—', `<button onclick="toggleFacturas('${c.id}','invoices')" style="padding:4px 10px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📋 Ver</button><div id="detalle-${c.id}" class="hidden" style="margin-top:8px"></div>`]))
       : '<div style="text-align:center;padding:24px;color:#6b7280">Sin clientes con saldo pendiente</div>';
     el.innerHTML = html;
   } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; }
@@ -250,7 +250,7 @@ async function loadAuxCxP(el) {
       `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Vencidas</div><div style="font-size:20px;font-weight:700;color:#ef4444">${sum.overdueBills}</div></div>`+
     '</div>';
     html += supps.filter(s => s.totalOwed > 0).length
-      ? buildInformesTable(['Proveedor','RUC','Pendiente','Facturas',''], supps.filter(s => s.totalOwed > 0).map(s => [escHtml(s.name), escHtml(s.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${s.totalOwed.toLocaleString()}</span>`, s.billCount||'—', `<button onclick="toggleFacturas('${s.id}','bills')" style="padding:4px 10px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📋 Ver</button><div id="detalle-${s.id}" class="hidden" style="margin-top:8px"></div>`]))
+      ? buildInformesTable(['Proveedor','RUC','Pendiente','Facturas',''], supps.filter(s => s.totalOwed > 0).map(s => [escapeHtml(s.name), escapeHtml(s.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${s.totalOwed.toLocaleString()}</span>`, s.billCount||'—', `<button onclick="toggleFacturas('${s.id}','bills')" style="padding:4px 10px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📋 Ver</button><div id="detalle-${s.id}" class="hidden" style="margin-top:8px"></div>`]))
       : '<div style="text-align:center;padding:24px;color:#6b7280">Sin proveedores con saldo pendiente</div>';
     el.innerHTML = html;
   } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; }

@@ -1,3 +1,4 @@
+// capture-qr.js (3/14) — QR, finalización de capturas y escapeHtml
 /* ── QR Scanner ── */
 let qrScannerInstance = null;
 
@@ -124,117 +125,76 @@ async function processQRUrl() {
   }
 }
 
-async function sendQRResult() {
-  if (!qrData) return;
-  const data = qrData;
-  const provider = document.getElementById('qr-edit-provider')?.value?.trim() || data.provider || '';
-  const ruc = document.getElementById('qr-edit-ruc')?.value?.trim() || data.ruc || '';
-  const invoiceNumber = document.getElementById('qr-edit-invoice')?.value?.trim() || data.invoiceNumber || '';
-  const date = document.getElementById('qr-edit-date')?.value || data.date || '';
-  const total = parseFloat(document.getElementById('qr-edit-total')?.value) || data.total || 0;
-  const subtotal = parseFloat(document.getElementById('qr-edit-subtotal')?.value) || data.subtotal || null;
-  const itbms = parseFloat(document.getElementById('qr-edit-itbms')?.value) || data.itbms || null;
-  const text = document.getElementById('qr-edit-text')?.value?.trim() || data.text || '';
+// Colección de campos editables por prefijo de id (qr- / pdf-) + valores del dato extraído
+function collectEditFields(prefix, data) {
+  return {
+    provider: document.getElementById(`${prefix}-edit-provider`)?.value?.trim() || data.provider || '',
+    ruc: document.getElementById(`${prefix}-edit-ruc`)?.value?.trim() || data.ruc || '',
+    invoiceNumber: document.getElementById(`${prefix}-edit-invoice`)?.value?.trim() || data.invoiceNumber || '',
+    date: document.getElementById(`${prefix}-edit-date`)?.value || data.date || '',
+    total: parseFloat(document.getElementById(`${prefix}-edit-total`)?.value) || data.total || 0,
+    subtotal: parseFloat(document.getElementById(`${prefix}-edit-subtotal`)?.value) || data.subtotal || null,
+    itbms: parseFloat(document.getElementById(`${prefix}-edit-itbms`)?.value) || data.itbms || null,
+  };
+}
 
-  qrData = null;
-
-  const hasItbms = itbms != null && itbms > 0;
+// Finaliza un flujo de captura (QR o PDF): valida fecha, arma contexto y mensaje, y envía al chat
+async function finalizeCapture(prefix, data) {
+  const f = collectEditFields(prefix, data);
+  const hasItbms = f.itbms != null && f.itbms > 0;
 
   // Validar rango de año: si la fecha está fuera de rango, usar la del datepicker
-  let finalDate = date || null;
+  let finalDate = f.date || null;
   if (finalDate && !isDateInRange(finalDate)) {
     finalDate = captureDate;
-    toggleDateWarning(document.getElementById('qr-edit-date'), date);
+    toggleDateWarning(document.getElementById(`${prefix}-edit-date`), f.date);
   }
 
   dialogContext = {
     type: 'GASTO',
     source: 'pdf',
-    amount: total,
-    provider: provider,
+    amount: f.total,
+    provider: f.provider,
     date: finalDate,
     itbms: hasItbms,
-    itbmsAmount: itbms,
-    invoiceNumber: invoiceNumber,
+    itbmsAmount: f.itbms,
+    invoiceNumber: f.invoiceNumber,
     concept: data.concept || null,
-    ruc: ruc,
+    ruc: f.ruc,
   };
 
-  let message = '';
   const conceptLabel = (dialogContext.concept && dialogContext.concept !== 'Gastos Varios') ? dialogContext.concept : 'productos';
-  if (provider) message += `Compré ${conceptLabel} en ${provider}`;
-  else message += `Compré ${conceptLabel}`;
-  if (total) message += ` por $${total}`;
-  if (ruc) message += ` RUC ${ruc}`;
-  if (invoiceNumber) message += `, factura ${invoiceNumber}`;
-  if (hasItbms && subtotal) message += ` (subtotal $${subtotal}, ITBMS $${itbms})`;
+  let message = f.provider ? `Compré ${conceptLabel} en ${f.provider}` : `Compré ${conceptLabel}`;
+  if (f.total) message += ` por $${f.total}`;
+  if (f.ruc) message += ` RUC ${f.ruc}`;
+  if (f.invoiceNumber) message += `, factura ${f.invoiceNumber}`;
+  if (hasItbms && f.subtotal) message += ` (subtotal $${f.subtotal}, ITBMS $${f.itbms})`;
 
-  document.getElementById('qr-result').classList.add('hidden');
-  document.getElementById('qr-upload').classList.add('hidden');
+  document.getElementById(`${prefix}-result`).classList.add('hidden');
+  document.getElementById(`${prefix}-upload`).classList.add('hidden');
   document.getElementById('quick-actions').classList.remove('hidden');
 
   const input = document.getElementById('message-input');
   input.value = message;
   await sendMessage();
+}
+
+async function sendQRResult() {
+  if (!qrData) return;
+  const data = qrData;
+  qrData = null;
+  await finalizeCapture('qr', data);
 }
 
 async function sendPDFResult() {
   if (!pdfData) return;
   const data = pdfData;
-  const provider = document.getElementById('pdf-edit-provider')?.value?.trim() || data.provider || '';
-  const ruc = document.getElementById('pdf-edit-ruc')?.value?.trim() || data.ruc || '';
-  const invoiceNumber = document.getElementById('pdf-edit-invoice')?.value?.trim() || data.invoiceNumber || '';
-  const date = document.getElementById('pdf-edit-date')?.value || data.date || '';
-  const total = parseFloat(document.getElementById('pdf-edit-total')?.value) || data.total || 0;
-  const subtotal = parseFloat(document.getElementById('pdf-edit-subtotal')?.value) || data.subtotal || null;
-  const itbms = parseFloat(document.getElementById('pdf-edit-itbms')?.value) || data.itbms || null;
-  const text = document.getElementById('pdf-edit-text')?.value?.trim() || data.text || '';
-
   pdfData = null;
-
-  const hasItbms = itbms != null && itbms > 0;
-
-  // Validar rango de año: si la fecha está fuera de rango, usar la del datepicker
-  let finalDate = date || null;
-  if (finalDate && !isDateInRange(finalDate)) {
-    finalDate = captureDate;
-    toggleDateWarning(document.getElementById('pdf-edit-date'), date);
-  }
-
-  dialogContext = {
-    type: 'GASTO',
-    source: 'pdf',
-    amount: total,
-    provider: provider,
-    date: finalDate,
-    itbms: hasItbms,
-    itbmsAmount: itbms,
-    invoiceNumber: invoiceNumber,
-    concept: data.concept || null,
-    ruc: ruc,
-  };
-
-  let message = '';
-  const conceptLabel = (dialogContext.concept && dialogContext.concept !== 'Gastos Varios') ? dialogContext.concept : 'productos';
-  if (provider) message += `Compré ${conceptLabel} en ${provider}`;
-  else message += `Compré ${conceptLabel}`;
-  if (total) message += ` por $${total}`;
-  if (ruc) message += ` RUC ${ruc}`;
-  if (invoiceNumber) message += `, factura ${invoiceNumber}`;
-  if (hasItbms && subtotal) message += ` (subtotal $${subtotal}, ITBMS $${itbms})`;
-
-  document.getElementById('pdf-result').classList.add('hidden');
-  document.getElementById('pdf-upload').classList.add('hidden');
-  document.getElementById('quick-actions').classList.remove('hidden');
-
-  const input = document.getElementById('message-input');
-  input.value = message;
-  await sendMessage();
+  await finalizeCapture('pdf', data);
 }
 
+// Escapado único para HTML (texto y atributos): & < > " '
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 

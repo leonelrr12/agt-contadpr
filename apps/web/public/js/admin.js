@@ -1,3 +1,4 @@
+// admin.js (7/14) — CRUD de cuentas/conceptos y configuración
 /* ── Administración: Cuentas Contables ── */
 let cuentasCache = [];
 
@@ -8,39 +9,9 @@ async function loadPanelCuentasAdmin() {
     cuentasCache = await res.json();
     if (!cuentasCache.length) { el.innerHTML = '<div class="empty">No hay cuentas registradas</div>'; return; }
     document.getElementById('cuentas-admin-count').textContent = `${cuentasCache.length} cuentas`;
-
-    const tipos = ['ACTIVO', 'PASIVO', 'PATRIMONIO', 'INGRESO', 'COSTO', 'GASTO'];
-    const colores = { ACTIVO: '#1565c0', PASIVO: '#e65100', PATRIMONIO: '#6a1b9a', INGRESO: '#2e7d32', COSTO: '#c62828', GASTO: '#d84315' };
-    const labels = { ACTIVO: 'Activos', PASIVO: 'Pasivos', PATRIMONIO: 'Patrimonio', INGRESO: 'Ingresos', COSTO: 'Costos', GASTO: 'Gastos' };
-
-    let html = '';
-    for (const tipo of tipos) {
-      const filtradas = cuentasCache.filter(c => c.type === tipo && !c.parentId);
-      if (!filtradas.length) continue;
-      html += `<div class="cuenta-grupo"><div class="cuenta-tipo" style="background:${colores[tipo]}">${labels[tipo]}</div>`;
-      for (const root of filtradas) {
-        html += buildCuentaAdminTree(root, cuentasCache);
-      }
-      html += '</div>';
-    }
-    el.innerHTML = html;
+    // Árbol y mapas compartidos con el catálogo (panels.js)
+    renderCuentaGroups(el, cuentasCache, true);
   } catch (e) { el.innerHTML = '<div class="empty">Error al cargar cuentas</div>'; }
-}
-
-function buildCuentaAdminTree(account, all, depth = 0) {
-  const children = all.filter(c => c.parentId === account.id);
-  const inactiveClass = !account.isActive ? ' style="opacity:0.5"' : '';
-  let html = `<div class="cuenta-row" style="padding-left:${depth * 20 + 8}px"${inactiveClass}>
-    <span class="cuenta-code">${account.code}</span>
-    <span class="cuenta-name">${account.name}${!account.isActive ? ' (inactiva)' : ''}</span>
-    <span class="cuenta-actions">
-      <button onclick="editCuenta('${account.id}')" class="btn-sm" title="Editar">✏️</button>
-    </span>
-  </div>`;
-  for (const child of children) {
-    html += buildCuentaAdminTree(child, all, depth + 1);
-  }
-  return html;
 }
 
 function showCrearCuenta() {

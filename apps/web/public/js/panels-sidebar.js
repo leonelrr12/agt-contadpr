@@ -1,3 +1,4 @@
+// panels-sidebar.js (9/14) — auxiliar, recurrentes y vinculación WhatsApp
 // ── Auxiliar de Cuenta ──
 let _auxiliarAccounts = [];
 
@@ -6,12 +7,7 @@ async function loadAuxiliarAccounts() {
     const res = await authFetch(`${API_URL}/accounts`);
     if (!res || !res.ok) return;
     const accounts = await res.json();
-    _auxiliarAccounts = accounts.filter(a => {
-      // Solo cuentas de detalle (las que tienen hijos normalmente, o las de movimiento)
-      const code = a.code;
-      const parts = code.split('.');
-      return parts.length >= 2; // excluir cuentas raíz (1, 2, 3, 4, 5, 6)
-    }).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+    _auxiliarAccounts = detailAccounts(accounts);
 
     const sel = document.getElementById('auxiliar-account');
     if (!sel) return;
@@ -73,7 +69,7 @@ async function loadAuxiliar() {
             ${data.detail.map(d => `
               <tr style="border-bottom:1px solid #f0f0f0">
                 <td style="padding:8px 12px;white-space:nowrap">${new Date(d.date).toLocaleDateString('es-PA')}</td>
-                <td style="padding:8px 12px;max-width:300px;overflow:hidden;text-overflow:ellipsis" title="${escHtml(d.description)}">${escHtml(d.description?.substring(0, 80) || '')}</td>
+                <td style="padding:8px 12px;max-width:300px;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(d.description)}">${escapeHtml(d.description?.substring(0, 80) || '')}</td>
                 <td style="text-align:right;padding:8px 12px;white-space:nowrap">${fmt(d.debit)}</td>
                 <td style="text-align:right;padding:8px 12px;white-space:nowrap">${fmt(d.credit)}</td>
                 <td style="text-align:right;padding:8px 12px;white-space:nowrap;font-weight:600;color:${d.balance >= 0 ? '#065f46' : '#991b1b'}">${fmt(d.balance)}</td>
@@ -136,7 +132,7 @@ async function exportAuxiliar() {
   }
 }
 
-function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// escHtml consolidado en escapeHtml (capture-qr.js) — único helper de escape
 
 // ── Recurring Transactions Panel ──
 let editingRecurringId = null;
@@ -179,8 +175,8 @@ async function loadPanelRecurring() {
         html += `<div data-recurring-id="${t.id}" style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px">
           <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">
             <div>
-              <strong style="font-size:15px">${escHtml(t.description)}</strong>
-              <div style="font-size:13px;color:#6b7280;margin-top:2px">${escHtml(t.concept || '')} • ${freqLabel} • $${t.amount.toFixed(2)}</div>
+              <strong style="font-size:15px">${escapeHtml(t.description)}</strong>
+              <div style="font-size:13px;color:#6b7280;margin-top:2px">${escapeHtml(t.concept || '')} • ${freqLabel} • $${t.amount.toFixed(2)}</div>
             </div>
             ${activeBadge}
           </div>
@@ -209,9 +205,9 @@ function recurringFormHTML(title, values = {}) {
   return `<div class="recurring-inline-form" style="background:#f8fafc;border:1px solid #bfdbfe;border-radius:10px;padding:18px;margin-top:12px">
     <h4 style="margin:0 0 12px 0;font-size:15px;color:#1a1a2e">${title}</h4>
     <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div style="grid-column:1/-1"><label style="font-size:12px;color:#6b7280">Descripción</label><input id="rec-desc" value="${escHtml(values.description||'')}" placeholder="Ej: Alquiler oficina" style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px"></div>
+      <div style="grid-column:1/-1"><label style="font-size:12px;color:#6b7280">Descripción</label><input id="rec-desc" value="${escapeHtml(values.description||'')}" placeholder="Ej: Alquiler oficina" style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px"></div>
       <div><label style="font-size:12px;color:#6b7280">Monto</label><input id="rec-amount" type="number" step="0.01" value="${values.amount||''}" placeholder="0.00" style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px"></div>
-      <div><label style="font-size:12px;color:#6b7280">Concepto</label><input id="rec-concept" value="${escHtml(values.concept||'')}" placeholder="Opcional" style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px"></div>
+      <div><label style="font-size:12px;color:#6b7280">Concepto</label><input id="rec-concept" value="${escapeHtml(values.concept||'')}" placeholder="Opcional" style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px"></div>
       <div><label style="font-size:12px;color:#6b7280">Tipo</label><select id="rec-type" style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px">
         <option value="GASTO" ${values.type==='GASTO'?'selected':''}>Gasto</option><option value="INGRESO" ${values.type==='INGRESO'?'selected':''}>Ingreso</option><option value="COMPRA" ${values.type==='COMPRA'?'selected':''}>Compra</option><option value="VENTA" ${values.type==='VENTA'?'selected':''}>Venta</option></select></div>
       <div><label style="font-size:12px;color:#6b7280">Método de pago</label><select id="rec-payment" style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px">

@@ -1,3 +1,58 @@
+// entry-modals.js (12/14) — modales de edición/corrección de asientos
+/* ── Maquinaria compartida de líneas editables (edit/create de asientos) ── */
+// Expone en window: <ns>Lines, <ns>UpdateLine, <ns>RemoveLine, <ns>AddLine, <ns>UpdateBalance
+// para los onchange/onclick inline del modal. Retorna helpers para el flujo de guardado.
+function setupEntryLines({ tbody, balanceEl, saveBtn, activeAccounts, namespace, initialLines }) {
+  const lines = initialLines.slice();
+  if (lines.length < 2) lines.push({ accountId: '', debit: 0, credit: 0 });
+
+  function renderLines() {
+    tbody.innerHTML = lines.map((l, i) => `<tr>
+      <td style="padding:4px 4px">
+        <select onchange="${namespace}UpdateLine(${i},'accountId',this.value)" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;box-sizing:border-box">
+          <option value="">— Seleccionar cuenta —</option>
+          ${activeAccounts.map(a => `<option value="${a.id}" ${a.id === l.accountId ? 'selected' : ''}>${escapeHtml(a.code)} — ${escapeHtml(a.name)}</option>`).join('')}
+        </select>
+      </td>
+      <td style="padding:4px 4px"><input type="number" step="0.01" min="0" value="${l.debit || ''}" onchange="${namespace}UpdateLine(${i},'debit',parseFloat(this.value)||0)" onfocus="if(this.value==='0')this.value=''" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;text-align:right;box-sizing:border-box"></td>
+      <td style="padding:4px 4px"><input type="number" step="0.01" min="0" value="${l.credit || ''}" onchange="${namespace}UpdateLine(${i},'credit',parseFloat(this.value)||0)" onfocus="if(this.value==='0')this.value=''" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;text-align:right;box-sizing:border-box"></td>
+      <td style="padding:4px 2px;text-align:center">${lines.length > 2 ? `<button onclick="${namespace}RemoveLine(${i})" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px" title="Eliminar línea">🗑️</button>` : ''}</td>
+    </tr>`).join('');
+    updateBalance();
+  }
+
+  function updateBalance() {
+    const totalDebit = lines.reduce((s, l) => s + (l.debit || 0), 0);
+    const totalCredit = lines.reduce((s, l) => s + (l.credit || 0), 0);
+    const diff = Math.abs(totalDebit - totalCredit);
+    const balanced = Math.round(diff * 100) === 0;
+    balanceEl.textContent = `Débito: $${totalDebit.toFixed(2)} · Crédito: $${totalCredit.toFixed(2)} · Diferencia: $${diff.toFixed(2)}`;
+    balanceEl.style.background = balanced ? '#ecfdf5' : '#fef2f2';
+    balanceEl.style.color = balanced ? '#059669' : '#dc2626';
+    saveBtn.disabled = !balanced;
+  }
+
+  window[namespace + 'Lines'] = lines;
+  window[namespace + 'UpdateBalance'] = updateBalance;
+  window[namespace + 'RenderLines'] = renderLines;
+  window[namespace + 'UpdateLine'] = function(i, field, value) {
+    window[namespace + 'Lines'][i][field] = value;
+    updateBalance();
+  };
+  window[namespace + 'RemoveLine'] = function(i) {
+    if (window[namespace + 'Lines'].length <= 2) return;
+    window[namespace + 'Lines'].splice(i, 1);
+    renderLines();
+  };
+  window[namespace + 'AddLine'] = function() {
+    window[namespace + 'Lines'].push({ accountId: '', debit: 0, credit: 0 });
+    renderLines();
+  };
+
+  renderLines();
+  return { lines, renderLines, updateBalance };
+}
+
 /* ── Modal: Editar Asiento (solo admin) ── */
 async function showEditEntryModal(entryId) {
   // Cargar entry completo
@@ -34,7 +89,7 @@ async function showEditEntryModal(entryId) {
       </div>
       <div style="flex:2;min-width:250px">
         <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Descripción</label>
-        <input id="edit-entry-desc" type="text" value="${escHtml(entry.description||'')}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box">
+        <input id="edit-entry-desc" type="text" value="${escapeHtml(entry.description||'')}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box">
       </div>
     </div>
 
@@ -67,62 +122,19 @@ async function showEditEntryModal(entryId) {
   const saveBtn = overlay.querySelector('#edit-entry-save');
   const cancelBtn = overlay.querySelector('#edit-entry-cancel');
 
-  // Datos vivos (se mutan)
-  let editLines = (entry.lines || []).map(l => ({
-    accountId: l.accountId,
-    debit: l.debit || 0,
-    credit: l.credit || 0,
-  }));
-
-  // Mínimo 2 líneas
-  if (editLines.length < 2) {
-    editLines.push({ accountId: '', debit: 0, credit: 0 });
-  }
-
-  function renderLines() {
-    tbody.innerHTML = editLines.map((l, i) => `<tr>
-      <td style="padding:4px 4px">
-        <select onchange="editEntryUpdateLine(${i},'accountId',this.value)" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;box-sizing:border-box">
-          <option value="">— Seleccionar cuenta —</option>
-          ${activeAccounts.map(a => `<option value="${a.id}" ${a.id === l.accountId ? 'selected' : ''}>${escHtml(a.code)} — ${escHtml(a.name)}</option>`).join('')}
-        </select>
-      </td>
-      <td style="padding:4px 4px"><input type="number" step="0.01" min="0" value="${l.debit || ''}" onchange="editEntryUpdateLine(${i},'debit',parseFloat(this.value)||0)" onfocus="if(this.value==='0')this.value=''" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;text-align:right;box-sizing:border-box"></td>
-      <td style="padding:4px 4px"><input type="number" step="0.01" min="0" value="${l.credit || ''}" onchange="editEntryUpdateLine(${i},'credit',parseFloat(this.value)||0)" onfocus="if(this.value==='0')this.value=''" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;text-align:right;box-sizing:border-box"></td>
-      <td style="padding:4px 2px;text-align:center">${editLines.length > 2 ? `<button onclick="editEntryRemoveLine(${i})" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px" title="Eliminar línea">🗑️</button>` : ''}</td>
-    </tr>`).join('');
-    updateEditBalance();
-  }
-
-  window.editEntryLines = editLines;
-  window.editEntryUpdateBalance = updateEditBalance;
-  window.editEntryRenderLines = renderLines;
-  window.editEntryUpdateLine = function(i, field, value) {
-    window.editEntryLines[i][field] = value;
-    window.editEntryUpdateBalance();
-  };
-  window.editEntryRemoveLine = function(i) {
-    if (window.editEntryLines.length <= 2) return;
-    window.editEntryLines.splice(i, 1);
-    window.editEntryRenderLines();
-  };
-  window.editEntryAddLine = function() {
-    window.editEntryLines.push({ accountId: '', debit: 0, credit: 0 });
-    window.editEntryRenderLines();
-  };
-
-  function updateEditBalance() {
-    const totalDebit = window.editEntryLines.reduce((s, l) => s + (l.debit || 0), 0);
-    const totalCredit = window.editEntryLines.reduce((s, l) => s + (l.credit || 0), 0);
-    const diff = Math.abs(totalDebit - totalCredit);
-    const balanced = Math.round(diff * 100) === 0;
-    balanceEl.textContent = `Débito: $${totalDebit.toFixed(2)} · Crédito: $${totalCredit.toFixed(2)} · Diferencia: $${diff.toFixed(2)}`;
-    balanceEl.style.background = balanced ? '#ecfdf5' : '#fef2f2';
-    balanceEl.style.color = balanced ? '#059669' : '#dc2626';
-    saveBtn.disabled = !balanced;
-  }
-
-  renderLines();
+  // Datos vivos (se mutan) — maquinaria compartida con el modal de corrección
+  setupEntryLines({
+    tbody,
+    balanceEl,
+    saveBtn,
+    activeAccounts,
+    namespace: 'editEntry',
+    initialLines: (entry.lines || []).map(l => ({
+      accountId: l.accountId,
+      debit: l.debit || 0,
+      credit: l.credit || 0,
+    })),
+  });
 
   // Eventos
   cancelBtn.onclick = () => overlay.remove();
@@ -222,7 +234,7 @@ async function showCreateEntryModal(originalEntry, originalEntryId) {
       </div>
       <div style="flex:2;min-width:250px">
         <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Descripción</label>
-        <input id="create-entry-desc" type="text" value="${escHtml(desc)}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box">
+        <input id="create-entry-desc" type="text" value="${escapeHtml(desc)}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box">
       </div>
     </div>
 
@@ -253,46 +265,19 @@ async function showCreateEntryModal(originalEntry, originalEntryId) {
   const balanceEl = overlay.querySelector('#create-entry-balance');
   const saveBtn = overlay.querySelector('#create-entry-save');
 
-  // Datos vivos
-  let createLines = (originalEntry.lines || []).map(l => ({
-    accountId: l.accountId,
-    debit: l.debit || 0,
-    credit: l.credit || 0,
-  }));
-  if (createLines.length < 2) createLines.push({ accountId: '', debit: 0, credit: 0 });
-
-  function renderLines() {
-    tbody.innerHTML = createLines.map((l, i) => `<tr>
-      <td style="padding:4px 4px">
-        <select onchange="window.createEntryUpdateLine(${i},'accountId',this.value)" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;box-sizing:border-box">
-          <option value="">— Seleccionar cuenta —</option>
-          ${activeAccounts.map(a => `<option value="${a.id}" ${a.id === l.accountId ? 'selected' : ''}>${escHtml(a.code)} — ${escHtml(a.name)}</option>`).join('')}
-        </select>
-      </td>
-      <td style="padding:4px 4px"><input type="number" step="0.01" min="0" value="${l.debit || ''}" onchange="window.createEntryUpdateLine(${i},'debit',parseFloat(this.value)||0)" onfocus="if(this.value==='0')this.value=''" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;text-align:right;box-sizing:border-box"></td>
-      <td style="padding:4px 4px"><input type="number" step="0.01" min="0" value="${l.credit || ''}" onchange="window.createEntryUpdateLine(${i},'credit',parseFloat(this.value)||0)" onfocus="if(this.value==='0')this.value=''" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;text-align:right;box-sizing:border-box"></td>
-      <td style="padding:4px 2px;text-align:center">${createLines.length > 2 ? `<button onclick="window.createEntryRemoveLine(${i})" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px" title="Eliminar línea">🗑️</button>` : ''}</td>
-    </tr>`).join('');
-    updateCreateBalance();
-  }
-
-  window.createEntryLines = createLines;
-  window.createEntryUpdateLine = function(i, field, value) { window.createEntryLines[i][field] = value; updateCreateBalance(); };
-  window.createEntryRemoveLine = function(i) { if (window.createEntryLines.length <= 2) return; window.createEntryLines.splice(i, 1); renderLines(); };
-  window.createEntryAddLine = function() { window.createEntryLines.push({ accountId: '', debit: 0, credit: 0 }); renderLines(); };
-
-  function updateCreateBalance() {
-    const totalDebit = window.createEntryLines.reduce((s, l) => s + (l.debit || 0), 0);
-    const totalCredit = window.createEntryLines.reduce((s, l) => s + (l.credit || 0), 0);
-    const diff = Math.abs(totalDebit - totalCredit);
-    const balanced = Math.round(diff * 100) === 0;
-    balanceEl.textContent = `Débito: $${totalDebit.toFixed(2)} · Crédito: $${totalCredit.toFixed(2)} · Diferencia: $${diff.toFixed(2)}`;
-    balanceEl.style.background = balanced ? '#ecfdf5' : '#fef2f2';
-    balanceEl.style.color = balanced ? '#059669' : '#dc2626';
-    saveBtn.disabled = !balanced;
-  }
-
-  renderLines();
+  // Datos vivos — maquinaria compartida con el modal de edición
+  setupEntryLines({
+    tbody,
+    balanceEl,
+    saveBtn,
+    activeAccounts,
+    namespace: 'createEntry',
+    initialLines: (originalEntry.lines || []).map(l => ({
+      accountId: l.accountId,
+      debit: l.debit || 0,
+      credit: l.credit || 0,
+    })),
+  });
 
   overlay.querySelector('#create-entry-cancel').onclick = () => overlay.remove();
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });

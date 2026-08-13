@@ -1,3 +1,4 @@
+// core.js (1/14) — auth, dialogs, estado de captura, utilidades compartidas
 const API_URL = '/api';
 
 // ── Auth ──
@@ -170,6 +171,20 @@ function showDateBanner() {
 function dismissDateBanner() {
   const banner = document.getElementById('capture-date-banner');
   if (banner) banner.classList.add('hidden');
+}
+
+// Tag de estado único para asientos (diario, informes, revisión)
+function statusTag(status, reviewNotes = '') {
+  const classes = { BORRADOR: 'tag-draft', CONFIRMADO: 'tag-conf', RECHAZADO: 'tag-rejected', ANULADO: 'tag-void' };
+  const title = status === 'RECHAZADO' && reviewNotes ? ` title="${escapeHtml(reviewNotes)}"` : '';
+  return `<span class="tag ${classes[status] || ''}"${title}>${status}</span>`;
+}
+
+// Cuentas de detalle (excluye raíces) ordenadas por código numérico — compartido auxiliar/informes
+function detailAccounts(accounts) {
+  return (accounts || [])
+    .filter(a => a.code.split('.').length >= 2)
+    .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
 }
 let pendingClassification = null;
 

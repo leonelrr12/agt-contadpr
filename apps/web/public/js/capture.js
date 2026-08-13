@@ -1,3 +1,4 @@
+// capture.js (2/14) — captura OCR, PDF y menú DGI
 /* ── OCR / Factura ── */
 function openCamera() {
   document.getElementById('ocr-camera-input').click();
