@@ -41,7 +41,8 @@ module.exports = {
       APP_HOST: process.env.APP_HOST || 'http://147.93.145.67:3001',
       WA_BOT_PHONE: process.env.WA_BOT_PHONE || '+507 6403-4863',
       MAILER_API_URL: process.env.MAILER_API_URL || 'http://localhost:3004',
-      MAILER_API_KEY: process.env.MAILER_API_KEY || '',
+      // MAILER_API_KEY se carga vía dotenv desde .env (no en el bloque env:
+      // PM2 congela aquí valores viejos y dotenv no sobreescribe vars existentes)
       APP_URL: process.env.APP_URL || 'https://contador507.com',
     },
   }],
