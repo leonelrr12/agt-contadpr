@@ -51,6 +51,16 @@ async function loadTaxCalendarInline() {
     }
 
     let html = '';
+    if (data.saldoITBMS != null) {
+      html += `<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
+        <div style="font-size:24px">🧾</div>
+        <div style="flex:1">
+          <div style="font-size:12px;color:#0369a1;font-weight:600">Saldo acumulado de ITBMS por pagar</div>
+          <div style="font-size:18px;font-weight:700;color:${data.saldoITBMS > 0 ? '#b45309' : '#059669'}">$${data.saldoITBMS.toFixed(2)}</div>
+        </div>
+        ${data.saldoITBMS > 0 ? '<div style="font-size:11px;color:#6b7280;text-align:right">Ventas − compras − pagos parciales a DGI<br>sobre la cuenta 2.1.05</div>' : '<span style="font-size:12px;color:#059669;font-weight:600">✅ Al día</span>'}
+      </div>`;
+    }
     if (overdue.length) {
       html += `<div style="margin-bottom:20px"><h3 style="font-size:15px;color:#dc2626;margin:0 0 10px 0">🔴 Vencidas (${overdue.length})</h3>`;
       html += overdue.map(o => renderCard(o, true)).join('');

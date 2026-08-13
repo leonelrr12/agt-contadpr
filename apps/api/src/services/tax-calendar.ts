@@ -143,20 +143,19 @@ export async function generateUpcomingObligations(
 /**
  * Calcula el ITBMS estimado para un período mensual basado en transacciones registradas.
  */
-async function estimateITBMS(prisma: any, companyId: string, period: string): Promise<number> {
-  const [year, month] = period.split('-').map(Number);
-  const endDate = new Date(year, month, 0);
-
-  // ITBMS por pagar = saldo acumulado pendiente de la cuenta 2.1.05 (hasta el fin
-  // del período): créditos (ventas) - débitos (compras y pagos parciales a DGI).
-  // Refleja lo realmente adeudado, incluyendo períodos anteriores sin declarar.
+/**
+ * Saldo acumulado pendiente de la cuenta 2.1.05 (ITBMS por Pagar):
+ * créditos (ventas) - débitos (compras y pagos parciales a DGI), hasta la fecha dada.
+ * Refleja lo realmente adeudado, incluyendo períodos anteriores sin declarar.
+ */
+export async function getSaldoITBMS(prisma: any, companyId: string, upTo?: Date): Promise<number> {
   const lines = await prisma.journalLine.findMany({
     where: {
       account: { code: '2.1.05' }, // ITBMS por Pagar
       journalEntry: {
         companyId,
         status: 'CONFIRMADO',
-        date: { lte: endDate },
+        ...(upTo ? { date: { lte: upTo } } : {}),
       },
     },
   });
@@ -172,6 +171,12 @@ async function estimateITBMS(prisma: any, companyId: string, period: string): Pr
 
   const neto = itbmsVentas - itbmsCompras;
   return Math.max(0, Math.round(neto * 100) / 100);
+}
+
+async function estimateITBMS(prisma: any, companyId: string, period: string): Promise<number> {
+  const [year, month] = period.split('-').map(Number);
+  const endDate = new Date(year, month, 0);
+  return getSaldoITBMS(prisma, companyId, endDate);
 }
 
 /**
@@ -209,6 +214,7 @@ export async function getTaxCalendarSummary(prisma: any, companyId: string) {
   return {
     upcoming,
     overdue,
+    saldoITBMS: await getSaldoITBMS(prisma, companyId),
     stats: { completed, total, upcoming: upcoming.length, overdue: overdue.length },
     nextDeadline: upcoming.length > 0 ? upcoming[0] : null,
   };
