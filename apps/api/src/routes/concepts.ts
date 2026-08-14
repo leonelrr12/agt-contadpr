@@ -14,7 +14,7 @@ conceptsRouter.get('/', async (req, res) => {
   res.json(concepts);
 });
 
-conceptsRouter.post('/', requireRole('admin'), validate(createConceptSchema), async (req, res) => {
+conceptsRouter.post('/', requireRole('admin', 'superadmin'), validate(createConceptSchema), async (req, res) => {
   const { name, accountId } = req.body;
   const concept = await req.prisma.concept.create({
     data: { name, accountId, companyId: req.user!.companyId },
@@ -23,7 +23,7 @@ conceptsRouter.post('/', requireRole('admin'), validate(createConceptSchema), as
   res.status(201).json(concept);
 });
 
-conceptsRouter.put('/:id', requireRole('admin'), validate(updateConceptSchema), async (req, res) => {
+conceptsRouter.put('/:id', requireRole('admin', 'superadmin'), validate(updateConceptSchema), async (req, res) => {
   const { name, accountId, isActive } = req.body;
   const concept = await req.prisma.concept.update({
     where: { id: req.params.id },

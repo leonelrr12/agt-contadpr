@@ -47,12 +47,12 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('sidebar-user-name').textContent = user.name;
     document.getElementById('sidebar-user-company').textContent = user.company?.name || '';
 
-    // Mostrar admin solo a admins y contadores
-    if (user.role === 'admin' || user.role === 'contador') {
+    // Mostrar panel de administración solo a admins/contadores de la empresa
+    if (user.role === 'admin' || user.role === 'contador' || user.role === 'superadmin') {
       document.getElementById('nav-admin-link').style.display = 'block';
     }
-    // SaaS Admin solo para admin
-    if (user.role === 'admin') {
+    // SaaS Admin (control de accesos) SOLO para el dueño de la plataforma
+    if (user.role === 'superadmin') {
       document.getElementById('nav-saas-link').style.display = 'block';
     }
   }

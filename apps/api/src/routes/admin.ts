@@ -3,8 +3,9 @@ import { requireRole } from '../middleware/auth';
 
 export const adminRouter = Router();
 
-// Todas las rutas requieren rol admin
-adminRouter.use(requireRole('admin'));
+// Panel SaaS: SOLO el dueño de la plataforma (superadmin).
+// El rol 'admin' es de ámbito empresa y NO tiene acceso aquí.
+adminRouter.use(requireRole('superadmin'));
 
 // ── Dashboard de administración ──
 

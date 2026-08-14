@@ -40,7 +40,7 @@ journalRouter.get('/pendientes', async (req, res) => {
   res.json(result);
 });
 
-journalRouter.post('/:id/review', requireRole('admin', 'contador'), validate(reviewJournalSchema), async (req, res) => {
+journalRouter.post('/:id/review', requireRole('admin', 'contador', 'superadmin'), validate(reviewJournalSchema), async (req, res) => {
   const { action, notes } = req.body;
 
   try {
@@ -247,7 +247,7 @@ journalRouter.patch('/:id/status', validate(updateJournalStatusSchema), async (r
   res.json(updated);
 });
 
-journalRouter.post('/:id/anular', requireRole('admin', 'contador'), async (req, res) => {
+journalRouter.post('/:id/anular', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
   const entryId = req.params.id;
 
   try {
@@ -311,7 +311,7 @@ journalRouter.post('/:id/anular', requireRole('admin', 'contador'), async (req, 
 });
 
 // PUT /:id — Editar un asiento BORRADOR (solo admin)
-journalRouter.put('/:id', requireRole('admin'), validate(updateJournalEntrySchema), async (req, res) => {
+journalRouter.put('/:id', requireRole('admin', 'superadmin'), validate(updateJournalEntrySchema), async (req, res) => {
   const { date, description, lines } = req.body;
 
   try {

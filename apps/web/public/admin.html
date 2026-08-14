@@ -194,8 +194,8 @@ const API = '/api';
 
 // ── Init ──
 const user = getUser();
-if (!user || user.role !== 'admin') {
-  document.body.innerHTML = `<div style="text-align:center;padding:80px"><h2>Acceso denegado</h2><p>Solo administradores.</p><a href="/">Volver a la app</a></div>`;
+if (!user || user.role !== 'superadmin') {
+  document.body.innerHTML = `<div style="text-align:center;padding:80px"><h2>Acceso denegado</h2><p>Este panel es solo del administrador de la plataforma.</p><a href="/">Volver a la app</a></div>`;
 } else {
   document.getElementById('userInfo').textContent = `${user.name} (${user.email})`;
   loadStats();

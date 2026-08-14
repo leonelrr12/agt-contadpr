@@ -160,9 +160,9 @@ app.use('/api/recurring', recurringRouter);
 app.use('/api/reconcile', reconcileRouter);
 app.use('/api/tax-calendar', taxCalendarRouter);
 app.use('/api/salud', saludRouter);
-app.use('/api/config', requireRole('admin'), configRouter);
+app.use('/api/config', requireRole('admin', 'superadmin'), configRouter);
 app.use('/api/keys', apiKeysRouter);
-app.use('/api/admin', requireRole('admin'), adminRouter);
+app.use('/api/admin', requireRole('superadmin'), adminRouter);
 
 // ── 404 y manejo global de errores (siempre al final de la pila) ──
 app.use(notFoundHandler);

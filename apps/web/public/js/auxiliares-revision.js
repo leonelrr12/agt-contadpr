@@ -72,7 +72,7 @@ async function loadRevisionList() {
             ${lineasHtml}
           </div>
           <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
-            ${getUser()?.role === 'admin' ? `<button onclick="showEditEntryModal('${e.id}')" style="padding:6px 14px;font-size:12px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✏️ Editar</button>` : ''}
+            ${getUser()?.role === 'admin' || getUser()?.role === 'superadmin' ? `<button onclick="showEditEntryModal('${e.id}')" style="padding:6px 14px;font-size:12px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✏️ Editar</button>` : ''}
             <button onclick="reviewApprove('${e.id}')" style="padding:6px 14px;font-size:12px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✅ Aprobar</button>
             <button onclick="reviewReject('${e.id}')" style="padding:6px 14px;font-size:12px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">❌ Rechazar</button>
           </div>

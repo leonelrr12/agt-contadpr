@@ -686,7 +686,7 @@ async function handleBalanceQuery(prisma: any, companyId: string, text: string):
 }
 
 /** Verifica que el texto contenga al menos un verbo de transacción. */
-const TX_KEYWORDS = /\b(compr[éeoa]|compra|gast[éeoa]|gasto|ech[éeoa]|hech[oa]|vend[iíoa]|venta|almuer[cz]|cen[ae]|desayun[oa]|pagu[éeoa]|pago|cobr[éeoa]|cobro|factur[aeo]|recib[iíoa]|recibo|abon[éeoa]|deposit[éeoa]|transfer[ií]|transferencia|retir[éeoa]|retiro)\b/i;
+const TX_KEYWORDS = /\b(compr[éeoaó]|compra|gast[éeoaó]|gasto|ech[éeoaó]|hech[oa]|vend[iíoaó]|venta|alm(?:uer|or)[cz](?:e|o|é|ó)?|cen[aeoóé]|desayun[oaóé]|pagu[éeoaó]|pago|cobr[éeoaó]|cobro|factur[aeoé]|recib[iíoaó]|recibo|abon[éeoaó]|deposit[éeoaó]|transfer[ií]|transferencia|retir[éeoaó]|retiro)(?![\p{L}\p{N}_])/iu;
 
 function isTransactionText(text: string): boolean {
   return TX_KEYWORDS.test(text);

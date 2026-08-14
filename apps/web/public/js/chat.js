@@ -133,7 +133,7 @@ async function sendMessage() {
   }
 
   // Validar que el texto contenga un verbo de transacción
-  if (!/\b(compr[éeoa]|compra|gast[éeoa]|gasto|ech[éeoa]|hech[oa]|vend[iíoa]|venta|almuer[cz]|cen[ae]|desayun[oa]|pagu[éeoa]|pago|cobr[éeoa]|cobro|factur[aeo]|recib[iíoa]|recibo|abon[éeoa]|deposit[éeoa]|transfer[ií]|transferencia|retir[éeoa]|retiro)\b/i.test(text)) {
+  if (!/\b(compr[éeoaó]|compra|gast[éeoaó]|gasto|ech[éeoaó]|hech[oa]|vend[iíoaó]|venta|alm(?:uer|or)[cz](?:e|o|é|ó)?|cen[aeoóé]|desayun[oaóé]|pagu[éeoaó]|pago|cobr[éeoaó]|cobro|factur[aeoé]|recib[iíoaó]|recibo|abon[éeoaó]|deposit[éeoaó]|transfer[ií]|transferencia|retir[éeoaó]|retiro)(?![\p{L}\p{N}_])/iu.test(text)) {
     addMessage('📝 Usa un verbo para describir la transacción. Ejemplos:\n• "compré gasolina $40"\n• "pagué internet $65"\n• "vendí mercancía $100"', 'assistant');
     cancelInput();
     return;

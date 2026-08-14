@@ -117,7 +117,9 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 }
 
-type Role = 'admin' | 'contador' | 'asistente';
+// superadmin = dueño de la plataforma (AdminSaaS). Solo esa cuenta puede
+// ver/operar el panel SaaS. admin = administrador de UNA empresa (ámbito empresa).
+type Role = 'superadmin' | 'admin' | 'contador' | 'asistente';
 
 /**
  * Middleware que restringe acceso según roles permitidos.
