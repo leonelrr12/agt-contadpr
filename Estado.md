@@ -63,7 +63,7 @@ El MVP Fase 1 está **completo y funcional**. El sistema registra transacciones 
 
 ### 1.4 Secretos en el código ✅ COMPLETADO
 - ~~Credenciales de PostgreSQL en texto plano en docker-compose.yml.~~
-- **Implementado**: Variables `${DB_USER:-contador}`, `${DB_PASSWORD:-contador123}`, `${DB_NAME:-agt_contador}` en docker-compose.yml. `.env.example` con documentación de todas las variables requeridas.
+- **Implementado**: Variables `${DB_USER:-contador}`, `${DB_PASSWORD:-<password>}`, `${DB_NAME:-agt_contador}` en docker-compose.yml. `.env.example` con documentación de todas las variables requeridas.
 
 ### 1.5 Sin validación de entrada ✅ COMPLETADO
 - ~~Los endpoints aceptan cualquier JSON sin sanitizar (más allá del parseo de Express).~~

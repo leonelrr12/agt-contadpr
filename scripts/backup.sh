@@ -20,7 +20,7 @@ fi
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
 DB_USER="${DB_USER:-contador}"
-DB_PASSWORD="${DB_PASSWORD:-contador123}"
+DB_PASSWORD="${DB_PASSWORD:-$(grep -oP '(?<=://contador:)[^@]+' /root/apps/agt-contadpr/.env 2>/dev/null)}"
 DB_NAME="${DB_NAME:-agt_contador}"
 
 mkdir -p "$BACKUP_DIR"

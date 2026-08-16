@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:-contador}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-contador123}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD requerida}
       POSTGRES_DB: ${DB_NAME:-agt_contador}
     ports:
       - "5433:5432"
@@ -26,7 +26,7 @@ services:
     ports:
       - "3001:3001"
     environment:
-      DATABASE_URL: "postgresql://contador:contador123@db:5432/agt_contador?schema=public"
+      DATABASE_URL: "postgresql://contador:${DB_PASSWORD}@db:5432/agt_contador?schema=public"
       DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY}"
       PORT: 3001
       DB_HOST: db

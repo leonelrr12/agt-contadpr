@@ -29,7 +29,7 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       PORT: 3001,
-      DATABASE_URL: process.env.DATABASE_URL || 'postgresql://contador:contador123@localhost:5433/agt_contador?schema=public',
+      DATABASE_URL: process.env.DATABASE_URL || '',
       DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY || '',
       JWT_SECRET: process.env.JWT_SECRET || '',
       CORS_ORIGIN: process.env.CORS_ORIGIN || '',

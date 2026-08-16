@@ -14,3 +14,9 @@ backups/
 *.pub
 xxcc*
 
+# Seguridad: archivos con credenciales y documentos personales
+.env.save
+*.pdf
+*.xlsx
+*.jpeg
+*.jpg
