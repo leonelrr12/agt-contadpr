@@ -209,6 +209,10 @@ async function corregirEntry(entryId) {
 }
 
 async function showCreateEntryModal(originalEntry, originalEntryId) {
+  // originalEntry/originalEntryId opcionales: si se pasan es el flujo de
+  // CORRECCIÓN (reversión del original + nuevo BORRADOR). Sin argumentos,
+  // es el flujo de ASIENTO MANUAL (formulario en blanco → POST /api/journal).
+  const isCorrection = !!originalEntry;
   // Asegurar cuentas cargadas antes de renderizar
   if (!cuentasCache || !cuentasCache.length) {
     try {
@@ -219,13 +223,19 @@ async function showCreateEntryModal(originalEntry, originalEntryId) {
   const activeAccounts = (cuentasCache || []).filter(a => a.isActive).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
 
   const today = new Date().toISOString().split('T')[0];
-  const desc = `CORRECCIÓN: ${originalEntry.description || 'Sin descripción'}`;
+  const desc = isCorrection ? `CORRECCIÓN: ${originalEntry.description || 'Sin descripción'}` : '';
+  const modalTitle = isCorrection ? '✏️ Corregir Asiento' : '📝 Asiento Manual';
+  const modalSubtitle = isCorrection
+    ? 'El asiento original fue anulado. Crea la versión corregida como BORRADOR.'
+    : 'Crea un asiento contable manual. Quedará en BORRADOR para revisión y aprobación.';
+  const saveLabel = isCorrection ? 'Guardar como BORRADOR' : 'Guardar asiento';
+  const savingLabel = isCorrection ? 'Creando reversión...' : 'Guardando...';
 
   const overlay = document.createElement('div'); overlay.className = 'app-dialog-overlay';
   overlay.id = 'create-entry-overlay';
   overlay.innerHTML = `<div class="app-dialog" style="max-width:750px;max-height:90vh;overflow-y:auto">
-    <div style="font-weight:700;font-size:16px;margin-bottom:4px">✏️ Corregir Asiento</div>
-    <div style="font-size:12px;color:#6b7280;margin-bottom:16px">El asiento original fue anulado. Crea la versión corregida como BORRADOR.</div>
+    <div style="font-weight:700;font-size:16px;margin-bottom:4px">${modalTitle}</div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:16px">${modalSubtitle}</div>
 
     <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
       <div style="flex:1;min-width:180px">
@@ -256,7 +266,7 @@ async function showCreateEntryModal(originalEntry, originalEntryId) {
 
     <div class="app-dialog-buttons">
       <button class="app-dialog-btn secondary" id="create-entry-cancel">Cancelar</button>
-      <button class="app-dialog-btn primary" id="create-entry-save" disabled>Guardar como BORRADOR</button>
+      <button class="app-dialog-btn primary" id="create-entry-save" disabled>${saveLabel}</button>
     </div>
   </div>`;
   document.body.appendChild(overlay);
@@ -272,15 +282,22 @@ async function showCreateEntryModal(originalEntry, originalEntryId) {
     saveBtn,
     activeAccounts,
     namespace: 'createEntry',
-    initialLines: (originalEntry.lines || []).map(l => ({
+    initialLines: isCorrection ? (originalEntry.lines || []).map(l => ({
       accountId: l.accountId,
       debit: l.debit || 0,
       credit: l.credit || 0,
-    })),
+    })) : [],
   });
 
-  overlay.querySelector('#create-entry-cancel').onclick = () => overlay.remove();
-  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  // Bloquear la pantalla mientras el modal esté abierto: solo se cierra
+  // con Guardar o Cancelar (no por click fuera del modal ni scroll de fondo),
+  // para no perder lo que el usuario esté escribiendo.
+  document.body.style.overflow = 'hidden';
+  const closeModal = () => {
+    document.body.style.overflow = '';
+    overlay.remove();
+  };
+  overlay.querySelector('#create-entry-cancel').onclick = closeModal;
 
   saveBtn.onclick = async () => {
     const date = overlay.querySelector('#create-entry-date').value;
@@ -291,7 +308,7 @@ async function showCreateEntryModal(originalEntry, originalEntryId) {
     if (invalid) { await showAlert('Todas las líneas deben tener una cuenta asignada'); return; }
 
     saveBtn.disabled = true;
-    saveBtn.textContent = 'Creando reversión...';
+    saveBtn.textContent = savingLabel;
 
     try {
       // 1. Crear reversión del original (CONFIRMADO) — usa líneas ORIGINALES invertidas
@@ -315,7 +332,7 @@ async function showCreateEntryModal(originalEntry, originalEntryId) {
           const err = await revRes.json();
           await showAlert(`❌ ${err.error || 'Error al crear reversión'}`);
           saveBtn.disabled = false;
-          saveBtn.textContent = 'Guardar como BORRADOR';
+          saveBtn.textContent = saveLabel;
           return;
         }
         // Aprobar la reversión automáticamente
@@ -327,7 +344,7 @@ async function showCreateEntryModal(originalEntry, originalEntryId) {
         });
       }
 
-      saveBtn.textContent = 'Creando corrección...';
+      saveBtn.textContent = isCorrection ? 'Creando corrección...' : savingLabel;
 
       // 2. Crear el nuevo asiento corregido (BORRADOR) con referencia al original
       const refTag = originalEntryId ? ` [ref:${originalEntryId.slice(0,12)}]` : '';
@@ -345,15 +362,21 @@ async function showCreateEntryModal(originalEntry, originalEntryId) {
         }),
       });
       if (res.ok) {
-        overlay.remove();
-        await showAlert('✅ Asiento corregido creado como BORRADOR. Ve a Revisión para aprobarlo.');
-        // Recargar reporte diario actual
-        if (typeof loadReportDiario === 'function') loadReportDiario();
+        closeModal();
+        if (isCorrection) {
+          await showAlert('✅ Asiento corregido creado como BORRADOR. Ve a Revisión para aprobarlo.');
+          // Recargar reporte diario actual
+          if (typeof loadReportDiario === 'function') loadReportDiario();
+        } else {
+          await showAlert('✅ Asiento manual creado en BORRADOR. Apruebalo aquí en Revisión.');
+          // Refrescar la lista de pendientes para que aparezca el nuevo asiento
+          if (typeof loadRevisionList === 'function') loadRevisionList();
+        }
       } else {
         const err = await res.json();
         await showAlert(`❌ ${err.error || 'Error al crear el asiento'}`);
         saveBtn.disabled = false;
-        saveBtn.textContent = 'Guardar como BORRADOR';
+        saveBtn.textContent = saveLabel;
       }
     } catch (e) {
       await showAlert('Error de conexión');

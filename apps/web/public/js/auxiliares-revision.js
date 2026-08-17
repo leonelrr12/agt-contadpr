@@ -36,6 +36,10 @@ function loadPanelRevision() {
   document.getElementById('chat-messages').classList.add('hidden');
   document.getElementById('input-area').classList.add('hidden');
   document.getElementById('panel-revision-content').classList.remove('hidden');
+  // Asiento Manual: solo admin/superadmin (mismo criterio que ✏️ Editar)
+  const role = getUser()?.role;
+  const btnManual = document.getElementById('btn-asiento-manual');
+  if (btnManual) btnManual.style.display = (role === 'admin' || role === 'superadmin') ? 'inline-block' : 'none';
   loadRevisionList();
 }
 
