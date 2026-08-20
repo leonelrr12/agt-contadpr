@@ -41,6 +41,10 @@ async function handleWebhook(req: any, res: any): Promise<void> {
 
   const from = body.from;       // "50761234567"
   const chatId = body.chatId;   // "170527415103566@lid" — para enviar mensajes
+  // El @lid que envía el bot puede quedar obsoleto (reinstalación/recambio del
+  // número) y los envíos a él se pierden EN SILENCIO. Para responder siempre
+  // usamos el formato clásico número@c.us, que se entrega correctamente.
+  const replyChatId = from ? `${from}@c.us` : chatId;
   const sessionKey = from;      // número de teléfono — consistente como key de sesión
   // Compatible con OpenWA (body.body) y whatsapp-ai-bot (body.message)
   const msg = body.body || body.message || {};
@@ -49,7 +53,9 @@ async function handleWebhook(req: any, res: any): Promise<void> {
 
   // Solo procesar texto o imágenes
   const messageText = msg.text || msg.caption || '';
-  const isImage = msg.type === 'image';
+  // Los documentos con MIME de imagen (ej. QR enviado como "documento") se
+  // tratan como imagen: WhatsApp no los comprime y el QR llega a resolución completa.
+  const isImage = msg.type === 'image' || (msg.type === 'document' && (msg.mediaMime || '').startsWith('image/'));
   const isDocument = msg.type === 'document';
   const imageUrl = msg.mediaUrl || null;
   const hasMedia = isImage || isDocument;
@@ -75,16 +81,16 @@ async function handleWebhook(req: any, res: any): Promise<void> {
       include: { plan: true },
     });
     if (!sub) {
-      await sendWhatsAppMessage(chatId, '⚠️ No tienes una suscripción activa. Contrata un plan en contador507.com/planes');
+      await sendWhatsAppMessage(replyChatId,'⚠️ No tienes una suscripción activa. Contrata un plan en contador507.com/planes');
       return res.sendStatus(200);
     }
     if (new Date() > sub.periodEnd) {
       await req.prisma.subscription.update({ where: { id: sub.id }, data: { status: 'EXPIRED' } }).catch(() => {});
-      await sendWhatsAppMessage(chatId, '⚠️ Tu suscripción ha expirado. Renueva en contador507.com/planes');
+      await sendWhatsAppMessage(replyChatId,'⚠️ Tu suscripción ha expirado. Renueva en contador507.com/planes');
       return res.sendStatus(200);
     }
     if (sub.movementsUsed >= sub.movementsLimit) {
-      await sendWhatsAppMessage(chatId, `⚠️ Has alcanzado el límite de ${sub.movementsLimit} movimientos de tu plan *${sub.plan?.name || 'actual'}*. Espera la renovación o actualiza tu plan.`);
+      await sendWhatsAppMessage(replyChatId,`⚠️ Has alcanzado el límite de ${sub.movementsLimit} movimientos de tu plan *${sub.plan?.name || 'actual'}*. Espera la renovación o actualiza tu plan.`);
       return res.sendStatus(200);
     }
   }
@@ -96,28 +102,28 @@ async function handleWebhook(req: any, res: any): Promise<void> {
     // PDF: usar extractor de texto (más preciso que OCR de imagen)
     if (isPDF && mediaUrl) {
       const reply = await processWhatsAppPDF(req.prisma, from, sessionKey, mediaUrl);
-      if (reply) await sendWhatsAppMessage(chatId, reply);
+      if (reply) await sendWhatsAppMessage(replyChatId,reply);
       return res.sendStatus(200);
     }
 
     // Imagen: usar OCR
     if (isImage && imageUrl) {
       const reply = await processWhatsAppImage(req.prisma, from, sessionKey, imageUrl, messageText);
-      if (reply) await sendWhatsAppMessage(chatId, reply);
+      if (reply) await sendWhatsAppMessage(replyChatId,reply);
       return res.sendStatus(200);
     }
 
     if (hasMedia && !imageUrl) {
-      await sendWhatsAppMessage(chatId, '📷 No pude acceder al archivo. Describe la transacción: "compré gasolina $40 efectivo"');
+      await sendWhatsAppMessage(replyChatId,'📷 No pude acceder al archivo. Describe la transacción: "compré gasolina $40 efectivo"');
       return res.sendStatus(200);
     }
 
     const reply = await processWhatsAppMessage(req.prisma, from, sessionKey, messageText);
-    if (reply) await sendWhatsAppMessage(chatId, reply);
+    if (reply) await sendWhatsAppMessage(replyChatId,reply);
   } catch (err: any) {
     console.error('[WhatsApp] Webhook error:', err.message);
     try {
-      await sendWhatsAppMessage(chatId, '❌ Ocurrió un error. Intenta de nuevo más tarde.');
+      await sendWhatsAppMessage(replyChatId,'❌ Ocurrió un error. Intenta de nuevo más tarde.');
     } catch {}
   }
 

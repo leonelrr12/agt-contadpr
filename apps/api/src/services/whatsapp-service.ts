@@ -93,16 +93,63 @@ const CMD_RESET = /^(reiniciar|empezar de nuevo|nueva transacc[ió]on)$/i;
 
 /** Intenta decodificar un QR desde un buffer de imagen. Retorna la URL o null. */
 async function tryDecodeQR(buffer: Buffer): Promise<string | null> {
-  try {
-    const { data, info } = await sharp(buffer)
+  const scan = async (buf: Buffer): Promise<string | null> => {
+    const { data, info } = await sharp(buf)
+      .rotate() // aplicar orientación EXIF — las fotos de teléfono suelen traerla
       .ensureAlpha()
       .raw()
       .toBuffer({ resolveWithObject: true });
-
     const result = jsQR(new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength), info.width, info.height);
-    if (result?.data && /^https?:\/\//i.test(result.data)) {
-      return result.data;
+    return result?.data && /^https?:\/\//i.test(result.data) ? result.data : null;
+  };
+
+  try {
+    // Intento 1: imagen original (con orientación EXIF aplicada)
+    const direct = await scan(buffer);
+    if (direct) return direct;
+
+    const meta = await sharp(buffer).rotate().metadata();
+    const w = meta.width || 0;
+    const h = meta.height || 0;
+
+    // Imágenes a resolución completa (fotos enviadas como DOCUMENTO, 4000px+):
+    // jsQR falla con imágenes muy grandes — probar a resoluciones reducidas.
+    // El decode exitoso ocurrió exactamente a 0.5x (2040px de 4080), así que
+    // las fracciones exactas del original van primero.
+    if (w > 2200 || h > 2200) {
+      for (const target of [Math.round(w / 2), Math.round(w / 3), Math.round(w / 2.5), 2000, 1200, 800]) {
+        const down = await sharp(buffer)
+          .rotate()
+          .resize({ width: target, height: Math.round(target * (h / w)), fit: 'fill', kernel: 'lanczos3' })
+          .grayscale()
+          .normalize()
+          .toBuffer();
+        const qr = await scan(down);
+        if (qr) return qr;
+      }
     }
+
+    // Intentos 2-3: ampliación + gris + contraste — los QR en fotos de
+    // WhatsApp llegan pequeños (600-900px) y jsQR falla a baja resolución.
+    for (const scale of [2, 3]) {
+      const upscaled = await sharp(buffer)
+        .rotate()
+        .resize({ width: w * scale, height: h * scale, fit: 'fill', kernel: 'lanczos3' })
+        .grayscale()
+        .normalize()
+        .toBuffer();
+      const qr = await scan(upscaled);
+      if (qr) return qr;
+    }
+
+    // Intento final: invertida (QR con colores invertidos)
+    const inverted = await sharp(buffer)
+      .rotate()
+      .grayscale()
+      .negate()
+      .normalize()
+      .toBuffer();
+    return await scan(inverted);
   } catch {}
   return null;
 }
@@ -117,25 +164,37 @@ async function processWhatsAppQR(
   qrUrl: string,
 ): Promise<string | null> {
   try {
-    const response = await fetch(qrUrl, { signal: AbortSignal.timeout(30000) });
+    // La DGI exige User-Agent de navegador; sin él devuelve una página distinta.
+    const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36';
+    const response = await fetch(qrUrl, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(30000) });
     if (!response.ok) return '❌ No se pudo acceder a la URL del QR.';
 
     let buffer = Buffer.from(await response.arrayBuffer());
     const headStr = buffer.slice(0, 500).toString();
 
-    // Detectar visor web DGI y descargar el PDF real
-    if (headStr.includes('facturaXML') && headStr.includes('DescargarFacturaPDF')) {
-      const match = headStr.match(/id="facturaXML"[^>]*value="([^"]*)"/);
-      if (match?.[1]) {
-        const facturaXML = match[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-        const baseUrl = new URL(qrUrl);
-        const pdfRes = await fetch(`${baseUrl.protocol}//${baseUrl.host}/Consultas/DescargarFacturaPDF`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded', Referer: qrUrl },
-          body: `facturaXML=${encodeURIComponent(facturaXML)}`,
-          signal: AbortSignal.timeout(30000),
-        });
-        if (pdfRes.ok) buffer = Buffer.from(await pdfRes.arrayBuffer());
+    // Detectar visor web DGI y descargar el PDF real.
+    // OJO: el form con facturaXML aparece lejos del inicio del HTML (~byte 25k),
+    // por eso se revisa el HTML COMPLETO, no solo los primeros bytes.
+    if (headStr.includes('<!DOCTYPE') || headStr.includes('<html') || headStr.includes('facturaXML')) {
+      const html = buffer.toString();
+      // El QR decodificado quedó truncado/deteriorado: la DGI rechaza el
+      // contenido y no genera el form de descarga.
+      if (html.includes('mal construido')) {
+        return '❌ El código QR de la foto está *deteriorado*: la DGI lo rechaza (contenido incompleto).\n\n📌 Opciones:\n• En el panel web usa *📷 Escanear QR* (cámara en vivo, funciona mejor)\n• Haz *screenshot* del QR en el PDF y envíalo como *documento*\n• O envía directamente el *PDF* de la factura DGI';
+      }
+      if (html.includes('facturaXML') && html.includes('DescargarFacturaPDF')) {
+        const match = html.match(/id="facturaXML"[^>]*value="([^"]*)"/);
+        if (match?.[1]) {
+          const facturaXML = match[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+          const baseUrl = new URL(qrUrl);
+          const pdfRes = await fetch(`${baseUrl.protocol}//${baseUrl.host}/Consultas/DescargarFacturaPDF`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', Referer: qrUrl, 'User-Agent': UA },
+            body: `facturaXML=${encodeURIComponent(facturaXML)}`,
+            signal: AbortSignal.timeout(30000),
+          });
+          if (pdfRes.ok) buffer = Buffer.from(await pdfRes.arrayBuffer());
+        }
       }
     }
 
@@ -254,7 +313,7 @@ export async function processWhatsAppImage(
     const ocrData = await extractFromImage(buffer, prisma);
 
     if (!ocrData.total && !ocrData.provider) {
-      return `📷 No pude extraer datos de esta imagen (confianza: ${Math.round(ocrData.confidence * 100)}%). Asegúrate de que sea una factura legible.`;
+      return `📷 No pude extraer datos de esta imagen (confianza: ${Math.round(ocrData.confidence * 100)}%).\n\nSi envías el *código QR* de la factura DGI: fotografía *solo el QR*, de cerca y con buena luz. Si es una *factura impresa*: que la foto esté enfocada y sin reflejos.`;
     }
 
     // Construir texto para el orquestador — usar "compré" para clasificar como GASTO/COMPRA
