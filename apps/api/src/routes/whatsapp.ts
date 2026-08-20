@@ -41,10 +41,11 @@ async function handleWebhook(req: any, res: any): Promise<void> {
 
   const from = body.from;       // "50761234567"
   const chatId = body.chatId;   // "170527415103566@lid" — para enviar mensajes
-  // El @lid que envía el bot puede quedar obsoleto (reinstalación/recambio del
-  // número) y los envíos a él se pierden EN SILENCIO. Para responder siempre
-  // usamos el formato clásico número@c.us, que se entrega correctamente.
-  const replyChatId = from ? `${from}@c.us` : chatId;
+  // El chatId del webhook es el @lid del contacto: el bot lo resuelve al JID
+  // correcto (170527415103566@s.whatsapp.net). El JID del número
+  // (50766733759@s.whatsapp.net) NO entrega tras la migración LID de
+  // WhatsApp — por eso las respuestas se pierden en silencio.
+  const replyChatId = chatId;
   const sessionKey = from;      // número de teléfono — consistente como key de sesión
   // Compatible con OpenWA (body.body) y whatsapp-ai-bot (body.message)
   const msg = body.body || body.message || {};
@@ -98,6 +99,12 @@ async function handleWebhook(req: any, res: any): Promise<void> {
   try {
     const isPDF = msg.mediaMime === 'application/pdf' || (imageUrl && imageUrl.endsWith('.pdf'));
     const mediaUrl = imageUrl;
+
+    // Aviso inmediato de recepción: el procesamiento de archivos tarda
+    // (QR/OCR → DGI → PDF) y el usuario debe saber que está en marcha.
+    if ((isPDF || isImage) && mediaUrl) {
+      await sendWhatsAppMessage(replyChatId, `📥 Recibí tu ${isPDF ? 'PDF' : 'imagen'}. Estoy procesándola, te confirmo en un momento…`);
+    }
 
     // PDF: usar extractor de texto (más preciso que OCR de imagen)
     if (isPDF && mediaUrl) {

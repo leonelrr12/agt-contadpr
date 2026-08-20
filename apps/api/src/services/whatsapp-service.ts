@@ -100,7 +100,10 @@ async function tryDecodeQR(buffer: Buffer): Promise<string | null> {
       .raw()
       .toBuffer({ resolveWithObject: true });
     const result = jsQR(new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength), info.width, info.height);
-    return result?.data && /^https?:\/\//i.test(result.data) ? result.data : null;
+    // El QR de la DGI trae la URL con un salto de línea inicial (\nhttps://...)
+    // — sin el trim() el filtro de URL lo rechazaba y NINGÚN QR funcionaba.
+    const text = (result?.data || '').trim();
+    return text && /^https?:\/\//i.test(text) ? text : null;
   };
 
   try {
