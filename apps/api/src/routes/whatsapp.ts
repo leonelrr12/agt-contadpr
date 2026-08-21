@@ -41,11 +41,11 @@ async function handleWebhook(req: any, res: any): Promise<void> {
 
   const from = body.from;       // "50761234567"
   const chatId = body.chatId;   // "170527415103566@lid" — para enviar mensajes
-  // El chatId del webhook es el @lid del contacto: el bot lo resuelve al JID
-  // correcto (170527415103566@s.whatsapp.net). El JID del número
-  // (50766733759@s.whatsapp.net) NO entrega tras la migración LID de
-  // WhatsApp — por eso las respuestas se pierden en silencio.
-  const replyChatId = chatId;
+  // Las respuestas van al JID clásICO número@c.us: verificado el 2026-08-21
+  // con sesión re-enlazada — el @lid (170527415103566@s.whatsapp.net) NO
+  // entrega; el clásico (50766733759@s.whatsapp.net) SÍ. El bot convierte
+  // @c.us → @s.whatsapp.net.
+  const replyChatId = from ? `${from}@c.us` : chatId;
   const sessionKey = from;      // número de teléfono — consistente como key de sesión
   // Compatible con OpenWA (body.body) y whatsapp-ai-bot (body.message)
   const msg = body.body || body.message || {};
