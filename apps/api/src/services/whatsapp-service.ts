@@ -867,6 +867,167 @@ function formatPaymentPrompt(dialogData: any): string {
   return `💳 *¿Cómo se pagó?*\n${lines}\n\nResponde con el número o el nombre del método.`;
 }
 
+// ══════════════════════════════════════════════════════════════════
+// Modo batch — carga masiva de facturas DGI por WhatsApp
+// Flujo: "batch" → elegir método de pago → enviar URLs/PDFs (ack
+// inmediato por cada una, procesamiento en background secuencial) →
+// "fin" → resumen consolidado → "Ok" registra todas / "XX" cancela.
+// ══════════════════════════════════════════════════════════════════
+
+export interface BatchItem {
+  tipo: 'url' | 'pdf';
+  url: string;
+  pending?: any;    // pendingResult del orquestador (para confirmar al final)
+  resumen?: string; // prompt de confirmación (para el detalle del cuadro)
+  error?: string;
+}
+
+export interface BatchState {
+  sessionKey: string;
+  prisma: any;
+  link: any;
+  metodoPago: string;
+  items: BatchItem[];
+  queue: BatchItem[];
+  procesando: boolean;
+  finSolicitado: boolean;
+}
+
+const batchStates = new Map<string, BatchState>();
+
+export function isBatchActive(sessionKey: string): boolean {
+  return batchStates.has(sessionKey);
+}
+
+export function startBatch(sessionKey: string, prisma: any, link: any): void {
+  batchStates.set(sessionKey, { sessionKey, prisma, link, metodoPago: '', items: [], queue: [], procesando: false, finSolicitado: false });
+}
+
+export function endBatch(sessionKey: string): void {
+  batchStates.delete(sessionKey);
+}
+
+export function getBatch(sessionKey: string): BatchState | undefined {
+  return batchStates.get(sessionKey);
+}
+
+export function setBatchMetodoPago(sessionKey: string, metodo: string): void {
+  const st = batchStates.get(sessionKey);
+  if (st) st.metodoPago = metodo;
+}
+
+/** Encola un item y dispara el worker en background. Devuelve el número de factura. */
+export function enqueueBatchItem(sessionKey: string, tipo: 'url' | 'pdf', url: string): number {
+  const st = batchStates.get(sessionKey);
+  if (!st) return -1;
+  st.queue.push({ tipo, url });
+  setTimeout(() => { processBatchQueue(sessionKey).catch(() => {}); }, 0);
+  return st.items.length + st.queue.length;
+}
+
+/** Worker secuencial: procesa la cola item por item (la sesión se comparte). */
+async function processBatchQueue(sessionKey: string): Promise<void> {
+  const st = batchStates.get(sessionKey);
+  if (!st || st.procesando) return;
+  st.procesando = true;
+  try {
+    while (st.queue.length > 0) {
+      const item = st.queue.shift()!;
+      try {
+        let reply = item.tipo === 'url'
+          ? await processWhatsAppQR(st.prisma, sessionKey, sessionKey, item.url)
+          : await processWhatsAppPDF(st.prisma, sessionKey, sessionKey, item.url);
+
+        // Auto-resolver pasos intermedios: categoría → Gasto (1),
+        // método de pago → el elegido al inicio del batch.
+        for (let i = 0; i < 6; i++) {
+          const s = getSession(sessionKey);
+          if (s?.state === 'awaiting_category') { reply = await processWhatsAppMessage(st.prisma, sessionKey, sessionKey, '1'); continue; }
+          if (s?.state === 'awaiting_payment' && st.metodoPago) { reply = await processWhatsAppMessage(st.prisma, sessionKey, sessionKey, st.metodoPago); continue; }
+          break;
+        }
+
+        const s = getSession(sessionKey);
+        if (s?.pendingResult) { item.pending = s.pendingResult; item.resumen = reply || ''; }
+        else item.error = (reply || '').substring(0, 150);
+      } catch (e: any) {
+        console.error('[Batch] error item:', e.message);
+        item.error = e.message || 'Error al procesar';
+      } finally {
+        resetSession(sessionKey); // limpiar sesión para el siguiente item
+      }
+      st.items.push(item);
+    }
+
+    // Si el usuario pidió "fin" mientras se procesaba → enviar el resumen
+    if (st.finSolicitado) {
+      const { mensaje } = buildBatchResumen(st);
+      await sendWhatsAppMessage(`${st.sessionKey}@c.us`, mensaje);
+      st.finSolicitado = false;
+    }
+  } finally {
+    st.procesando = false;
+  }
+}
+
+/** Construye el cuadro resumen de la carga masiva. */
+export function buildBatchResumen(st: BatchState): { mensaje: string; ok: number; error: number; total: number } {
+  const lines: string[] = [];
+  let ok = 0, error = 0, total = 0;
+  st.items.forEach((item, i) => {
+    if (item.error) {
+      lines.push(`${i + 1}. ❌ ${item.error.substring(0, 60)}`);
+      error++;
+    } else if (item.pending) {
+      const m = (item.resumen || '').match(/Proveedor: \*\*([^*]+)\*\*/);
+      const a = (item.resumen || '').match(/\$\s*([\d.]+)/);
+      const prov = m?.[1] || 'Factura';
+      const monto = a ? parseFloat(a[1]) : 0;
+      total += monto;
+      lines.push(`${i + 1}. ✅ ${prov} — $${monto.toFixed(2)}`);
+      ok++;
+    } else {
+      lines.push(`${i + 1}. ⏳ pendiente`);
+    }
+  });
+  const mensaje = `📋 *Carga masiva* — ${st.items.length} factura(s)\n${lines.join('\n')}\n──────────────\n💰 *Total: $${total.toFixed(2)}*\n\n${ok > 0 ? `¿Registro las ${ok} facturas? *Ok* / *XX*` : 'Ninguna factura procesada correctamente.'}`;
+  return { mensaje, ok, error, total };
+}
+
+/** Registra todas las facturas pendientes del batch (confirmación final). */
+export async function confirmBatch(sessionKey: string): Promise<string> {
+  const st = batchStates.get(sessionKey);
+  if (!st) return '❌ No hay un batch activo.';
+  const pendientes = st.items.filter(i => i.pending);
+  let ok = 0, err = 0;
+  if (pendientes.length > 0) {
+    const { OrchestratorAgent } = await import('@agt-contador/agents');
+    const orchestrator = new OrchestratorAgent({
+      prisma: st.prisma,
+      companyId: st.link.companyId,
+      userId: await resolveWhatsAppUserId(st.prisma, st.link.companyId),
+      deepseekApiKey: process.env.DEEPSEEK_API_KEY,
+    });
+    for (const item of pendientes) {
+      try {
+        await orchestrator.confirm(item.pending);
+        await st.prisma.subscription.updateMany({
+          where: { companyId: st.link.companyId, status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] } },
+          data: { movementsUsed: { increment: 1 } },
+        }).catch(() => {});
+        ok++;
+      } catch (e: any) {
+        console.error('[Batch] confirm error:', e.message);
+        err++;
+      }
+    }
+  }
+  endBatch(sessionKey);
+  return ok > 0
+    ? `✅ *${ok} factura(s) registradas* como BORRADOR${err > 0 ? ` (${err} con error)` : ''}. Revisa en el panel → Revisión.`
+    : '❌ No se registró ninguna factura.';
+}
+
 /**
  * Verifica un código de vinculación.
  * Si es válido, asocia el número a la companyId.

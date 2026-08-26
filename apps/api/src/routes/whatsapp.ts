@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { processWhatsAppMessage, processWhatsAppImage, processWhatsAppPDF, processWhatsAppQR, verifyCode, generateCode, sendWhatsAppMessage } from '../services/whatsapp-service';
+import { processWhatsAppMessage, processWhatsAppImage, processWhatsAppPDF, processWhatsAppQR, verifyCode, generateCode, sendWhatsAppMessage, isBatchActive, startBatch, endBatch, getBatch, setBatchMetodoPago, enqueueBatchItem, confirmBatch, buildBatchResumen } from '../services/whatsapp-service';
 
 export const whatsappRouter = Router();
 
@@ -128,6 +128,80 @@ async function handleWebhook(req: any, res: any): Promise<void> {
     // URL de factura DGI (la que contiene el QR de la factura electrónica):
     // detectarla y procesarla como factura en vez de texto de transacción.
     const dgiUrlMatch = messageText.match(/https?:\/\/[^\s]*dgi-fep\.mef\.gob\.pa[^\s]*/i);
+
+    // ── Modo batch (carga masiva) ──
+    if (isBatchActive(sessionKey)) {
+      const st = getBatch(sessionKey)!;
+
+      // 1) Elegir método de pago
+      if (!st.metodoPago && /^[1-6]$/.test(messageText.trim())) {
+        const metodos = ['💵 Efectivo', '💳 Tarjeta Crédito', '💳 Tarjeta Débito', '📋 Crédito', '🏦 Transferencia', '📄 Cheque'];
+        setBatchMetodoPago(sessionKey, messageText.trim());
+        await sendWhatsAppMessage(replyChatId, `✅ Método de pago: *${metodos[parseInt(messageText) - 1]}*\n\n📦 Envía las URLs o PDFs de las facturas. Escribe *fin* cuando termines.`);
+        return res.sendStatus(200);
+      }
+      if (!st.metodoPago) {
+        await sendWhatsAppMessage(replyChatId, '📦 Primero elige el método de pago:\n  1. 💵 Efectivo\n  2. 💳 Tarjeta Crédito\n  3. 💳 Tarjeta Débito\n  4. 📋 Crédito\n  5. 🏦 Transferencia\n  6. 📄 Cheque');
+        return res.sendStatus(200);
+      }
+
+      // 2) Cancelar
+      if (/^(xx|cancelar|nop)$/i.test(messageText.trim())) {
+        endBatch(sessionKey);
+        await sendWhatsAppMessage(replyChatId, '❌ Batch cancelado. Ninguna factura se registró.');
+        return res.sendStatus(200);
+      }
+
+      // 3) Confirmar todas al final
+      if (/^(ok|confirmar|si)$/i.test(messageText.trim()) && st.items.length > 0 && !st.procesando && st.queue.length === 0) {
+        const msg = await confirmBatch(sessionKey);
+        await sendWhatsAppMessage(replyChatId, msg);
+        return res.sendStatus(200);
+      }
+
+      // 4) Terminar y mostrar resumen
+      if (/^(fin|terminar|listo)$/i.test(messageText.trim())) {
+        if (st.procesando || st.queue.length > 0) {
+          st.finSolicitado = true;
+          await sendWhatsAppMessage(replyChatId, `📦 Procesando ${st.queue.length + (st.procesando ? 1 : 0)} factura(s) pendientes... te envío el resumen en un momento.`);
+        } else {
+          const { mensaje } = buildBatchResumen(st);
+          await sendWhatsAppMessage(replyChatId, mensaje);
+        }
+        return res.sendStatus(200);
+      }
+
+      // 5) URL o PDF → encolar con ack inmediato
+      if (dgiUrlMatch) {
+        const n = enqueueBatchItem(sessionKey, 'url', dgiUrlMatch[0]);
+        await sendWhatsAppMessage(replyChatId, `✅ Factura #${n} recibida. Envía la siguiente o *fin*.`);
+        return res.sendStatus(200);
+      }
+      if (isPDF && mediaUrl) {
+        const n = enqueueBatchItem(sessionKey, 'pdf', mediaUrl);
+        await sendWhatsAppMessage(replyChatId, `✅ PDF #${n} recibido. Envía el siguiente o *fin*.`);
+        return res.sendStatus(200);
+      }
+      if (messageText.trim() && !/^(\d+)$/.test(messageText.trim())) {
+        await sendWhatsAppMessage(replyChatId, '📦 En modo batch: envía URLs de la DGI o PDFs de facturas. Escribe *fin* para terminar.');
+        return res.sendStatus(200);
+      }
+    }
+
+    // Activar modo batch (linkCheck está fuera de ámbito aquí — se busca de nuevo)
+    if (/^(batch|qr2)$/i.test(messageText.trim())) {
+      const batchLink = await req.prisma.whatsAppLink.findFirst({
+        where: { phoneNumber: from, verifiedAt: { not: null }, isActive: true },
+      });
+      if (!batchLink?.companyId) {
+        await sendWhatsAppMessage(replyChatId, '❌ Tu número no está vinculado a una empresa. Vincula en el panel web → Configuración → WhatsApp.');
+        return res.sendStatus(200);
+      }
+      startBatch(sessionKey, req.prisma, batchLink);
+      await sendWhatsAppMessage(replyChatId, '📦 *Modo batch activado*\n\nElige el método de pago:\n  1. 💵 Efectivo\n  2. 💳 Tarjeta Crédito\n  3. 💳 Tarjeta Débito\n  4. 📋 Crédito\n  5. 🏦 Transferencia\n  6. 📄 Cheque');
+      return res.sendStatus(200);
+    }
+
     if (dgiUrlMatch) {
       const reply = await processWhatsAppQR(req.prisma, from, sessionKey, dgiUrlMatch[0]);
       if (reply) await sendWhatsAppMessage(replyChatId, reply);
