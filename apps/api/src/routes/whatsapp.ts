@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { processWhatsAppMessage, processWhatsAppImage, processWhatsAppPDF, verifyCode, generateCode, sendWhatsAppMessage } from '../services/whatsapp-service';
+import { processWhatsAppMessage, processWhatsAppImage, processWhatsAppPDF, processWhatsAppQR, verifyCode, generateCode, sendWhatsAppMessage } from '../services/whatsapp-service';
 
 export const whatsappRouter = Router();
 
@@ -122,6 +122,15 @@ async function handleWebhook(req: any, res: any): Promise<void> {
 
     if (hasMedia && !imageUrl) {
       await sendWhatsAppMessage(replyChatId,'📷 No pude acceder al archivo. Describe la transacción: "compré gasolina $40 efectivo"');
+      return res.sendStatus(200);
+    }
+
+    // URL de factura DGI (la que contiene el QR de la factura electrónica):
+    // detectarla y procesarla como factura en vez de texto de transacción.
+    const dgiUrlMatch = messageText.match(/https?:\/\/[^\s]*dgi-fep\.mef\.gob\.pa[^\s]*/i);
+    if (dgiUrlMatch) {
+      const reply = await processWhatsAppQR(req.prisma, from, sessionKey, dgiUrlMatch[0]);
+      if (reply) await sendWhatsAppMessage(replyChatId, reply);
       return res.sendStatus(200);
     }
 

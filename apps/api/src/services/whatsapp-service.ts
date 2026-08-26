@@ -159,8 +159,9 @@ async function tryDecodeQR(buffer: Buffer): Promise<string | null> {
 
 /**
  * Procesa un QR de factura DGI: descarga el PDF y lo procesa igual que extract-url.
+ * También recibe la URL completa del QR (la que el usuario pega por WhatsApp).
  */
-async function processWhatsAppQR(
+export async function processWhatsAppQR(
   prisma: any,
   phoneNumber: string,
   chatId: string,
