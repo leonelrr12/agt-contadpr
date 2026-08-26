@@ -170,7 +170,7 @@ export async function processWhatsAppQR(
   try {
     // La DGI exige User-Agent de navegador; sin él devuelve una página distinta.
     const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36';
-    const response = await fetch(qrUrl, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(30000) });
+    const response = await fetch(qrUrl, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(60000) });
     if (!response.ok) return '❌ No se pudo acceder a la URL del QR.';
 
     let buffer = Buffer.from(await response.arrayBuffer());
@@ -195,7 +195,7 @@ export async function processWhatsAppQR(
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', Referer: qrUrl, 'User-Agent': UA },
             body: `facturaXML=${encodeURIComponent(facturaXML)}`,
-            signal: AbortSignal.timeout(30000),
+            signal: AbortSignal.timeout(60000),
           });
           if (pdfRes.ok) buffer = Buffer.from(await pdfRes.arrayBuffer());
         }
@@ -892,6 +892,7 @@ export interface BatchState {
   procesando: boolean;
   finSolicitado: boolean;
   urlsVistas: Set<string>; // deduplicación (cubre en cola, procesando y procesadas)
+  contador: number;        // secuencia estricta del ack (nunca se repite)
 }
 
 const batchStates = new Map<string, BatchState>();
@@ -901,7 +902,7 @@ export function isBatchActive(sessionKey: string): boolean {
 }
 
 export function startBatch(sessionKey: string, prisma: any, link: any): void {
-  batchStates.set(sessionKey, { sessionKey, prisma, link, metodoPago: '', items: [], queue: [], procesando: false, finSolicitado: false, urlsVistas: new Set() });
+  batchStates.set(sessionKey, { sessionKey, prisma, link, metodoPago: '', items: [], queue: [], procesando: false, finSolicitado: false, urlsVistas: new Set(), contador: 0 });
 }
 
 export function endBatch(sessionKey: string): void {
@@ -925,8 +926,9 @@ export function enqueueBatchItem(sessionKey: string, tipo: 'url' | 'pdf', url: s
   if (st.urlsVistas.has(url)) return -1;
   st.urlsVistas.add(url);
   st.queue.push({ tipo, url });
+  st.contador += 1; // secuencia estricta: 1, 2, 3... sin repeticiones
   setTimeout(() => { processBatchQueue(sessionKey).catch(() => {}); }, 0);
-  return st.items.length + st.queue.length;
+  return st.contador;
 }
 
 /** Worker secuencial: procesa la cola item por item (la sesión se comparte). */
@@ -937,28 +939,33 @@ async function processBatchQueue(sessionKey: string): Promise<void> {
   try {
     while (st.queue.length > 0) {
       const item = st.queue.shift()!;
-      try {
-        let reply = item.tipo === 'url'
-          ? await processWhatsAppQR(st.prisma, sessionKey, sessionKey, item.url)
-          : await processWhatsAppPDF(st.prisma, sessionKey, sessionKey, item.url);
+      // Reintento: 1 pasada extra si el primer intento falla (timeouts de la DGI son comunes)
+      for (let intento = 0; intento < 2; intento++) {
+        try {
+          let reply = item.tipo === 'url'
+            ? await processWhatsAppQR(st.prisma, sessionKey, sessionKey, item.url)
+            : await processWhatsAppPDF(st.prisma, sessionKey, sessionKey, item.url);
 
-        // Auto-resolver pasos intermedios: categoría → Gasto (1),
-        // método de pago → el elegido al inicio del batch.
-        for (let i = 0; i < 6; i++) {
+          // Auto-resolver pasos intermedios: categoría → Gasto (1),
+          // método de pago → el elegido al inicio del batch.
+          for (let i = 0; i < 6; i++) {
+            const s = getSession(sessionKey);
+            if (s?.state === 'awaiting_category') { reply = await processWhatsAppMessage(st.prisma, sessionKey, sessionKey, '1'); continue; }
+            if (s?.state === 'awaiting_payment' && st.metodoPago) { reply = await processWhatsAppMessage(st.prisma, sessionKey, sessionKey, st.metodoPago); continue; }
+            break;
+          }
+
           const s = getSession(sessionKey);
-          if (s?.state === 'awaiting_category') { reply = await processWhatsAppMessage(st.prisma, sessionKey, sessionKey, '1'); continue; }
-          if (s?.state === 'awaiting_payment' && st.metodoPago) { reply = await processWhatsAppMessage(st.prisma, sessionKey, sessionKey, st.metodoPago); continue; }
-          break;
+          if (s?.pendingResult) { item.pending = s.pendingResult; item.resumen = reply || ''; item.error = undefined; }
+          else item.error = (reply || '').substring(0, 150);
+          break; // éxito (o error definitivo del flujo) → sin reintento
+        } catch (e: any) {
+          console.error('[Batch] error item:', e.message);
+          item.error = e.message || 'Error al procesar';
+          if (intento === 0) await new Promise(r => setTimeout(r, 5000)); // esperar antes de reintentar
+        } finally {
+          resetSession(sessionKey); // limpiar sesión para el siguiente item
         }
-
-        const s = getSession(sessionKey);
-        if (s?.pendingResult) { item.pending = s.pendingResult; item.resumen = reply || ''; }
-        else item.error = (reply || '').substring(0, 150);
-      } catch (e: any) {
-        console.error('[Batch] error item:', e.message);
-        item.error = e.message || 'Error al procesar';
-      } finally {
-        resetSession(sessionKey); // limpiar sesión para el siguiente item
       }
       st.items.push(item);
     }
