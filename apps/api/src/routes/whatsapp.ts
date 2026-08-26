@@ -279,12 +279,13 @@ whatsappRouter.post('/verify', requireAuth, async (req, res) => {
       `_"compré gasolina por $40"_\n` +
       `_"pagué internet $65"_\n\n` +
       `📄 *Facturas*\n` +
-      `Envía una foto de la factura o un PDF de la DGI.\n\n` +
+      `Envía un PDF de la DGI o pega la URL del QR.\n\n` +
       `💡 *Comandos*\n` +
       `• Responde con números para seleccionar opciones\n` +
       `• *OK* — guardar transacción\n` +
       `• *XX* — cancelar / empezar de nuevo\n` +
       `• *HOLA* — ver estas instrucciones\n` +
+      `• *batch* — carga masiva de URLs o PDFs\n` +
       `• *saldo* / *banco* — ver saldos bancarios`;
     sendWhatsAppMessage(chatId, welcomeMsg).catch(() => {});
   }
