@@ -171,15 +171,25 @@ async function handleWebhook(req: any, res: any): Promise<void> {
         return res.sendStatus(200);
       }
 
-      // 5) URL o PDF → encolar con ack inmediato
+      // 5) Comando batch mientras hay uno activo → reiniciar
+      if (/^(batch|qr2)$/i.test(messageText.trim())) {
+        endBatch(sessionKey);
+        startBatch(sessionKey, req.prisma, st.link);
+        await sendWhatsAppMessage(replyChatId, '📦 *Modo batch reiniciado*\n\nElige el método de pago:\n  1. 💵 Efectivo\n  2. 💳 Tarjeta Crédito\n  3. 💳 Tarjeta Débito\n  4. 📋 Crédito\n  5. 🏦 Transferencia\n  6. 📄 Cheque');
+        return res.sendStatus(200);
+      }
+
+      // 6) URL o PDF → encolar con ack inmediato (con deduplicación)
       if (dgiUrlMatch) {
         const n = enqueueBatchItem(sessionKey, 'url', dgiUrlMatch[0]);
-        await sendWhatsAppMessage(replyChatId, `✅ Factura #${n} recibida. Envía la siguiente o *fin*.`);
+        if (n === -1) await sendWhatsAppMessage(replyChatId, '⚠️ Esa URL ya la habías enviado en este batch. Envía la siguiente o *fin*.');
+        else await sendWhatsAppMessage(replyChatId, `✅ Factura #${n} recibida. Envía la siguiente o *fin*.`);
         return res.sendStatus(200);
       }
       if (isPDF && mediaUrl) {
         const n = enqueueBatchItem(sessionKey, 'pdf', mediaUrl);
-        await sendWhatsAppMessage(replyChatId, `✅ PDF #${n} recibido. Envía el siguiente o *fin*.`);
+        if (n === -1) await sendWhatsAppMessage(replyChatId, '⚠️ Ese PDF ya lo habías enviado en este batch. Envía el siguiente o *fin*.');
+        else await sendWhatsAppMessage(replyChatId, `✅ PDF #${n} recibido. Envía el siguiente o *fin*.`);
         return res.sendStatus(200);
       }
       if (messageText.trim() && !/^(\d+)$/.test(messageText.trim())) {

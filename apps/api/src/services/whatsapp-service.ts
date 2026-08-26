@@ -891,6 +891,7 @@ export interface BatchState {
   queue: BatchItem[];
   procesando: boolean;
   finSolicitado: boolean;
+  urlsVistas: Set<string>; // deduplicación (cubre en cola, procesando y procesadas)
 }
 
 const batchStates = new Map<string, BatchState>();
@@ -900,7 +901,7 @@ export function isBatchActive(sessionKey: string): boolean {
 }
 
 export function startBatch(sessionKey: string, prisma: any, link: any): void {
-  batchStates.set(sessionKey, { sessionKey, prisma, link, metodoPago: '', items: [], queue: [], procesando: false, finSolicitado: false });
+  batchStates.set(sessionKey, { sessionKey, prisma, link, metodoPago: '', items: [], queue: [], procesando: false, finSolicitado: false, urlsVistas: new Set() });
 }
 
 export function endBatch(sessionKey: string): void {
@@ -916,10 +917,13 @@ export function setBatchMetodoPago(sessionKey: string, metodo: string): void {
   if (st) st.metodoPago = metodo;
 }
 
-/** Encola un item y dispara el worker en background. Devuelve el número de factura. */
+/** Encola un item y dispara el worker en background. Devuelve el número de factura, o -1 si ya estaba (duplicada). */
 export function enqueueBatchItem(sessionKey: string, tipo: 'url' | 'pdf', url: string): number {
   const st = batchStates.get(sessionKey);
   if (!st) return -1;
+  // Deduplicación por URL vista (cubre en cola, en procesamiento y procesadas)
+  if (st.urlsVistas.has(url)) return -1;
+  st.urlsVistas.add(url);
   st.queue.push({ tipo, url });
   setTimeout(() => { processBatchQueue(sessionKey).catch(() => {}); }, 0);
   return st.items.length + st.queue.length;
