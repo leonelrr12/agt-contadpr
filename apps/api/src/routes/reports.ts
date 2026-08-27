@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { buildDateFilter } from '../lib/date-filter';
+import { getAnioFiscal, anioFiscalRange } from '../lib/fiscal-year';
 import { exportReport } from '../services/export';
 import type { ExportFormat } from '../services/export';
 
@@ -93,18 +94,14 @@ reportsRouter.get('/proveedores', async (req, res) => {
 reportsRouter.get('/balance-comprobacion', async (req, res) => {
   const { startDate, endDate } = req.query;
 
-  // Año fiscal activo: año del último asiento no anulado (el cierre NO cuenta
-  // para derivarlo — es del año anterior). Si no hay movimientos, año actual.
-  const lastEntry = await req.prisma.journalEntry.findFirst({
-    where: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false },
-    orderBy: { date: 'desc' },
-    select: { date: true },
-  });
-  const anioFiscal = lastEntry ? lastEntry.date.getFullYear() : new Date().getFullYear();
-
+  // Período del reporte: con filtro de fechas usa las fechas; sin filtro,
+  // el año fiscal activo (último asiento) — consistente con diario/resultados.
+  const anioFiscal = await getAnioFiscal(req.prisma, req.user!.companyId);
+  const rango = anioFiscalRange(anioFiscal);
   const periodo = {
-    start: startDate ? new Date(`${startDate}T00:00:00.000Z`) : new Date(`${anioFiscal}-01-01T00:00:00.000Z`),
-    end: endDate ? new Date(`${endDate}T23:59:59.999Z`) : new Date(`${anioFiscal}-12-31T23:59:59.999Z`),
+    start: startDate ? new Date(`${startDate}T00:00:00.000Z`) : rango.start,
+    end: endDate ? new Date(`${endDate}T23:59:59.999Z`) : rango.end,
+    anioFiscal,
   };
 
   // 1) Movimientos del período (débito/crédito) — INCLUYE cierres del período
@@ -235,7 +232,12 @@ reportsRouter.get('/estado-resultados', async (req, res) => {
     companyId: req.user!.companyId,
     status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false,
   };
-  const dateFilter = buildDateFilter(startDate as string, endDate as string);
+  // Sin filtro de fechas → año fiscal activo (consistente con el balance)
+  const anioFiscal = await getAnioFiscal(req.prisma, req.user!.companyId);
+  const rango = anioFiscalRange(anioFiscal);
+  const dateFilter = startDate || endDate
+    ? buildDateFilter(startDate as string, endDate as string)
+    : { gte: rango.start, lte: rango.end };
   if (dateFilter) journalEntry.date = dateFilter;
 
   const where: Record<string, unknown> = {
@@ -324,7 +326,12 @@ reportsRouter.get('/dashboard', async (req, res) => {
     status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false,
   };
   // El dashboard respeta el filtro de fechas del panel
-  const dateFilter = buildDateFilter(startDate as string, endDate as string);
+  // Sin filtro de fechas → año fiscal activo (consistente con el balance)
+  const anioFiscal = await getAnioFiscal(req.prisma, req.user!.companyId);
+  const rango = anioFiscalRange(anioFiscal);
+  const dateFilter = startDate || endDate
+    ? buildDateFilter(startDate as string, endDate as string)
+    : { gte: rango.start, lte: rango.end };
   if (dateFilter) journalEntry.date = dateFilter;
 
   const baseWhere = {
@@ -528,7 +535,12 @@ reportsRouter.get('/export/:type', async (req, res) => {
           companyId: req.user!.companyId,
           status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false,
         };
-        const dateFilter = buildDateFilter(startDate as string, endDate as string);
+        // Sin filtro de fechas → año fiscal activo
+        const anioFiscal = await getAnioFiscal(req.prisma, req.user!.companyId);
+        const rango = anioFiscalRange(anioFiscal);
+        const dateFilter = startDate || endDate
+          ? buildDateFilter(startDate as string, endDate as string)
+          : { gte: rango.start, lte: rango.end };
         if (dateFilter) journalEntry.date = dateFilter;
         const lines = await req.prisma.journalLine.findMany({
           where: {
@@ -590,7 +602,12 @@ reportsRouter.get('/export/:type', async (req, res) => {
         const where: Record<string, unknown> = { companyId: req.user!.companyId, isClosing: false };
         const statusParam = req.query.status as string;
         if (statusParam) where.status = statusParam;
-        const dateFilter = buildDateFilter(startDate as string, endDate as string);
+        // Sin filtro de fechas → año fiscal activo
+        const anioFiscal = await getAnioFiscal(req.prisma, req.user!.companyId);
+        const rango = anioFiscalRange(anioFiscal);
+        const dateFilter = startDate || endDate
+          ? buildDateFilter(startDate as string, endDate as string)
+          : { gte: rango.start, lte: rango.end };
         if (dateFilter) where.date = dateFilter;
         const entries = await req.prisma.journalEntry.findMany({
           where,

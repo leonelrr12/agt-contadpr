@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { validate } from '../middleware/validate';
 import { requireRole } from '../middleware/auth';
 import { buildDateFilter } from '../lib/date-filter';
+import { getAnioFiscal, anioFiscalRange } from '../lib/fiscal-year';
 import { logAudit } from '../services/audit-log';
 import { syncEntityFromEntry } from '../services/entity-service';
 import { requireQuota, incrementUsage } from '../middleware/quota';
@@ -21,6 +22,7 @@ journalRouter.get('/pendientes', async (req, res) => {
     status: 'BORRADOR',
     isClosing: false,
   };
+  // Pendientes de revisión: SIN límite de año fiscal (abarcan todos los períodos)
   const dateFilter = buildDateFilter(startDate as string, endDate as string);
   if (dateFilter) where.date = dateFilter;
 
@@ -111,7 +113,12 @@ journalRouter.get('/', async (req, res) => {
   const { startDate, endDate, status, provider: providerFilter, page: pageStr, pageSize: pageSizeStr } = req.query;
   const where: Record<string, unknown> = { companyId: req.user!.companyId, isClosing: false };
   if (status) where.status = status;
-  const dateFilter = buildDateFilter(startDate as string, endDate as string);
+  // Sin filtro de fechas → año fiscal activo (consistente con el balance)
+  const anioFiscal = await getAnioFiscal(req.prisma, req.user!.companyId);
+  const rango = anioFiscalRange(anioFiscal);
+  const dateFilter = startDate || endDate
+    ? buildDateFilter(startDate as string, endDate as string)
+    : { gte: rango.start, lte: rango.end };
   if (dateFilter) where.date = dateFilter;
 
   const page = Math.max(1, parseInt(pageStr as string) || 1);

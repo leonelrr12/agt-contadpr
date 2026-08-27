@@ -120,7 +120,8 @@ async function loadYearCloseStatus() {
       ? `<span style="color:#dc2626;font-weight:600">⚠️ Saldo invertido en: ${d.resumen.saldosInvertidos.map((s) => `${s.code} ${s.name}`).join(', ')} — se saldarán reduciendo la utilidad</span>`
       : '';
     let asientoHtml = '';
-    if (d.cerrado && d.entry) {
+    // Ver el asiento también cuando está ANULADO (para auditoría/re-cierre)
+    if (d.entry) {
       const money = (n) => '$' + (Number(n) || 0).toFixed(2);
       const lines = (d.entry.lines || []).map(l => `
         <tr>
@@ -142,7 +143,9 @@ async function loadYearCloseStatus() {
     }
     el.innerHTML = d.cerrado
       ? `<span style="color:#059669;font-weight:600">✅ Cerrado</span> · Utilidad del ejercicio: <strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong>${asientoHtml}`
-      : `<span style="color:#f59e0b;font-weight:600">Abierto</span> · Utilidad proyectada (solo aprobados): <strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong>${pend ? '<br>' + pend : ''}${invertidos ? '<br>' + invertidos : ''}`;
+      : d.entry
+        ? `<span style="color:#dc2626;font-weight:600">🚫 ANULADO</span> · Asiento de cierre anulado — puedes volver a cerrar el año${asientoHtml}`
+        : `<span style="color:#f59e0b;font-weight:600">Abierto</span> · Utilidad proyectada (solo aprobados): <strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong>${pend ? '<br>' + pend : ''}${invertidos ? '<br>' + invertidos : ''}`;
     const btn = document.getElementById('year-close-btn');
     if (btn) btn.style.display = d.cerrado ? 'none' : '';
   } catch { el.innerHTML = '<span style="color:#dc2626">Error al consultar</span>'; }
