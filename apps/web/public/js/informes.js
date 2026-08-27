@@ -30,7 +30,7 @@ function clickInformeTab(informe) {
   _currentInformeTab = informe;
   // Mostrar filtro de fecha solo para reportes que lo soportan
   const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', resultados: 'estado-resultados', dashboard: null, auxiliares: null, revision: null, proveedores: 'proveedores' };
-  const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'resultados' || informe === 'proveedores');
+  const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'resultados' || informe === 'proveedores' || informe === 'dashboard');
   document.getElementById('informes-date-filter').classList.toggle('hidden', !showFilter);
   // Mostrar filtro de status solo en Diario
   const statusEl = document.getElementById('informes-filter-status');

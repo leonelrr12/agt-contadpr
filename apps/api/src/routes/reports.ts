@@ -318,8 +318,17 @@ reportsRouter.get('/flujo-caja', async (req, res) => {
 });
 
 reportsRouter.get('/dashboard', async (req, res) => {
+  const { startDate, endDate } = req.query;
+  const journalEntry: Record<string, unknown> = {
+    companyId: req.user!.companyId,
+    status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false,
+  };
+  // El dashboard respeta el filtro de fechas del panel
+  const dateFilter = buildDateFilter(startDate as string, endDate as string);
+  if (dateFilter) journalEntry.date = dateFilter;
+
   const baseWhere = {
-    journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false },
+    journalEntry,
     account: { type: { in: ['INGRESO', 'GASTO', 'COSTO'] } },
   };
 
@@ -358,19 +367,27 @@ reportsRouter.get('/dashboard', async (req, res) => {
     }
   }
 
-  // Mensual agregado en BD (GROUP BY mes + tipo) — parametrizado, sin interpolación de usuario
-  const monthlyRows: any[] = await req.prisma.$queryRaw`
+  // Mensual agregado en BD (GROUP BY mes + tipo).
+  // Las fechas del filtro ya fueron validadas por buildDateFilter (Date válidos).
+  let dateSql = '';
+  if (dateFilter) {
+    const gte = (dateFilter as any).gte.toISOString();
+    const lte = (dateFilter as any).lte.toISOString();
+    dateSql = `AND je.date >= '${gte}' AND je.date <= '${lte}'`;
+  }
+  const monthlyRows: any[] = await req.prisma.$queryRawUnsafe(`
     SELECT to_char(je.date, 'YYYY-MM') AS month, a.type,
            SUM(l.debit) AS deb, SUM(l.credit) AS cred
     FROM "JournalLine" l
     JOIN "JournalEntry" je ON l."journalEntryId" = je.id
     JOIN "Account" a ON l."accountId" = a.id
-    WHERE je."companyId" = ${req.user!.companyId}
+    WHERE je."companyId" = '${req.user!.companyId}'
       AND je.status NOT IN ('RECHAZADO', 'ANULADO') AND je."isClosing" = false
       AND a.type IN ('INGRESO', 'GASTO', 'COSTO')
+      ${dateSql}
     GROUP BY 1, 2
     ORDER BY 1
-  `;
+  `);
 
   const monthlyMap = new Map<string, { ingresos: number; gastos: number; costos: number }>();
   for (const row of monthlyRows) {

@@ -69,19 +69,31 @@ export async function computeYearBalances(prisma: any, companyId: string, year: 
     const debit = Number(g._sum.debit) || 0;
     const credit = Number(g._sum.credit) || 0;
     if (acc.type === 'INGRESO') {
-      // Saldo acreedor: credit - debit → débito en el cierre
+      // Saldo normal (acreedor): credit - debit > 0 → débito en el cierre.
+      // Saldo anómalo (deudor, asientos mal registrados): se salda con crédito
+      // y REDUCE los ingresos — la cuenta debe quedar en cero igualmente.
       const saldo = r2(credit - debit);
       if (saldo > 0) {
         totalIngresos = r2(totalIngresos + saldo);
         lineas.push({ accountId: acc.id, code: acc.code, name: acc.name, type: acc.type, debit: saldo, credit: 0 });
+      } else if (saldo < 0) {
+        const abs = Math.abs(saldo);
+        totalIngresos = r2(totalIngresos - abs);
+        lineas.push({ accountId: acc.id, code: acc.code, name: acc.name, type: acc.type, debit: 0, credit: abs });
       }
     } else {
-      // COSTO/GASTO: saldo deudor: debit - credit → crédito en el cierre
+      // COSTO/GASTO: saldo normal (deudor) → crédito en el cierre.
+      // Saldo anómalo (acreedor): se salda con débito y REDUCE el gasto.
       const saldo = r2(debit - credit);
       if (saldo > 0) {
         if (acc.type === 'COSTO') totalCostos = r2(totalCostos + saldo);
         else totalGastos = r2(totalGastos + saldo);
         lineas.push({ accountId: acc.id, code: acc.code, name: acc.name, type: acc.type, debit: 0, credit: saldo });
+      } else if (saldo < 0) {
+        const abs = Math.abs(saldo);
+        if (acc.type === 'COSTO') totalCostos = r2(totalCostos - abs);
+        else totalGastos = r2(totalGastos - abs);
+        lineas.push({ accountId: acc.id, code: acc.code, name: acc.name, type: acc.type, debit: abs, credit: 0 });
       }
     }
   }
