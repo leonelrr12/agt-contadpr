@@ -83,13 +83,16 @@ reportsRouter.get('/proveedores', async (req, res) => {
 });
 
 reportsRouter.get('/balance-comprobacion', async (req, res) => {
-  const { startDate, endDate } = req.query;
+  const { endDate } = req.query;
 
   const journalEntry: Record<string, unknown> = {
     companyId: req.user!.companyId,
     status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false,
   };
-  const dateFilter = buildDateFilter(startDate as string, endDate as string);
+  // El balance es un ESTADO acumulado: muestra los saldos AL FINAL del
+  // período (todos los movimientos hasta endDate), aunque las cuentas no
+  // hayan tenido movimiento en el rango. startDate no filtra.
+  const dateFilter = buildDateFilter(undefined, endDate as string);
   if (dateFilter) journalEntry.date = dateFilter;
 
   const where = { journalEntry };
@@ -116,7 +119,7 @@ reportsRouter.get('/balance-comprobacion', async (req, res) => {
         account: { code: a.code, name: a.name, type: a.type },
         totalDebit,
         totalCredit,
-        balance: Math.abs(totalDebit - totalCredit),
+        balance: Math.round(Math.abs(totalDebit - totalCredit) * 100) / 100,
         balanceType: totalDebit > totalCredit ? 'DEUDOR' : 'ACREEDOR',
       };
     })
@@ -388,7 +391,8 @@ reportsRouter.get('/export/:type', async (req, res) => {
           companyId: req.user!.companyId,
           status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false,
         };
-        const dateFilter = buildDateFilter(startDate as string, endDate as string);
+        // Estado acumulado hasta endDate (el balance muestra saldos, no flujos)
+        const dateFilter = buildDateFilter(undefined, endDate as string);
         if (dateFilter) journalEntry.date = dateFilter;
         const lines = await req.prisma.journalLine.findMany({
           where: { journalEntry },
