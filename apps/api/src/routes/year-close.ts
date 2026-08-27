@@ -14,6 +14,7 @@ function resumenConTipo(balances: any) {
     totalGastos: balances.totalGastos,
     utilidadNeta: balances.utilidadNeta,
     pendientesRevision: balances.pendientesRevision || 0,
+    saldosInvertidos: balances.saldosInvertidos || [],
     tipo: balances.utilidadNeta >= 0 ? 'GANANCIA' : 'PERDIDA',
   };
 }

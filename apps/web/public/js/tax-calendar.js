@@ -116,6 +116,9 @@ async function loadYearCloseStatus() {
     const pend = d.resumen.pendientesRevision > 0
       ? `<span style="color:#f59e0b;font-weight:600">⚠️ ${d.resumen.pendientesRevision} asiento(s) pendientes de revisión no se incluirán</span>`
       : '';
+    const invertidos = (d.resumen.saldosInvertidos || []).length > 0
+      ? `<span style="color:#dc2626;font-weight:600">⚠️ Saldo invertido en: ${d.resumen.saldosInvertidos.map((s) => `${s.code} ${s.name}`).join(', ')} — se saldarán reduciendo la utilidad</span>`
+      : '';
     let asientoHtml = '';
     if (d.cerrado && d.entry) {
       const money = (n) => '$' + (Number(n) || 0).toFixed(2);
@@ -139,7 +142,7 @@ async function loadYearCloseStatus() {
     }
     el.innerHTML = d.cerrado
       ? `<span style="color:#059669;font-weight:600">✅ Cerrado</span> · Utilidad del ejercicio: <strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong>${asientoHtml}`
-      : `<span style="color:#f59e0b;font-weight:600">Abierto</span> · Utilidad proyectada (solo aprobados): <strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong>${pend ? '<br>' + pend : ''}`;
+      : `<span style="color:#f59e0b;font-weight:600">Abierto</span> · Utilidad proyectada (solo aprobados): <strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong>${pend ? '<br>' + pend : ''}${invertidos ? '<br>' + invertidos : ''}`;
     const btn = document.getElementById('year-close-btn');
     if (btn) btn.style.display = d.cerrado ? 'none' : '';
   } catch { el.innerHTML = '<span style="color:#dc2626">Error al consultar</span>'; }
@@ -157,12 +160,17 @@ async function closeFiscalYear() {
   const year = document.getElementById('year-close-select')?.value;
   const resumen = document.getElementById('year-close-result');
   if (!year || !resumen) return;
-  // Advertir si hay asientos pendientes de revisión en el año
+  // Advertir si hay asientos pendientes de revisión o saldos invertidos en el año
   let aviso = '';
   try {
     const st = await (await authFetch(`${API_URL}/year-close/${year}`)).json();
-    if (!st.cerrado && st.resumen.pendientesRevision > 0) {
-      aviso = `\n\n⚠️ Hay ${st.resumen.pendientesRevision} asiento(s) en BORRADOR en ${year} que NO se incluirán en el cierre. Aprueba o rechaza antes de cerrar si deben contar.`;
+    if (!st.cerrado) {
+      if (st.resumen.pendientesRevision > 0) {
+        aviso += `\n\n⚠️ Hay ${st.resumen.pendientesRevision} asiento(s) en BORRADOR en ${year} que NO se incluirán en el cierre. Aprueba o rechaza antes de cerrar si deben contar.`;
+      }
+      if ((st.resumen.saldosInvertidos || []).length > 0) {
+        aviso += `\n\n⚠️ Saldo INVERTIDO en: ${st.resumen.saldosInvertidos.map((s) => `${s.code} ${s.name}`).join(', ')} — se saldarán REDUCIENDO la utilidad. Corrige los asientos antes de cerrar si no es lo esperado.`;
+      }
     }
   } catch {}
   if (!confirm(`¿Cerrar el año fiscal ${year}? Se creará un asiento de cierre CONFIRMADO con la utilidad del ejercicio (solo asientos aprobados). No se podrá volver a cerrar hasta anularlo.${aviso}`)) return;

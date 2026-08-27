@@ -12,6 +12,7 @@ export interface YearBalances {
   totalGastos: number;
   utilidadNeta: number;
   pendientesRevision: number; // asientos BORRADOR del período (no se incluyen en el cierre)
+  saldosInvertidos: { code: string; name: string; type: string; saldo: number }[]; // cuentas con saldo contrario a su naturaleza
   lineas: { accountId: string; code: string; name: string; type: string; debit: number; credit: number }[];
 }
 
@@ -51,7 +52,7 @@ export async function computeYearBalances(prisma: any, companyId: string, year: 
   });
 
   if (grouped.length === 0) {
-    return { year, totalIngresos: 0, totalCostos: 0, totalGastos: 0, utilidadNeta: 0, pendientesRevision, lineas: [] };
+    return { year, totalIngresos: 0, totalCostos: 0, totalGastos: 0, utilidadNeta: 0, pendientesRevision, saldosInvertidos: [], lineas: [] };
   }
 
   const accounts = await prisma.account.findMany({
@@ -62,6 +63,7 @@ export async function computeYearBalances(prisma: any, companyId: string, year: 
 
   let totalIngresos = 0, totalCostos = 0, totalGastos = 0;
   const lineas: YearBalances['lineas'] = [];
+  const saldosInvertidos: YearBalances['saldosInvertidos'] = [];
 
   for (const g of grouped) {
     const acc: any = accMap.get(g.accountId);
@@ -70,8 +72,8 @@ export async function computeYearBalances(prisma: any, companyId: string, year: 
     const credit = Number(g._sum.credit) || 0;
     if (acc.type === 'INGRESO') {
       // Saldo normal (acreedor): credit - debit > 0 → débito en el cierre.
-      // Saldo anómalo (deudor, asientos mal registrados): se salda con crédito
-      // y REDUCE los ingresos — la cuenta debe quedar en cero igualmente.
+      // Saldo anómalo (deudor, asientos mal registrados): se salda con crédito,
+      // REDUCE los ingresos y se ALERTA — la cuenta debe quedar en cero.
       const saldo = r2(credit - debit);
       if (saldo > 0) {
         totalIngresos = r2(totalIngresos + saldo);
@@ -80,10 +82,11 @@ export async function computeYearBalances(prisma: any, companyId: string, year: 
         const abs = Math.abs(saldo);
         totalIngresos = r2(totalIngresos - abs);
         lineas.push({ accountId: acc.id, code: acc.code, name: acc.name, type: acc.type, debit: 0, credit: abs });
+        saldosInvertidos.push({ code: acc.code, name: acc.name, type: acc.type, saldo });
       }
     } else {
-      // COSTO/GASTO: saldo normal (deudor) → crédito en el cierre.
-      // Saldo anómalo (acreedor): se salda con débito y REDUCE el gasto.
+      // COSTO/GASTO (incluye 5.01.x): saldo normal (deudor) → crédito en el cierre.
+      // Saldo anómalo (acreedor): se salda con débito, REDUCE el gasto y se ALERTA.
       const saldo = r2(debit - credit);
       if (saldo > 0) {
         if (acc.type === 'COSTO') totalCostos = r2(totalCostos + saldo);
@@ -94,12 +97,13 @@ export async function computeYearBalances(prisma: any, companyId: string, year: 
         if (acc.type === 'COSTO') totalCostos = r2(totalCostos - abs);
         else totalGastos = r2(totalGastos - abs);
         lineas.push({ accountId: acc.id, code: acc.code, name: acc.name, type: acc.type, debit: abs, credit: 0 });
+        saldosInvertidos.push({ code: acc.code, name: acc.name, type: acc.type, saldo });
       }
     }
   }
 
   const utilidadNeta = r2(totalIngresos - totalCostos - totalGastos);
-  return { year, totalIngresos, totalCostos, totalGastos, utilidadNeta, pendientesRevision, lineas };
+  return { year, totalIngresos, totalCostos, totalGastos, utilidadNeta, pendientesRevision, saldosInvertidos, lineas };
 }
 
 /**

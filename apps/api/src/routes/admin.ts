@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth';
+import { logAudit } from '../services/audit-log';
 
 export const adminRouter = Router();
 
@@ -225,4 +226,67 @@ adminRouter.get('/plans', async (req, res) => {
     orderBy: { sortOrder: 'asc' },
   });
   res.json(plans);
+});
+
+// ── Cierre de año fiscal (Panel Admin — requiere clave) ──
+
+// Clave para anular asientos de cierre (se lee de .env; por ahora "cierre123")
+const YEAR_CLOSE_KEY = process.env.YEAR_CLOSE_KEY || 'cierre123';
+
+/** GET /api/admin/year-close — lista los asientos de cierre de todas las empresas. */
+adminRouter.get('/year-close', async (req, res) => {
+  const entries = await req.prisma.journalEntry.findMany({
+    where: { isClosing: true },
+    include: {
+      company: { select: { id: true, name: true } },
+      lines: { select: { debit: true, credit: true } },
+    },
+    orderBy: { date: 'desc' },
+  });
+  res.json(entries.map((e: any) => ({
+    id: e.id,
+    period: e.period,
+    date: e.date,
+    status: e.status,
+    description: e.description,
+    company: e.company,
+    lineCount: e.lines.length,
+    totalDebit: Math.round(e.lines.reduce((s: number, l: any) => s + l.debit, 0) * 100) / 100,
+    totalCredit: Math.round(e.lines.reduce((s: number, l: any) => s + l.credit, 0) * 100) / 100,
+  })));
+});
+
+/**
+ * POST /api/admin/year-close/:id/anular — anula un asiento de cierre (permite re-cerrar).
+ * Requiere la clave YEAR_CLOSE_KEY. No crea reversión (el cierre es un asiento
+ * técnico; marcarlo ANULADO lo excluye de reportes y libera la guardia).
+ */
+adminRouter.post('/year-close/:id/anular', async (req, res) => {
+  const { clave } = req.body || {};
+  if (clave !== YEAR_CLOSE_KEY) {
+    res.status(403).json({ error: 'Clave incorrecta.' });
+    return;
+  }
+  const entry = await req.prisma.journalEntry.findUnique({ where: { id: req.params.id } });
+  if (!entry || !entry.isClosing) {
+    res.status(404).json({ error: 'Asiento de cierre no encontrado' });
+    return;
+  }
+  if (entry.status === 'ANULADO') {
+    res.status(400).json({ error: 'El asiento de cierre ya está anulado' });
+    return;
+  }
+  const updated = await req.prisma.journalEntry.update({
+    where: { id: entry.id },
+    data: { status: 'ANULADO' },
+  });
+  await logAudit(req.prisma, {
+    userId: req.user!.userId,
+    action: 'YEAR_CLOSE_ANNULED',
+    entity: 'JournalEntry',
+    entityId: entry.id,
+    before: { status: entry.status, period: entry.period },
+    after: { status: 'ANULADO' },
+  }).catch(() => {});
+  res.json({ success: true, entry: { id: updated.id, period: updated.period, status: updated.status } });
 });

@@ -182,6 +182,20 @@
     </div>
   </div>
 
+  <!-- Cierres de año fiscal -->
+  <div class="panel">
+    <h2>🗓 Cierres de Año Fiscal</h2>
+    <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">Anular un cierre permite volver a cerrar el año desde Calendario Fiscal. Requiere la clave de administración.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Empresa</th><th>Período</th><th>Fecha</th><th>Estado</th><th>Débito</th><th>Crédito</th><th></th></tr>
+        </thead>
+        <tbody id="yearCloseTable"><tr><td colspan="7" class="loading">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
 </div>
 
 <!-- Modal: Nueva Suscripción / Registrar Pago -->
@@ -500,6 +514,57 @@ document.getElementById('modalOverlay').addEventListener('click', function(e) {
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') closeModal();
 });
+
+// ── Cierres de año fiscal (anulación con clave) ──
+async function loadYearCloses() {
+  const el = document.getElementById('yearCloseTable');
+  if (!el) return;
+  try {
+    const res = await authFetch('/api/admin/year-close');
+    const d = await res.json();
+    if (!Array.isArray(d) || !d.length) {
+      el.innerHTML = '<tr><td colspan="7" style="color:#6b7280;text-align:center">No hay asientos de cierre</td></tr>';
+      return;
+    }
+    el.innerHTML = d.map(c => `
+      <tr>
+        <td>${escapeHtml(c.company?.name || '—')}</td>
+        <td><strong>${escapeHtml(c.period || '—')}</strong></td>
+        <td>${new Date(c.date).toLocaleDateString('es-PA')}</td>
+        <td>${c.status === 'ANULADO' ? '<span style="color:#dc2626">ANULADO</span>' : '<span style="color:#059669">CONFIRMADO</span>'}</td>
+        <td>$${(c.totalDebit || 0).toFixed(2)}</td>
+        <td>$${(c.totalCredit || 0).toFixed(2)}</td>
+        <td>${c.status !== 'ANULADO' ? `<button class="btn btn-sm" onclick="promptAnnulYearClose('${c.id}')" style="background:#dc2626;color:#fff;border:none;border-radius:5px;padding:4px 10px;cursor:pointer">🗑 Anular</button>` : ''}</td>
+      </tr>`).join('');
+  } catch (e) {
+    el.innerHTML = '<tr><td colspan="7" style="color:#dc2626;text-align:center">Error al cargar</td></tr>';
+  }
+}
+
+function promptAnnulYearClose(id) {
+  const clave = prompt('🔐 Ingresa la clave para anular el asiento de cierre:');
+  if (!clave) return;
+  annulYearClose(id, clave);
+}
+
+async function annulYearClose(id, clave) {
+  try {
+    const res = await authFetch(`/api/admin/year-close/${id}/anular`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clave }),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      alert('❌ ' + (e.error || 'Error al anular'));
+      return;
+    }
+    alert('✅ Asiento de cierre anulado. Puedes volver a cerrar el año desde Calendario Fiscal.');
+    loadYearCloses();
+  } catch (e) { alert('❌ Error de conexión'); }
+}
+
+loadYearCloses();
 </script>
 </body>
 </html>
