@@ -82,50 +82,88 @@ reportsRouter.get('/proveedores', async (req, res) => {
   res.json(report);
 });
 
+/**
+ * Balance de comprobación con doble dimensión:
+ * - Débito/Crédito: SOLO movimientos del período analizado (startDate..endDate,
+ *   o el año fiscal activo si no hay filtro — derivado del último asiento).
+ * - Saldo: ACUMULADO de toda la vida hasta endDate (o hasta hoy sin filtro).
+ * Incluye asientos de cierre (isClosing): es lo que vacía las cuentas de
+ * resultado al iniciar un año nuevo y traslada la utilidad a 3.03.
+ */
 reportsRouter.get('/balance-comprobacion', async (req, res) => {
-  const { endDate } = req.query;
+  const { startDate, endDate } = req.query;
 
-  const journalEntry: Record<string, unknown> = {
-    companyId: req.user!.companyId,
-    status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false,
+  // Año fiscal activo: año del último asiento no anulado (el cierre NO cuenta
+  // para derivarlo — es del año anterior). Si no hay movimientos, año actual.
+  const lastEntry = await req.prisma.journalEntry.findFirst({
+    where: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false },
+    orderBy: { date: 'desc' },
+    select: { date: true },
+  });
+  const anioFiscal = lastEntry ? lastEntry.date.getFullYear() : new Date().getFullYear();
+
+  const periodo = {
+    start: startDate ? new Date(`${startDate}T00:00:00.000Z`) : new Date(`${anioFiscal}-01-01T00:00:00.000Z`),
+    end: endDate ? new Date(`${endDate}T23:59:59.999Z`) : new Date(`${anioFiscal}-12-31T23:59:59.999Z`),
   };
-  // El balance es un ESTADO acumulado: muestra los saldos AL FINAL del
-  // período (todos los movimientos hasta endDate), aunque las cuentas no
-  // hayan tenido movimiento en el rango. startDate no filtra.
-  const dateFilter = buildDateFilter(undefined, endDate as string);
-  if (dateFilter) journalEntry.date = dateFilter;
 
-  const where = { journalEntry };
-
-  // Agregación en BD (GROUP BY accountId) — antes se cargaban todas las líneas a memoria
-  const grouped = await req.prisma.journalLine.groupBy({
+  // 1) Movimientos del período (débito/crédito) — INCLUYE cierres del período
+  const movGrouped = await req.prisma.journalLine.groupBy({
     by: ['accountId'],
     _sum: { debit: true, credit: true },
-    where,
+    where: {
+      journalEntry: {
+        companyId: req.user!.companyId,
+        status: { notIn: ['RECHAZADO', 'ANULADO'] },
+        date: { gte: periodo.start, lte: periodo.end },
+      },
+    },
   });
 
+  // 2) Saldo acumulado hasta el final del período — INCLUYE cierres
+  const saldoGrouped = await req.prisma.journalLine.groupBy({
+    by: ['accountId'],
+    _sum: { debit: true, credit: true },
+    where: {
+      journalEntry: {
+        companyId: req.user!.companyId,
+        status: { notIn: ['RECHAZADO', 'ANULADO'] },
+        date: { lte: periodo.end },
+      },
+    },
+  });
+
+  const accountIds = [...new Set([...movGrouped.map((g: any) => g.accountId), ...saldoGrouped.map((g: any) => g.accountId)])];
   const accounts = await req.prisma.account.findMany({
-    where: { id: { in: grouped.map(g => g.accountId) } },
+    where: { id: { in: accountIds } },
     select: { id: true, code: true, name: true, type: true },
   });
-  const byId = new Map(accounts.map(a => [a.id, a]));
+  const byId = new Map(accounts.map((a: any) => [a.id, a]));
+  const movMap = new Map(movGrouped.map((g: any) => [g.accountId, g]));
+  const saldoMap = new Map(saldoGrouped.map((g: any) => [g.accountId, g]));
 
-  const result = grouped
-    .map((g) => {
-      const a = byId.get(g.accountId)!;
-      const totalDebit = g._sum.debit || 0;
-      const totalCredit = g._sum.credit || 0;
+  const result = accountIds
+    .map((id) => {
+      const a = byId.get(id);
+      if (!a) return null;
+      const mov = movMap.get(id);
+      const sal = saldoMap.get(id);
+      const totalDebit = Math.round((mov?._sum.debit || 0) * 100) / 100;
+      const totalCredit = Math.round((mov?._sum.credit || 0) * 100) / 100;
+      const rawBalance = (sal?._sum.debit || 0) - (sal?._sum.credit || 0);
+      const balance = Math.round(Math.abs(rawBalance) * 100) / 100;
       return {
         account: { code: a.code, name: a.name, type: a.type },
         totalDebit,
         totalCredit,
-        balance: Math.round(Math.abs(totalDebit - totalCredit) * 100) / 100,
-        balanceType: totalDebit > totalCredit ? 'DEUDOR' : 'ACREEDOR',
+        balance,
+        balanceType: rawBalance > 0 ? 'DEUDOR' : 'ACREEDOR',
       };
     })
-    .sort((a, b) => a.account.code.localeCompare(b.account.code, undefined, { numeric: true }));
+    .filter(Boolean)
+    .sort((a: any, b: any) => a.account.code.localeCompare(b.account.code, undefined, { numeric: true }));
 
-  res.json(result);
+  res.json({ periodo: { start: periodo.start, end: periodo.end, anioFiscal }, cuentas: result });
 });
 
 reportsRouter.get('/balance-general', async (req, res) => {
@@ -136,7 +174,9 @@ reportsRouter.get('/balance-general', async (req, res) => {
     where: {
       journalEntry: {
         companyId: req.user!.companyId,
-        status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false,
+        status: { notIn: ['RECHAZADO', 'ANULADO'] },
+        // INCLUYE asientos de cierre: el patrimonio debe reflejar la utilidad
+        // del ejercicio en 3.03 y los resultados vacíos al iniciar un año nuevo.
       },
     },
   });
@@ -387,40 +427,57 @@ reportsRouter.get('/export/:type', async (req, res) => {
 
     switch (type) {
       case 'balance-comprobacion': {
-        const journalEntry: Record<string, unknown> = {
-          companyId: req.user!.companyId,
-          status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false,
-        };
-        // Estado acumulado hasta endDate (el balance muestra saldos, no flujos)
-        const dateFilter = buildDateFilter(undefined, endDate as string);
-        if (dateFilter) journalEntry.date = dateFilter;
-        const lines = await req.prisma.journalLine.findMany({
-          where: { journalEntry },
-          include: { account: true },
+        // Misma doble dimensión que el GET: débito/crédito del período,
+        // saldo acumulado hasta el final — incluyendo asientos de cierre.
+        const lastEntry = await req.prisma.journalEntry.findFirst({
+          where: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false },
+          orderBy: { date: 'desc' },
+          select: { date: true },
         });
-        const balanceMap = new Map<string, any>();
-        for (const line of lines) {
-          const existing = balanceMap.get(line.accountId) || {
-            account: { code: line.account.code, name: line.account.name, type: line.account.type },
-            totalDebit: 0, totalCredit: 0,
-          };
-          existing.totalDebit += line.debit;
-          existing.totalCredit += line.credit;
-          balanceMap.set(line.accountId, existing);
+        const anioFiscal = lastEntry ? lastEntry.date.getFullYear() : new Date().getFullYear();
+        const pStart = startDate ? new Date(`${startDate}T00:00:00.000Z`) : new Date(`${anioFiscal}-01-01T00:00:00.000Z`);
+        const pEnd = endDate ? new Date(`${endDate}T23:59:59.999Z`) : new Date(`${anioFiscal}-12-31T23:59:59.999Z`);
+
+        const [movLines, saldoLines] = await Promise.all([
+          req.prisma.journalLine.findMany({
+            where: { journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] }, date: { gte: pStart, lte: pEnd } } },
+            include: { account: true },
+          }),
+          req.prisma.journalLine.findMany({
+            where: { journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] }, date: { lte: pEnd } } },
+            include: { account: true },
+          }),
+        ]);
+        const saldoMap = new Map<string, number>();
+        for (const l of saldoLines) saldoMap.set(l.accountId, (saldoMap.get(l.accountId) || 0) + l.debit - l.credit);
+        const movMap = new Map<string, { d: number; c: number }>();
+        for (const l of movLines) {
+          const e = movMap.get(l.accountId) || { d: 0, c: 0 };
+          e.d += l.debit; e.c += l.credit;
+          movMap.set(l.accountId, e);
         }
-        data = (Array.from(balanceMap.values()) as any[])
-          .map((b: any) => ({
-            ...b,
-            balance: Math.abs(b.totalDebit - b.totalCredit),
-            balanceType: b.totalDebit > b.totalCredit ? 'DEUDOR' : 'ACREEDOR',
-          }))
-          .sort((a: any, b: any) => a.account.code.localeCompare(b.account.code, undefined, { numeric: true })) as unknown as Record<string, unknown>;
+        const seen = new Set<string>();
+        const result: any[] = [];
+        for (const l of [...saldoLines, ...movLines]) {
+          if (seen.has(l.accountId)) continue;
+          seen.add(l.accountId);
+          const m = movMap.get(l.accountId) || { d: 0, c: 0 };
+          const rawBal = saldoMap.get(l.accountId) || 0;
+          result.push({
+            account: { code: l.account.code, name: l.account.name, type: l.account.type },
+            totalDebit: Math.round(m.d * 100) / 100,
+            totalCredit: Math.round(m.c * 100) / 100,
+            balance: Math.round(Math.abs(rawBal) * 100) / 100,
+            balanceType: rawBal > 0 ? 'DEUDOR' : 'ACREEDOR',
+          });
+        }
+        data = result.sort((a, b) => a.account.code.localeCompare(b.account.code, undefined, { numeric: true })) as unknown as Record<string, unknown>;
         break;
       }
 
       case 'balance-general': {
         const lines = await req.prisma.journalLine.findMany({
-          where: { journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false } },
+          where: { journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] } } },
           include: { account: true },
         });
         let totalActivos = 0, totalPasivos = 0, totalPatrimonio = 0;

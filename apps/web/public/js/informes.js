@@ -95,9 +95,10 @@ async function loadReportBalance() {
     const params = getInformesDateParams();
     const res = await authFetch(`${API_URL}/reports/balance-comprobacion?${params}`);
     const d = await res.json();
+    const cuentas = d.cuentas || d || [];
     const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
     let totDeb = 0, totCred = 0;
-    const rows = (d||[]).map(a => {
+    const rows = cuentas.map(a => {
       totDeb += (a.totalDebit||0);
       totCred += (a.totalCredit||0);
       return [
@@ -108,7 +109,10 @@ async function loadReportBalance() {
       ];
     });
     const footer = ['', '<span style="padding-left:24px">Total</span>', `<span style="color:#2e7d32;font-weight:700">${fmt(totDeb)}</span>`, `<span style="color:#c62828;font-weight:700">${fmt(totCred)}</span>`, ''];
-    el.innerHTML = buildInformesTable(['Código','Cuenta','Débito','Crédito','Saldo'], rows, footer);
+    const periodoInfo = d.periodo
+      ? `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">📅 Período de movimientos: ${new Date(d.periodo.start).toLocaleDateString('es-PA')} — ${new Date(d.periodo.end).toLocaleDateString('es-PA')} · Año fiscal ${d.periodo.anioFiscal} · <strong>Saldo acumulado</strong> al corte</div>`
+      : '';
+    el.innerHTML = periodoInfo + buildInformesTable(['Código','Cuenta','Débito (período)','Crédito (período)','Saldo (acumulado)'], rows, footer);
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
 async function loadReportResultados() {
