@@ -157,7 +157,10 @@ journalRouter.get('/', async (req, res) => {
 
   const totalPages = Math.ceil(total / pageSize);
 
-  res.json({ entries: enriched, total, page, pageSize, totalPages });
+  res.json({
+    periodo: { start: rango.start, end: rango.end, anioFiscal },
+    entries: enriched, total, page, pageSize, totalPages,
+  });
 });
 
 journalRouter.get('/:id', async (req, res) => {

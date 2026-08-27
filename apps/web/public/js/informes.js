@@ -86,7 +86,7 @@ async function loadReportDiario() {
     html += `<td style="color:#2e7d32">${fmt(totDeb)}</td>`;
     html += `<td style="color:#c62828">${fmt(totCred)}</td>`;
     html += '<td></td></tr></tfoot></table></div>';
-    el.innerHTML = html;
+    el.innerHTML = informesPeriodoInfo(d) + html;
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
 async function loadReportBalance() {
@@ -122,7 +122,7 @@ async function loadReportResultados() {
     const res = await authFetch(`${API_URL}/reports/estado-resultados?${params}`);
     const d = await res.json();
     const items = (obj) => Object.entries(obj||{}).map(([k,v]) => `<tr><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb">${escapeHtml(k)}</td><td style="text-align:right;padding:6px 10px;border-bottom:1px solid #e5e7eb;font-weight:600">$${Number(v).toLocaleString()}</td></tr>`).join('');
-    el.innerHTML = `
+    el.innerHTML = informesPeriodoInfo(d) + `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div>
           <h3 style="font-size:14px;color:#2e7d32;margin:0 0 8px 0">📈 Ingresos</h3>
@@ -191,7 +191,7 @@ async function loadReportDashboard() {
       html += `<div class="dash-grid"><div class="dash-chart-card"><h4>Ingresos por Categoría</h4><canvas id="chart-ingresos"></canvas></div><div></div></div>`;
     }
 
-    el.innerHTML = html;
+    el.innerHTML = informesPeriodoInfo(d) + html;
 
     const months = d.monthly.map(m => {
       const [y, mo] = m.month.split('-');
@@ -407,6 +407,15 @@ function buildInformesTable(headers, rows, footer) {
   return h;
 }
 
+/** Línea de información del período efectivo que muestra el reporte. */
+function informesPeriodoInfo(d) {
+  if (!d || !d.periodo) return '';
+  const s = d.periodo.start ? new Date(d.periodo.start).toLocaleDateString('es-PA') : '';
+  const e = d.periodo.end ? new Date(d.periodo.end).toLocaleDateString('es-PA') : '';
+  const af = d.periodo.anioFiscal ? ` · Año fiscal ${d.periodo.anioFiscal}` : '';
+  return `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">📅 Período mostrado: ${s} — ${e}${af}</div>`;
+}
+
 // ── Reporte por proveedor (facturas DGI — declaración de rentas) ──
 async function loadReportProveedores() {
   const el = document.getElementById('informes-inline-result');
@@ -448,7 +457,7 @@ async function loadReportProveedores() {
     ]);
     const footer = ['', '', d.facturas, money(d.subtotal), money(d.itbms), money(d.total), ''];
 
-    let html = cards + buildInformesTable(['Proveedor', 'RUC', 'Facturas', 'Subtotal', 'ITBMS', 'Total', ''], rows, footer);
+    let html = informesPeriodoInfo(d) + cards + buildInformesTable(['Proveedor', 'RUC', 'Facturas', 'Subtotal', 'ITBMS', 'Total', ''], rows, footer);
 
     // Detalle por proveedor (toggle)
     d.proveedores.forEach((p, i) => {

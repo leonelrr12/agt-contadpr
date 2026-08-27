@@ -19,7 +19,12 @@ async function buildProveedoresReport(prisma: any, companyId: string, startDate?
     metadata: { contains: 'provider' },
     journalEntry: { is: { status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false } },
   };
-  const dateFilter = buildDateFilter(startDate, endDate);
+  // Sin filtro de fechas → año fiscal activo (consistente con los demás informes)
+  const anioFiscal = await getAnioFiscal(prisma, companyId);
+  const rango = anioFiscalRange(anioFiscal);
+  const dateFilter = startDate || endDate
+    ? buildDateFilter(startDate, endDate)
+    : { gte: rango.start, lte: rango.end };
   if (dateFilter) where.date = dateFilter;
 
   const txs = await prisma.transaction.findMany({
@@ -70,7 +75,7 @@ async function buildProveedoresReport(prisma: any, companyId: string, startDate?
   }), { facturas: 0, subtotal: 0, itbms: 0, total: 0 });
 
   return {
-    periodo: { startDate: startDate || null, endDate: endDate || null },
+    periodo: { start: dateFilter?.gte || null, end: dateFilter?.lte || null, anioFiscal },
     totalProveedores: lista.length,
     ...tot,
     proveedores: lista,
@@ -286,6 +291,7 @@ reportsRouter.get('/estado-resultados', async (req, res) => {
   }
 
   res.json({
+    periodo: { start: rango.start, end: rango.end, anioFiscal },
     ingresos: { detalle: ingresos, total: totalIngresos },
     costos: { detalle: costos, total: totalCostos },
     gananciaBruta: totalIngresos - totalCostos,
@@ -427,6 +433,7 @@ reportsRouter.get('/dashboard', async (req, res) => {
   const utilidadNeta = totalIngresos - totalGastos - totalCostos;
 
   res.json({
+    periodo: { start: rango.start, end: rango.end, anioFiscal },
     monthly,
     resumen: {
       totalIngresos: Math.round(totalIngresos * 100) / 100,
