@@ -516,6 +516,11 @@ document.addEventListener('keydown', function(e) {
 });
 
 // ── Cierres de año fiscal (anulación con clave) ──
+// escapeHtml no viene en shared.js (solo en capture-qr.js, que admin.html no carga)
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 async function loadYearCloses() {
   const el = document.getElementById('yearCloseTable');
   if (!el) return;
