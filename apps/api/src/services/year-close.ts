@@ -117,9 +117,10 @@ export async function closeYear(
   userId: string,
   year: string,
 ): Promise<{ entry: any; balances: YearBalances }> {
-  // Guardia anti-duplicado amigable
+  // Guardia anti-duplicado amigable — el más reciente (puede haber un ANULADO previo)
   const existing = await prisma.journalEntry.findFirst({
     where: { companyId, period: year, isClosing: true },
+    orderBy: { createdAt: 'desc' },
   });
   if (existing && existing.status !== 'ANULADO') {
     throw Object.assign(

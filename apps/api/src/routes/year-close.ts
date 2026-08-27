@@ -61,6 +61,8 @@ yearCloseRouter.get('/:year', async (req, res) => {
     const [existing, balances] = await Promise.all([
       req.prisma.journalEntry.findFirst({
         where: { companyId: req.user!.companyId, period: year, isClosing: true },
+        // El MÁS RECIENTE: puede haber uno ANULADO y otro CONFIRMADO (re-cierre)
+        orderBy: { createdAt: 'desc' },
         include: { lines: { include: { account: true } } },
       }),
       computeYearBalances(req.prisma, req.user!.companyId, year),
