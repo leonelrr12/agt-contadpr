@@ -385,6 +385,7 @@
           <button class="panel-tab-btn active" data-panel="cuentas-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#1a1a2e;border-bottom:2px solid #1565c0;margin-bottom:-2px">🏦 Cuentas</button>
           <button class="panel-tab-btn" data-panel="conceptos-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📝 Conceptos</button>
           <button class="panel-tab-btn" data-panel="config" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚙️ Configuración</button>
+          <button class="panel-tab-btn" data-panel="cierres-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🗓 Cierres</button>
         </div>
         <!-- Cuentas Admin -->
         <div id="cuentas-admin-content"></div>
@@ -430,6 +431,26 @@
             </div>
           </div>
         </div>
+        <!-- Cierres Admin -->
+        <div id="cierres-admin-content" class="hidden">
+          <div class="admin-form-card">
+            <h4>🗓 Cierres de Año Fiscal</h4>
+            <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">Anular un cierre permite volver a cerrar el año desde Calendario Fiscal. Requiere la clave de administración.</p>
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:13px">
+                <thead><tr>
+                  <th style="text-align:left;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280">Período</th>
+                  <th style="text-align:left;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280">Fecha</th>
+                  <th style="text-align:left;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280">Estado</th>
+                  <th style="text-align:right;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280">Débito</th>
+                  <th style="text-align:right;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280">Crédito</th>
+                  <th style="width:32px"></th>
+                </tr></thead>
+                <tbody id="cierres-admin-list"><tr><td colspan="6" style="padding:16px;text-align:center;color:#6b7280">Cargando...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
   </div>
@@ -463,20 +484,20 @@
 
   <script src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="js/core.js?v=69"></script>
-  <script src="js/capture.js?v=69"></script>
-  <script src="js/capture-qr.js?v=69"></script>
-  <script src="js/chat.js?v=69"></script>
-  <script src="js/router.js?v=69"></script>
-  <script src="js/admin.js?v=69"></script>
-  <script src="js/init.js?v=69"></script>
-  <script src="js/panels-sidebar.js?v=69"></script>
-  <script src="js/import.js?v=69"></script>
-  <script src="js/auxiliares-revision.js?v=69"></script>
-  <script src="js/entry-modals.js?v=69"></script>
-  <script src="js/informes.js?v=69"></script>
-  <script src="js/tax-calendar.js?v=69"></script>
-  <script src="js/salud.js?v=69"></script>
+  <script src="js/core.js?v=70"></script>
+  <script src="js/capture.js?v=70"></script>
+  <script src="js/capture-qr.js?v=70"></script>
+  <script src="js/chat.js?v=70"></script>
+  <script src="js/router.js?v=70"></script>
+  <script src="js/admin.js?v=70"></script>
+  <script src="js/init.js?v=70"></script>
+  <script src="js/panels-sidebar.js?v=70"></script>
+  <script src="js/import.js?v=70"></script>
+  <script src="js/auxiliares-revision.js?v=70"></script>
+  <script src="js/entry-modals.js?v=70"></script>
+  <script src="js/informes.js?v=70"></script>
+  <script src="js/tax-calendar.js?v=70"></script>
+  <script src="js/salud.js?v=70"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </body>
 </html>

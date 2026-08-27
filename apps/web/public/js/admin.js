@@ -289,3 +289,52 @@ function buildCuentaTree(account, all, depth = 0, admin = false) {
   }
   return html;
 }
+
+// ── Cierres de año fiscal (Panel Admin de la empresa) ──
+async function loadPanelCierresAdmin() {
+  const el = document.getElementById('cierres-admin-list');
+  if (!el) return;
+  el.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:#6b7280">Cargando...</td></tr>';
+  try {
+    const res = await authFetch(`${API_URL}/year-close`);
+    const d = await res.json();
+    if (!Array.isArray(d) || !d.length) {
+      el.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:#6b7280">No hay asientos de cierre. Usa Calendario Fiscal para cerrar el año.</td></tr>';
+      return;
+    }
+    el.innerHTML = d.map(c => `
+      <tr>
+        <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0"><strong>${escapeHtml(c.period || '—')}</strong></td>
+        <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0">${new Date(c.date).toLocaleDateString('es-PA')}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0">${c.status === 'ANULADO' ? '<span style="color:#dc2626">ANULADO</span>' : '<span style="color:#059669">CONFIRMADO</span>'}</td>
+        <td style="text-align:right;padding:8px 10px;border-bottom:1px solid #f0f0f0">$${(c.totalDebit || 0).toFixed(2)}</td>
+        <td style="text-align:right;padding:8px 10px;border-bottom:1px solid #f0f0f0">$${(c.totalCredit || 0).toFixed(2)}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0">${c.status !== 'ANULADO' ? `<button onclick="promptAnnulEmpresaCierre('${c.id}')" style="padding:4px 10px;font-size:11px;background:#dc2626;color:#fff;border:none;border-radius:5px;cursor:pointer">🗑 Anular</button>` : ''}</td>
+      </tr>`).join('');
+  } catch (e) {
+    el.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:#dc2626">Error al cargar</td></tr>';
+  }
+}
+
+function promptAnnulEmpresaCierre(id) {
+  const clave = prompt('🔐 Ingresa la clave para anular el asiento de cierre:');
+  if (!clave) return;
+  annulEmpresaCierre(id, clave);
+}
+
+async function annulEmpresaCierre(id, clave) {
+  try {
+    const res = await authFetch(`${API_URL}/year-close/${id}/anular`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clave }),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      alert('❌ ' + (e.error || 'Error al anular'));
+      return;
+    }
+    alert('✅ Asiento de cierre anulado. Puedes volver a cerrar el año desde Calendario Fiscal.');
+    loadPanelCierresAdmin();
+  } catch (e) { alert('❌ Error de conexión'); }
+}

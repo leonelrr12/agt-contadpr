@@ -72,9 +72,10 @@ document.querySelectorAll('#panel-tabs-admin button').forEach(btn => {
       'cuentas-admin': ['cuentas-admin-content', 'cuentas-admin-actions', 'cuentas-admin-form'],
       'conceptos-admin': ['conceptos-admin-content', 'conceptos-admin-actions', 'conceptos-admin-form'],
       'config': ['config-content'],
+      'cierres-admin': ['cierres-admin-content'],
     };
     // Ocultar todo
-    document.querySelectorAll('#cuentas-admin-content, #cuentas-admin-actions, #cuentas-admin-form, #conceptos-admin-content, #conceptos-admin-actions, #conceptos-admin-form, #config-content').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('#cuentas-admin-content, #cuentas-admin-actions, #cuentas-admin-form, #conceptos-admin-content, #conceptos-admin-actions, #conceptos-admin-form, #config-content, #cierres-admin-content').forEach(el => el.classList.add('hidden'));
     // Mostrar lo relevante
     const ids = contentIds[btn.dataset.panel] || [];
     ids.forEach(id => { const el = document.getElementById(id); if (el) el.classList.remove('hidden'); });
@@ -82,6 +83,7 @@ document.querySelectorAll('#panel-tabs-admin button').forEach(btn => {
     if (btn.dataset.panel === 'cuentas-admin') loadPanelCuentasAdmin();
     if (btn.dataset.panel === 'conceptos-admin') loadPanelConceptosAdmin();
     if (btn.dataset.panel === 'config') loadPanelConfig();
+    if (btn.dataset.panel === 'cierres-admin') loadPanelCierresAdmin();
   });
 });
 
