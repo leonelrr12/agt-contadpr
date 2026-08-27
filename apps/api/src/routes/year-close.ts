@@ -13,6 +13,7 @@ function resumenConTipo(balances: any) {
     totalCostos: balances.totalCostos,
     totalGastos: balances.totalGastos,
     utilidadNeta: balances.utilidadNeta,
+    pendientesRevision: balances.pendientesRevision || 0,
     tipo: balances.utilidadNeta >= 0 ? 'GANANCIA' : 'PERDIDA',
   };
 }

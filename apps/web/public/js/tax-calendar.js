@@ -113,9 +113,12 @@ async function loadYearCloseStatus() {
     const res = await authFetch(`${API_URL}/year-close/${year}`);
     if (!res.ok) { el.innerHTML = '<span style="color:#dc2626">Error al consultar</span>'; return; }
     const d = await res.json();
+    const pend = d.resumen.pendientesRevision > 0
+      ? `<span style="color:#f59e0b;font-weight:600">⚠️ ${d.resumen.pendientesRevision} asiento(s) pendientes de revisión no se incluirán</span>`
+      : '';
     el.innerHTML = d.cerrado
       ? `<span style="color:#059669;font-weight:600">✅ Cerrado</span> · Utilidad del ejercicio: <strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong>`
-      : `<span style="color:#f59e0b;font-weight:600">Abierto</span> · Utilidad proyectada: <strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong>`;
+      : `<span style="color:#f59e0b;font-weight:600">Abierto</span> · Utilidad proyectada (solo aprobados): <strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong>${pend ? '<br>' + pend : ''}`;
     const btn = document.getElementById('year-close-btn');
     if (btn) btn.style.display = d.cerrado ? 'none' : '';
   } catch { el.innerHTML = '<span style="color:#dc2626">Error al consultar</span>'; }
@@ -125,7 +128,15 @@ async function closeFiscalYear() {
   const year = document.getElementById('year-close-select')?.value;
   const resumen = document.getElementById('year-close-result');
   if (!year || !resumen) return;
-  if (!confirm(`¿Cerrar el año fiscal ${year}? Se creará un asiento de cierre CONFIRMADO con la utilidad del ejercicio. No se podrá volver a cerrar hasta anularlo.`)) return;
+  // Advertir si hay asientos pendientes de revisión en el año
+  let aviso = '';
+  try {
+    const st = await (await authFetch(`${API_URL}/year-close/${year}`)).json();
+    if (!st.cerrado && st.resumen.pendientesRevision > 0) {
+      aviso = `\n\n⚠️ Hay ${st.resumen.pendientesRevision} asiento(s) en BORRADOR en ${year} que NO se incluirán en el cierre. Aprueba o rechaza antes de cerrar si deben contar.`;
+    }
+  } catch {}
+  if (!confirm(`¿Cerrar el año fiscal ${year}? Se creará un asiento de cierre CONFIRMADO con la utilidad del ejercicio (solo asientos aprobados). No se podrá volver a cerrar hasta anularlo.${aviso}`)) return;
   resumen.innerHTML = 'Cerrando...';
   try {
     const res = await authFetch(`${API_URL}/year-close/${year}`, { method: 'POST' });

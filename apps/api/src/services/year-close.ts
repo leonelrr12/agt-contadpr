@@ -11,6 +11,7 @@ export interface YearBalances {
   totalCostos: number;
   totalGastos: number;
   utilidadNeta: number;
+  pendientesRevision: number; // asientos BORRADOR del período (no se incluyen en el cierre)
   lineas: { accountId: string; code: string; name: string; type: string; debit: number; credit: number }[];
 }
 
@@ -24,7 +25,9 @@ export async function computeYearBalances(prisma: any, companyId: string, year: 
       gte: new Date(`${year}-01-01T00:00:00.000Z`),
       lte: new Date(`${year}-12-31T23:59:59.999Z`),
     },
-    status: { notIn: ['RECHAZADO', 'ANULADO'] },
+    // Solo asientos APROBADOS: los BORRADOR pendientes de revisión no forman
+    // parte del resultado cerrado (podrían rechazarse/corregirse después).
+    status: 'CONFIRMADO',
     isClosing: false,
   };
 
@@ -34,8 +37,21 @@ export async function computeYearBalances(prisma: any, companyId: string, year: 
     where: { journalEntry: periodWhere, account: { type: { in: ['INGRESO', 'COSTO', 'GASTO'] } } },
   });
 
+  // Asientos pendientes de revisión en el período (BORRADOR) — no cuentan en el cierre
+  const pendientesRevision = await prisma.journalEntry.count({
+    where: {
+      companyId,
+      date: {
+        gte: new Date(`${year}-01-01T00:00:00.000Z`),
+        lte: new Date(`${year}-12-31T23:59:59.999Z`),
+      },
+      status: 'BORRADOR',
+      isClosing: false,
+    },
+  });
+
   if (grouped.length === 0) {
-    return { year, totalIngresos: 0, totalCostos: 0, totalGastos: 0, utilidadNeta: 0, lineas: [] };
+    return { year, totalIngresos: 0, totalCostos: 0, totalGastos: 0, utilidadNeta: 0, pendientesRevision, lineas: [] };
   }
 
   const accounts = await prisma.account.findMany({
@@ -71,7 +87,7 @@ export async function computeYearBalances(prisma: any, companyId: string, year: 
   }
 
   const utilidadNeta = r2(totalIngresos - totalCostos - totalGastos);
-  return { year, totalIngresos, totalCostos, totalGastos, utilidadNeta, lineas };
+  return { year, totalIngresos, totalCostos, totalGastos, utilidadNeta, pendientesRevision, lineas };
 }
 
 /**
