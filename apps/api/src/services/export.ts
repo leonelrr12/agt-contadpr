@@ -297,6 +297,45 @@ export async function exportReport(
       };
     }
 
+    case 'proveedores': {
+      const d = data as any;
+      const columns: ColumnDef[] = [
+        { header: 'Proveedor', key: 'provider' },
+        { header: 'RUC', key: 'ruc' },
+        { header: 'N° Factura', key: 'invoiceNumber' },
+        { header: 'Fecha', key: 'date' },
+        { header: 'Monto', key: 'amount' },
+        { header: 'ITBMS', key: 'itbms' },
+        { header: 'Total', key: 'total' },
+      ];
+      const rows: Record<string, unknown>[] = [];
+      for (const p of d.proveedores || []) {
+        for (const f of p.detalle || []) {
+          rows.push({
+            provider: p.provider,
+            ruc: p.ruc || '—',
+            invoiceNumber: f.invoiceNumber || '—',
+            date: new Date(f.date).toLocaleDateString('es-PA'),
+            amount: f.amount,
+            itbms: f.itbms,
+            total: f.total,
+          });
+        }
+      }
+      const footerRow = {
+        provider: '', ruc: '', invoiceNumber: 'Total', date: '',
+        amount: d.subtotal, itbms: d.itbms, total: d.total,
+      };
+      const buffer = format === 'xlsx'
+        ? await buildXlsx('Reporte por Proveedor', columns, rows, ['amount', 'itbms', 'total'], footerRow)
+        : Buffer.from(buildCsv(columns, rows, footerRow), 'utf-8');
+      return {
+        buffer,
+        contentType: format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv',
+        filename: `reporte-proveedores-${today}.${format}`,
+      };
+    }
+
     default:
       throw new Error(`Tipo de reporte no soportado: ${reportType}`);
   }

@@ -186,6 +186,9 @@ export class OrchestratorAgent {
     const metadata: Record<string, unknown> = {};
     if (dialog.provider) metadata.provider = dialog.provider;
     if (dialog.ruc) metadata.ruc = dialog.ruc;
+    if (dialog.invoiceNumber) metadata.invoiceNumber = dialog.invoiceNumber;
+    if (dialog.itbmsAmount) metadata.itbmsAmount = dialog.itbmsAmount;
+    if ((dialog as any).source) metadata.source = (dialog as any).source;
 
     await this.prisma.transaction.create({
       data: {

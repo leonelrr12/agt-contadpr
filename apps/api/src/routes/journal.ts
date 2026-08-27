@@ -19,6 +19,7 @@ journalRouter.get('/pendientes', async (req, res) => {
   const where: Record<string, unknown> = {
     companyId: req.user!.companyId,
     status: 'BORRADOR',
+    isClosing: false,
   };
   const dateFilter = buildDateFilter(startDate as string, endDate as string);
   if (dateFilter) where.date = dateFilter;
@@ -108,7 +109,7 @@ journalRouter.post('/:id/review', requireRole('admin', 'contador', 'superadmin')
 
 journalRouter.get('/', async (req, res) => {
   const { startDate, endDate, status, provider: providerFilter, page: pageStr, pageSize: pageSizeStr } = req.query;
-  const where: Record<string, unknown> = { companyId: req.user!.companyId };
+  const where: Record<string, unknown> = { companyId: req.user!.companyId, isClosing: false };
   if (status) where.status = status;
   const dateFilter = buildDateFilter(startDate as string, endDate as string);
   if (dateFilter) where.date = dateFilter;

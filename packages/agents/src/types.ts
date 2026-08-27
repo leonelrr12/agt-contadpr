@@ -21,6 +21,7 @@ export interface DialogResult {
   source?: string | null;
   reference?: string | null;
   ruc?: string | null;
+  invoiceNumber?: string | null;
 }
 
 export interface AgentTask {

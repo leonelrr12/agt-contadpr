@@ -256,6 +256,7 @@ export async function processWhatsAppPDF(
     if (pdfData.total) ocrContext.amount = pdfData.total;
     if (pdfData.date) ocrContext.date = pdfData.date;
     if (pdfData.ruc) ocrContext.ruc = pdfData.ruc;
+    if (pdfData.invoiceNumber) ocrContext.invoiceNumber = pdfData.invoiceNumber;
     ocrContext.itbms = !!pdfData.itbms;
     if (pdfData.itbms) ocrContext.itbmsAmount = pdfData.itbms;
     ocrContext.source = 'pdf';

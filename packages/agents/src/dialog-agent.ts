@@ -43,6 +43,7 @@ function parseInput(input: string): {
   itbms: boolean;
   itbmsAmount?: number | null;
   provider: string | null;
+  invoiceNumber?: string | null;
 } {
   const lower = input.toLowerCase();
 
@@ -134,6 +135,11 @@ function parseInput(input: string): {
   const itbmsAmtMatch = input.match(/(?:itbms|iva|impuesto)\s+(?:por|de|:?\s*\$?)\s*(\d+(?:\.\d{1,2})?)/i);
   if (itbmsAmtMatch) itbmsAmount = parseFloat(itbmsAmtMatch[1]);
 
+  // Número de factura: "factura FE-2026-0001", "fact #12345", "No. 0000634220"
+  let invoiceNumber: string | null = null;
+  const invoiceMatch = input.match(/(?:factura|fact\.?|no\.?\s*(?:factura)?|#)\s*[:#-]?\s*(FE-?[A-Z0-9-]+|\d{4,}[A-Z0-9-]*)/i);
+  if (invoiceMatch) invoiceNumber = invoiceMatch[1];
+
   let provider: string | null = null;
   // Busca patrón "a [Nombre]", "proveedor [Nombre]", "de [Nombre]" con nombre propio
   // Cubre compras (compré a X), ventas (vendí a X, cliente X), y gastos (pagué a X)
@@ -155,7 +161,7 @@ function parseInput(input: string): {
   if (amount === 0) missingFields.push('amount');
   if (!paymentMethod) missingFields.push('paymentMethod');
 
-  return { amount, date, type, concept, paymentMethod, missingFields, itbms, itbmsAmount, provider };
+  return { amount, date, type, concept, paymentMethod, missingFields, itbms, itbmsAmount, provider, invoiceNumber };
 }
 
 /** Detecta si el usuario mencionó explícitamente una fecha válida en el mensaje.
@@ -308,6 +314,7 @@ export class DialogAgent {
       provider,
       source: (prev as any)?.source || undefined,
       ruc: (prev as any)?.ruc || (extracted as any).ruc || null,
+      invoiceNumber: (prev as any)?.invoiceNumber || (extracted as any).invoiceNumber || null,
       suggestedResponse: missingFields.length === 0
         ? `He entendido: ${type === 'VENTA' ? 'Venta' : type === 'GASTO' ? 'Gasto' : type} de ${concept} por $${amount}${paymentMethod ? ` pagado con ${paymentMethod}` : ''}${itbms ? ` (ITBMS ${(itbmsRate! * 100).toFixed(0)}% incluido)` : ''}. ¿Confirmas?`
         : `Necesito más información: ${missingFields.join(', ')}`,

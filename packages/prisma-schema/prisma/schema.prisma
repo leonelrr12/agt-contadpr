@@ -123,6 +123,8 @@ model JournalEntry {
   date         DateTime
   description  String
   status       String    @default("BORRADOR")
+  period       String?   // Año fiscal del asiento de cierre (ej. "2026")
+  isClosing    Boolean   @default(false) // Asiento de cierre de año — excluido de reportes
   companyId    String
   createdById  String
   reviewedById String?

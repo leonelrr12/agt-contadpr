@@ -5,12 +5,89 @@ import type { ExportFormat } from '../services/export';
 
 export const reportsRouter = Router();
 
+/**
+ * Reporte por proveedor de facturas DGI (declaración de rentas).
+ * Agrupa transacciones por metadata.provider (patrón de journal.ts):
+ * filtro contains en BD + parseo JSON en memoria.
+ * source="pdf"/"ocr" → amount ya incluye ITBMS (subtotal = amount - itbms);
+ * sin source (texto) → amount es neto (total = amount + itbms).
+ */
+async function buildProveedoresReport(prisma: any, companyId: string, startDate?: string, endDate?: string) {
+  const where: Record<string, unknown> = {
+    companyId,
+    metadata: { contains: 'provider' },
+    journalEntry: { is: { status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false } },
+  };
+  const dateFilter = buildDateFilter(startDate, endDate);
+  if (dateFilter) where.date = dateFilter;
+
+  const txs = await prisma.transaction.findMany({
+    where,
+    select: { id: true, date: true, amount: true, metadata: true },
+    orderBy: { date: 'asc' },
+  });
+
+  const proveedores = new Map<string, any>();
+  for (const tx of txs) {
+    let m: any = {};
+    try { m = JSON.parse(tx.metadata); } catch {}
+    if (!m.provider) continue;
+    const ruc = m.ruc || null;
+    const key = `${m.provider}|${ruc || ''}`;
+    const p = proveedores.get(key) || {
+      provider: m.provider, ruc, facturas: 0, subtotal: 0, itbms: 0, total: 0, detalle: [],
+    };
+    const hasItbms = Number(m.itbmsAmount) > 0;
+    const amountTotal = Number(tx.amount) || 0;
+    const itbms = hasItbms ? Math.round(Number(m.itbmsAmount) * 100) / 100 : 0;
+    const subtotal = m.source ? Math.round((amountTotal - itbms) * 100) / 100 : amountTotal;
+    const total = m.source ? amountTotal : Math.round((amountTotal + itbms) * 100) / 100;
+    p.facturas++;
+    p.subtotal = Math.round((p.subtotal + subtotal) * 100) / 100;
+    p.itbms = Math.round((p.itbms + itbms) * 100) / 100;
+    p.total = Math.round((p.total + total) * 100) / 100;
+    p.detalle.push({
+      transactionId: tx.id,
+      invoiceNumber: m.invoiceNumber || null,
+      date: tx.date,
+      amount: subtotal,
+      itbms,
+      total,
+    });
+    proveedores.set(key, p);
+  }
+
+  const lista = Array.from(proveedores.values())
+    .map((p: any) => ({ ...p, detalle: p.detalle.sort((a: any, b: any) => a.date - b.date) }))
+    .sort((a: any, b: any) => a.provider.localeCompare(b.provider));
+
+  const tot = lista.reduce((acc: any, p: any) => ({
+    facturas: acc.facturas + p.facturas,
+    subtotal: Math.round((acc.subtotal + p.subtotal) * 100) / 100,
+    itbms: Math.round((acc.itbms + p.itbms) * 100) / 100,
+    total: Math.round((acc.total + p.total) * 100) / 100,
+  }), { facturas: 0, subtotal: 0, itbms: 0, total: 0 });
+
+  return {
+    periodo: { startDate: startDate || null, endDate: endDate || null },
+    totalProveedores: lista.length,
+    ...tot,
+    proveedores: lista,
+  };
+}
+
+reportsRouter.get('/proveedores', async (req, res) => {
+  const { startDate, endDate } = req.query;
+  const report = await buildProveedoresReport(req.prisma, req.user!.companyId, startDate as string | undefined, endDate as string | undefined);
+  res.json(report);
+});
+
 reportsRouter.get('/balance-comprobacion', async (req, res) => {
   const { startDate, endDate } = req.query;
 
   const journalEntry: Record<string, unknown> = {
     companyId: req.user!.companyId,
-    status: { notIn: ['RECHAZADO', 'ANULADO'] },
+    status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false,
   };
   const dateFilter = buildDateFilter(startDate as string, endDate as string);
   if (dateFilter) journalEntry.date = dateFilter;
@@ -56,7 +133,7 @@ reportsRouter.get('/balance-general', async (req, res) => {
     where: {
       journalEntry: {
         companyId: req.user!.companyId,
-        status: { notIn: ['RECHAZADO', 'ANULADO'] },
+        status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false,
       },
     },
   });
@@ -113,7 +190,7 @@ reportsRouter.get('/estado-resultados', async (req, res) => {
   const { startDate, endDate } = req.query;
   const journalEntry: Record<string, unknown> = {
     companyId: req.user!.companyId,
-    status: { notIn: ['RECHAZADO', 'ANULADO'] },
+    status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false,
   };
   const dateFilter = buildDateFilter(startDate as string, endDate as string);
   if (dateFilter) journalEntry.date = dateFilter;
@@ -175,7 +252,7 @@ reportsRouter.get('/estado-resultados', async (req, res) => {
 reportsRouter.get('/flujo-caja', async (req, res) => {
   const lines = await req.prisma.journalLine.findMany({
     where: {
-      journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] } },
+      journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false },
       account: { code: { startsWith: '1.1.01' } },
     },
     include: { journalEntry: { select: { date: true, description: true } } },
@@ -199,7 +276,7 @@ reportsRouter.get('/flujo-caja', async (req, res) => {
 
 reportsRouter.get('/dashboard', async (req, res) => {
   const baseWhere = {
-    journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] } },
+    journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false },
     account: { type: { in: ['INGRESO', 'GASTO', 'COSTO'] } },
   };
 
@@ -246,7 +323,7 @@ reportsRouter.get('/dashboard', async (req, res) => {
     JOIN "JournalEntry" je ON l."journalEntryId" = je.id
     JOIN "Account" a ON l."accountId" = a.id
     WHERE je."companyId" = ${req.user!.companyId}
-      AND je.status NOT IN ('RECHAZADO', 'ANULADO')
+      AND je.status NOT IN ('RECHAZADO', 'ANULADO') AND je."isClosing" = false
       AND a.type IN ('INGRESO', 'GASTO', 'COSTO')
     GROUP BY 1, 2
     ORDER BY 1
@@ -309,7 +386,7 @@ reportsRouter.get('/export/:type', async (req, res) => {
       case 'balance-comprobacion': {
         const journalEntry: Record<string, unknown> = {
           companyId: req.user!.companyId,
-          status: { notIn: ['RECHAZADO', 'ANULADO'] },
+          status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false,
         };
         const dateFilter = buildDateFilter(startDate as string, endDate as string);
         if (dateFilter) journalEntry.date = dateFilter;
@@ -339,7 +416,7 @@ reportsRouter.get('/export/:type', async (req, res) => {
 
       case 'balance-general': {
         const lines = await req.prisma.journalLine.findMany({
-          where: { journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] } } },
+          where: { journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false } },
           include: { account: true },
         });
         let totalActivos = 0, totalPasivos = 0, totalPatrimonio = 0;
@@ -371,7 +448,7 @@ reportsRouter.get('/export/:type', async (req, res) => {
       case 'estado-resultados': {
         const journalEntry: Record<string, unknown> = {
           companyId: req.user!.companyId,
-          status: { notIn: ['RECHAZADO', 'ANULADO'] },
+          status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false,
         };
         const dateFilter = buildDateFilter(startDate as string, endDate as string);
         if (dateFilter) journalEntry.date = dateFilter;
@@ -416,7 +493,7 @@ reportsRouter.get('/export/:type', async (req, res) => {
       case 'flujo-caja': {
         const lines = await req.prisma.journalLine.findMany({
           where: {
-            journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] } },
+            journalEntry: { companyId: req.user!.companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false },
             account: { code: { startsWith: '1.1.01' } },
           },
           include: { journalEntry: { select: { date: true, description: true } } },
@@ -432,7 +509,7 @@ reportsRouter.get('/export/:type', async (req, res) => {
       }
 
       case 'diario': {
-        const where: Record<string, unknown> = { companyId: req.user!.companyId };
+        const where: Record<string, unknown> = { companyId: req.user!.companyId, isClosing: false };
         const statusParam = req.query.status as string;
         if (statusParam) where.status = statusParam;
         const dateFilter = buildDateFilter(startDate as string, endDate as string);
@@ -449,10 +526,15 @@ reportsRouter.get('/export/:type', async (req, res) => {
         break;
       }
 
+      case 'proveedores': {
+        data = await buildProveedoresReport(req.prisma, req.user!.companyId, startDate as string | undefined, endDate as string | undefined);
+        break;
+      }
+
       default:
         res.status(400).json({
           error: 'Tipo de reporte no soportado',
-          tipos: ['balance-comprobacion', 'balance-general', 'estado-resultados', 'flujo-caja', 'diario'],
+          tipos: ['balance-comprobacion', 'balance-general', 'estado-resultados', 'flujo-caja', 'diario', 'proveedores'],
         });
         return;
     }

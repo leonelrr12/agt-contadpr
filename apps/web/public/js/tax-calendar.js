@@ -51,6 +51,23 @@ async function loadTaxCalendarInline() {
     }
 
     let html = '';
+
+    // ── Cierre de año fiscal ──
+    const year = new Date().getFullYear();
+    html += `
+      <div style="background:#fff;border:1px solid #e5e7eb;border-left:4px solid #1565c0;border-radius:10px;padding:16px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <span style="font-size:26px">🗓</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:14px;color:#1a1a2e">Cierre de año fiscal</div>
+            <div id="year-close-status" style="font-size:12px;color:#6b7280;margin-top:2px">Consultando...</div>
+          </div>
+          <select id="year-close-select" onchange="loadYearCloseStatus()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;background:#fff">${[year, year-1, year-2].map(y => `<option value="${y}">${y}</option>`).join('')}</select>
+          <button onclick="closeFiscalYear()" id="year-close-btn" style="padding:8px 14px;font-size:12px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer">🔒 Cerrar año</button>
+        </div>
+        <div id="year-close-result" style="margin-top:8px"></div>
+      </div>`;
+
     if (data.saldoITBMS != null) {
       html += `<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
         <div style="font-size:24px">🧾</div>
@@ -72,6 +89,7 @@ async function loadTaxCalendarInline() {
       html += '</div>';
     }
     el.innerHTML = html;
+    loadYearCloseStatus();
   } catch (e) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar</div>'; }
 }
 
@@ -84,4 +102,42 @@ async function markTaxObligationComplete(id) {
     });
     if (res.ok) { loadTaxCalendarInline(); }
   } catch (e) { /* ignore */ }
+}
+
+// ── Cierre de año fiscal ──
+async function loadYearCloseStatus() {
+  const year = document.getElementById('year-close-select')?.value;
+  const el = document.getElementById('year-close-status');
+  if (!year || !el) return;
+  try {
+    const res = await authFetch(`${API_URL}/year-close/${year}`);
+    if (!res.ok) { el.innerHTML = '<span style="color:#dc2626">Error al consultar</span>'; return; }
+    const d = await res.json();
+    el.innerHTML = d.cerrado
+      ? `<span style="color:#059669;font-weight:600">✅ Cerrado</span> · Utilidad del ejercicio: <strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong>`
+      : `<span style="color:#f59e0b;font-weight:600">Abierto</span> · Utilidad proyectada: <strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong>`;
+    const btn = document.getElementById('year-close-btn');
+    if (btn) btn.style.display = d.cerrado ? 'none' : '';
+  } catch { el.innerHTML = '<span style="color:#dc2626">Error al consultar</span>'; }
+}
+
+async function closeFiscalYear() {
+  const year = document.getElementById('year-close-select')?.value;
+  const resumen = document.getElementById('year-close-result');
+  if (!year || !resumen) return;
+  if (!confirm(`¿Cerrar el año fiscal ${year}? Se creará un asiento de cierre CONFIRMADO con la utilidad del ejercicio. No se podrá volver a cerrar hasta anularlo.`)) return;
+  resumen.innerHTML = 'Cerrando...';
+  try {
+    const res = await authFetch(`${API_URL}/year-close/${year}`, { method: 'POST' });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      resumen.innerHTML = `<span style="color:#dc2626">${escapeHtml(e.error || 'Error al cerrar el año')}</span>`;
+      return;
+    }
+    const d = await res.json();
+    const esGanancia = d.resumen.tipo === 'GANANCIA';
+    const color = esGanancia ? '#059669' : '#dc2626';
+    resumen.innerHTML = `<span style="color:${color};font-weight:600">${esGanancia ? 'GANANCIA' : 'PÉRDIDA'}: $${d.resumen.utilidadNeta.toFixed(2)}</span> · Asiento <code>${d.entry.id.slice(0, 8)}</code> creado (${d.entry.lines.length} líneas).`;
+    loadYearCloseStatus();
+  } catch { resumen.innerHTML = '<span style="color:#dc2626">Error de conexión</span>'; }
 }
