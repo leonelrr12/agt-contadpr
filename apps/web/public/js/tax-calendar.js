@@ -116,12 +116,41 @@ async function loadYearCloseStatus() {
     const pend = d.resumen.pendientesRevision > 0
       ? `<span style="color:#f59e0b;font-weight:600">⚠️ ${d.resumen.pendientesRevision} asiento(s) pendientes de revisión no se incluirán</span>`
       : '';
+    let asientoHtml = '';
+    if (d.cerrado && d.entry) {
+      const money = (n) => '$' + (Number(n) || 0).toFixed(2);
+      const lines = (d.entry.lines || []).map(l => `
+        <tr>
+          <td style="padding:5px 10px;border-bottom:1px solid #f0f0f0">${escapeHtml(l.account?.code || '')} — ${escapeHtml(l.account?.name || '')}</td>
+          <td style="text-align:right;padding:5px 10px;border-bottom:1px solid #f0f0f0;color:#2e7d32;font-weight:600">${l.debit ? money(l.debit) : '—'}</td>
+          <td style="text-align:right;padding:5px 10px;border-bottom:1px solid #f0f0f0;color:#c62828;font-weight:600">${l.credit ? money(l.credit) : '—'}</td>
+        </tr>`).join('');
+      asientoHtml = `
+        <div style="margin-top:8px">
+          <button onclick="toggleYearCloseEntry()" id="year-close-entry-toggle" style="padding:5px 12px;font-size:11px;background:#f0f0f0;border:1px solid #d1d5db;border-radius:5px;cursor:pointer">📋 Ver asiento de cierre</button>
+          <div id="year-close-entry-detail" class="hidden" style="margin-top:8px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px">
+            <div style="font-size:12px;color:#6b7280;margin-bottom:6px">${escapeHtml(d.entry.description)} · ${new Date(d.entry.date).toLocaleDateString('es-PA')} · Asiento #${d.entry.id.slice(0, 8)}</div>
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead><tr><th style="text-align:left;padding:5px 10px;border-bottom:2px solid #e5e7eb;color:#6b7280">Cuenta</th><th style="text-align:right;padding:5px 10px;border-bottom:2px solid #e5e7eb;color:#6b7280">Débito</th><th style="text-align:right;padding:5px 10px;border-bottom:2px solid #e5e7eb;color:#6b7280">Crédito</th></tr></thead>
+              <tbody>${lines}</tbody>
+            </table>
+          </div>
+        </div>`;
+    }
     el.innerHTML = d.cerrado
-      ? `<span style="color:#059669;font-weight:600">✅ Cerrado</span> · Utilidad del ejercicio: <strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong>`
+      ? `<span style="color:#059669;font-weight:600">✅ Cerrado</span> · Utilidad del ejercicio: <strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong>${asientoHtml}`
       : `<span style="color:#f59e0b;font-weight:600">Abierto</span> · Utilidad proyectada (solo aprobados): <strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong>${pend ? '<br>' + pend : ''}`;
     const btn = document.getElementById('year-close-btn');
     if (btn) btn.style.display = d.cerrado ? 'none' : '';
   } catch { el.innerHTML = '<span style="color:#dc2626">Error al consultar</span>'; }
+}
+
+function toggleYearCloseEntry() {
+  const el = document.getElementById('year-close-entry-detail');
+  const btn = document.getElementById('year-close-entry-toggle');
+  if (!el || !btn) return;
+  el.classList.toggle('hidden');
+  btn.textContent = el.classList.contains('hidden') ? '📋 Ver asiento de cierre' : '🙈 Ocultar asiento';
 }
 
 async function closeFiscalYear() {
