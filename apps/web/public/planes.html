@@ -396,10 +396,38 @@ document.getElementById('plans-container').insertAdjacentHTML('afterend', `
         <li>PDF descargable e imprimible</li>
         <li>Asiento contable automático (BORRADOR)</li>
       </ul>
-      <a class="btn btn-primary" href="/login.html#register" style="display:block;text-align:center">Contratar Módulo</a>
+      <button class="btn btn-primary" onclick="mostrarContratacion('🧾 Facturas PDF', 9.99)" style="display:block;text-align:center;width:100%;cursor:pointer">Contratar Módulo</button>
     </div>
   </div>
 `);
+
+// ── Modal de contratación de módulos (proceso manual: Yappy/transferencia) ──
+function mostrarContratacion(modulo, precio) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;max-width:480px;width:100%;padding:28px;box-shadow:0 10px 40px rgba(0,0,0,0.2)">
+      <div style="font-size:24px;text-align:center">🧾</div>
+      <h3 style="margin:8px 0 4px 0;color:#1a1a2e;text-align:center">Contratar ${modulo}</h3>
+      <div style="text-align:center;color:#7c3aed;font-size:22px;font-weight:800;margin-bottom:16px">$${precio.toFixed(2)}<span style="font-size:13px;color:#6b7280;font-weight:400">/mes</span></div>
+      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:16px;font-size:13px;color:#1a1a2e;line-height:1.6">
+        <div style="font-weight:700;margin-bottom:6px">¿Cómo se contrata?</div>
+        <div>1️⃣ Transfiere <strong>$${precio.toFixed(2)}</strong> por <strong>Yappy</strong> o <strong>transferencia bancaria</strong>.</div>
+        <div>2️⃣ Envía el comprobante por WhatsApp o email.</div>
+        <div>3️⃣ Activamos el módulo en tu cuenta (usualmente el mismo día).</div>
+      </div>
+      <div style="text-align:center;margin-bottom:16px;font-size:13px;color:#6b7280">
+        📱 <a href="https://wa.me/50764034863" style="color:#1565c0;font-weight:600">WhatsApp: +507 6403-4863</a><br>
+        📧 pagos@contador507.com
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="this.closest('div').parentElement.parentElement.remove()" style="flex:1;padding:10px;background:#f0f0f0;border:1px solid #d1d5db;border-radius:8px;cursor:pointer;font-size:14px">Cerrar</button>
+        <a href="https://wa.me/50764034863?text=${encodeURIComponent(`Hola, quiero contratar el módulo ${modulo} ($${precio.toFixed(2)}/mes). Ya realicé el pago.`)}" target="_blank" style="flex:2;text-align:center;padding:10px;background:#25d366;color:#fff;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600">✅ Ya pagué — enviar por WhatsApp</a>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+}
 </script>
 
 </body>
