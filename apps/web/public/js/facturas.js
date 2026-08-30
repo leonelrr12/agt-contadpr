@@ -2,12 +2,25 @@
 
 const fmtFac = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-function loadPanelFacturas() {
+async function loadPanelFacturas() {
   document.getElementById('chat-messages').classList.add('hidden');
   document.getElementById('input-area').classList.add('hidden');
   document.getElementById('panel-facturas-content').classList.remove('hidden');
 
-  if (!window.userAddons?.includes('facturas-pdf')) {
+  // Si el add-on aún no se cargó (loadSubscriptionInfo no corrió o falló), consultarlo ahora
+  if (!Array.isArray(window.userAddons)) {
+    try {
+      const r = await authFetch(`${API_URL}/subscription`);
+      if (r && r.ok) {
+        const d = await r.json();
+        window.userAddons = d.subscription?.addons || [];
+      } else {
+        window.userAddons = [];
+      }
+    } catch { window.userAddons = []; }
+  }
+
+  if (!window.userAddons.includes('facturas-pdf')) {
     document.getElementById('facturas-lista-content').innerHTML = `
       <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:32px;text-align:center;color:#92400e">
         <div style="font-size:32px">🧾</div>
