@@ -63,6 +63,7 @@
         <button class="nav-link" data-view="panel-revision" id="nav-revision-link">🔍 Revisión</button>
         <button class="nav-link" data-view="panel-conciliacion" id="nav-conciliacion-link">🏦 Conciliar</button>
         <button class="nav-link" data-view="panel-informes" id="nav-informes-link">📊 Informes</button>
+        <button class="nav-link" data-view="panel-facturas" id="nav-facturas-link" style="display:none">🧾 Facturas</button>
         <button class="nav-link" data-view="panel-auxiliares" id="nav-auxiliares-link">📒 Auxiliares</button>
         <button class="nav-link" data-view="panel-taxcalendar" id="nav-taxcalendar-link">📅 Calendario Fiscal</button>
         <button class="nav-link" data-view="panel-salud" id="nav-salud-link">🩺 Salud Financiera</button>
@@ -431,6 +432,24 @@
             </div>
           </div>
         </div>
+      <!-- Panel de Facturas (módulo add-on) -->
+      <div id="panel-facturas-content" class="hidden" style="padding:24px;max-width:1000px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+          <h2 style="margin:0;color:#1a1a2e">🧾 Facturas</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button onclick="openFacturaModal()" style="padding:8px 16px;font-size:13px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer">➕ Nueva Factura</button>
+            <button onclick="loadPanelFacturas()" style="padding:8px 16px;font-size:13px;background:#f0f0f0;border:1px solid #d1d5db;border-radius:6px;cursor:pointer">🔄 Refrescar</button>
+          </div>
+        </div>
+        <p style="margin:0 0 16px 0;color:#6b7280;font-size:13px">Facturas de venta con numeración correlativa y cumplimiento DGI</p>
+        <div id="facturas-tabs" style="display:flex;gap:4px;margin-bottom:16px;flex-wrap:wrap;border-bottom:2px solid #e5e7eb">
+          <button class="panel-tab-btn active" data-ftab="lista" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#1a1a2e;border-bottom:2px solid #1565c0;margin-bottom:-2px">📋 Facturas</button>
+          <button class="panel-tab-btn" data-ftab="config" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚙️ Configuración</button>
+        </div>
+        <div id="facturas-lista-content"></div>
+        <div id="facturas-config-content" class="hidden"></div>
+      </div>
+
         <!-- Cierres Admin -->
         <div id="cierres-admin-content" class="hidden">
           <div class="admin-form-card">
@@ -495,9 +514,10 @@
   <script src="js/import.js?v=73"></script>
   <script src="js/auxiliares-revision.js?v=73"></script>
   <script src="js/entry-modals.js?v=73"></script>
-  <script src="js/informes.js?v=73"></script>
+  <script src="js/informes.js?v=74"></script>
   <script src="js/tax-calendar.js?v=73"></script>
   <script src="js/salud.js?v=73"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="js/facturas.js?v=74"></script>
 </body>
 </html>

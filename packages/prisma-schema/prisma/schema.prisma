@@ -18,6 +18,12 @@ model Company {
   country   String   @default("PA")
   currency     String   @default("USD")
   declaraITBMS Boolean  @default(true)
+  // Facturación (módulo Facturas PDF): logo y numeración autorizada por la DGI
+  logo                  Bytes?
+  facturaSerie          String?
+  facturaResolucion     String?
+  facturaResolucionFecha DateTime?
+  facturaCorrelativo    Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -231,6 +237,7 @@ model Subscription {
   periodEnd       DateTime
   grantedBy       String?            // userId del admin que otorgó
   grantedNote     String?            // Nota del admin
+  addons          String[]           @default([]) // add-ons contratados, ej. ["facturas-pdf"]
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
@@ -323,7 +330,7 @@ model Invoice {
   id             String    @id @default(cuid())
   companyId      String
   clientId       String
-  number         String?   // Número de factura emitida
+  number         String?   // Número de factura emitida (correlativo del módulo Facturas PDF)
   amount         Float
   itbms          Float     @default(0)
   total          Float
@@ -332,16 +339,34 @@ model Invoice {
   status         String    @default("PENDIENTE") // PENDIENTE, VENCIDA, PAGADA
   date           DateTime  @default(now())
   description    String?
+  paymentMethod  String?   // EFECTIVO | CREDITO (módulo Facturas PDF)
   journalEntryId String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  client         Client    @relation(fields: [clientId], references: [id])
+  client         Client         @relation(fields: [clientId], references: [id])
+  items          InvoiceItem[]
 
+  @@unique([companyId, number])
   @@index([companyId])
   @@index([clientId])
   @@index([status])
   @@map("invoice")
+}
+
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  descripcion String
+  cantidad    Int      @default(1)
+  precio      Float    // precio unitario sin ITBMS
+  itbms       Float    @default(0) // ITBMS de la línea (cantidad*precio*tasa)
+  createdAt   DateTime @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_item")
 }
 
 model Bill {

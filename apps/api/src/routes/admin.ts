@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth';
 import { logAudit } from '../services/audit-log';
+import { KNOWN_ADDONS } from '../middleware/addon';
 
 export const adminRouter = Router();
 
@@ -120,7 +121,7 @@ adminRouter.post('/subscriptions', async (req, res) => {
 });
 
 adminRouter.patch('/subscriptions/:id', async (req, res) => {
-  const { status, movementsLimit, periodEnd, note } = req.body;
+  const { status, movementsLimit, periodEnd, note, addons } = req.body;
 
   const existing = await req.prisma.subscription.findUnique({
     where: { id: req.params.id },
@@ -132,6 +133,13 @@ adminRouter.patch('/subscriptions/:id', async (req, res) => {
   if (movementsLimit !== undefined) data.movementsLimit = movementsLimit;
   if (periodEnd) data.periodEnd = new Date(periodEnd);
   if (note) data.grantedNote = note;
+  if (addons !== undefined) {
+    if (!Array.isArray(addons) || addons.some((a: unknown) => typeof a !== 'string' || !KNOWN_ADDONS.includes(a as any))) {
+      res.status(400).json({ error: 'Add-ons inválidos', addonsValidos: KNOWN_ADDONS });
+      return;
+    }
+    data.addons = addons;
+  }
 
   const updated = await req.prisma.subscription.update({
     where: { id: req.params.id },
@@ -142,6 +150,35 @@ adminRouter.patch('/subscriptions/:id', async (req, res) => {
     },
   });
 
+  res.json(updated);
+});
+
+/** PATCH /api/admin/subscriptions/:id/addons — otorga o revoca add-ons de la suscripción. */
+adminRouter.patch('/subscriptions/:id/addons', async (req, res) => {
+  const { addons } = req.body || {};
+  if (!Array.isArray(addons) || addons.some((a: unknown) => typeof a !== 'string' || !KNOWN_ADDONS.includes(a as any))) {
+    res.status(400).json({ error: 'Add-ons inválidos', addonsValidos: KNOWN_ADDONS });
+    return;
+  }
+  const existing = await req.prisma.subscription.findUnique({ where: { id: req.params.id } });
+  if (!existing) { res.status(404).json({ error: 'Suscripción no encontrada' }); return; }
+
+  const updated = await req.prisma.subscription.update({
+    where: { id: req.params.id },
+    data: { addons },
+    include: {
+      company: { select: { name: true } },
+      plan: { select: { name: true } },
+    },
+  });
+  await logAudit(req.prisma, {
+    userId: req.user!.userId,
+    action: 'SUBSCRIPTION_ADDONS_UPDATED',
+    entity: 'Subscription',
+    entityId: req.params.id,
+    before: { addons: existing.addons },
+    after: { addons },
+  }).catch(() => {});
   res.json(updated);
 });
 

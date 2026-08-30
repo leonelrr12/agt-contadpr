@@ -212,3 +212,19 @@ export type UpdateRecurringInput = z.infer<typeof updateRecurringSchema>;
 export type ToggleRecurringInput = z.infer<typeof toggleRecurringSchema>;
 export type ReconcileMatchInput = z.infer<typeof reconcileMatchSchema>;
 export type ReconcileCreateEntryInput = z.infer<typeof reconcileCreateEntrySchema>;
+
+// ── Facturas PDF (módulo add-on) ──
+export const createFacturaSchema = z.object({
+  clientId: z.string().optional(),
+  clientName: z.string().min(1).optional(),
+  clientTaxId: z.string().optional(),
+  items: z.array(z.object({
+    descripcion: z.string().min(1, 'Descripción requerida'),
+    cantidad: z.number().int().min(1).default(1),
+    precio: z.number().min(0, 'Precio inválido'),
+  })).min(1, 'Se requiere al menos un item'),
+  itbmsRate: z.number().min(0).max(0.2).optional(),
+  date: isoDate.optional(),
+  dueDate: isoDate.optional(),
+  paymentMethod: z.enum(['EFECTIVO', 'CREDITO']).default('EFECTIVO'),
+});

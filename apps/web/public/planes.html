@@ -378,6 +378,28 @@ fetch('/api/plans')
     document.getElementById('plans-container').innerHTML =
       '<p style="text-align:center;color:var(--muted);grid-column:1/-1">Error al cargar planes. Intenta de nuevo.</p>';
   });
+
+// ── Add-ons (módulos contratados por separado) ──
+document.getElementById('plans-container').insertAdjacentHTML('afterend', `
+  <h2 style="margin-top:48px">⚡ Módulos adicionales</h2>
+  <p style="color:var(--muted);margin-bottom:20px">Funcionalidades que se contratan aparte, además de tu plan.</p>
+  <div class="plans-grid">
+    <div class="plan-card" style="border-top:4px solid #7c3aed">
+      <h3>🧾 Facturas PDF</h3>
+      <div class="plan-price">$9.99<span>/mes</span></div>
+      <p style="color:var(--muted);font-size:14px">Emite facturas de venta profesionales con cumplimiento DGI.</p>
+      <ul class="plan-features">
+        <li>Numeración correlativa por serie</li>
+        <li>Logo y datos de tu empresa</li>
+        <li>Resolución DGI en cada factura</li>
+        <li>Items detallados con ITBMS desglosado</li>
+        <li>PDF descargable e imprimible</li>
+        <li>Asiento contable automático (BORRADOR)</li>
+      </ul>
+      <a class="btn btn-primary" href="/login.html#register" style="display:block;text-align:center">Contratar Módulo</a>
+    </div>
+  </div>
+`);
 </script>
 
 </body>

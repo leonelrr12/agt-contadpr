@@ -256,6 +256,10 @@ async function loadSubscriptions() {
     const vence = end.toLocaleDateString('es-PA');
     const daysColor = daysLeft <= 3 ? 'var(--red)' : daysLeft <= 7 ? 'var(--amber)' : 'var(--green)';
 
+    const addons = (s.addons || []).map(a =>
+      `<button class="btn btn-sm ${(s.addons||[]).includes(a) ? 'btn-success' : ''}" onclick="toggleAddon('${s.id}','${a}')" title="Clic para activar/desactivar">${a === 'facturas-pdf' ? '🧾 Facturas PDF' : a} ${(s.addons||[]).includes(a) ? '✓' : ''}</button>`
+    ).join(' ') || '<span class="text-muted">—</span>';
+
     return `<tr>
       <td><strong>${esc(s.company?.name || '—')}</strong><br><span class="text-muted">${esc(s.company?.taxId || '')}</span></td>
       <td>${esc(s.plan?.name || '—')}</td>
@@ -264,9 +268,9 @@ async function loadSubscriptions() {
       <td>${start}</td>
       <td>${vence}</td>
       <td style="color:${daysColor};font-weight:700">${daysLeft}</td>
-      <td style="white-space:nowrap">
-        <button class="btn btn-sm btn-primary" onclick="showPayment('${s.id}','${esc(s.company?.name||'')}','${esc(s.plan?.name||'')}',${s.plan?.price||0})">💰 Pago</button>
-        <button class="btn btn-sm btn-success" onclick="showGrant('${s.id}','${esc(s.company?.name||'')}')" style="margin-left:4px">🎁 Extender</button>
+      <td style="white-space:nowrap">${addons}<br>
+        <button class="btn btn-sm btn-primary" onclick="showPayment('${s.id}','${esc(s.company?.name||'')}','${esc(s.plan?.name||'')}',${s.plan?.price||0})" style="margin-top:4px">💰 Pago</button>
+        <button class="btn btn-sm btn-success" onclick="showGrant('${s.id}','${esc(s.company?.name||'')}')" style="margin-left:4px;margin-top:4px">🎁 Extender</button>
       </td>
     </tr>`;
   }).join('');
@@ -382,6 +386,23 @@ async function createSubscription() {
 }
 
 // ── Modal: Registrar Pago ──
+async function toggleAddon(subId, addon) {
+  try {
+    const res = await fetch(`${API}/admin/subscriptions/${subId}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+    if (!res.ok) return;
+    const sub = await res.json();
+    const addons = sub.addons || [];
+    const next = addons.includes(addon) ? addons.filter(a => a !== addon) : [...addons, addon];
+    const r = await fetch(`${API}/admin/subscriptions/${subId}/addons`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+      body: JSON.stringify({ addons: next }),
+    });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); alert('❌ ' + (e.error || 'Error')); return; }
+    loadSubscriptions();
+  } catch (e) { alert('❌ Error de conexión'); }
+}
+
 async function showPayment(subId, companyName, planName, planPrice) {
   const overlay = document.getElementById('modalOverlay');
   const content = document.getElementById('modalContent');

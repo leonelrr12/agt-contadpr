@@ -79,6 +79,13 @@ async function loadSubscriptionInfo() {
     const sub = data.subscription;
     if (!sub) return;
 
+    // Add-ons contratados (módulo Facturas PDF)
+    window.userAddons = sub.addons || [];
+    if (window.userAddons.includes('facturas-pdf')) {
+      const navFacturas = document.getElementById('nav-facturas-link');
+      if (navFacturas) navFacturas.style.display = 'block';
+    }
+
     // Mostrar el indicador
     const el = document.getElementById('sidebar-subscription');
     if (el) el.style.display = 'block';

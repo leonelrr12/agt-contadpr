@@ -56,6 +56,7 @@ billingRouter.get('/subscription', requireAuth, async (req, res) => {
   const info = {
     status: subscription.status,
     plan: subscription.plan.name,
+    addons: subscription.addons || [],
     movementsUsed: subscription.movementsUsed,
     movementsLimit: subscription.movementsLimit,
     usagePercent: Math.round((subscription.movementsUsed / subscription.movementsLimit) * 100),
