@@ -12,11 +12,27 @@ export interface SaludAlerta {
 
 export interface Ratios {
   liquidez: number | null;
+  pruebaAcida: number | null;
+  capitalTrabajo: number | null;
   endeudamiento: number | null;
+  deudaPatrimonio: number | null;
   margenNeto: number | null;
+  margenBruto: number | null;
+  roe: number | null;
   dso: number | null;
   dpo: number | null;
   deltas: { margenNeto: number | null; ingresos: number; gastos: number };
+}
+
+/** Score consolidado 0-100 por categoría + global con nivel. */
+export interface ScoreSalud {
+  liquidez: number;
+  rentabilidad: number;
+  endeudamiento: number;
+  eficiencia: number;
+  flujo: number;
+  global: number;
+  nivel: 'EXCELENTE' | 'BUENO' | 'REGULAR' | 'CRITICO';
 }
 
 export interface ProyeccionMes { month: string; label: string; entradas: number; salidas: number; saldoFinal: number; }
@@ -28,6 +44,7 @@ export interface SaludPayload {
   generadoA: string;
   sinDatos: boolean;
   ratios: Ratios | null;
+  score: ScoreSalud | null;
   monthly: { month: string; ingresos: number; gastos: number; costos: number; neto: number }[];
   caja: { saldoActual: number };
   proyeccion: ProyeccionMes[];
@@ -90,6 +107,7 @@ async function computeSalud(prisma: any, companyId: string): Promise<SaludPayloa
     generadoA: now.toISOString(),
     sinDatos: lines.length === 0,
     ratios: null,
+    score: null,
     monthly: [],
     caja: { saldoActual: 0 },
     proyeccion: [],
@@ -109,24 +127,29 @@ async function computeSalud(prisma: any, companyId: string): Promise<SaludPayloa
     byAccount.set(a.id, cur);
   }
 
-  let activoCorriente = 0, activoTotal = 0, pasivoCorriente = 0, pasivoTotal = 0, caja = 0;
+  let activoCorriente = 0, activoTotal = 0, pasivoCorriente = 0, pasivoTotal = 0, caja = 0, inventario = 0;
   for (const { code, type, balance } of byAccount.values()) {
     if (type === 'ACTIVO') {
       activoTotal += balance;
       if (/^1\.1\./.test(code)) activoCorriente += balance;
       if (code.startsWith('1.1.01')) caja += balance;
+      if (code.startsWith('1.1.04')) inventario += balance;
     } else if (type === 'PASIVO') {
       pasivoTotal += -balance; // saldo acreedor → pasivo positivo
       if (/^2\.1\./.test(code)) pasivoCorriente += -balance;
     }
   }
+  // Patrimonio por la ecuación: Activos = Pasivos + Patrimonio (robusto ante
+  // resultados flotando o cerrados — el cierre anual ya los traslada a 3.03)
+  const patrimonio = activoTotal - pasivoTotal;
 
   // P&L YTD (desde 1 de enero) para margen, DSO y DPO — derivado del mismo set
-  let ingresosYTD = 0, gastosCostosYTD = 0;
+  let ingresosYTD = 0, costosYTD = 0, gastosCostosYTD = 0;
   for (const l of lines) {
     if (new Date(l.journalEntry.date) < jan1) continue;
     if (l.account.type === 'INGRESO') ingresosYTD += (l.credit || 0) - (l.debit || 0);
-    else if (l.account.type === 'GASTO' || l.account.type === 'COSTO') gastosCostosYTD += (l.debit || 0) - (l.credit || 0);
+    else if (l.account.type === 'COSTO') { const v = (l.debit || 0) - (l.credit || 0); costosYTD += v; gastosCostosYTD += v; }
+    else if (l.account.type === 'GASTO') gastosCostosYTD += (l.debit || 0) - (l.credit || 0);
   }
 
   // CxC / CxP pendientes (patrón clients.ts/suppliers.ts)
@@ -142,12 +165,20 @@ async function computeSalud(prisma: any, companyId: string): Promise<SaludPayloa
   const cxp = cxpAgg._sum.total || 0;
   const diasYTD = Math.max(1, Math.floor((now.getTime() - jan1.getTime()) / 86400000));
 
+  const utilidadYTD = ingresosYTD - gastosCostosYTD;
   const ratios: Ratios = {
     liquidez: pasivoCorriente > 0 ? r2(activoCorriente / pasivoCorriente) : null,
+    pruebaAcida: pasivoCorriente > 0 ? r2((activoCorriente - inventario) / pasivoCorriente) : null,
+    capitalTrabajo: r2(activoCorriente - pasivoCorriente),
     endeudamiento: activoTotal > 0 ? r2((pasivoTotal / activoTotal) * 100) : null,
-    margenNeto: ingresosYTD > 0 ? r2(((ingresosYTD - gastosCostosYTD) / ingresosYTD) * 100) : null,
-    dso: ingresosYTD > 0 ? Math.round((cxc / ingresosYTD) * diasYTD) : null,
-    dpo: gastosCostosYTD > 0 ? Math.round((cxp / gastosCostosYTD) * diasYTD) : null,
+    deudaPatrimonio: patrimonio > 0 ? r2(pasivoTotal / patrimonio) : null,
+    margenNeto: ingresosYTD > 0 ? r2((utilidadYTD / ingresosYTD) * 100) : null,
+    margenBruto: ingresosYTD > 0 ? r2(((ingresosYTD - costosYTD) / ingresosYTD) * 100) : null,
+    roe: patrimonio > 0 ? r2((utilidadYTD / patrimonio) * 100) : null,
+    // DSO/DPO con tope de 365 días: si CxC/CxP es acumulada pero el YTD es
+    // ínfimo (año recién iniciado), el ratio sería absurdo → null.
+    dso: ingresosYTD > 0 ? Math.min(365, Math.round((cxc / ingresosYTD) * diasYTD)) : null,
+    dpo: gastosCostosYTD > 0 ? Math.min(365, Math.round((cxp / gastosCostosYTD) * diasYTD)) : null,
     deltas: { margenNeto: null, ingresos: 0, gastos: 0 },
   };
 
@@ -191,10 +222,45 @@ async function computeSalud(prisma: any, companyId: string): Promise<SaludPayloa
   const proyeccion = await computeProyeccion(prisma, companyId, caja, now);
   payload.proyeccion = proyeccion;
 
+  // ── Score consolidado (semáforo por categoría + global) ──
+  payload.score = computeScore(ratios, proyeccion);
+
   // ── Alertas por reglas (sin LLM) ──
   payload.alertas = await computeAlertas(prisma, companyId, ratios, proyeccion);
 
   return payload;
+}
+
+/**
+ * Score consolidado 0-100 por categoría (semáforo para el dueño/financista).
+ * Valores faltantes → 50 (neutral, no penaliza).
+ */
+function computeScore(ratios: Ratios, proyeccion: ProyeccionMes[]): ScoreSalud {
+  const s = (v: number | null, umbrales: number[]): number => {
+    if (v == null) return 50;
+    if (v >= umbrales[0]) return 100;
+    if (v >= umbrales[1]) return 75;
+    if (v >= umbrales[2]) return 50;
+    return umbrales[3] !== undefined && v < umbrales[3] ? 0 : 25;
+  };
+  // Nota: para endeudamiento "menor es mejor" — se invierte con -v
+  const sInv = (v: number | null, umbrales: number[]): number =>
+    v == null ? 50 : s(-v, umbrales.map(u => -u));
+
+  const liquidez = Math.round(s(ratios.liquidez, [2, 1.5, 1]) * 0.6 + s(ratios.pruebaAcida, [1.2, 1, 0.8]) * 0.4);
+  const rentabilidad = Math.round(s(ratios.margenNeto, [15, 10, 5, 0]) * 0.7 + s(ratios.margenBruto, [40, 30, 20, 10]) * 0.3);
+  const endeudamiento = Math.round(sInv(ratios.endeudamiento, [30, 50, 70]) * 0.6 + sInv(ratios.deudaPatrimonio, [0.5, 1, 1.5]) * 0.4);
+  const eficiencia = Math.round(s(ratios.dso, [30, 60, 90]) * 0.5 + s(ratios.dpo, [30, 60, 90]) * 0.5);
+
+  // Flujo: saldos proyectados negativos o caja actual negativa penalizan fuerte
+  let flujo = 75;
+  if (proyeccion.some(p => p.saldoFinal < 0)) flujo = 25;
+  if (proyeccion[0]?.saldoFinal < 0) flujo = 0;
+  if (proyeccion.length && proyeccion[proyeccion.length - 1].saldoFinal < proyeccion[0].saldoFinal) flujo = Math.min(flujo, 50);
+
+  const global = Math.round((liquidez + rentabilidad + endeudamiento + eficiencia + flujo) / 5);
+  const nivel: ScoreSalud['nivel'] = global >= 80 ? 'EXCELENTE' : global >= 60 ? 'BUENO' : global >= 40 ? 'REGULAR' : 'CRITICO';
+  return { liquidez, rentabilidad, endeudamiento, eficiencia, flujo, global, nivel };
 }
 
 async function computeProyeccion(prisma: any, companyId: string, caja: number, now: Date) {
@@ -270,6 +336,15 @@ async function computeAlertas(prisma: any, companyId: string, ratios: Ratios, pr
   if (ratios.liquidez != null) {
     if (ratios.liquidez < 1) alertas.push({ tipo: 'LIQUIDEZ', severidad: 'critical', mensaje: `Liquidez corriente de ${ratios.liquidez}: tienes menos de $1 disponible por cada $1 de deuda a corto plazo.` });
     else if (ratios.liquidez < 1.5) alertas.push({ tipo: 'LIQUIDEZ', severidad: 'warning', mensaje: `Liquidez corriente de ${ratios.liquidez}: margen ajustado ante imprevistos.` });
+  }
+  if (ratios.pruebaAcida != null && ratios.pruebaAcida < 1) {
+    alertas.push({ tipo: 'LIQUIDEZ', severidad: ratios.pruebaAcida < 0.8 ? 'critical' : 'warning', mensaje: `Prueba ácida de ${ratios.pruebaAcida}: sin contar inventario, no cubres tu deuda de corto plazo.` });
+  }
+  if (ratios.capitalTrabajo != null && ratios.capitalTrabajo < 0) {
+    alertas.push({ tipo: 'LIQUIDEZ', severidad: 'critical', mensaje: `Capital de trabajo NEGATIVO (${fmtMoney(ratios.capitalTrabajo)}): los pasivos corrientes superan a los activos corrientes.` });
+  }
+  if (ratios.roe != null && ratios.roe < 0) {
+    alertas.push({ tipo: 'MARGEN', severidad: 'warning', mensaje: `ROE de ${ratios.roe}%: la rentabilidad sobre el patrimonio es negativa este año.` });
   }
   if (ratios.endeudamiento != null) {
     if (ratios.endeudamiento > 70) alertas.push({ tipo: 'ENDEUDAMIENTO', severidad: 'critical', mensaje: `Endeudamiento del ${ratios.endeudamiento}%: la deuda supera el 70% de los activos.` });
