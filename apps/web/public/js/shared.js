@@ -25,19 +25,20 @@ function showConfirm(msg) {
   });
 }
 
-/** Pide una clave/contraseña con input type=password (el prompt() nativo no oculta el texto). */
+/** Pide una clave/contraseña con input type=password (el prompt() nativo no oculta el texto).
+ *  Estilos inline: funciona en cualquier página sin depender de clases CSS del SPA. */
 function askPassword(msg) {
   return new Promise(r => {
     const o = document.createElement('div');
-    o.className = 'app-dialog-overlay';
-    o.innerHTML = `<div class="app-dialog" style="max-width:380px">
-      <div class="app-dialog-icon">🔐</div>
-      <div class="app-dialog-msg">${msg}</div>
+    o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px';
+    o.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:380px;width:100%;padding:24px;box-shadow:0 10px 40px rgba(0,0,0,0.25);box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif">
+      <div style="font-size:28px;text-align:center">🔐</div>
+      <div style="font-size:14px;color:#1e293b;text-align:center;margin:8px 0 14px 0">${msg}</div>
       <input type="password" id="ask-password-input" placeholder="••••••••" autocomplete="off"
-        style="width:100%;padding:10px;border:1px solid #d0d5dd;border-radius:6px;box-sizing:border-box;font-size:14px;margin:6px 0 14px 0">
-      <div class="app-dialog-buttons">
-        <button class="app-dialog-btn secondary" id="ask-password-cancel">Cancelar</button>
-        <button class="app-dialog-btn primary" id="ask-password-ok">Aceptar</button>
+        style="width:100%;padding:10px;border:1px solid #d0d5dd;border-radius:8px;box-sizing:border-box;font-size:14px;font-family:inherit;margin-bottom:14px">
+      <div style="display:flex;gap:8px">
+        <button id="ask-password-cancel" style="flex:1;padding:10px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;cursor:pointer;font-size:14px;font-family:inherit">Cancelar</button>
+        <button id="ask-password-ok" style="flex:2;padding:10px;background:#2563eb;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;font-family:inherit">Aceptar</button>
       </div>
     </div>`;
     document.body.appendChild(o);
