@@ -317,9 +317,9 @@ async function loadPanelCierresAdmin() {
 }
 
 function promptAnnulEmpresaCierre(id) {
-  const clave = prompt('🔐 Ingresa la clave para anular el asiento de cierre:');
-  if (!clave) return;
-  annulEmpresaCierre(id, clave);
+  askPassword('Ingresa la clave para anular el asiento de cierre:').then(clave => {
+    if (clave) annulEmpresaCierre(id, clave);
+  });
 }
 
 async function annulEmpresaCierre(id, clave) {

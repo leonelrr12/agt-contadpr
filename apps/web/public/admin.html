@@ -111,7 +111,7 @@
     .text-muted { color: var(--muted); font-size: 13px; }
     .loading { text-align: center; padding: 32px; color: var(--muted); }
   </style>
-  <script src="js/shared.js?v=1"></script>
+  <script src="js/shared.js?v=2"></script>
 </head>
 <body>
 
@@ -568,9 +568,9 @@ async function loadYearCloses() {
 }
 
 function promptAnnulYearClose(id) {
-  const clave = prompt('🔐 Ingresa la clave para anular el asiento de cierre:');
-  if (!clave) return;
-  annulYearClose(id, clave);
+  askPassword('Ingresa la clave para anular el asiento de cierre:').then(clave => {
+    if (clave) annulYearClose(id, clave);
+  });
 }
 
 async function annulYearClose(id, clave) {

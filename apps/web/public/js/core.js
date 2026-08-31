@@ -56,6 +56,29 @@ function showConfirm(msg) {
     overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); resolve(false); } });
   });
 }
+/** Pide una clave/contraseña con input type=password (el prompt() nativo no oculta el texto). */
+function askPassword(msg) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div'); overlay.className = 'app-dialog-overlay';
+    overlay.innerHTML = `<div class="app-dialog" style="max-width:380px">
+      <div class="app-dialog-icon">🔐</div>
+      <div class="app-dialog-msg">${msg}</div>
+      <input type="password" id="ask-password-input" placeholder="••••••••" autocomplete="off"
+        style="width:100%;padding:10px;border:1px solid #d0d5dd;border-radius:6px;box-sizing:border-box;font-size:14px;margin:6px 0 14px 0">
+      <div class="app-dialog-buttons">
+        <button class="app-dialog-btn secondary" id="ask-password-cancel">Cancelar</button>
+        <button class="app-dialog-btn primary" id="ask-password-ok">Aceptar</button>
+      </div></div>`;
+    document.body.appendChild(overlay);
+    const input = overlay.querySelector('#ask-password-input');
+    const close = (val) => { overlay.remove(); resolve(val); };
+    overlay.querySelector('#ask-password-ok').onclick = () => close(input.value);
+    overlay.querySelector('#ask-password-cancel').onclick = () => close(null);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(null); });
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') close(input.value); if (e.key === 'Escape') close(null); });
+    input.focus();
+  });
+}
 
 // ── Hamburguesa móvil ──
 function toggleSidebar() {
