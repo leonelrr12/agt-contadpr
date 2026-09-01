@@ -156,12 +156,23 @@
   </div>
 
   <script>
-    // Si ya tiene sesión activa, redirigir al chat
-    if (localStorage.getItem('agt_token')) {
-      window.location.href = '/';
-    }
-
     const API_URL = window.location.origin + '/api';
+
+    // Si ya tiene sesión, validar que sea REAL (el token puede estar expirado):
+    // solo redirigir al chat si /api/auth/me responde OK; si no, limpiar el
+    // token y mostrar el login (evita el ida y vuelta login↔panel en blanco).
+    const _storedToken = localStorage.getItem('agt_token');
+    if (_storedToken) {
+      fetch(`${API_URL}/auth/me`, { headers: { Authorization: 'Bearer ' + _storedToken } })
+        .then(r => {
+          if (r.ok) { window.location.href = '/'; }
+          else {
+            localStorage.removeItem('agt_token');
+            localStorage.removeItem('agt_user');
+          }
+        })
+        .catch(() => { /* red caída: dejar el login visible */ });
+    }
 
     function showError(msg) {
       const el = document.getElementById('error-msg');
