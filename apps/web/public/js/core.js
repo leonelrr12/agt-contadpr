@@ -22,8 +22,21 @@ function authFetch(url, options = {}) {
   });
 }
 
-// Check auth on load
-if (!getToken()) { window.location.href = '/login.html'; }
+// Check auth on load — valida la sesión REAL con /api/auth/me:
+// un token presente pero expirado/inválido debe limpiarse y volver al login
+// (antes solo se verificaba que existiera → ida y vuelta login↔panel).
+(async function checkAuthOnLoad() {
+  const token = getToken();
+  if (!token) { window.location.href = '/login.html'; return; }
+  try {
+    const res = await fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) {
+      localStorage.removeItem('agt_token');
+      localStorage.removeItem('agt_user');
+      window.location.href = '/login.html';
+    }
+  } catch { /* red caída: dejar pasar — el SPA mostrará los errores de conexión */ }
+})();
 
 // ── Custom Dialogs (reemplazan alert/confirm nativos) ──
 function showAlert(msg) {
