@@ -47,11 +47,13 @@ export interface PrismaLike {
     findMany(args?: any): Promise<any[]>;
     findFirst(args?: any): Promise<any | null>;
     create(args: any): Promise<any>;
+    update(args: any): Promise<any>;
   };
   supplier: {
     findMany(args?: any): Promise<any[]>;
     findFirst(args?: any): Promise<any | null>;
     create(args: any): Promise<any>;
+    update(args: any): Promise<any>;
   };
   invoice: { findMany(args?: any): Promise<any[]>; create(args: any): Promise<any>; update(args: any): Promise<any> };
   bill: { findMany(args?: any): Promise<any[]>; create(args: any): Promise<any>; update(args: any): Promise<any> };

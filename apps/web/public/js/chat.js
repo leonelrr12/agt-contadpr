@@ -33,13 +33,28 @@ async function selectEntityMatch(entityId, entityType) {
 
   addMessage(`✅ Seleccionaste: ${entityType === 'nuevo' ? 'Crear nuevo' : 'Entidad existente'}`, 'user-message');
 
-  // Proceder a pedir método de pago o confirmar
+  // Proceder a pedir método de pago o mostrar el asiento para CONFIRMAR
+  // (nunca confirmar directo — el usuario debe ver el asiento antes de guardarlo)
   const missing = dialogContext?.missingFields || [];
   if (missing.includes('paymentMethod') || !dialogContext?.paymentMethod) {
     showPaymentMethodSelector();
   } else {
-    await confirmTransaction();
+    showPendingConfirmation();
   }
+}
+
+/** Muestra el asiento pendiente en el modal de confirmación (sincronizando el contexto). */
+function showPendingConfirmation() {
+  if (!pendingResult) return;
+  // Sincronizar el dialog del resultado con el contexto (paymentMethod, entidad, fecha)
+  if (pendingResult.dialog && dialogContext) {
+    if (dialogContext.paymentMethod) pendingResult.dialog.paymentMethod = dialogContext.paymentMethod;
+    if (dialogContext.selectedEntityId !== undefined) pendingResult.dialog.selectedEntityId = dialogContext.selectedEntityId;
+    if (dialogContext.date) pendingResult.dialog.date = dialogContext.date;
+  }
+  const overlay = document.getElementById('modal-overlay');
+  if (overlay && !overlay.classList.contains('hidden')) return; // ya visible
+  showConfirmationModal({ result: pendingResult });
 }
 
 function showPaymentMethodSelector() {

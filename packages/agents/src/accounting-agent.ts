@@ -59,9 +59,13 @@ export class AccountingAgent {
     };
     const itbmsRate = dialog.itbmsRate ?? getItbmsRate();
     const useItbms = dialog.itbmsRate !== undefined || (process.env.ITBMS_ENABLED === 'true');
-    const itbmsAmount = useItbms && (dialog.type === 'COMPRA' || dialog.type === 'VENTA')
-      ? Math.round(dialog.amount * itbmsRate * 100) / 100
-      : 0;
+    // El usuario puede indicar el ITBMS explícito ("por 100.00 y itbms por 7.00"):
+    // NUNCA recalcularlo sobre el monto — solo calcular si no viene indicado.
+    const itbmsAmount = dialog.itbmsAmount != null
+      ? dialog.itbmsAmount
+      : (useItbms && (dialog.type === 'COMPRA' || dialog.type === 'VENTA')
+        ? Math.round(dialog.amount * itbmsRate * 100) / 100
+        : 0);
 
     switch (dialog.type) {
       case 'GASTO': {

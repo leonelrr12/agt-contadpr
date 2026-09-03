@@ -11,15 +11,15 @@ suppliersRouter.get('/', async (req, res) => {
 
   const suppliers = await req.prisma.supplier.findMany({
     where,
-    include: { bills: { orderBy: { date: 'desc' }, take: 5 } },
+    include: { bills: { orderBy: { date: 'desc' } } }, // todas — el total y el conteo deben considerar facturas viejas
     orderBy: { name: 'asc' },
   });
 
   const enriched = suppliers.map(s => {
-    const totalOwed = s.bills
-      .filter(b => b.status !== 'PAGADA' && b.status !== 'RECHAZADA')
-      .reduce((sum, b) => sum + b.total, 0);
-    return { ...s, totalOwed, billCount: s.bills.length };
+    // Solo facturas activas: ni pagadas ni rechazadas cuentan en CxP
+    const activas = s.bills.filter(b => b.status !== 'PAGADA' && b.status !== 'RECHAZADA');
+    const totalOwed = activas.reduce((sum, b) => sum + b.total, 0);
+    return { ...s, totalOwed, billCount: activas.length };
   });
 
   res.json(enriched);
@@ -72,7 +72,7 @@ suppliersRouter.put('/:id', requireRole('admin', 'contador'), async (req, res) =
 // GET /api/suppliers/:id/bills — Facturas de un proveedor
 suppliersRouter.get('/:id/bills', async (req, res) => {
   const bills = await req.prisma.bill.findMany({
-    where: { supplierId: req.params.id, companyId: req.user!.companyId },
+    where: { supplierId: req.params.id, companyId: req.user!.companyId, status: { notIn: ['RECHAZADA'] } },
     include: { supplier: { select: { name: true } } },
     orderBy: { date: 'desc' },
   });
