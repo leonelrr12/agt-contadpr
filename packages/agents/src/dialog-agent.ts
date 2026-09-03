@@ -33,7 +33,7 @@ function tryParseDate(text: string): string | null {
   return `${y}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
-function parseInput(input: string): {
+export function parseInput(input: string): {
   amount: number;
   date: string | null;
   type: string;
@@ -44,10 +44,20 @@ function parseInput(input: string): {
   itbmsAmount?: number | null;
   provider: string | null;
   invoiceNumber?: string | null;
+  ruc?: string | null;
 } {
   const lower = input.toLowerCase();
 
-  const amountMatch = input.match(/\$?(\d+(?:[.,]\d+)?)/);
+  // RUC panameño PRIMERO (puede preceder al monto y "robarlo"):
+  // "Ruc 541-81-118009", "8-123-456", "557-538-101617", "650-529-126088"
+  let ruc: string | null = null;
+  const rucMatch = input.match(/\b(\d{1,3}-\d{1,4}-\d{2,9})\b/);
+  if (rucMatch) ruc = rucMatch[1];
+  // Input sin el RUC (ni la palabra "ruc") para que el monto y el proveedor
+  // no capturen sus dígitos ni la etiqueta
+  const amountInput = ruc ? input.replace(ruc, ' ').replace(/\bruc\b/i, ' ') : input;
+
+  const amountMatch = amountInput.match(/\$?(\d+(?:[.,]\d+)?)/);
   const amount = amountMatch ? parseFloat(amountMatch[1].replace(',', '.')) : 0;
 
   let date: string | null = tryParseDate(input);
@@ -87,7 +97,8 @@ function parseInput(input: string): {
       concept = match ? match[1].trim() : input.replace(/compr[ée]\s+/i, '').trim();
       missingFields.push('concept_category');
     }
-  } else if (lower.includes('vend') || lower.includes('venta') || lower.includes('factur')) {
+  } else if (lower.includes('vend') || lower.includes('venta')) {
+    // "factura NNN" NO clasifica como venta por sí sola ("pagué... factura X" es un gasto)
     type = 'VENTA';
     concept = 'Ventas';
   } else if (lower.includes('itbms') || lower.includes('dgi') || (lower.includes('pago') && lower.includes('impuesto'))) {
@@ -135,9 +146,10 @@ function parseInput(input: string): {
   const itbmsAmtMatch = input.match(/(?:itbms|iva|impuesto)\s+(?:por|de|:?\s*\$?)\s*(\d+(?:\.\d{1,2})?)/i);
   if (itbmsAmtMatch) itbmsAmount = parseFloat(itbmsAmtMatch[1]);
 
-  // Número de factura: "factura FE-2026-0001", "fact #12345", "No. 0000634220"
+  // Número de factura: "factura FE-2026-0001", "fact #12345", "No. 0000634220",
+  // "Factura: 993" (talonario manual — 3+ dígitos)
   let invoiceNumber: string | null = null;
-  const invoiceMatch = input.match(/(?:factura|fact\.?|no\.?\s*(?:factura)?|#)\s*[:#-]?\s*(FE-?[A-Z0-9-]+|\d{4,}[A-Z0-9-]*)/i);
+  const invoiceMatch = input.match(/(?:factura|fact\.?|no\.?\s*(?:factura)?|#)\s*[:#-]?\s*(FE-?[A-Z0-9-]+|\d{3,}[A-Z0-9-]*)/i);
   if (invoiceMatch) invoiceNumber = invoiceMatch[1];
 
   let provider: string | null = null;
@@ -150,7 +162,7 @@ function parseInput(input: string): {
     /\b(?:compr[ée]|vend[ií]|pag[uü][ée]|cobr[ée])\s+(?:a|en)\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ\s.,#&-]{1,58}?)(?:\s+por\b|\s+con\b|\s+itbms\b|\s*,\s*|\s*$)/i,
   ];
   for (const pattern of providerPatterns) {
-    const m = input.match(pattern);
+    const m = amountInput.match(pattern); // sin el RUC — evita capturar "ENSA Ruc 650-..."
     if (m) {
       const p = m[1].trim();
       if (p.length > 1 && p.length < 60) { provider = p; break; }
@@ -161,7 +173,7 @@ function parseInput(input: string): {
   if (amount === 0) missingFields.push('amount');
   if (!paymentMethod) missingFields.push('paymentMethod');
 
-  return { amount, date, type, concept, paymentMethod, missingFields, itbms, itbmsAmount, provider, invoiceNumber };
+  return { amount, date, type, concept, paymentMethod, missingFields, itbms, itbmsAmount, provider, invoiceNumber, ruc };
 }
 
 /** Detecta si el usuario mencionó explícitamente una fecha válida en el mensaje.

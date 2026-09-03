@@ -351,6 +351,9 @@ export class OrchestratorAgent {
           client = await this.prisma.client.create({
             data: { companyId: this.companyId, name, taxId: dialog.ruc || null },
           });
+        } else if (!client.taxId && dialog.ruc) {
+          // Cliente existente sin RUC: completarlo con el del texto
+          client = await this.prisma.client.update({ where: { id: client.id }, data: { taxId: dialog.ruc } });
         }
 
         if (isPayment) {
@@ -359,14 +362,22 @@ export class OrchestratorAgent {
         } else {
           // VENTA: crear nueva factura por cobrar
           const itbms = dialog.itbmsAmount || (dialog.itbms ? Math.round(dialog.amount * 0.07 * 100) / 100 : 0);
-          await this.prisma.invoice.create({
-            data: {
-              companyId: this.companyId, clientId: client.id,
-              amount: dialog.amount, itbms, total: dialog.amount + itbms,
-              dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-              date: parseLocalDate(dialog.date), description: dialog.description, journalEntryId,
-            },
-          });
+          try {
+            await this.prisma.invoice.create({
+              data: {
+                companyId: this.companyId, clientId: client.id,
+                number: dialog.invoiceNumber || null, // "Factura: 993" → número de la factura emitida
+                amount: dialog.amount, itbms, total: dialog.amount + itbms,
+                dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                date: parseLocalDate(dialog.date), description: dialog.description, journalEntryId,
+              },
+            });
+          } catch (e: any) {
+            if (e.code === 'P2002') {
+              throw new Error(`El número de factura "${dialog.invoiceNumber}" ya fue registrado en otra venta. Usa un número distinto o no lo indiques.`);
+            }
+            throw e;
+          }
         }
         return { type: isNew ? 'cliente_nuevo' : isPayment ? 'cliente_abono' : 'cliente_existente', name };
       } else if (isSupplier) {
@@ -378,6 +389,9 @@ export class OrchestratorAgent {
           supplier = await this.prisma.supplier.create({
             data: { companyId: this.companyId, name, taxId: dialog.ruc || null },
           });
+        } else if (!supplier.taxId && dialog.ruc) {
+          // Proveedor existente sin RUC: completarlo con el del texto
+          supplier = await this.prisma.supplier.update({ where: { id: supplier.id }, data: { taxId: dialog.ruc } });
         }
 
         if (isPayment) {
@@ -389,6 +403,7 @@ export class OrchestratorAgent {
           await this.prisma.bill.create({
             data: {
               companyId: this.companyId, supplierId: supplier.id,
+              number: dialog.invoiceNumber || null, // "Factura: 993" → número de la factura recibida
               amount: dialog.amount, itbms, total: dialog.amount + itbms,
               dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
               date: parseLocalDate(dialog.date), description: dialog.description, journalEntryId,
