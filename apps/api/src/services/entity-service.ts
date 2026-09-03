@@ -11,6 +11,8 @@
 const CXC_ACCOUNTS = ['1.1.03.01']; // Clientes (cuentas por cobrar)
 const CXP_ACCOUNTS = ['2.1.01'];    // Proveedores (cuentas por pagar)
 
+const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+
 function normalizeName(name: string): string {
   return name
     .toLowerCase()
@@ -151,13 +153,25 @@ export async function syncEntityFromEntry(
       where: { journalEntryId: entryId },
     });
     if (existingInv) {
-      // Si estaba RECHAZADA, reactivar a PENDIENTE
-      if (existingInv.status === 'RECHAZADA') {
-        await prisma.invoice.update({
-          where: { id: existingInv.id },
-          data: { status: 'PENDIENTE' },
-        });
-      }
+      // El asiento pudo editarse: recalcular montos desde las líneas y actualizar
+      const cxcLine = lines.find((l: any) => CXC_ACCOUNTS.includes(l.account?.code));
+      const total = r2(cxcLine?.debit || cxcLine?.credit || (txn?.amount || 0));
+      const itbmsLine = lines.find((l: any) => l.account?.code === '2.1.05');
+      const ingresoLine = lines.find((l: any) => l.account?.code?.startsWith('4.') || l.account?.code?.startsWith('6.'));
+      const itbms = r2(itbmsLine?.credit || 0);
+      const base = r2(ingresoLine?.credit || (total - itbms));
+      await prisma.invoice.update({
+        where: { id: existingInv.id },
+        data: {
+          amount: base,
+          itbms,
+          total,
+          date: entryDate,
+          description: txn?.description || journalEntry.description || existingInv.description,
+          // Si estaba RECHAZADA y el asiento se corrigió, reactivar
+          ...(existingInv.status === 'RECHAZADA' ? { status: 'PENDIENTE' } : {}),
+        },
+      });
       return { type: 'cliente_existente', name: provider };
     }
 
@@ -182,7 +196,7 @@ export async function syncEntityFromEntry(
       data: {
         companyId,
         clientId: client.id,
-        number: metadata.reference || null,
+        number: metadata.invoiceNumber || metadata.reference || null,
         amount: base,
         itbms,
         total,
@@ -202,12 +216,25 @@ export async function syncEntityFromEntry(
       where: { journalEntryId: entryId },
     });
     if (existingBill) {
-      if (existingBill.status === 'RECHAZADA') {
-        await prisma.bill.update({
-          where: { id: existingBill.id },
-          data: { status: 'PENDIENTE' },
-        });
-      }
+      // El asiento pudo editarse: recalcular montos desde las líneas y actualizar
+      const cxpLine = lines.find((l: any) => CXP_ACCOUNTS.includes(l.account?.code));
+      const total = r2(cxpLine?.credit || cxpLine?.debit || (txn?.amount || 0));
+      const itbmsLine = lines.find((l: any) => l.account?.code === '2.1.05');
+      const gastoLine = lines.find((l: any) => l.account?.code?.startsWith('6.'));
+      const itbms = r2(itbmsLine?.debit || 0);
+      const base = r2(gastoLine?.debit || (total - itbms));
+      await prisma.bill.update({
+        where: { id: existingBill.id },
+        data: {
+          amount: base,
+          itbms,
+          total,
+          date: entryDate,
+          description: txn?.description || journalEntry.description || existingBill.description,
+          // Si estaba RECHAZADA y el asiento se corrigió, reactivar
+          ...(existingBill.status === 'RECHAZADA' ? { status: 'PENDIENTE' } : {}),
+        },
+      });
       return { type: 'proveedor_existente', name: provider };
     }
 
@@ -230,7 +257,7 @@ export async function syncEntityFromEntry(
       data: {
         companyId,
         supplierId: supplier.id,
-        number: metadata.reference || null,
+        number: metadata.invoiceNumber || metadata.reference || null,
         amount: base,
         itbms,
         total,
