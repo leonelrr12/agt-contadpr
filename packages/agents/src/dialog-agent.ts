@@ -223,6 +223,12 @@ export class DialogAgent {
             (extracted as any)[campo] = (parsed as any)[campo];
           }
         }
+        // Si el texto trae "por X y itbms por Y" (monto neto + ITBMS explícitos),
+        // el LLM suele devolver amount = X+Y (el total) — forzar el neto del regex.
+        // NUNCA recalcular el ITBMS: el regex ya capturó ambos montos tal como se indicaron.
+        if ((parsed as any).amount > 0 && (parsed as any).itbmsAmount != null) {
+          (extracted as any).amount = (parsed as any).amount;
+        }
       }
     }
 
