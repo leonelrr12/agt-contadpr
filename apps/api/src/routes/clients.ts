@@ -13,16 +13,16 @@ clientsRouter.get('/', async (req, res) => {
   const clients = await req.prisma.client.findMany({
     where,
     include: {
-      invoices: { orderBy: { date: 'desc' }, take: 5 },
+      invoices: { orderBy: { date: 'desc' } }, // todas — el total y el conteo deben considerar facturas viejas
     },
     orderBy: { name: 'asc' },
   });
 
   const enriched = clients.map(c => {
-    const totalDue = c.invoices
-      .filter(i => i.status !== 'PAGADA' && i.status !== 'RECHAZADA')
-      .reduce((s, i) => s + i.total, 0);
-    return { ...c, totalDue, invoiceCount: c.invoices.length };
+    // Solo facturas activas: ni pagadas ni rechazadas cuentan en CxC
+    const activas = c.invoices.filter(i => i.status !== 'PAGADA' && i.status !== 'RECHAZADA');
+    const totalDue = activas.reduce((s, i) => s + i.total, 0);
+    return { ...c, totalDue, invoiceCount: activas.length };
   });
 
   res.json(enriched);
@@ -67,7 +67,7 @@ clientsRouter.put('/:id', requireRole('admin', 'contador'), async (req, res) => 
 // GET /api/clients/:id/invoices — Facturas de un cliente
 clientsRouter.get('/:id/invoices', async (req, res) => {
   const invoices = await req.prisma.invoice.findMany({
-    where: { clientId: req.params.id, companyId: req.user!.companyId },
+    where: { clientId: req.params.id, companyId: req.user!.companyId, status: { notIn: ['RECHAZADA'] } },
     include: { client: { select: { name: true } } },
     orderBy: { date: 'desc' },
   });
