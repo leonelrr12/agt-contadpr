@@ -94,7 +94,7 @@ export class OrchestratorAgent {
     // Entity matching solo para CRÉDITO (cuentas por cobrar/pagar).
     // Para otros métodos de pago (efectivo, tarjeta, transferencia) no se necesita relacionar entidad.
     if (dialog.provider && dialog.paymentMethod === 'CREDITO' && !((context as any)?.extractedData && 'selectedEntityId' in (context as any).extractedData)) {
-      const matches = await this.findEntityMatches(dialog.provider);
+      const matches = await this.findEntityMatches(dialog.provider, dialog.ruc);
       if (matches.length > 0) {
         // Generar entry también para que el frontend tenga el result completo
         await this.accountingAgent.init();
@@ -215,13 +215,22 @@ export class OrchestratorAgent {
    * Busca coincidencias de un nombre en clientes y proveedores existentes.
    * Retorna una lista para que el usuario elija, con opción de crear nuevo.
    */
-  private async findEntityMatches(name: string): Promise<any[]> {
+  private async findEntityMatches(name: string, ruc?: string | null): Promise<any[]> {
     const normalized = this.normalizeName(name);
-    if (normalized.length < 3) return [];
+    if (normalized.length < 3 && !ruc) return [];
 
     const matches: any[] = [];
 
-    // Buscar clientes
+    // Coincidencia por RUC (si se suministra): identifica de forma única
+    if (ruc) {
+      const byRucC = await this.prisma.client.findFirst({ where: { companyId: this.companyId, taxId: ruc }, select: { id: true, name: true } });
+      if (byRucC) matches.push({ id: byRucC.id, name: byRucC.name, type: 'cliente' });
+      const byRucS = await this.prisma.supplier.findFirst({ where: { companyId: this.companyId, taxId: ruc }, select: { id: true, name: true } });
+      if (byRucS && !matches.find(m => m.id === byRucS.id)) matches.push({ id: byRucS.id, name: byRucS.name, type: 'proveedor' });
+      return matches; // el RUC es determinante — no mezclar con coincidencias parciales de nombre
+    }
+
+    // Buscar clientes por nombre
     const clients = await this.prisma.client.findMany({
       where: { companyId: this.companyId },
       select: { id: true, name: true },
@@ -233,7 +242,7 @@ export class OrchestratorAgent {
       }
     }
 
-    // Buscar proveedores
+    // Buscar proveedores por nombre
     const suppliers = await this.prisma.supplier.findMany({
       where: { companyId: this.companyId },
       select: { id: true, name: true },
@@ -275,7 +284,14 @@ export class OrchestratorAgent {
   /**
    * Busca un cliente existente por nombre normalizado.
    */
-  private async findClientByName(name: string): Promise<any> {
+  private async findClientByName(name: string, ruc?: string | null): Promise<any> {
+    // 0. Coincidencia por RUC (si se suministra): el RUC identifica de forma única
+    if (ruc) {
+      const byRuc = await this.prisma.client.findFirst({
+        where: { companyId: this.companyId, taxId: ruc },
+      });
+      if (byRuc) return byRuc;
+    }
     // 1. Coincidencia exacta case-insensitive
     let match = await this.prisma.client.findFirst({
       where: { companyId: this.companyId, name: { equals: name, mode: 'insensitive' } },
@@ -304,7 +320,14 @@ export class OrchestratorAgent {
   /**
    * Busca un proveedor existente por nombre normalizado.
    */
-  private async findSupplierByName(name: string): Promise<any> {
+  private async findSupplierByName(name: string, ruc?: string | null): Promise<any> {
+    // 0. Coincidencia por RUC (si se suministra): el RUC identifica de forma única
+    if (ruc) {
+      const byRuc = await this.prisma.supplier.findFirst({
+        where: { companyId: this.companyId, taxId: ruc },
+      });
+      if (byRuc) return byRuc;
+    }
     let match = await this.prisma.supplier.findFirst({
       where: { companyId: this.companyId, name: { equals: name, mode: 'insensitive' } },
     });
@@ -345,7 +368,7 @@ export class OrchestratorAgent {
         // Si el usuario seleccionó una entidad existente, usarla directamente
         let client = selectedEntityId
           ? await this.prisma.client.findFirst({ where: { id: selectedEntityId, companyId: this.companyId } })
-          : await this.findClientByName(name);
+          : await this.findClientByName(name, dialog.ruc);
         const isNew = !client;
         if (!client) {
           client = await this.prisma.client.create({
@@ -383,7 +406,7 @@ export class OrchestratorAgent {
       } else if (isSupplier) {
         let supplier = selectedEntityId
           ? await this.prisma.supplier.findFirst({ where: { id: selectedEntityId, companyId: this.companyId } })
-          : await this.findSupplierByName(name);
+          : await this.findSupplierByName(name, dialog.ruc);
         const isNew = !supplier;
         if (!supplier) {
           supplier = await this.prisma.supplier.create({
@@ -412,8 +435,12 @@ export class OrchestratorAgent {
         }
         return { type: isNew ? 'proveedor_nuevo' : isPayment ? 'proveedor_abono' : 'proveedor_existente', name };
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[Orchestrator] Error auto-creando entidad:', err);
+      // El error de entidad/factura NO debe tragarse: la venta quedaría sin
+      // cuenta por cobrar. Se propaga para que el usuario sepa y corrija
+      // (p.ej. número de factura duplicado).
+      if (err?.message?.includes('ya fue registrado') || err?.code === 'P2002') throw err;
     }
     return null;
   }
