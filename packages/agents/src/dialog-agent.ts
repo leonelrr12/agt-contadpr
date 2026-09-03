@@ -217,9 +217,11 @@ export class DialogAgent {
       const llmResult = await this.llm.extract(input);
       if (llmResult && llmResult.type && !llmResult.missingFields.includes('type')) {
         extracted = llmResult;
-        // Si el LLM no extrajo itbmsAmount, usar el de parseInput
-        if (!(extracted as any).itbmsAmount && (parsed as any).itbmsAmount) {
-          (extracted as any).itbmsAmount = (parsed as any).itbmsAmount;
+        // Campos que el LLM no siempre devuelve: rescatarlos del parseInput (regex)
+        for (const campo of ['itbmsAmount', 'ruc', 'invoiceNumber']) {
+          if (!(extracted as any)[campo] && (parsed as any)[campo]) {
+            (extracted as any)[campo] = (parsed as any)[campo];
+          }
         }
       }
     }

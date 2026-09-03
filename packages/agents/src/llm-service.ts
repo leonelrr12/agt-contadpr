@@ -9,6 +9,8 @@ export interface LLMExtraction {
   missingFields: string[];
   itbms?: boolean;
   provider?: string | null;
+  ruc?: string | null;
+  invoiceNumber?: string | null;
 }
 
 const EXTRACTION_SYSTEM_PROMPT = (today: string) => `Eres un extractor de datos contables. Hoy es ${today}. Analiza el texto del usuario y extrae la información estructurada de la transacción.
@@ -82,10 +84,12 @@ Responde SOLO con un JSON válido con esta estructura:
   "date": "YYYY-MM-DD (hoy es ${today})",
   "missingFields": ["lista de campos faltantes - solo si no se pudo determinar"],
   "itbms": true|false,
-  "provider": "nombre del proveedor o null"
+  "provider": "nombre del proveedor o null",
+  "ruc": "RUC del proveedor/cliente si el texto lo menciona (ej. 541-81-118009) o null",
+  "invoiceNumber": "número de factura si el texto lo menciona (ej. 993, FE-2026-0001) o null"
 }
 
-Campos opcionales: paymentMethod. Si no se menciona, ponlo como null.
+Campos opcionales: paymentMethod, ruc, invoiceNumber. Si no se mencionan, ponlos como null.
 Si el monto no se encuentra, pon amount: 0 y añade "amount" a missingFields.
 Si el concepto no se puede determinar, pon concept: "" y añade "concept".`;
 
@@ -136,6 +140,8 @@ export class LLMService {
         missingFields: Array.isArray(parsed.missingFields) ? parsed.missingFields : [],
         itbms: parsed.itbms === true,
         provider: parsed.provider || null,
+        ruc: parsed.ruc || null,
+        invoiceNumber: parsed.invoiceNumber || null,
       };
     } catch (error: any) {
       console.error('[LLM] Extraction error:', error?.message || error);
