@@ -21,16 +21,21 @@ function showCrearCuenta() {
     <div class="admin-form-card">
       <h4>Nueva Cuenta Contable</h4>
       <div class="form-grid">
-        <div><label>Código</label><input type="text" id="cuenta-code" placeholder="Ej: 1.1.01"></div>
+        <div><label>Código</label><input type="text" id="cuenta-code" placeholder="Ej: 1.1.03.03" oninput="sugerirPadrePorCodigo()"></div>
         <div><label>Nombre</label><input type="text" id="cuenta-name" placeholder="Ej: Caja Chica"></div>
         <div><label>Tipo</label><select id="cuenta-type">
           <option value="ACTIVO">Activo</option><option value="PASIVO">Pasivo</option>
           <option value="PATRIMONIO">Patrimonio</option><option value="INGRESO">Ingreso</option>
           <option value="COSTO">Costo</option><option value="GASTO">Gasto</option>
         </select></div>
-        <div><label>Cuenta Padre (opcional)</label><select id="cuenta-parent"><option value="">— Ninguna —</option>
-          ${cuentasCache.filter(c => !c.code.includes('.')).map(c => `<option value="${c.id}">${c.code} — ${c.name}</option>`).join('')}
-        </select></div>
+        <div><label>Cuenta Padre (opcional — busca por código, ej. "1.1.03")</label>
+          <input list="cuentas-padre-list" id="cuenta-parent-search" placeholder="Escribe el código del padre..." onchange="selectCuentaParentByCode(this.value)" autocomplete="off">
+          <datalist id="cuentas-padre-list">
+            ${cuentasCache.map(c => `<option value="${c.code}">${c.name} (${c.type})</option>`).join('')}
+          </datalist>
+          <input type="hidden" id="cuenta-parent" value="">
+          <div id="cuenta-parent-info" style="font-size:11px;color:#6b7280;margin-top:2px"></div>
+        </div>
       </div>
       <div style="margin-top:10px">
         <button class="btn-primary" onclick="saveCuenta()">💾 Guardar</button>
@@ -38,6 +43,50 @@ function showCrearCuenta() {
       </div>
     </div>`;
   form.scrollIntoView({ behavior: 'smooth' });
+}
+
+/** Sugiere el padre automáticamente: el código de la nueva cuenta menos su último nivel.
+ *  Ej: creando "1.1.03.03" → padre sugerido "1.1.03" (si existe). */
+function sugerirPadrePorCodigo() {
+  const code = document.getElementById('cuenta-code').value.trim();
+  const info = document.getElementById('cuenta-parent-info');
+  const search = document.getElementById('cuenta-parent-search');
+  const hidden = document.getElementById('cuenta-parent');
+  if (!info || !search || !hidden) return;
+  // Quitar el último nivel: "1.1.03.03" → "1.1.03"; "1.1.03" → "1.1"; "1.1" → "1"
+  const parts = code.split('.').filter(Boolean);
+  if (parts.length < 2) { info.textContent = ''; return; }
+  parts.pop();
+  const padreCode = parts.join('.');
+  const padre = cuentasCache.find(c => c.code === padreCode);
+  if (padre) {
+    hidden.value = padre.id;
+    search.value = padre.code;
+    info.innerHTML = `<span style="color:#059669;font-weight:600">✅ Padre sugerido: ${padre.code} — ${padre.name}</span>`;
+  } else {
+    hidden.value = '';
+    search.value = padreCode;
+    info.innerHTML = `<span style="color:#f59e0b">⚠️ No existe la cuenta padre ${padreCode} — se creará sin padre (nivel 1)</span>`;
+  }
+}
+
+/** Selecciona el padre por el código digitado/buscado (LIKE sobre el código). */
+function selectCuentaParentByCode(val) {
+  const code = String(val || '').trim();
+  const info = document.getElementById('cuenta-parent-info');
+  const hidden = document.getElementById('cuenta-parent');
+  if (!code) { hidden.value = ''; if (info) info.textContent = ''; return; }
+  // Buscar coincidencia exacta primero; si no, la cuenta cuyo código inicia con el texto
+  const padre = cuentasCache.find(c => c.code === code)
+    || cuentasCache.filter(c => c.code.startsWith(code) && c.code !== document.getElementById('cuenta-code').value.trim()).sort((a, b) => a.code.length - b.code.length)[0];
+  if (padre) {
+    hidden.value = padre.id;
+    document.getElementById('cuenta-parent-search').value = padre.code;
+    info.innerHTML = `<span style="color:#059669;font-weight:600">✅ Padre: ${padre.code} — ${padre.name}</span>`;
+  } else {
+    hidden.value = '';
+    info.innerHTML = `<span style="color:#f59e0b">⚠️ No se encontró la cuenta "${code}"</span>`;
+  }
 }
 
 function editCuenta(id) {
