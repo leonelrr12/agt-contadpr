@@ -6,6 +6,8 @@ import type { ExportFormat } from '../services/export';
 
 export const reportsRouter = Router();
 
+const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+
 /**
  * Reporte por proveedor de facturas DGI (declaración de rentas).
  * Agrupa transacciones por metadata.provider (patrón de journal.ts):
@@ -29,9 +31,20 @@ async function buildProveedoresReport(prisma: any, companyId: string, startDate?
 
   const txs = await prisma.transaction.findMany({
     where,
-    select: { id: true, date: true, amount: true, metadata: true },
+    select: { id: true, date: true, amount: true, metadata: true, journalEntryId: true },
     orderBy: { date: 'asc' },
   });
+
+  // Enriquecer con el Invoice/Bill vinculado al asiento: el metadata no siempre
+  // tiene invoiceNumber/itbmsAmount (facturas viejas, imports), pero el auxiliar sí.
+  const jeIds = [...new Set(txs.map((t: any) => t.journalEntryId).filter(Boolean))];
+  const [invoices, bills] = await Promise.all([
+    jeIds.length > 0 ? prisma.invoice.findMany({ where: { journalEntryId: { in: jeIds } }, select: { journalEntryId: true, number: true, itbms: true } }) : [],
+    jeIds.length > 0 ? prisma.bill.findMany({ where: { journalEntryId: { in: jeIds } }, select: { journalEntryId: true, number: true, itbms: true } }) : [],
+  ]);
+  const auxByJe = new Map<string, { number: string | null; itbms: number }>();
+  for (const i of invoices) auxByJe.set(i.journalEntryId, { number: i.number, itbms: i.itbms });
+  for (const b of bills) if (!auxByJe.has(b.journalEntryId)) auxByJe.set(b.journalEntryId, { number: b.number, itbms: b.itbms });
 
   const proveedores = new Map<string, any>();
   for (const tx of txs) {
@@ -43,9 +56,11 @@ async function buildProveedoresReport(prisma: any, companyId: string, startDate?
     const p = proveedores.get(key) || {
       provider: m.provider, ruc, facturas: 0, subtotal: 0, itbms: 0, total: 0, detalle: [],
     };
-    const hasItbms = Number(m.itbmsAmount) > 0;
+    const aux = tx.journalEntryId ? auxByJe.get(tx.journalEntryId) : undefined;
+    const itbmsMeta = Number(m.itbmsAmount) || 0;
+    const invoiceNumber = m.invoiceNumber || aux?.number || null;
     const amountTotal = Number(tx.amount) || 0;
-    const itbms = hasItbms ? Math.round(Number(m.itbmsAmount) * 100) / 100 : 0;
+    const itbms = r2(itbmsMeta > 0 ? itbmsMeta : (aux?.itbms || 0));
     const subtotal = m.source ? Math.round((amountTotal - itbms) * 100) / 100 : amountTotal;
     const total = m.source ? amountTotal : Math.round((amountTotal + itbms) * 100) / 100;
     p.facturas++;
@@ -54,7 +69,7 @@ async function buildProveedoresReport(prisma: any, companyId: string, startDate?
     p.total = Math.round((p.total + total) * 100) / 100;
     p.detalle.push({
       transactionId: tx.id,
-      invoiceNumber: m.invoiceNumber || null,
+      invoiceNumber,
       date: tx.date,
       amount: subtotal,
       itbms,
