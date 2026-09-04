@@ -2,8 +2,8 @@ import { Router } from 'express';
 import multer from 'multer';
 import { validate } from '../middleware/validate';
 import { requireQuota, incrementUsage } from '../middleware/quota';
-import { parseImportFile, parseCargaInicialFile } from '../services/csv-parser';
-import type { ParsedRow } from '../services/csv-parser';
+import { parseImportFile, parseCargaInicialFile, parseCobrosFile } from '../services/csv-parser';
+import type { ParsedRow, CobrosRow } from '../services/csv-parser';
 import { resolveCargaInicialRows } from '../services/account-lookup';
 import { ClassificationAgent } from '@agt-contador/agents';
 import { AccountingAgent } from '@agt-contador/agents';
@@ -78,6 +78,43 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
       return;
     }
 
+    // ── Cobros / pagos a facturas (Preview) ──
+    const cobros = req.body.cobros === 'true';
+    if (cobros) {
+      const parsed = await parseCobrosFile(req.file.buffer, req.file.originalname);
+
+      if (parsed.rows.length === 0) {
+        res.json({
+          headers: parsed.headers,
+          totalRows: parsed.totalRows,
+          cobros: true,
+          cobrosPreview: { rows: [], success: 0, errors: [], appliedTotal: 0, markedPaid: 0 },
+        });
+        return;
+      }
+
+      // Simular el batch completo EN ORDEN sobre un snapshot en memoria:
+      // los abonos parciales a una misma factura se acumulan igual que en la
+      // ejecución real (segundo pago de la fila 5 ve el saldo tras la fila 2).
+      const { rows: previewStatus, errors, appliedTotal, markedPaid } = await simulateCobrosFile(
+        req.prisma, req.user!.companyId, parsed.rows,
+      );
+
+      res.json({
+        headers: parsed.headers,
+        totalRows: parsed.totalRows,
+        cobros: true,
+        cobrosPreview: {
+          rows: previewStatus.slice(0, 20),
+          success: previewStatus.length - errors.length,
+          errors,
+          appliedTotal,
+          markedPaid,
+        },
+      });
+      return;
+    }
+
     // ── Flujo normal ──
     const parsed = await parseImportFile(req.file.buffer, req.file.originalname);
 
@@ -129,6 +166,7 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
       previewRows,
       totalRows: parsed.totalRows,
       invalidRows,
+      detectedCobrosFile: isCobrosFileHeaders(parsed.headers) || isCobrosFileRows(allRows),
     });
   } catch (error: any) {
     console.error('[Import] Preview error:', error);
@@ -190,6 +228,38 @@ function missingImportFields(row: ImportRow): string[] {
   if (!row.ruc) missing.push('RUC');
   if (!row.reference) missing.push('Nº de factura');
   return missing;
+}
+
+/**
+ * Detección de archivo de PAGOS A FACTURAS (el import NORMAL no mapea
+ * "Fecha de Pago" ni la cuenta/banco del archivo: usa la "Fecha" genérica y
+ * clasifica por concepto — contabilizaría cobros como transacciones sueltas).
+ * Señales:
+ * 1. Encabezados: columna de pago/depósito + Nº de factura + cuenta/banco + total.
+ * 2. Contenido (suficiente por sí solo): la mayoría de las filas dicen
+ *    cobro/abono/pago de factura en concepto o descripción.
+ */
+function isCobrosFileHeaders(headers: string[]): boolean {
+  const has = (re: RegExp) => headers.some(h => re.test(h));
+  return has(/pago|dep[ió]sito/i)
+    && has(/factura|nro|n[úu]mero|ref\.?/i)
+    && has(/^cuenta|^banco|^bancos|^caja/i)
+    && has(/^total|^monto|^importe|amount/i);
+}
+
+function isCobrosConcept(row: { concept?: string; description: string }): boolean {
+  return /(^|\s|de\s)(cobro|abono|pago de factura|pago a factura|cobro de factura|abono de cliente|cobro de cliente|abono a factura)(\s|$)/i
+    .test(`${row.concept || ''} ${row.description || ''}`);
+}
+
+/** Señal de contenido: mayoría de filas con concepto de cobro/abono. */
+function isCobrosFileRows(rows: { concept?: string; description: string }[]): boolean {
+  if (rows.length === 0) return false;
+  const signal = rows.filter(isCobrosConcept).length;
+  // Archivos de 1-2 filas: todas deben decir cobro (evita falso positivo
+  // en lotes mixtos pequeños); con más filas, mayoría estricta.
+  if (rows.length < 3) return signal === rows.length;
+  return signal > rows.length / 2;
 }
 
 /**
@@ -455,6 +525,170 @@ importRouter.post('/execute-all', requireQuota, upload.single('file'), async (re
 });
 
 /**
+ * POST /api/import/cobros/execute-all
+ * Archivo de pagos/abonos a facturas de clientes → una transacción por fila:
+ * JE BORRADOR (débito cuenta/banco, crédito Clientes), Transaction COBRO_CLIENTE,
+ * InvoicePayment y paidAmount += monto (PAGADA + paidAt cuando saldo ≈ 0).
+ */
+importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'No se recibió ningún archivo' });
+    return;
+  }
+
+  try {
+    const parsed = await parseCobrosFile(req.file.buffer, req.file.originalname);
+
+    if (parsed.rows.length === 0) {
+      res.status(400).json({ error: 'No se encontraron filas válidas en el archivo.' });
+      return;
+    }
+
+    // Verificar cuota: igual que el import normal (un movimiento por abono)
+    const sub = (req as any).subscription;
+    if (sub) {
+      const remaining = sub.movementsLimit - sub.movementsUsed;
+      if (parsed.rows.length > remaining) {
+        res.status(429).json({
+          error: `No tienes suficientes movimientos disponibles. Tu plan permite ${sub.movementsLimit} por período y has usado ${sub.movementsUsed}. Te quedan ${remaining} pero necesitas ${parsed.rows.length}.`,
+          code: 'QUOTA_EXCEEDED',
+          limit: sub.movementsLimit,
+          used: sub.movementsUsed,
+          remaining,
+          required: parsed.rows.length,
+        });
+        return;
+      }
+    }
+
+    const companyId = req.user!.companyId;
+    const userId = req.user!.userId;
+
+    // Cargar catálogo + facturas UNA vez; cada fila corre en SU PROPIA
+    // transacción (lección 25P02 del import normal) y re-lee la factura
+    // fresca dentro de ella (nada de estado compartido entre filas).
+    const accounts = await loadCobroAccounts(req.prisma, companyId);
+    const { list: invoicesList } = await loadCobroInvoices(req.prisma, companyId);
+
+    const results = { success: 0, errors: [] as { row: number; error: string }[], entryIds: [] as string[] };
+    let markedPaid = 0;
+
+    for (let i = 0; i < parsed.rows.length; i++) {
+      const row = parsed.rows[i];
+      const rowNum = i + 1;
+      try {
+        const validation = validateCobroRow(row, accounts, invoicesList);
+        if (!validation.ok) throw new Error(validation.message);
+        // validation.ok garantiza estos campos; el guarda permite a TS estrechar
+        const { invoice, account, clientsAccount, amount, dateStr } = validation;
+        if (!invoice || !account || !clientsAccount || amount == null || !dateStr) {
+          throw new Error('Fila de cobro inválida (datos incompletos).');
+        }
+        const paymentMethod = cobroPaymentMethod(account);
+
+        // Re-leer la factura fresca dentro de la transacción: entre el preload
+        // y esta fila otro proceso pudo registrar un abono (p.ej. PATCH /pay).
+        const je = await req.prisma.$transaction(async (tx: any) => {
+          const fresh = await tx.invoice.findUnique({ where: { id: invoice.id } });
+          if (!fresh) throw new Error(`Factura ${invoice.number} ya no existe.`);
+          const saldo = r2(fresh.total - fresh.paidAmount);
+          if (saldo <= 0.01) throw new Error(`La factura ${fresh.number} ya está pagada.`);
+          if (amount > saldo + 0.01) {
+            throw new Error(`El abono $${amount.toFixed(2)} excede el saldo de la factura ${fresh.number} ($${saldo.toFixed(2)}).`);
+          }
+          const nuevoSaldo = r2(saldo - amount);
+          const quedaPagada = nuevoSaldo <= 0.01;
+
+          const desc = `Cobro de factura ${fresh.number} — $${amount.toFixed(2)}`;
+          const created = await tx.journalEntry.create({
+            data: {
+              date: toLocalDate(dateStr),
+              description: desc,
+              status: 'BORRADOR',
+              companyId,
+              createdById: userId,
+              lines: { create: [
+                { accountId: account.id, debit: amount, credit: 0 },
+                { accountId: clientsAccount.id, debit: 0, credit: amount },
+              ] },
+            },
+          });
+
+          await tx.transaction.create({
+            data: {
+              type: 'COBRO_CLIENTE',
+              amount,
+              description: desc,
+              concept: row.concept || 'Cobro de factura',
+              paymentMethod,
+              date: toLocalDate(dateStr),
+              companyId,
+              createdById: userId,
+              journalEntryId: created.id,
+              metadata: JSON.stringify({
+                source: 'import-cobros',
+                invoiceNumber: fresh.number,
+                fileNumber: row.invoiceNumber || null,
+                accountName: row.accountName || null,
+                client: invoice.clientName,
+              }),
+            },
+          });
+
+          const payment = await tx.invoicePayment.create({
+            data: {
+              companyId,
+              invoiceId: fresh.id,
+              amount,
+              date: toLocalDate(dateStr),
+              accountId: account.id,
+              accountName: row.accountName || null,
+              journalEntryId: created.id,
+            },
+          });
+
+          const updated = await tx.invoice.update({
+            where: { id: fresh.id },
+            data: {
+              paidAmount: r2(fresh.paidAmount + amount),
+              ...(quedaPagada ? { status: 'PAGADA', paidAt: toLocalDate(dateStr) } : {}),
+            },
+          });
+
+          return { created, payment, quedaPagada, numero: updated.number };
+        });
+
+        if (je.quedaPagada) markedPaid++;
+        results.entryIds.push(je.created.id);
+        results.success++;
+      } catch (err: any) {
+        results.errors.push({ row: rowNum, error: cleanImportError(err) });
+      }
+    }
+
+    for (let i = 0; i < results.success; i++) {
+      try { await incrementUsage(req); } catch { /* quota exhausted */ }
+    }
+
+    res.json({
+      success: results.success,
+      errors: results.errors,
+      total: parsed.rows.length,
+      entryIds: results.entryIds.slice(0, 5),
+      markedPaid,
+    });
+  } catch (error: any) {
+    console.error('[Import] Cobros execute-all error:', error);
+    const isClientError = /no se (pudo|encontró|detectó)|no encontrad|inválid|formato/i.test(error.message || '');
+    const status = isClientError ? 400 : 500;
+    res.status(status).json({
+      error: isClientError ? error.message : 'Error interno al procesar los pagos.',
+      detail: error?.message,
+    });
+  }
+});
+
+/**
  * POST /api/import/carga-inicial
  * Recibe un archivo CSV con formato Categoria,Concepto,Monto
  * y crea UN solo asiento de apertura con todas las líneas.
@@ -657,6 +891,363 @@ importRouter.post('/carga-inicial/execute', requireQuota, async (req, res) => {
     });
   }
 });
+
+// ── Helpers cobros / pagos a facturas ──
+
+interface CobroAccount {
+  id: string;
+  code: string;
+  name: string;
+  aliases: string[];
+}
+
+interface CobroInvoiceLite {
+  id: string;
+  number: string;
+  clientName: string | null;
+  total: number;
+  paidAmount: number;
+  paymentMethod: string | null;
+  status: string;
+}
+
+const COBRO_EPS = 0.01;
+
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+/** Normaliza texto para comparar nombres: minúsculas, sin acentos ni puntuación. */
+function normalizeNameKey(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Normaliza a solo letras para comparación de tokens (palabra a palabra). */
+function wordKey(w: string): string {
+  return w.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+}
+
+async function loadCobroAccounts(prisma: any, companyId: string): Promise<CobroAccount[]> {
+  return prisma.account.findMany({
+    where: { companyId },
+    select: { id: true, code: true, name: true, aliases: true },
+  });
+}
+
+async function loadCobroInvoices(
+  prisma: any,
+  companyId: string,
+): Promise<{ list: CobroInvoiceLite[]; byId: Map<string, CobroInvoiceLite> }> {
+  const rows = await prisma.invoice.findMany({
+    where: { companyId },
+    select: {
+      id: true, number: true, total: true, paidAmount: true, paymentMethod: true, status: true,
+      client: { select: { name: true } },
+    },
+  });
+  const list: CobroInvoiceLite[] = rows.map((r: any) => ({
+    id: r.id,
+    number: r.number,
+    clientName: r.client?.name || null,
+    total: r.total,
+    paidAmount: r.paidAmount,
+    paymentMethod: r.paymentMethod,
+    status: r.status,
+  }));
+  const byId = new Map(list.map(i => [i.id, i]));
+  return { list, byId };
+}
+
+/**
+ * Resuelve la cuenta de destino del depósito desde el texto del archivo:
+ * 1. coincidencia exacta con código/alias/nombre (sin acentos ni símbolos),
+ * 2. tolerante a typos ("Bnaco General" → "Banco General"): por tokens con
+ *    distancia de edición ≤ 1 en palabras de ≥ 4 letras, cobertura completa
+ *    de ambos lados y menor distancia total.
+ */
+function resolveCobroAccount(accounts: CobroAccount[], raw: string | null): CobroAccount | null {
+  if (!raw) return null;
+  const input = raw.trim();
+  if (!input) return null;
+
+  // 1) Exacta: código, alias o nombre, normalizados (sin acentos ni símbolos)
+  const want = wordKey(input).replace(/\s+/g, '');
+  for (const a of accounts) {
+    const keys = [a.code, a.name, ...(a.aliases || [])];
+    for (const k of keys) {
+      if (wordKey(k).replace(/\s+/g, '') === want) return a;
+    }
+  }
+
+  // 2) Tolerante a typos. IMPORTANTE: se normaliza conservando los espacios
+  // (normalizeNameKey) — wordKey elimina todo lo no alfanumérico y colapsaría
+  // "Banco de Panama" a un solo token "bancodepanama".
+  const inputWords = normalizeNameKey(input).split(/\s+/).filter(w => w.length >= 2);
+  if (inputWords.length === 0) return null;
+
+  const wordMatch = (a: string, b: string): boolean => {
+    if (a === b) return true;
+    if (a.includes(b) || b.includes(a)) return true; // "bancos" vs "banco"
+    if (a.length >= 5 && b.length >= 5 && levenshtein(a, b) <= 2) return true; // "Bnaco" ↔ "Banco" (transposición)
+    return a.length >= 4 && b.length >= 4 && levenshtein(a, b) <= 1;
+  };
+
+  let best: { account: CobroAccount; dist: number } | null = null;
+
+  for (const acc of accounts) {
+    const accWords = [
+      ...normalizeNameKey(acc.name).split(/\s+/).filter(w => w.length >= 2),
+      ...(acc.aliases || []).map(normalizeNameKey).flatMap(a => a.split(/\s+/)).filter(w => w.length >= 2),
+    ];
+    if (accWords.length === 0) continue;
+
+    // Cobertura completa de ambos lados
+    const inputOk = inputWords.every(iw => accWords.some(aw => wordMatch(iw, aw)));
+    const accOk = accWords.every(aw => inputWords.some(iw => wordMatch(iw, aw)));
+    if (!inputOk || !accOk) continue;
+
+    // Menor distancia total (suma del mejor match por token de entrada)
+    let dist = 0;
+    for (const iw of inputWords) {
+      let bestWord = Infinity;
+      for (const aw of accWords) bestWord = Math.min(bestWord, levenshtein(iw, aw));
+      dist += bestWord;
+    }
+    if (!best || dist < best.dist || (dist === best.dist && acc.name.length < best.account.name.length)) {
+      best = { account: acc, dist };
+    }
+  }
+
+  return best ? best.account : null;
+}
+
+/** Cuenta contrapartida del cobro: la de Clientes (alias "clientes"). */
+function findClientsAccount(accounts: CobroAccount[]): CobroAccount | null {
+  for (const a of accounts) {
+    const aliases = (a.aliases || []).map(normalizeNameKey);
+    if (aliases.includes('clientes')) return a;
+  }
+  for (const a of accounts) {
+    const nk = normalizeNameKey(a.name);
+    if (nk.includes('clientes') || nk.includes('cuentas por cobrar')) return a;
+  }
+  return null;
+}
+
+function digitsOf(s: string): string { return (s || '').replace(/\D/g, ''); }
+function stripZeros(s: string): string { return s.replace(/^0+/, ''); }
+
+/** Match de la factura por Nº exacto; si no, por dígitos (A-001003 ↔ 1003). */
+function matchCobroInvoice(
+  invoices: CobroInvoiceLite[],
+  rawNumber: string,
+): { invoice: CobroInvoiceLite; via: 'exact' | 'digits' } | { error: string } {
+  const number = (rawNumber || '').trim();
+  const exact = invoices.filter(i => i.number.trim() === number);
+
+  if (exact.length === 1) return { invoice: exact[0], via: 'exact' };
+  if (exact.length > 1) return { error: `El Nº de factura "${number}" es ambiguo (${exact.length} coincidencias).` };
+
+  const digits = stripZeros(digitsOf(number));
+  if (digits.length > 0) {
+    const byDigits = invoices.filter(i => stripZeros(digitsOf(i.number)) === digits);
+    if (byDigits.length === 1) return { invoice: byDigits[0], via: 'digits' };
+    if (byDigits.length > 1) return { error: `El Nº de factura "${number}" es ambiguo (${byDigits.length} coincidencias).` };
+  }
+  return { error: `No se encontró la factura Nº "${number}".` };
+}
+
+export interface CobroValidation {
+  ok: boolean;
+  message: string;
+  code?: string;
+  invoice?: CobroInvoiceLite;
+  viaDigits?: boolean;
+  amount?: number;
+  dateStr?: string;
+  account?: CobroAccount;
+  clientsAccount?: CobroAccount;
+  saldoBefore?: number;
+  saldoAfter?: number;
+}
+
+/** Valida una fila de cobro contra catálogo + facturas (sin escribir nada). */
+function validateCobroRow(
+  row: CobrosRow,
+  accounts: CobroAccount[],
+  invoices: CobroInvoiceLite[],
+): CobroValidation {
+  const dateStr = row.paymentDate || row.invoiceDate; // archivo de una sola fecha → fecha del pago
+  const amount = row.amount != null && row.amount > 0 ? r2(row.amount) : null;
+
+  const missing: string[] = [];
+  if (!dateStr) missing.push('fecha de pago');
+  if (!row.invoiceNumber) missing.push('Nº de factura');
+  if (amount == null) missing.push('monto');
+  if (!row.accountName) missing.push('cuenta');
+  if (missing.length > 0) {
+    return { ok: false, code: 'MISSING_FIELDS', message: `Faltan datos obligatorios: ${missing.join(', ')}` };
+  }
+
+  const account = resolveCobroAccount(accounts, row.accountName!);
+  if (!account) {
+    return { ok: false, code: 'ACCOUNT_NOT_FOUND', message: `Cuenta contable no encontrada: "${row.accountName}". Revise la columna Cuenta o cree la cuenta en el catálogo.` };
+  }
+
+  const clientsAccount = findClientsAccount(accounts);
+  if (!clientsAccount) {
+    return { ok: false, code: 'CLIENTS_ACCOUNT_NOT_FOUND', message: 'No se encontró la cuenta Clientes (alias "clientes") en el catálogo.' };
+  }
+
+  const match = matchCobroInvoice(invoices, row.invoiceNumber!);
+  if ('error' in match) return { ok: false, code: 'INVOICE_NOT_FOUND', message: match.error };
+  const { invoice, via } = match;
+
+  // El RUC está cifrado en BD (crypto-fields): se valida por Nº + nombre normalizado
+  if (row.client && invoice.clientName) {
+    if (normalizeNameKey(row.client) !== normalizeNameKey(invoice.clientName)) {
+      return {
+        ok: false, code: 'INVOICE_CLIENT_MISMATCH',
+        message: `La factura ${invoice.number} corresponde a "${invoice.clientName}", no a "${row.client}".`,
+      };
+    }
+  }
+
+  if (invoice.paymentMethod === 'EFECTIVO') {
+    return {
+      ok: false, code: 'CASH_SALE',
+      message: `La factura ${invoice.number} es de contado (EFECTIVO) y no admite abonos.`,
+    };
+  }
+
+  const saldo = r2(invoice.total - invoice.paidAmount);
+  if (saldo <= COBRO_EPS) {
+    return { ok: false, code: 'ALREADY_PAID', message: `La factura ${invoice.number} ya está pagada.` };
+  }
+  if (amount! > saldo + COBRO_EPS) {
+    return {
+      ok: false, code: 'EXCEEDS_BALANCE',
+      message: `El abono de $${amount!.toFixed(2)} excede el saldo de la factura ${invoice.number} ($${saldo.toFixed(2)}).`,
+    };
+  }
+
+  return {
+    ok: true,
+    message: '',
+    invoice,
+    viaDigits: via === 'digits',
+    amount: amount!,
+    dateStr: dateStr!,
+    account,
+    clientsAccount,
+    saldoBefore: saldo,
+    saldoAfter: r2(saldo - amount!),
+  };
+}
+
+/** Cuenta destino caja vs banco: deriva el paymentMethod de la transacción. */
+function cobroPaymentMethod(account: CobroAccount): string {
+  const nk = normalizeNameKey(`${account.code} ${account.name} ${(account.aliases || []).join(' ')}`);
+  return nk.includes('caja') ? 'EFECTIVO' : 'BANCO';
+}
+
+interface CobroPreviewRow {
+  row: number;
+  status: 'ok' | 'error';
+  code?: string;
+  error?: string;
+  fileNumber: string | null;
+  number: string | null;         // Nº real en BD (si se encontró)
+  viaDigits: boolean;
+  clientFile: string | null;
+  clientMatched: string | null;
+  date: string | null;
+  amount: number | null;
+  accountName: string | null;
+  accountCode: string | null;    // código de la cuenta contable resuelta
+  saldoBefore: number | null;
+  saldoAfter: number | null;
+  paid: boolean;
+}
+
+/**
+ * Simula el batch completo en orden sobre un snapshot en memoria (no escribe):
+ * cada abono válido descuenta del saldo acumulado del snapshot, así un segundo
+ * abono a la misma factura ve el saldo del primero — igual que la ejecución real.
+ */
+export async function simulateCobrosFile(
+  prisma: any,
+  companyId: string,
+  rows: CobrosRow[],
+): Promise<{ rows: CobroPreviewRow[]; errors: { row: number; error: string }[]; appliedTotal: number; markedPaid: number }> {
+  const accounts = await loadCobroAccounts(prisma, companyId);
+  const { list } = await loadCobroInvoices(prisma, companyId);
+
+  // Snapshot de trabajo: paidAmount mutable por fila aplicada
+  const working = list.map(i => ({ ...i }));
+  const detail: CobroPreviewRow[] = [];
+  const errors: { row: number; error: string }[] = [];
+  let appliedTotal = 0;
+  let markedPaid = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 1;
+    const validation = validateCobroRow(row, accounts, working);
+    const base: CobroPreviewRow = {
+      row: rowNum,
+      status: validation.ok ? 'ok' : 'error',
+      code: validation.code,
+      error: validation.message,
+      fileNumber: row.invoiceNumber,
+      number: validation.invoice?.number || null,
+      viaDigits: !!validation.viaDigits,
+      clientFile: row.client,
+      clientMatched: validation.invoice?.clientName || null,
+      date: row.paymentDate || row.invoiceDate,
+      amount: validation.ok ? validation.amount! : row.amount ?? null,
+      accountName: row.accountName,
+      accountCode: validation.ok ? validation.account!.code : null,
+      saldoBefore: validation.ok ? validation.saldoBefore! : null,
+      saldoAfter: validation.ok ? validation.saldoAfter! : null,
+      paid: false,
+    };
+
+    if (validation.ok && validation.invoice) {
+      // Aplicar al snapshot para las filas siguientes del mismo lote
+      const inv = working.find(w => w.id === validation.invoice!.id)!;
+      inv.paidAmount = r2(inv.paidAmount + validation.amount!);
+      const paid = validation.saldoAfter! <= COBRO_EPS;
+      base.paid = paid;
+      appliedTotal = r2(appliedTotal + validation.amount!);
+      if (paid) markedPaid++;
+    } else {
+      errors.push({ row: rowNum, error: validation.message });
+    }
+
+    detail.push(base);
+  }
+
+  return { rows: detail, errors, appliedTotal, markedPaid };
+}
 
 // Manejo de errores de multer
 importRouter.use((err: any, _req: any, res: any, _next: any) => {

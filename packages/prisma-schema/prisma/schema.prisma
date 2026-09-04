@@ -334,6 +334,7 @@ model Invoice {
   amount         Float
   itbms          Float     @default(0)
   total          Float
+  paidAmount     Float     @default(0) // Suma de abonos (InvoicePayment); PAGADA cuando ≈ total
   dueDate        DateTime
   paidAt         DateTime?
   status         String    @default("PENDIENTE") // PENDIENTE, VENCIDA, PAGADA
@@ -344,14 +345,33 @@ model Invoice {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  client         Client         @relation(fields: [clientId], references: [id])
+  client         Client          @relation(fields: [clientId], references: [id])
   items          InvoiceItem[]
+  payments       InvoicePayment[]
 
   @@unique([companyId, number])
   @@index([companyId])
   @@index([clientId])
   @@index([status])
   @@map("invoice")
+}
+
+model InvoicePayment {
+  id             String    @id @default(cuid())
+  companyId      String
+  invoiceId      String
+  amount         Float     // monto del abono
+  date           DateTime  // fecha en que llegó el pago
+  accountId      String?   // cuenta contable/banco donde llegó el depósito
+  accountName    String?   // nombre tal como venía en el archivo (traza)
+  journalEntryId String?   // asiento BORRADOR de cobro creado
+  createdAt      DateTime  @default(now())
+
+  invoice        Invoice   @relation(fields: [invoiceId], references: [id])
+
+  @@index([invoiceId])
+  @@index([companyId])
+  @@map("invoice_payment")
 }
 
 model InvoiceItem {

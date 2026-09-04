@@ -99,6 +99,40 @@ function closeAccountPickerInline() {
   document.removeEventListener('click', closeAccountPickerInlineOnClick);
 }
 
+/* ── Tipo de importación: transacciones / carga inicial / pagos a facturas ── */
+function importMode() {
+  const el = document.querySelector('input[name="import-inline-mode"]:checked');
+  return el ? el.value : 'transacciones';
+}
+
+const IMPORT_MODE_HINTS = {
+  transacciones: 'Sube el CSV/Excel con tus transacciones históricas. La IA clasificará cada concepto.',
+  carga: 'Balance de apertura: columnas Categoria, Concepto, Monto. Se crea un solo asiento.',
+  cobros: 'Pagos/abonos a facturas de clientes: columnas Cliente, Fecha de Pago, Cuenta (banco), Factura # y TOTAL. Acepta abonos parciales y varios pagos a la misma factura.',
+};
+
+function applyImportModeUI() {
+  const mode = importMode();
+  const chipIds = { transacciones: 'import-mode-label-tx', carga: 'import-mode-label-carga', cobros: 'import-mode-label-cobros' };
+  Object.entries(chipIds).forEach(([m, id]) => {
+    const label = document.getElementById(id);
+    if (!label) return;
+    const active = m === mode;
+    label.style.background = active ? '#fff' : 'transparent';
+    label.style.boxShadow = active ? '0 1px 2px rgba(0,0,0,0.08)' : 'none';
+    label.style.fontWeight = active ? '600' : '400';
+  });
+  const hint = document.getElementById('import-inline-mode-hint');
+  if (hint) hint.textContent = IMPORT_MODE_HINTS[mode] || IMPORT_MODE_HINTS.transacciones;
+  // La fecha global solo aplica a transacciones y carga inicial: los cobros
+  // usan la columna "Fecha de Pago" del propio archivo.
+  const isCobros = mode === 'cobros';
+  const dateLabel = document.getElementById('import-inline-date-label');
+  const dateInput = document.getElementById('import-inline-date');
+  if (dateLabel) dateLabel.style.display = isCobros ? 'none' : 'inline';
+  if (dateInput) dateInput.style.display = isCobros ? 'none' : 'inline-block';
+}
+
 function loadPanelImport() {
   document.getElementById('chat-messages').classList.add('hidden');
   document.getElementById('input-area').classList.add('hidden');
@@ -108,10 +142,14 @@ function loadPanelImport() {
   if (!dateInput.value) dateInput.value = new Date().toISOString().split('T')[0];
   // Cargar catálogo de cuentas para el picker de carga inicial
   loadAllAccountsInline();
-  // Checkbox carga inicial: re-procesar archivo al cambiar
-  document.getElementById('import-inline-carga').onchange = () => {
-    if (importInlineFile) handleImportInlineFile(importInlineFile);
-  };
+  // Cambiar el tipo de importación: re-procesar archivo si ya hay uno
+  document.querySelectorAll('input[name="import-inline-mode"]').forEach(r => {
+    r.onchange = () => {
+      applyImportModeUI();
+      if (importInlineFile) handleImportInlineFile(importInlineFile);
+    };
+  });
+  applyImportModeUI();
   // Drag & drop + file input
   const zone = document.getElementById('import-inline-zone');
   const fileInput = document.getElementById('import-inline-file');
@@ -130,15 +168,21 @@ function loadPanelImport() {
 
 async function handleImportInlineFile(file) {
   importInlineFile = file;
-  const isCarga = document.getElementById('import-inline-carga').checked;
+  const mode = importMode();
+  const isCarga = mode === 'carga';
+  const isCobros = mode === 'cobros';
   document.getElementById('import-inline-file-name').textContent = `📎 ${file.name}`;
   document.getElementById('import-inline-loading').classList.remove('hidden');
-  document.getElementById('import-inline-loading-text').textContent = isCarga ? 'Analizando archivo de carga inicial...' : 'Analizando archivo...';
+  document.getElementById('import-inline-loading-text').textContent = isCarga
+    ? 'Analizando archivo de carga inicial...'
+    : isCobros ? 'Analizando pagos a facturas...' : 'Analizando archivo...';
 
   const formData = new FormData();
   formData.append('file', file);
   if (isCarga) {
     formData.append('cargaInicial', 'true');
+  } else if (isCobros) {
+    formData.append('cobros', 'true');
   } else {
     // Misma fecha global que usa /execute-all: la preview valida la fecha igual que la ejecución
     const d = document.getElementById('import-inline-date').value;
@@ -150,23 +194,44 @@ async function handleImportInlineFile(file) {
     importInlinePreview = await res.json();
     document.getElementById('import-inline-loading').classList.add('hidden');
     document.getElementById('import-inline-zone').classList.add('hidden');
+    // ¿Archivo de pagos a facturas cargado en modo "Transacciones"?
+    // El modo normal no mapea "Fecha de Pago" ni la cuenta/banco (usa la
+    // fecha genérica y clasifica por concepto): cambiar SOLO al modo cobros
+    // y reprocesar. El chip se mueve solo — si el usuario quería el modo
+    // normal, un clic lo devuelve y se re-analiza el archivo.
+    if (!isCarga && !isCobros && importInlinePreview.detectedCobrosFile) {
+      const radio = document.querySelector('input[name="import-inline-mode"][value="cobros"]');
+      if (radio) { radio.checked = true; applyImportModeUI(); }
+      return handleImportInlineFile(file); // reprocesar en modo cobros
+    }
     renderImportInlinePreview();
   } catch (e) { await showAlert('Error de conexión'); resetImportInline(); }
 }
 
 function renderImportInlinePreview() {
   if (!importInlinePreview) return;
-  const isCarga = importInlinePreview.cargaInicial === true;
+  const isCobros = importInlinePreview.cobros === true;
+  const isCarga = !isCobros && importInlinePreview.cargaInicial === true;
   // Limpiar aviso de filas fuera de la muestra de un render previo
   const prevWarn = document.getElementById('import-inline-warn');
   if (prevWarn) prevWarn.remove();
+  // Limpiar tarjetas extra de cobros de un render previo
+  const prevCobrosCards = document.getElementById('import-inline-cobros-cards');
+  if (prevCobrosCards) prevCobrosCards.remove();
 
   document.getElementById('import-inline-summary').classList.remove('hidden');
   document.getElementById('import-inline-preview').classList.remove('hidden');
   document.getElementById('import-inline-actions').classList.remove('hidden');
 
   const btnExecute = document.getElementById('import-inline-execute');
-  if (isCarga) {
+  if (isCobros) {
+    btnExecute.textContent = '💰 Aplicar pagos';
+    btnExecute.style.background = '#b45309';
+    // Permite ejecutar igual que el import normal: las filas con error se
+    // omiten y se reportan en el resumen final.
+    btnExecute.disabled = false;
+    btnExecute.title = '';
+  } else if (isCarga) {
     btnExecute.textContent = '📋 Cargar Balance Inicial';
     btnExecute.style.background = '#7c3aed';
     // Deshabilitar si hay cuentas no encontradas o no balanceado
@@ -187,7 +252,9 @@ function renderImportInlinePreview() {
     btnExecute.title = '';
   }
 
-  if (isCarga && importInlinePreview.cargaInicialPreview) {
+  if (isCobros && importInlinePreview.cobrosPreview) {
+    renderImportCobrosPreview();
+  } else if (isCarga && importInlinePreview.cargaInicialPreview) {
     const cip = importInlinePreview.cargaInicialPreview;
     const { rows, totalDebit, totalCredit, balanced, accountsNotFound } = cip;
     const totalRows = importInlinePreview.totalRows;
@@ -206,9 +273,9 @@ function renderImportInlinePreview() {
       summaryEl.parentNode.insertBefore(balanceRow, summaryEl.nextSibling);
     }
     balanceRow.innerHTML =
-      `<div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700">$${totalDebit.toFixed(2)}</div><div style="font-size:11px;color:#6b7280">Total Débitos</div></div>
-       <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700">$${totalCredit.toFixed(2)}</div><div style="font-size:11px;color:#6b7280">Total Créditos</div></div>
-       <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:${balanced?'#059669':'#dc2626'}">${balanced?'✅ Balanceado':'⚠️ Desbalanceado'}</div><div style="font-size:11px;color:#6b7280">Diferencia: $${Math.abs(totalDebit-totalCredit).toFixed(2)}</div></div>`;
+      `<div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700">$${totalDebit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div style="font-size:11px;color:#6b7280">Total Débitos</div></div>
+       <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700">$${totalCredit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div style="font-size:11px;color:#6b7280">Total Créditos</div></div>
+       <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:${balanced?'#059669':'#dc2626'}">${balanced?'✅ Balanceado':'⚠️ Desbalanceado'}</div><div style="font-size:11px;color:#6b7280">Diferencia: $${Math.abs(totalDebit-totalCredit).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>`;
 
     const thead = document.getElementById('import-inline-thead');
     thead.innerHTML = '<tr><th>#</th><th>Tipo</th><th>Cuenta</th><th>Monto</th><th>Lado</th><th>Cuenta Contable</th><th>Estado</th></tr>';
@@ -218,7 +285,7 @@ function renderImportInlinePreview() {
       const accountLabel = r.matchedAccount ? `${r.matchedAccount.code} - ${r.matchedAccount.name}` : '';
       html += `<tr>
         <td>${i+1}</td><td>${escapeHtml(r.accountType)}</td><td>${escapeHtml(r.accountName)}</td>
-        <td>$${r.amount.toFixed(2)}</td><td>${r.side}</td>
+        <td>$${r.amount.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td>${r.side}</td>
         <td>
           <button class="account-picker-btn"
             style="font-size:11px;text-align:left;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 8px;border-radius:4px;cursor:pointer;background:${isErr?'#fee2e2':'#f0fdf4'};border:1px solid ${isErr?'#fecaca':'#bbf7d0'};color:${isErr?'#991b1b':'#065f46'}"
@@ -288,7 +355,7 @@ function renderImportInlinePreview() {
       let montoHtml = '—';
       if (r.amount) {
         const total = r.amount + (r.itbms || 0);
-        montoHtml = `$${total.toFixed(2)}${r.itbms ? ` <span style="color:#9ca3af;font-size:10px">(neto $${r.amount.toFixed(2)} + ITBMS $${r.itbms.toFixed(2)})</span>` : ''}`;
+        montoHtml = `$${total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}${r.itbms ? ` <span style="color:#9ca3af;font-size:10px">(neto $${r.amount.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} + ITBMS $${r.itbms.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})})</span>` : ''}`;
       }
       html += `<tr${rowCls}>
         <td>${i+1}</td><td>${r.date||'—'}</td><td>${escapeHtml(r.description||'')}</td>
@@ -303,12 +370,111 @@ function renderImportInlinePreview() {
   }
 }
 
+/* ── Preview de "Pagos a facturas" (cobros) ── */
+function renderImportCobrosPreview() {
+  const cp = importInlinePreview.cobrosPreview;
+  const { rows, errors, appliedTotal, markedPaid } = cp;
+  const totalRows = importInlinePreview.totalRows;
+  const okCount = Math.max(0, totalRows - errors.length);
+
+  document.getElementById('import-inline-total').textContent = totalRows;
+  document.getElementById('import-inline-ok').textContent = okCount;
+  document.getElementById('import-inline-err').textContent = errors.length;
+
+  // Tarjetas extra: total abonado y facturas saldadas
+  const summaryEl = document.getElementById('import-inline-summary');
+  const cards = document.createElement('div');
+  cards.id = 'import-inline-cobros-cards';
+  cards.style.cssText = 'display:flex;gap:14px;margin-bottom:16px';
+  cards.innerHTML =
+    `<div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:#b45309">$${appliedTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div style="font-size:11px;color:#6b7280">Total a abonar</div></div>
+     <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:#059669">${markedPaid}</div><div style="font-size:11px;color:#6b7280">Facturas que quedan pagadas</div></div>`;
+  summaryEl.parentNode.insertBefore(cards, summaryEl.nextSibling);
+
+  // Aviso de errores más allá de la muestra de 20 (igual que el import normal)
+  const beyond = errors.filter(x => x.row > 20);
+  if (beyond.length > 0) {
+    const warn = document.createElement('div');
+    warn.id = 'import-inline-warn';
+    warn.style.cssText = 'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px';
+    warn.innerHTML = `⚠️ <strong>${beyond.length} fila(s) con error fuera de la vista</strong> (#${beyond.map(x => x.row).join(', #')}). Se omitirán al aplicar.`;
+    document.getElementById('import-inline-summary').after(warn);
+  }
+
+  const thead = document.getElementById('import-inline-thead');
+  thead.innerHTML = '<tr><th>#</th><th>Nº Factura</th><th>Cliente</th><th>Fecha pago</th><th>Abono</th><th>Cuenta</th><th>Saldo anterior</th><th>Saldo posterior</th><th>Estado</th></tr>';
+
+  const fmt = n => (n != null ? `$${Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}` : '—');
+  let html = '';
+  rows.forEach(r => {
+    const isErr = r.status !== 'ok';
+    const numCell = r.number
+      ? `${escapeHtml(r.number)}${r.viaDigits ? ' <span title="Coincidió por dígitos (p.ej. 1003 = A-001003)" style="color:#d97706;cursor:help">≈</span>' : ''}`
+      : (r.fileNumber ? `<span style="color:#9ca3af">${escapeHtml(r.fileNumber)}</span>` : '—');
+    const clientCell = r.clientMatched || r.clientFile || '—';
+    const amountHtml = isErr
+      ? (r.amount != null ? `<span style="color:#9ca3af">${fmt(r.amount)}</span>` : '—')
+      : `<strong>${fmt(r.amount)}</strong>`;
+    const accountCell = r.accountCode
+      ? `<span style="color:#065f46">${escapeHtml(r.accountName||'')}</span> <span style="color:#9ca3af;font-size:10px">(${escapeHtml(r.accountCode)})</span>`
+      : (r.accountName ? `<span style="color:#9ca3af">${escapeHtml(r.accountName)}</span>` : '—');
+    html += `<tr${isErr ? ' style="background:#fef2f2"' : ''}>
+      <td>${r.row}</td><td>${numCell}</td><td>${escapeHtml(clientCell)}</td>
+      <td>${r.date || '—'}</td><td>${amountHtml}</td><td>${accountCell}</td>
+      <td>${isErr ? '—' : fmt(r.saldoBefore)}</td><td>${isErr ? '—' : fmt(r.saldoAfter)}</td>
+      <td>${isErr
+        ? `<span style="color:#b91c1c;font-size:11px">❌ ${escapeHtml(r.error || '')}</span>`
+        : (r.paid ? '✅ <strong>PAGADA</strong>' : '✅ Abono')}</td></tr>`;
+  });
+  document.getElementById('import-inline-tbody').innerHTML = html;
+}
+
 async function executeImportInline() {
   if (!importInlineFile) return;
-  const isCarga = importInlinePreview.cargaInicial === true;
+  const isCobros = importInlinePreview.cobros === true;
+  const isCarga = !isCobros && importInlinePreview.cargaInicial === true;
   const total = importInlinePreview.totalRows;
   const importDate = document.getElementById('import-inline-date').value;
   const dateLabel = new Date(importDate+'T12:00:00').toLocaleDateString('es-PA',{year:'numeric',month:'long',day:'numeric'});
+
+  // ── Flujo cobros / pagos a facturas ──
+  if (isCobros) {
+    const cp = importInlinePreview.cobrosPreview || {};
+    const okCount = Math.max(0, total - (cp.errors || []).length);
+    let msg = `¿Aplicar ${okCount} pago(s) a facturas?\n\nCada pago crea un asiento BORRADOR (débito banco/caja, crédito Clientes) y descuenta del saldo de la factura. Los abonos parciales quedan registrados.`;
+    if (cp.errors && cp.errors.length > 0) {
+      msg += `\n\n⚠️ ${cp.errors.length} fila(s) con error se omitirán:\n` +
+        cp.errors.slice(0, 6).map(e => `• Fila ${e.row}: ${e.error}`).join('\n') +
+        (cp.errors.length > 6 ? `\n… y ${cp.errors.length - 6} más.` : '');
+    }
+    const ok = await showConfirm(msg);
+    if (!ok) return;
+
+    document.getElementById('import-inline-loading').classList.remove('hidden');
+    document.getElementById('import-inline-actions').classList.add('hidden');
+    document.getElementById('import-inline-loading-text').textContent = `Aplicando ${okCount} pagos...`;
+
+    const formData = new FormData();
+    formData.append('file', importInlineFile);
+    try {
+      const res = await authFetch(`${API_URL}/import/cobros/execute-all`, { method: 'POST', body: formData });
+      document.getElementById('import-inline-loading').classList.add('hidden');
+      const result = await res.json();
+      if (res.ok) {
+        let msg2 = `✅ Pagos aplicados: ${result.success} de ${result.total}.\n\n💰 ${result.markedPaid || 0} factura(s) quedaron pagadas en su totalidad.`;
+        if (result.errors && result.errors.length) {
+          msg2 += `\n\n❌ ${result.errors.length} fila(s) rechazadas:\n` +
+            result.errors.slice(0, 6).map(e => `• Fila ${e.row}: ${e.error}`).join('\n') +
+            (result.errors.length > 6 ? `\n… y ${result.errors.length - 6} más.` : '');
+        }
+        await showAlert(msg2);
+      } else {
+        await showAlert(`❌ ${result.error || 'Error'}`);
+      }
+      resetImportInline();
+    } catch (e) { await showAlert('Error de conexión'); resetImportInline(); }
+    return;
+  }
 
   if (isCarga) {
     const cip = importInlinePreview.cargaInicialPreview;
@@ -317,7 +483,7 @@ async function executeImportInline() {
       return;
     }
     if (!cip.balanced) {
-      await showAlert(`⚠️ El balance no cuadra. Diferencia: $${Math.abs(cip.totalDebit - cip.totalCredit).toFixed(2)}`);
+      await showAlert(`⚠️ El balance no cuadra. Diferencia: $${Math.abs(cip.totalDebit - cip.totalCredit).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`);
       return;
     }
 
@@ -348,7 +514,7 @@ async function executeImportInline() {
       if (res.ok) {
         const d = result.totalDebit || 0;
         const c = result.totalCredit || 0;
-        await showAlert(`✅ Carga Inicial completada\n\n${result.description || ''}\nDébitos: $${d.toFixed(2)}\nCréditos: $${c.toFixed(2)}`);
+        await showAlert(`✅ Carga Inicial completada\n\n${result.description || ''}\nDébitos: $${d.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}\nCréditos: $${c.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`);
       } else {
         await showAlert(`❌ ${result.error || 'Error'}`);
       }
@@ -401,10 +567,16 @@ function resetImportInline() {
   // Limpiar balance row si existe
   const balanceRow = document.getElementById('import-inline-balance-row');
   if (balanceRow) balanceRow.remove();
-  // Resetear botón
+  // Limpiar tarjetas extra de cobros si existen
+  const cobrosCards = document.getElementById('import-inline-cobros-cards');
+  if (cobrosCards) cobrosCards.remove();
+  // Resetear botón y modo de importación
   const btn = document.getElementById('import-inline-execute');
   btn.textContent = '✅ Importar transacciones';
   btn.style.background = '#059669';
+  btn.disabled = false;
+  const txRadio = document.querySelector('input[name="import-inline-mode"][value="transacciones"]');
+  if (txRadio) { txRadio.checked = true; applyImportModeUI(); }
 }
 
 /* ── Panel: Conciliación (inline) ── */

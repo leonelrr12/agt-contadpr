@@ -252,7 +252,12 @@ facturasRouter.get('/:id/pdf', async (req, res) => {
   doc.pipe(res);
 });
 
-/** PATCH /api/facturas/:id/pay — marca pagada (+ asiento de cobro si era crédito). */
+/**
+ * PATCH /api/facturas/:id/pay — abona el SALDO restante de la factura.
+ * Consistente con el import de cobros (InvoicePayment + paidAmount): si la
+ * factura ya recibió abonos parciales, solo se asienta el saldo que falta;
+ * cuando el saldo llega a ≈ 0 la factura pasa a PAGADA.
+ */
 facturasRouter.patch('/:id/pay', requireRole('admin', 'contador', 'superadmin'), requireQuota, async (req, res) => {
   try {
     const result = await req.prisma.$transaction(async (tx: any) => {
@@ -261,15 +266,18 @@ facturasRouter.patch('/:id/pay', requireRole('admin', 'contador', 'superadmin'),
         include: { client: { select: { name: true } } },
       });
       if (!invoice) throw Object.assign(new Error('Factura no encontrada'), { status: 404 });
-      if (invoice.status === 'PAGADA') throw Object.assign(new Error('La factura ya está pagada'), { status: 400 });
+
+      const saldo = Math.round((invoice.total - (invoice.paidAmount || 0)) * 100) / 100;
+      if (saldo <= 0.01) throw Object.assign(new Error('La factura ya está pagada'), { status: 400 });
 
       let journalEntryId = invoice.journalEntryId;
+      let cajaId: string | null = null;
       if (invoice.paymentMethod === 'CREDITO') {
         const agent = new AccountingAgent(tx, req.user!.companyId);
         await agent.init();
-        const cajaId = agent.resolveAlias('caja');
+        cajaId = agent.resolveAlias('caja');
         const clientesId = agent.resolveAlias('clientes');
-        const desc = `Cobro de factura ${invoice.number || ''} — $${invoice.total}`.trim();
+        const desc = `Cobro de factura ${invoice.number || ''} — $${saldo.toFixed(2)}`.trim();
         const je = await tx.journalEntry.create({
           data: {
             date: new Date(),
@@ -278,14 +286,14 @@ facturasRouter.patch('/:id/pay', requireRole('admin', 'contador', 'superadmin'),
             companyId: req.user!.companyId,
             createdById: req.user!.userId,
             lines: { create: [
-              { accountId: cajaId, debit: invoice.total, credit: 0 },
-              { accountId: clientesId, debit: 0, credit: invoice.total },
+              { accountId: cajaId, debit: saldo, credit: 0 },
+              { accountId: clientesId, debit: 0, credit: saldo },
             ] },
           },
         });
         await tx.transaction.create({
           data: {
-            type: 'COBRO_CLIENTE', amount: invoice.total, description: desc, concept: 'Cobro de factura',
+            type: 'COBRO_CLIENTE', amount: saldo, description: desc, concept: 'Cobro de factura',
             paymentMethod: 'EFECTIVO', date: new Date(), companyId: req.user!.companyId,
             createdById: req.user!.userId, journalEntryId: je.id,
             metadata: JSON.stringify({ source: 'factura-pdf', invoiceNumber: invoice.number || null }),
@@ -296,8 +304,27 @@ facturasRouter.patch('/:id/pay', requireRole('admin', 'contador', 'superadmin'),
 
       const updated = await tx.invoice.update({
         where: { id: invoice.id },
-        data: { status: 'PAGADA', paidAt: new Date() },
+        data: {
+          paidAmount: Math.round((invoice.paidAmount + saldo) * 100) / 100,
+          status: 'PAGADA',
+          paidAt: new Date(),
+        },
       });
+
+      // Registrar el abono (pago manual de caja) con la misma estructura
+      // que los abonos del import de cobros
+      await tx.invoicePayment.create({
+        data: {
+          companyId: req.user!.companyId,
+          invoiceId: invoice.id,
+          amount: saldo,
+          date: new Date(),
+          accountId: cajaId, // null en ventas de contado (sin asiento de cobro)
+          accountName: null,
+          journalEntryId: invoice.paymentMethod === 'CREDITO' ? journalEntryId : null,
+        },
+      });
+
       return { updated, journalEntryId };
     });
 

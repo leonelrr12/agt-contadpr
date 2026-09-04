@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { processWhatsAppMessage, processWhatsAppImage, processWhatsAppPDF, processWhatsAppQR, verifyCode, generateCode, sendWhatsAppMessage, isBatchActive, startBatch, endBatch, getBatch, setBatchMetodoPago, enqueueBatchItem, confirmBatch, buildBatchResumen } from '../services/whatsapp-service';
+import { processWhatsAppMessage, processWhatsAppPDF, processWhatsAppDgiUrl, verifyCode, generateCode, sendWhatsAppMessage, isBatchActive, startBatch, endBatch, getBatch, setBatchMetodoPago, enqueueBatchItem, confirmBatch, buildBatchResumen } from '../services/whatsapp-service';
 
 export const whatsappRouter = Router();
 
@@ -52,10 +52,10 @@ async function handleWebhook(req: any, res: any): Promise<void> {
 
   if (!from) return res.sendStatus(200);
 
-  // Solo procesar texto o imágenes
+  // Solo texto, URLs o PDFs: las imágenes (fotos/QR) ya no se procesan desde WS
   const messageText = msg.text || msg.caption || '';
-  // Los documentos con MIME de imagen (ej. QR enviado como "documento") se
-  // tratan como imagen: WhatsApp no los comprime y el QR llega a resolución completa.
+  // Documentos con MIME de imagen (ej. QR enviado como "documento") se detectan
+  // para responder con el mensaje guía (no se hace OCR ni lectura de QR).
   const isImage = msg.type === 'image' || (msg.type === 'document' && (msg.mediaMime || '').startsWith('image/'));
   const isDocument = msg.type === 'document';
   const imageUrl = msg.mediaUrl || null;
@@ -100,23 +100,27 @@ async function handleWebhook(req: any, res: any): Promise<void> {
     const isPDF = msg.mediaMime === 'application/pdf' || (imageUrl && imageUrl.endsWith('.pdf'));
     const mediaUrl = imageUrl;
 
-    // Aviso inmediato de recepción: el procesamiento de archivos tarda
-    // (QR/OCR → DGI → PDF) y el usuario debe saber que está en marcha.
-    if ((isPDF || isImage) && mediaUrl) {
-      await sendWhatsAppMessage(replyChatId, `📥 Recibí tu ${isPDF ? 'PDF' : 'imagen'}. Estoy procesándola, te confirmo en un momento…`);
+    // URL del CUTE de una factura de la DGI (el enlace del QR de la factura
+    // electrónica): detectarla y procesarla como factura en vez de texto.
+    const dgiUrlMatch = messageText.match(/https?:\/\/[^\s]*dgi-fep\.mef\.gob\.pa[^\s]*/i);
+
+    // Aviso inmediato de recepción: el procesamiento del PDF tarda
+    // (descarga → extractor → DGI) y el usuario debe saber que está en marcha.
+    if (isPDF && mediaUrl) {
+      await sendWhatsAppMessage(replyChatId, '📥 Recibí tu PDF. Estoy procesándolo, te confirmo en un momento…');
     }
 
-    // PDF: usar extractor de texto (más preciso que OCR de imagen)
+    // PDF: usar extractor de texto
     if (isPDF && mediaUrl) {
       const reply = await processWhatsAppPDF(req.prisma, from, sessionKey, mediaUrl);
       if (reply) await sendWhatsAppMessage(replyChatId,reply);
       return res.sendStatus(200);
     }
 
-    // Imagen: usar OCR
-    if (isImage && imageUrl) {
-      const reply = await processWhatsAppImage(req.prisma, from, sessionKey, imageUrl, messageText);
-      if (reply) await sendWhatsAppMessage(replyChatId,reply);
+    // Imagen/QR: ya no se procesa OCR desde WS — solo texto o URL del CUTE.
+    // Si el caption trae una URL de la DGI, cae a la rama de URL (batch o normal).
+    if (isImage && imageUrl && !dgiUrlMatch) {
+      await sendWhatsAppMessage(replyChatId, '📷 Ya no leo fotos ni QR por WhatsApp. Para facturas de la DGI pega la URL del CUTE (el enlace del QR), o describe la transacción en texto, ej: "compré gasolina $40 efectivo".');
       return res.sendStatus(200);
     }
 
@@ -124,10 +128,6 @@ async function handleWebhook(req: any, res: any): Promise<void> {
       await sendWhatsAppMessage(replyChatId,'📷 No pude acceder al archivo. Describe la transacción: "compré gasolina $40 efectivo"');
       return res.sendStatus(200);
     }
-
-    // URL de factura DGI (la que contiene el QR de la factura electrónica):
-    // detectarla y procesarla como factura en vez de texto de transacción.
-    const dgiUrlMatch = messageText.match(/https?:\/\/[^\s]*dgi-fep\.mef\.gob\.pa[^\s]*/i);
 
     // ── Modo batch (carga masiva) ──
     if (isBatchActive(sessionKey)) {
@@ -213,7 +213,7 @@ async function handleWebhook(req: any, res: any): Promise<void> {
     }
 
     if (dgiUrlMatch) {
-      const reply = await processWhatsAppQR(req.prisma, from, sessionKey, dgiUrlMatch[0]);
+      const reply = await processWhatsAppDgiUrl(req.prisma, from, sessionKey, dgiUrlMatch[0]);
       if (reply) await sendWhatsAppMessage(replyChatId, reply);
       return res.sendStatus(200);
     }
@@ -279,7 +279,7 @@ whatsappRouter.post('/verify', requireAuth, async (req, res) => {
       `_"compré gasolina por $40"_\n` +
       `_"pagué internet $65"_\n\n` +
       `📄 *Facturas*\n` +
-      `Envía un PDF de la DGI o pega la URL del QR.\n\n` +
+      `Envía un PDF de la DGI o pega la URL del CUTE (el enlace del QR).\n\n` +
       `💡 *Comandos*\n` +
       `• Responde con números para seleccionar opciones\n` +
       `• *OK* — guardar transacción\n` +

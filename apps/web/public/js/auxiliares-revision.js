@@ -62,8 +62,8 @@ async function loadRevisionList() {
         for (const l of e.lines) {
           lineasHtml += `<tr>
             <td style="padding:4px 8px;border-bottom:1px solid #f0f0f0">${escapeHtml(l.account?.code||'')} — ${escapeHtml(l.account?.name||'')}</td>
-            <td style="text-align:right;padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#2e7d32;font-weight:600">${l.debit ? '$'+l.debit.toFixed(2) : '—'}</td>
-            <td style="text-align:right;padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#c62828;font-weight:600">${l.credit ? '$'+l.credit.toFixed(2) : '—'}</td>
+            <td style="text-align:right;padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#2e7d32;font-weight:600">${l.debit ? '$'+l.debit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
+            <td style="text-align:right;padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#c62828;font-weight:600">${l.credit ? '$'+l.credit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
           </tr>`;
         }
         lineasHtml += '</tbody></table>';
