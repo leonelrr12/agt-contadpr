@@ -21,20 +21,33 @@ if [ -z "$EXISTS" ]; then
 fi
 
 echo "🧹 Limpiando datos de: $EXISTS ($COMPANY_ID)"
-echo "   Esto borrará TODOS los asientos, transacciones, clientes y proveedores de esta empresa."
+echo "   Esto borrará TODOS los asientos, transacciones, facturas y cobros,"
+echo "   conciliaciones, plantillas recurrentes, clientes y proveedores de esta empresa."
 echo "   La empresa, usuarios, cuentas y conceptos se mantienen intactos."
 echo ""
 read -p "¿Continuar? (escribe 'SI' en mayúsculas): " CONFIRM
 if [ "$CONFIRM" != "SI" ]; then echo "Cancelado."; exit 0; fi
 
-# Ejecutar SQL con manejo de errores
+# Ejecutar SQL con manejo de errores.
+# ORDEN IMPORTANTE (hijos antes que padres, por FK):
+#   invoice_item/invoice_payment → invoice → client
+#   bill → supplier
+#   bank_statement_row → bank_statement y → JournalEntry
+#   recurring_template.lastEntryId → JournalEntry
+#   JournalLine/Transaction/bank_statement_row → JournalEntry
+#   payment_record → subscription
 RUN_SQL=$(cat << ENDSQL
-DELETE FROM bill WHERE "companyId" = '${COMPANY_ID}';
+DELETE FROM invoice_item WHERE "invoiceId" IN (SELECT id FROM invoice WHERE "companyId" = '${COMPANY_ID}');
+DELETE FROM invoice_payment WHERE "invoiceId" IN (SELECT id FROM invoice WHERE "companyId" = '${COMPANY_ID}');
 DELETE FROM invoice WHERE "companyId" = '${COMPANY_ID}';
-DELETE FROM payment_record WHERE "subscriptionId" IN (SELECT id FROM subscription WHERE "companyId" = '${COMPANY_ID}');
+DELETE FROM bill WHERE "companyId" = '${COMPANY_ID}';
+DELETE FROM bank_statement_row WHERE "statementId" IN (SELECT id FROM bank_statement WHERE "companyId" = '${COMPANY_ID}');
+DELETE FROM bank_statement WHERE "companyId" = '${COMPANY_ID}';
+DELETE FROM recurring_template WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM "Transaction" WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM "JournalLine" WHERE "journalEntryId" IN (SELECT id FROM "JournalEntry" WHERE "companyId" = '${COMPANY_ID}');
 DELETE FROM "JournalEntry" WHERE "companyId" = '${COMPANY_ID}';
+DELETE FROM payment_record WHERE "subscriptionId" IN (SELECT id FROM subscription WHERE "companyId" = '${COMPANY_ID}');
 DELETE FROM "AuditLog";
 DELETE FROM client WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM supplier WHERE "companyId" = '${COMPANY_ID}';
