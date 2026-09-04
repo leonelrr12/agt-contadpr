@@ -3,7 +3,7 @@ import multer from 'multer';
 import { validate } from '../middleware/validate';
 import { requireQuota, incrementUsage } from '../middleware/quota';
 import { parseImportFile, parseCargaInicialFile, parseCobrosFile } from '../services/csv-parser';
-import type { ParsedRow, CobrosRow } from '../services/csv-parser';
+import type { ParsedRow, CobrosRow, CobrosParseResult } from '../services/csv-parser';
 import { resolveCargaInicialRows } from '../services/account-lookup';
 import { ClassificationAgent } from '@agt-contador/agents';
 import { AccountingAgent } from '@agt-contador/agents';
@@ -82,13 +82,14 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
     const cobros = req.body.cobros === 'true';
     if (cobros) {
       const parsed = await parseCobrosFile(req.file.buffer, req.file.originalname);
+      assertCobrosFileColumns(parsed);
 
       if (parsed.rows.length === 0) {
         res.json({
           headers: parsed.headers,
           totalRows: parsed.totalRows,
           cobros: true,
-          cobrosPreview: { rows: [], success: 0, errors: [], appliedTotal: 0, markedPaid: 0 },
+          cobrosPreview: { rows: [], success: 0, errors: [], pending: 0, omitted: 0, appliedTotal: 0, markedPaid: 0 },
         });
         return;
       }
@@ -96,20 +97,22 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
       // Simular el batch completo EN ORDEN sobre un snapshot en memoria:
       // los abonos parciales a una misma factura se acumulan igual que en la
       // ejecución real (segundo pago de la fila 5 ve el saldo tras la fila 2).
-      const { rows: previewStatus, errors, appliedTotal, markedPaid } = await simulateCobrosFile(
-        req.prisma, req.user!.companyId, parsed.rows,
-      );
+      // Filas sin "Fecha de Pago"/"Cuenta" → pendientes (omitidas); abonos ya
+      // registrados en BD → omitidos (idempotente).
+      const sim = await simulateCobrosFile(req.prisma, req.user!.companyId, parsed.rows);
 
       res.json({
         headers: parsed.headers,
         totalRows: parsed.totalRows,
         cobros: true,
         cobrosPreview: {
-          rows: previewStatus.slice(0, 20),
-          success: previewStatus.length - errors.length,
-          errors,
-          appliedTotal,
-          markedPaid,
+          rows: sim.rows.slice(0, 20),
+          success: sim.rows.filter(r => r.status === 'ok').length,
+          errors: sim.errors,
+          pending: sim.pending,
+          omitted: sim.omitted,
+          appliedTotal: sim.appliedTotal,
+          markedPaid: sim.markedPaid,
         },
       });
       return;
@@ -538,24 +541,33 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
 
   try {
     const parsed = await parseCobrosFile(req.file.buffer, req.file.originalname);
+    assertCobrosFileColumns(parsed);
 
     if (parsed.rows.length === 0) {
       res.status(400).json({ error: 'No se encontraron filas válidas en el archivo.' });
       return;
     }
 
-    // Verificar cuota: igual que el import normal (un movimiento por abono)
+    // Candidatas: filas con "Fecha de Pago" + "Cuenta". Las pendientes son
+    // facturas que aún no han recibido su pago: ni se intentan ni consumen cuota.
+    const candidates = parsed.rows.filter(r => !isCobroPending(r));
+    if (candidates.length === 0) {
+      res.status(400).json({ error: 'No hay pagos para aplicar: todas las filas están pendientes (sin "Fecha de Pago"/"Cuenta").' });
+      return;
+    }
+
+    // Verificar cuota: un movimiento por abono candidato
     const sub = (req as any).subscription;
     if (sub) {
       const remaining = sub.movementsLimit - sub.movementsUsed;
-      if (parsed.rows.length > remaining) {
+      if (candidates.length > remaining) {
         res.status(429).json({
-          error: `No tienes suficientes movimientos disponibles. Tu plan permite ${sub.movementsLimit} por período y has usado ${sub.movementsUsed}. Te quedan ${remaining} pero necesitas ${parsed.rows.length}.`,
+          error: `No tienes suficientes movimientos disponibles. Tu plan permite ${sub.movementsLimit} por período y has usado ${sub.movementsUsed}. Te quedan ${remaining} pero necesitas ${candidates.length}.`,
           code: 'QUOTA_EXCEEDED',
           limit: sub.movementsLimit,
           used: sub.movementsUsed,
           remaining,
-          required: parsed.rows.length,
+          required: candidates.length,
         });
         return;
       }
@@ -569,16 +581,36 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
     // fresca dentro de ella (nada de estado compartido entre filas).
     const accounts = await loadCobroAccounts(req.prisma, companyId);
     const { list: invoicesList } = await loadCobroInvoices(req.prisma, companyId);
+    // Pagos ya registrados en BD → re-subidas idempotentes. El índice se
+    // actualiza con cada pago aplicado (también dedupe dentro del mismo archivo).
+    const dupKeys = await buildCobroPaymentsIndex(req.prisma, companyId);
 
-    const results = { success: 0, errors: [] as { row: number; error: string }[], entryIds: [] as string[] };
+    const results = {
+      success: 0,
+      errors: [] as { row: number; error: string }[],
+      pending: 0,
+      omitted: 0,
+      entryIds: [] as string[],
+    };
     let markedPaid = 0;
 
     for (let i = 0; i < parsed.rows.length; i++) {
       const row = parsed.rows[i];
       const rowNum = i + 1;
+
+      // Pendiente: factura sin pago aún — se omite, no es error ni consume
+      if (isCobroPending(row)) {
+        results.pending++;
+        continue;
+      }
+
       try {
-        const validation = validateCobroRow(row, accounts, invoicesList);
-        if (!validation.ok) throw new Error(validation.message);
+        const validation = validateCobroRow(row, accounts, invoicesList, dupKeys);
+        if (!validation.ok) {
+          if (validation.code === 'ALREADY_APPLIED') results.omitted++;
+          else results.errors.push({ row: rowNum, error: validation.message });
+          continue;
+        }
         // validation.ok garantiza estos campos; el guarda permite a TS estrechar
         const { invoice, account, clientsAccount, amount, dateStr } = validation;
         if (!invoice || !account || !clientsAccount || amount == null || !dateStr) {
@@ -588,11 +620,15 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
 
         // Re-leer la factura fresca dentro de la transacción: entre el preload
         // y esta fila otro proceso pudo registrar un abono (p.ej. PATCH /pay).
-        const je = await req.prisma.$transaction(async (tx: any) => {
+        const outcome = await req.prisma.$transaction(async (tx: any) => {
           const fresh = await tx.invoice.findUnique({ where: { id: invoice.id } });
           if (!fresh) throw new Error(`Factura ${invoice.number} ya no existe.`);
           const saldo = r2(fresh.total - fresh.paidAmount);
-          if (saldo <= 0.01) throw new Error(`La factura ${fresh.number} ya está pagada.`);
+          // Ya pagada o abono idéntico ya registrado (re-subida / fila repetida
+          // en el mismo archivo): se OMITE, no es error ni duplica el saldo.
+          if (saldo <= 0.01) return { kind: 'omitted' as const };
+          const key = cobroDupKey(fresh.id, amount, account.id, dateStr);
+          if (dupKeys.get(fresh.id)?.has(key)) return { kind: 'omitted' as const };
           if (amount > saldo + 0.01) {
             throw new Error(`El abono $${amount.toFixed(2)} excede el saldo de la factura ${fresh.number} ($${saldo.toFixed(2)}).`);
           }
@@ -655,11 +691,20 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
             },
           });
 
-          return { created, payment, quedaPagada, numero: updated.number };
+          return { kind: 'applied' as const, created, payment, quedaPagada, numero: updated.number, key };
         });
 
-        if (je.quedaPagada) markedPaid++;
-        results.entryIds.push(je.created.id);
+        if (outcome.kind === 'omitted') {
+          results.omitted++;
+          continue;
+        }
+        // Registrar la clave del pago aplicado: una fila idéntica repetida más
+        // adelante en el MISMO archivo también se omite.
+        if (!dupKeys.has(invoice.id)) dupKeys.set(invoice.id, new Set());
+        dupKeys.get(invoice.id)!.add(outcome.key);
+
+        if (outcome.quedaPagada) markedPaid++;
+        results.entryIds.push(outcome.created.id);
         results.success++;
       } catch (err: any) {
         results.errors.push({ row: rowNum, error: cleanImportError(err) });
@@ -673,7 +718,9 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
     res.json({
       success: results.success,
       errors: results.errors,
-      total: parsed.rows.length,
+      total: candidates.length,
+      pending: results.pending,
+      omitted: results.omitted,
       entryIds: results.entryIds.slice(0, 5),
       markedPaid,
     });
@@ -913,6 +960,56 @@ interface CobroInvoiceLite {
 
 const COBRO_EPS = 0.01;
 
+/** Fila del archivo maestro sin "Fecha de Pago" NI "Cuenta" → factura aún NO pagada (se omite, no es error). */
+function isCobroPending(row: CobrosRow): boolean {
+  return !row.paymentDate && !row.accountName;
+}
+
+/**
+ * Validación a nivel archivo: las columnas "Fecha de Pago" y "Cuenta"
+ * (banco/caja) son obligatorias para cargar cobros — las filas de facturas
+ * aún no pagadas se dejan con esas celdas vacías y se omiten automáticamente.
+ */
+function assertCobrosFileColumns(parsed: CobrosParseResult): void {
+  if (!parsed.hasPaymentDateCol || !parsed.hasAccountCol) {
+    throw new Error(
+      'El archivo de pagos debe incluir las columnas "Fecha de Pago" y "Cuenta" (banco/caja). ' +
+      'Deje vacías esas celdas en las facturas que aún no han recibido su pago: se omitirán como pendientes.',
+    );
+  }
+}
+
+/** Clave de dedupe de un pago: factura + monto (en céntimos) + cuenta + fecha. */
+function cobroDupKey(invoiceId: string, amount: number, accountId: string, dateStr: string): string {
+  return `${invoiceId}|${Math.round(r2(amount) * 100)}|${accountId}|${dateStr}`;
+}
+
+/** Fecha "YYYY-MM-DD" local de un Date (los InvoicePayment se guardan a mediodía local). */
+function localDateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Índice de pagos ya registrados en BD (invoiceId → Set de claves de dedupe):
+ * permite re-subir el archivo maestro sin duplicar abonos idénticos.
+ * La simulación añade al índice los pagos que aplica (dedupe también dentro
+ * del mismo archivo).
+ */
+async function buildCobroPaymentsIndex(prisma: any, companyId: string): Promise<Map<string, Set<string>>> {
+  const payments = await prisma.invoicePayment.findMany({
+    where: { companyId },
+    select: { invoiceId: true, amount: true, accountId: true, date: true },
+  });
+  const index = new Map<string, Set<string>>();
+  for (const p of payments) {
+    if (!p.invoiceId || !p.accountId) continue;
+    const key = cobroDupKey(p.invoiceId, p.amount, p.accountId, localDateKey(p.date));
+    if (!index.has(p.invoiceId)) index.set(p.invoiceId, new Set());
+    index.get(p.invoiceId)!.add(key);
+  }
+  return index;
+}
+
 function levenshtein(a: string, b: string): number {
   if (a === b) return 0;
   const m = a.length, n = b.length;
@@ -1089,13 +1186,20 @@ export interface CobroValidation {
   saldoAfter?: number;
 }
 
-/** Valida una fila de cobro contra catálogo + facturas (sin escribir nada). */
+/**
+ * Valida una fila de cobro contra catálogo + facturas (sin escribir nada).
+ * Solo "Fecha de Pago" marca un cobro (sin fallback a la fecha de la factura);
+ * una factura ya pagada o un abono idéntico ya registrado devuelven
+ * code 'ALREADY_APPLIED' → el llamador la OMITE (no es error) — re-subidas
+ * del archivo maestro son idempotentes.
+ */
 function validateCobroRow(
   row: CobrosRow,
   accounts: CobroAccount[],
   invoices: CobroInvoiceLite[],
+  dupKeysByInvoice?: Map<string, Set<string>>,
 ): CobroValidation {
-  const dateStr = row.paymentDate || row.invoiceDate; // archivo de una sola fecha → fecha del pago
+  const dateStr = row.paymentDate;
   const amount = row.amount != null && row.amount > 0 ? r2(row.amount) : null;
 
   const missing: string[] = [];
@@ -1140,7 +1244,11 @@ function validateCobroRow(
 
   const saldo = r2(invoice.total - invoice.paidAmount);
   if (saldo <= COBRO_EPS) {
-    return { ok: false, code: 'ALREADY_PAID', message: `La factura ${invoice.number} ya está pagada.` };
+    return { ok: false, code: 'ALREADY_APPLIED', message: `La factura ${invoice.number} ya está pagada (se omite).` };
+  }
+  const dupKey = cobroDupKey(invoice.id, amount!, account.id, dateStr!);
+  if (dupKeysByInvoice?.get(invoice.id)?.has(dupKey)) {
+    return { ok: false, code: 'ALREADY_APPLIED', message: `El abono de $${amount!.toFixed(2)} a la factura ${invoice.number} ya está registrado (se omite).` };
   }
   if (amount! > saldo + COBRO_EPS) {
     return {
@@ -1171,7 +1279,7 @@ function cobroPaymentMethod(account: CobroAccount): string {
 
 interface CobroPreviewRow {
   row: number;
-  status: 'ok' | 'error';
+  status: 'ok' | 'error' | 'pending' | 'omitted';
   code?: string;
   error?: string;
   fileNumber: string | null;
@@ -1197,24 +1305,50 @@ export async function simulateCobrosFile(
   prisma: any,
   companyId: string,
   rows: CobrosRow[],
-): Promise<{ rows: CobroPreviewRow[]; errors: { row: number; error: string }[]; appliedTotal: number; markedPaid: number }> {
+): Promise<{
+  rows: CobroPreviewRow[];
+  errors: { row: number; error: string }[];
+  pending: number;
+  omitted: number;
+  appliedTotal: number;
+  markedPaid: number;
+}> {
   const accounts = await loadCobroAccounts(prisma, companyId);
   const { list } = await loadCobroInvoices(prisma, companyId);
+  // Pagos ya registrados en BD: re-subidas idempotentes (misma factura+monto+cuenta+fecha)
+  const dupKeys = await buildCobroPaymentsIndex(prisma, companyId);
 
   // Snapshot de trabajo: paidAmount mutable por fila aplicada
   const working = list.map(i => ({ ...i }));
   const detail: CobroPreviewRow[] = [];
   const errors: { row: number; error: string }[] = [];
+  let pending = 0;
+  let omitted = 0;
   let appliedTotal = 0;
   let markedPaid = 0;
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const rowNum = i + 1;
-    const validation = validateCobroRow(row, accounts, working);
+
+    // Sin "Fecha de Pago" ni "Cuenta" → la factura aún no ha recibido su pago:
+    // se omite (pendiente), no es error y no consume nada.
+    if (isCobroPending(row)) {
+      pending++;
+      detail.push({
+        row: rowNum, status: 'pending', code: 'PENDING',
+        fileNumber: row.invoiceNumber, number: null, viaDigits: false,
+        clientFile: row.client, clientMatched: null,
+        date: null, amount: null, accountName: null, accountCode: null,
+        saldoBefore: null, saldoAfter: null, paid: false,
+      });
+      continue;
+    }
+
+    const validation = validateCobroRow(row, accounts, working, dupKeys);
     const base: CobroPreviewRow = {
       row: rowNum,
-      status: validation.ok ? 'ok' : 'error',
+      status: validation.ok ? 'ok' : validation.code === 'ALREADY_APPLIED' ? 'omitted' : 'error',
       code: validation.code,
       error: validation.message,
       fileNumber: row.invoiceNumber,
@@ -1222,7 +1356,7 @@ export async function simulateCobrosFile(
       viaDigits: !!validation.viaDigits,
       clientFile: row.client,
       clientMatched: validation.invoice?.clientName || null,
-      date: row.paymentDate || row.invoiceDate,
+      date: row.paymentDate,
       amount: validation.ok ? validation.amount! : row.amount ?? null,
       accountName: row.accountName,
       accountCode: validation.ok ? validation.account!.code : null,
@@ -1235,10 +1369,17 @@ export async function simulateCobrosFile(
       // Aplicar al snapshot para las filas siguientes del mismo lote
       const inv = working.find(w => w.id === validation.invoice!.id)!;
       inv.paidAmount = r2(inv.paidAmount + validation.amount!);
+      // Registrar la clave en el índice: dos filas idénticas del MISMO archivo
+      // → la segunda se omite como ya aplicada
+      const key = cobroDupKey(validation.invoice.id, validation.amount!, validation.account!.id, validation.dateStr!);
+      if (!dupKeys.has(validation.invoice.id)) dupKeys.set(validation.invoice.id, new Set());
+      dupKeys.get(validation.invoice.id)!.add(key);
       const paid = validation.saldoAfter! <= COBRO_EPS;
       base.paid = paid;
       appliedTotal = r2(appliedTotal + validation.amount!);
       if (paid) markedPaid++;
+    } else if (validation.code === 'ALREADY_APPLIED') {
+      omitted++;
     } else {
       errors.push({ row: rowNum, error: validation.message });
     }
@@ -1246,7 +1387,7 @@ export async function simulateCobrosFile(
     detail.push(base);
   }
 
-  return { rows: detail, errors, appliedTotal, markedPaid };
+  return { rows: detail, errors, pending, omitted, appliedTotal, markedPaid };
 }
 
 // Manejo de errores de multer
