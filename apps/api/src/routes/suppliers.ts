@@ -69,14 +69,15 @@ suppliersRouter.put('/:id', requireRole('admin', 'contador'), async (req, res) =
   res.json(updated);
 });
 
-// GET /api/suppliers/:id/bills — Facturas de un proveedor
+// GET /api/suppliers/:id/bills — Facturas de un proveedor (con saldo real)
 suppliersRouter.get('/:id/bills', async (req, res) => {
   const bills = await req.prisma.bill.findMany({
     where: { supplierId: req.params.id, companyId: req.user!.companyId, status: { notIn: ['RECHAZADA'] } },
     include: { supplier: { select: { name: true } } },
     orderBy: { date: 'desc' },
   });
-  res.json(bills);
+  // Bill aún no soporta abonos: saldo = total pendiente o 0 si está pagada
+  res.json(bills.map(b => ({ ...b, saldo: b.status === 'PAGADA' ? 0 : b.total })));
 });
 
 // POST /api/suppliers/:id/bills — Registrar factura de proveedor

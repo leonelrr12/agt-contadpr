@@ -177,10 +177,10 @@ async function loadReportDashboard() {
 
     let html = `
     <div class="dash-summary">
-      <div class="dash-card dash-card-ing"><span>Ingresos</span><strong>$${d.resumen.totalIngresos.toFixed(2)}</strong></div>
-      <div class="dash-card dash-card-gas"><span>Gastos</span><strong>$${d.resumen.totalGastos.toFixed(2)}</strong></div>
-      <div class="dash-card dash-card-cost"><span>Costos</span><strong>$${d.resumen.totalCostos.toFixed(2)}</strong></div>
-      <div class="dash-card ${d.resumen.utilidadNeta >= 0 ? 'dash-card-pos' : 'dash-card-neg'}"><span>Utilidad Neta</span><strong>$${d.resumen.utilidadNeta.toFixed(2)}</strong></div>
+      <div class="dash-card dash-card-ing"><span>Ingresos</span><strong>$${d.resumen.totalIngresos.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</strong></div>
+      <div class="dash-card dash-card-gas"><span>Gastos</span><strong>$${d.resumen.totalGastos.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</strong></div>
+      <div class="dash-card dash-card-cost"><span>Costos</span><strong>$${d.resumen.totalCostos.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</strong></div>
+      <div class="dash-card ${d.resumen.utilidadNeta >= 0 ? 'dash-card-pos' : 'dash-card-neg'}"><span>Utilidad Neta</span><strong>$${d.resumen.utilidadNeta.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</strong></div>
     </div>
     <div class="dash-grid">
       <div class="dash-chart-card"><h4>Ingresos vs Gastos por Mes</h4><canvas id="chart-monthly"></canvas></div>
@@ -346,16 +346,21 @@ async function toggleFacturas(entityId, type) {
     const rows = items.map(f => {
       const statusLabel = { PENDIENTE: '⏳ Pendiente', VENCIDA: '🔴 Vencida', PAGADA: '✅ Pagada', RECHAZADA: '❌ Rechazada' };
       const statusColor = { PENDIENTE: '#f59e0b', VENCIDA: '#dc2626', PAGADA: '#059669', RECHAZADA: '#dc2626' };
+      // Saldo real: 0 en pagadas/rechazadas; con parciales queda el restante
+      const saldo = f.saldo != null ? f.saldo
+        : (f.status === 'PAGADA' || f.status === 'RECHAZADA') ? 0
+          : Math.max(0, (f.total || f.amount || 0) - (f.paidAmount || 0));
       return [
         f.number || '—',
         new Date(f.date).toLocaleDateString('es-PA'),
         new Date(f.dueDate).toLocaleDateString('es-PA'),
         fmt(f.total || f.amount || 0),
+        `<span style="color:${saldo > 0 ? '#c62828' : '#059669'};font-weight:600">${fmt(saldo)}</span>`,
         `<span style="color:${statusColor[f.status]||'#6b7280'};font-weight:600;font-size:11px">${statusLabel[f.status]||f.status}</span>`
       ];
     });
     det.innerHTML = '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:12px;margin-top:4px">'+
-      buildInformesTable(['N° Factura','Fecha','Vence','Monto','Estado'], rows)+'</div>';
+      buildInformesTable(['N° Factura','Fecha','Vence','Monto','Saldo','Estado'], rows)+'</div>';
   } catch(e) { det.innerHTML = '<div style="color:#dc2626;padding:8px">Error al cargar</div>'; }
 }
 
@@ -430,7 +435,7 @@ async function loadReportProveedores() {
       return;
     }
 
-    const money = (n) => '$' + (Number(n) || 0).toFixed(2);
+    const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
     const cards = `
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">
         ${[

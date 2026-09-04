@@ -26,7 +26,7 @@ function setupEntryLines({ tbody, balanceEl, saveBtn, activeAccounts, namespace,
     const totalCredit = lines.reduce((s, l) => s + (l.credit || 0), 0);
     const diff = Math.abs(totalDebit - totalCredit);
     const balanced = Math.round(diff * 100) === 0;
-    balanceEl.textContent = `Débito: $${totalDebit.toFixed(2)} · Crédito: $${totalCredit.toFixed(2)} · Diferencia: $${diff.toFixed(2)}`;
+    balanceEl.textContent = `Débito: $${totalDebit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · Crédito: $${totalCredit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · Diferencia: $${diff.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
     balanceEl.style.background = balanced ? '#ecfdf5' : '#fef2f2';
     balanceEl.style.color = balanced ? '#059669' : '#dc2626';
     saveBtn.disabled = !balanced;

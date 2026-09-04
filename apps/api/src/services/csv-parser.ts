@@ -148,6 +148,137 @@ function detectPaymentMethod(row: ParsedRow): string | null {
   return null;
 }
 
+// ── Pagos/cobros a facturas ──
+
+export interface CobrosRow {
+  ruc: string | null;
+  client: string | null;
+  description: string | null;
+  concept: string | null;
+  invoiceDate: string | null;   // Fecha de la factura (informativa)
+  paymentDate: string | null;   // Fecha en que llegó el pago
+  accountName: string | null;   // Cuenta contable/banco del depósito
+  invoiceNumber: string | null; // Nº de factura a cobrar
+  amount: number | null;        // TOTAL cobrado (neto o parcial)
+}
+
+export interface CobrosParseResult {
+  headers: string[];
+  rows: CobrosRow[];
+  totalRows: number;
+}
+
+const COBROS_CLIENT_PATTERNS = [/^cliente/i, /^client/i, /^nombre/i];
+const COBROS_CONCEPT_PATTERNS = [/^concepto/i];
+const COBROS_ACCOUNT_PATTERNS = [/cuenta|banco|bancos|caja/i];
+const COBROS_INVOICE_NUMBER_PATTERNS = [/factura|n[úu]mero|nro|ref/i];
+const COBROS_PAYMENT_DATE_PATTERNS = [/pago|pagado|dep[ió]sito/i];
+const COBROS_AMOUNT_PATTERNS = [/^total|^monto|^importe|amount/i];
+
+/**
+ * Parsea un archivo CSV/XLSX de cobros/pagos a facturas.
+ * Formato esperado (columnas): RUC, CLIENTE, Descripción, Concepto, Fecha,
+ * Fecha de Pago, Cuenta, Factura #, TOTAL. El encabezado debe estar en la
+ * primera fila; el resto de filas se mapea por patrón (tolerante a orden).
+ */
+export async function parseCobrosFile(
+  buffer: Buffer,
+  fileName: string,
+): Promise<CobrosParseResult> {
+  const isXlsx = fileName.endsWith('.xlsx');
+
+  let headers: string[] = [];
+  const rawRows: string[][] = [];
+
+  if (isXlsx) {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as any);
+    const sheet = workbook.worksheets[0];
+    if (!sheet) throw new Error('El archivo Excel no tiene hojas.');
+    sheet.eachRow((row, rowNum) => {
+      const values: string[] = [];
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        values.push(String(cell.value ?? '').trim());
+      });
+      while (values.length > 0 && values[values.length - 1] === '') values.pop();
+      if (values.length === 0) return;
+      if (rowNum === 1) {
+        headers = values;
+      } else {
+        rawRows.push(values);
+      }
+    });
+  } else {
+    const text = buffer.toString('utf-8').replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length === 0) throw new Error('El archivo CSV está vacío.');
+    const delimiter = detectDelimiter(lines[0]);
+    for (let i = 0; i < lines.length; i++) {
+      const values = parseCSVLine(lines[i], delimiter);
+      if (i === 0) {
+        headers = values.map(h => h.trim());
+      } else {
+        rawRows.push(values.map(v => v.trim()));
+      }
+    }
+  }
+
+  if (headers.length === 0) throw new Error('No se detectaron encabezados en el archivo.');
+
+  // Detectar columnas. "Fecha" y "Fecha de Pago" conviven: la que mencione
+  // pago/depósito es la fecha del cobro; la otra es la fecha de la factura.
+  let rucCol: string | null = null;
+  let clientCol: string | null = null;
+  let descriptionCol: string | null = null;
+  let conceptCol: string | null = null;
+  let invoiceDateCol: string | null = null;
+  let paymentDateCol: string | null = null;
+  let accountCol: string | null = null;
+  let invoiceNumberCol: string | null = null;
+  let amountCol: string | null = null;
+
+  for (const h of headers) {
+    if (COBROS_PAYMENT_DATE_PATTERNS.some(p => p.test(h)) && !paymentDateCol) {
+      paymentDateCol = h;
+      continue;
+    }
+    if (matchHeader(h, DATE_PATTERNS) && !invoiceDateCol && !paymentDateCol) {
+      invoiceDateCol = h;
+      continue;
+    }
+    if (!rucCol && matchHeader(h, RUC_PATTERNS)) { rucCol = h; continue; }
+    if (!clientCol && matchHeader(h, COBROS_CLIENT_PATTERNS)) { clientCol = h; continue; }
+    if (!descriptionCol && matchHeader(h, DESCRIPTION_PATTERNS)) { descriptionCol = h; continue; }
+    if (!conceptCol && matchHeader(h, COBROS_CONCEPT_PATTERNS)) { conceptCol = h; continue; }
+    if (!accountCol && matchHeader(h, COBROS_ACCOUNT_PATTERNS)) { accountCol = h; continue; }
+    if (!invoiceNumberCol && matchHeader(h, COBROS_INVOICE_NUMBER_PATTERNS)) { invoiceNumberCol = h; continue; }
+    if (!amountCol && matchHeader(h, COBROS_AMOUNT_PATTERNS)) { amountCol = h; continue; }
+  }
+
+  if (!amountCol) {
+    throw new Error('No se detectó columna de TOTAL/Monto en el archivo de pagos.');
+  }
+
+  const rows: CobrosRow[] = rawRows.map(rawRow => {
+    const raw: Record<string, string> = {};
+    headers.forEach((h, i) => { raw[h] = rawRow[i] || ''; });
+    const getVal = (col: string | null) => (col ? (raw[col] || '') : '');
+    return {
+      ruc: getVal(rucCol).trim() || null,
+      client: getVal(clientCol).trim() || null,
+      description: getVal(descriptionCol).trim() || null,
+      concept: getVal(conceptCol).trim() || null,
+      invoiceDate: parseDate(getVal(invoiceDateCol)),
+      paymentDate: parseDate(getVal(paymentDateCol)),
+      accountName: getVal(accountCol).trim() || null,
+      invoiceNumber: getVal(invoiceNumberCol).trim() || null,
+      amount: parseAmount(getVal(amountCol)),
+    };
+  });
+
+  return { headers, rows, totalRows: rows.length };
+}
+
 /**
  * Parsea un archivo CSV o XLSX y devuelve headers, filas parseadas, y mapeo detectado.
  */

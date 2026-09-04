@@ -4,6 +4,15 @@ import { requireRole } from '../middleware/auth';
 
 export const clientsRouter = Router();
 
+/**
+ * Saldo real de una factura de cliente: 0 cuando está pagada/rechazada;
+ * con abonos parciales (InvoicePayment → paidAmount) queda el restante.
+ */
+function invoiceSaldo(i: { total: number; paidAmount?: number | null; status: string }): number {
+  if (i.status === 'PAGADA' || i.status === 'RECHAZADA') return 0;
+  return Math.max(0, Math.round((i.total - (i.paidAmount || 0)) * 100) / 100);
+}
+
 // GET /api/clients — Listar clientes
 clientsRouter.get('/', async (req, res) => {
   const { search } = req.query;
@@ -19,9 +28,9 @@ clientsRouter.get('/', async (req, res) => {
   });
 
   const enriched = clients.map(c => {
-    // Solo facturas activas: ni pagadas ni rechazadas cuentan en CxC
-    const activas = c.invoices.filter(i => i.status !== 'PAGADA' && i.status !== 'RECHAZADA');
-    const totalDue = activas.reduce((s, i) => s + i.total, 0);
+    // Activas = con saldo real > 0 (un parcial pagado del 100% sin PAGADA ya no cuenta)
+    const activas = c.invoices.filter(i => invoiceSaldo(i) > 0.01);
+    const totalDue = activas.reduce((s, i) => s + invoiceSaldo(i), 0);
     return { ...c, totalDue, invoiceCount: activas.length };
   });
 
@@ -64,14 +73,14 @@ clientsRouter.put('/:id', requireRole('admin', 'contador'), async (req, res) => 
   res.json(updated);
 });
 
-// GET /api/clients/:id/invoices — Facturas de un cliente
+// GET /api/clients/:id/invoices — Facturas de un cliente (con saldo real)
 clientsRouter.get('/:id/invoices', async (req, res) => {
   const invoices = await req.prisma.invoice.findMany({
     where: { clientId: req.params.id, companyId: req.user!.companyId, status: { notIn: ['RECHAZADA'] } },
     include: { client: { select: { name: true } } },
     orderBy: { date: 'desc' },
   });
-  res.json(invoices);
+  res.json(invoices.map(i => ({ ...i, saldo: invoiceSaldo(i) })));
 });
 
 // POST /api/clients/:id/invoices — Crear factura para un cliente
@@ -112,7 +121,12 @@ clientsRouter.patch('/:id/invoices/:invId/pay', requireRole('admin', 'contador')
 
   const updated = await req.prisma.invoice.update({
     where: { id: invoice.id },
-    data: { status: 'PAGADA', paidAt: new Date() },
+    // paidAmount = saldo completo: mantiene la invariante saldo = total − paidAmount
+    data: {
+      status: 'PAGADA',
+      paidAt: new Date(),
+      paidAmount: Math.max(0, Math.round((invoice.total - (invoice.paidAmount || 0)) * 100) / 100) + (invoice.paidAmount || 0),
+    },
   });
   res.json(updated);
 });
@@ -128,12 +142,14 @@ clientsRouter.get('/report/aging', async (req, res) => {
   const result = clients.map(c => {
     let current = 0, d30 = 0, d60 = 0, d90 = 0, over90 = 0;
     for (const inv of c.invoices) {
+      const saldo = invoiceSaldo(inv);
+      if (saldo <= 0.01) continue; // pagadas (aunque status no lo diga) y parciales al 100%
       const daysOverdue = Math.floor((now.getTime() - new Date(inv.dueDate).getTime()) / (1000 * 60 * 60 * 24));
-      if (daysOverdue <= 0) current += inv.total;
-      else if (daysOverdue <= 30) d30 += inv.total;
-      else if (daysOverdue <= 60) d60 += inv.total;
-      else if (daysOverdue <= 90) d90 += inv.total;
-      else over90 += inv.total;
+      if (daysOverdue <= 0) current += saldo;
+      else if (daysOverdue <= 30) d30 += saldo;
+      else if (daysOverdue <= 60) d60 += saldo;
+      else if (daysOverdue <= 90) d90 += saldo;
+      else over90 += saldo;
     }
     return {
       id: c.id, name: c.name, taxId: c.taxId,
@@ -147,10 +163,10 @@ clientsRouter.get('/report/aging', async (req, res) => {
 
 // ── Resumen rápido (para el dashboard) ──
 clientsRouter.get('/report/summary', async (req, res) => {
-  const [totalClients, totalDue, overdueInvoices] = await Promise.all([
+  const [totalClients, aggr, overdueInvoices] = await Promise.all([
     req.prisma.client.count({ where: { companyId: req.user!.companyId } }),
     req.prisma.invoice.aggregate({
-      _sum: { total: true },
+      _sum: { total: true, paidAmount: true },
       where: { companyId: req.user!.companyId, status: { notIn: ['PAGADA', 'RECHAZADA'] } },
     }),
     req.prisma.invoice.count({
@@ -162,9 +178,12 @@ clientsRouter.get('/report/summary', async (req, res) => {
     }),
   ]);
 
+  // totalDue = suma de saldos (resta abonos parciales; clamp ≥ 0)
+  const totalDue = Math.max(0, Math.round(((aggr._sum.total || 0) - (aggr._sum.paidAmount || 0)) * 100) / 100);
+
   res.json({
     totalClients,
-    totalDue: totalDue._sum.total || 0,
+    totalDue,
     overdueInvoices,
   });
 });
