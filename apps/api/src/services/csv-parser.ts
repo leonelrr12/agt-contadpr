@@ -166,6 +166,10 @@ export interface CobrosParseResult {
   headers: string[];
   rows: CobrosRow[];
   totalRows: number;
+  /** ¿Se detectó una columna de fecha de pago (pago/depósito)? */
+  hasPaymentDateCol: boolean;
+  /** ¿Se detectó una columna de cuenta/banco/caja? */
+  hasAccountCol: boolean;
 }
 
 const COBROS_CLIENT_PATTERNS = [/^cliente/i, /^client/i, /^nombre/i];
@@ -276,7 +280,13 @@ export async function parseCobrosFile(
     };
   });
 
-  return { headers, rows, totalRows: rows.length };
+  return {
+    headers,
+    rows,
+    totalRows: rows.length,
+    hasPaymentDateCol: paymentDateCol != null,
+    hasAccountCol: accountCol != null,
+  };
 }
 
 /**

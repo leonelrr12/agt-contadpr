@@ -108,7 +108,7 @@ function importMode() {
 const IMPORT_MODE_HINTS = {
   transacciones: 'Sube el CSV/Excel con tus transacciones históricas. La IA clasificará cada concepto.',
   carga: 'Balance de apertura: columnas Categoria, Concepto, Monto. Se crea un solo asiento.',
-  cobros: 'Pagos/abonos a facturas de clientes: columnas Cliente, Fecha de Pago, Cuenta (banco), Factura # y TOTAL. Acepta abonos parciales y varios pagos a la misma factura.',
+  cobros: 'Pagos/abonos a facturas: columnas Cliente, Fecha de Pago, Cuenta (banco), Factura # y TOTAL. Las filas SIN "Fecha de Pago" y "Cuenta" son facturas aún no pagadas: quedan ⏳ pendientes y se omiten. Puedes re-subir el mismo archivo: los pagos ya aplicados no se duplican (se omiten).',
 };
 
 function applyImportModeUI() {
@@ -370,25 +370,36 @@ function renderImportInlinePreview() {
   }
 }
 
-/* ── Preview de "Pagos a facturas" (cobros) ── */
+/* ── Preview de "Pagos a facturas" (cobros) ──
+ * Estados por fila: ok (a aplicar) · pending (⏳ sin Fecha de Pago/Cuenta =
+ * factura aún no pagada, se omite) · omitted (↩️ ya aplicada en BD, se omite,
+ * re-subida idempotente) · error (se omite y se reporta).
+ */
 function renderImportCobrosPreview() {
   const cp = importInlinePreview.cobrosPreview;
-  const { rows, errors, appliedTotal, markedPaid } = cp;
+  const { rows, errors, pending = 0, omitted = 0, appliedTotal, markedPaid } = cp;
   const totalRows = importInlinePreview.totalRows;
-  const okCount = Math.max(0, totalRows - errors.length);
+  const okCount = cp.success || 0; // filas a aplicar (status ok)
 
   document.getElementById('import-inline-total').textContent = totalRows;
   document.getElementById('import-inline-ok').textContent = okCount;
   document.getElementById('import-inline-err').textContent = errors.length;
 
-  // Tarjetas extra: total abonado y facturas saldadas
+  // Tarjetas extra: total abonado, saldadas, pendientes y ya aplicadas
   const summaryEl = document.getElementById('import-inline-summary');
   const cards = document.createElement('div');
   cards.id = 'import-inline-cobros-cards';
   cards.style.cssText = 'display:flex;gap:14px;margin-bottom:16px';
-  cards.innerHTML =
+  let cardHtml =
     `<div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:#b45309">$${appliedTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div style="font-size:11px;color:#6b7280">Total a abonar</div></div>
      <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:#059669">${markedPaid}</div><div style="font-size:11px;color:#6b7280">Facturas que quedan pagadas</div></div>`;
+  if (pending > 0) {
+    cardHtml += `<div class="summary-card" style="flex:1;background:#f8fafc;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:#64748b">⏳ ${pending}</div><div style="font-size:11px;color:#6b7280">Facturas sin pago (pendientes)</div></div>`;
+  }
+  if (omitted > 0) {
+    cardHtml += `<div class="summary-card" style="flex:1;background:#f8fafc;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:#6b7280">↩️ ${omitted}</div><div style="font-size:11px;color:#6b7280">Ya aplicadas (se omiten)</div></div>`;
+  }
+  cards.innerHTML = cardHtml;
   summaryEl.parentNode.insertBefore(cards, summaryEl.nextSibling);
 
   // Aviso de errores más allá de la muestra de 20 (igual que el import normal)
@@ -407,24 +418,43 @@ function renderImportCobrosPreview() {
   const fmt = n => (n != null ? `$${Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}` : '—');
   let html = '';
   rows.forEach(r => {
-    const isErr = r.status !== 'ok';
     const numCell = r.number
       ? `${escapeHtml(r.number)}${r.viaDigits ? ' <span title="Coincidió por dígitos (p.ej. 1003 = A-001003)" style="color:#d97706;cursor:help">≈</span>' : ''}`
       : (r.fileNumber ? `<span style="color:#9ca3af">${escapeHtml(r.fileNumber)}</span>` : '—');
     const clientCell = r.clientMatched || r.clientFile || '—';
-    const amountHtml = isErr
-      ? (r.amount != null ? `<span style="color:#9ca3af">${fmt(r.amount)}</span>` : '—')
-      : `<strong>${fmt(r.amount)}</strong>`;
-    const accountCell = r.accountCode
-      ? `<span style="color:#065f46">${escapeHtml(r.accountName||'')}</span> <span style="color:#9ca3af;font-size:10px">(${escapeHtml(r.accountCode)})</span>`
-      : (r.accountName ? `<span style="color:#9ca3af">${escapeHtml(r.accountName)}</span>` : '—');
-    html += `<tr${isErr ? ' style="background:#fef2f2"' : ''}>
+
+    let bg = '';
+    let estadoHtml = '';
+    let dateHtml = r.date || '—';
+    let amountHtml = r.amount != null ? `<span style="color:#9ca3af">${fmt(r.amount)}</span>` : '—';
+    let accountHtml = '—';
+    let saldoHtml = '—';
+
+    if (r.status === 'ok') {
+      amountHtml = `<strong>${fmt(r.amount)}</strong>`;
+      if (r.accountCode) {
+        accountHtml = `<span style="color:#065f46">${escapeHtml(r.accountName||'')}</span> <span style="color:#9ca3af;font-size:10px">(${escapeHtml(r.accountCode)})</span>`;
+      }
+      estadoHtml = r.paid ? '✅ <strong>PAGADA</strong>' : '✅ Abono';
+      saldoHtml = `${fmt(r.saldoBefore)} → ${fmt(r.saldoAfter)}`;
+    } else if (r.status === 'pending') {
+      bg = 'style="background:#f8fafc"';
+      estadoHtml = '<span style="color:#64748b;font-size:11px">⏳ Sin pago — pendiente</span>';
+    } else if (r.status === 'omitted') {
+      bg = 'style="background:#f8fafc"';
+      accountHtml = r.accountName ? `<span style="color:#9ca3af">${escapeHtml(r.accountName)}</span>` : '—';
+      estadoHtml = `<span style="color:#64748b;font-size:11px">↩️ ${escapeHtml(r.error || 'Ya aplicada')}</span>`;
+    } else {
+      bg = 'style="background:#fef2f2"';
+      if (r.accountName) accountHtml = `<span style="color:#9ca3af">${escapeHtml(r.accountName)}</span>`;
+      estadoHtml = `<span style="color:#b91c1c;font-size:11px">❌ ${escapeHtml(r.error || '')}</span>`;
+    }
+
+    html += `<tr${bg}>
       <td>${r.row}</td><td>${numCell}</td><td>${escapeHtml(clientCell)}</td>
-      <td>${r.date || '—'}</td><td>${amountHtml}</td><td>${accountCell}</td>
-      <td>${isErr ? '—' : fmt(r.saldoBefore)}</td><td>${isErr ? '—' : fmt(r.saldoAfter)}</td>
-      <td>${isErr
-        ? `<span style="color:#b91c1c;font-size:11px">❌ ${escapeHtml(r.error || '')}</span>`
-        : (r.paid ? '✅ <strong>PAGADA</strong>' : '✅ Abono')}</td></tr>`;
+      <td>${dateHtml}</td><td>${amountHtml}</td><td>${accountHtml}</td>
+      <td colspan="2" style="color:#9ca3af">${saldoHtml}</td>
+      <td>${estadoHtml}</td></tr>`;
   });
   document.getElementById('import-inline-tbody').innerHTML = html;
 }
@@ -440,8 +470,15 @@ async function executeImportInline() {
   // ── Flujo cobros / pagos a facturas ──
   if (isCobros) {
     const cp = importInlinePreview.cobrosPreview || {};
-    const okCount = Math.max(0, total - (cp.errors || []).length);
-    let msg = `¿Aplicar ${okCount} pago(s) a facturas?\n\nCada pago crea un asiento BORRADOR (débito banco/caja, crédito Clientes) y descuenta del saldo de la factura. Los abonos parciales quedan registrados.`;
+    const okCount = cp.success || 0;
+    let msg = `¿Aplicar ${okCount} pago(s) a facturas?`;
+    if ((cp.pending || 0) > 0) {
+      msg += `\n\n⏳ ${cp.pending} factura(s) sin "Fecha de Pago"/"Cuenta" quedan pendientes (aún no pagadas) y no se tocan.`;
+    }
+    if ((cp.omitted || 0) > 0) {
+      msg += `\n\n↩️ ${cp.omitted} abono(s) ya aplicado(s) se omitirán — re-subir el archivo no duplica pagos.`;
+    }
+    msg += `\n\nCada pago crea un asiento BORRADOR (débito banco/caja, crédito Clientes) y descuenta del saldo de la factura. Los abonos parciales quedan registrados.`;
     if (cp.errors && cp.errors.length > 0) {
       msg += `\n\n⚠️ ${cp.errors.length} fila(s) con error se omitirán:\n` +
         cp.errors.slice(0, 6).map(e => `• Fila ${e.row}: ${e.error}`).join('\n') +
@@ -461,7 +498,13 @@ async function executeImportInline() {
       document.getElementById('import-inline-loading').classList.add('hidden');
       const result = await res.json();
       if (res.ok) {
-        let msg2 = `✅ Pagos aplicados: ${result.success} de ${result.total}.\n\n💰 ${result.markedPaid || 0} factura(s) quedaron pagadas en su totalidad.`;
+        let msg2 = `✅ Pagos aplicados: ${result.success} de ${result.total} candidatos.\n\n💰 ${result.markedPaid || 0} factura(s) quedaron pagadas en su totalidad.`;
+        if ((result.pending || 0) > 0) {
+          msg2 += `\n\n⏳ ${result.pending} factura(s) quedaron pendientes (sin "Fecha de Pago"/"Cuenta").`;
+        }
+        if ((result.omitted || 0) > 0) {
+          msg2 += `\n↩️ ${result.omitted} fila(s) ya aplicada(s) se omitieron (no se duplicaron).`;
+        }
         if (result.errors && result.errors.length) {
           msg2 += `\n\n❌ ${result.errors.length} fila(s) rechazadas:\n` +
             result.errors.slice(0, 6).map(e => `• Fila ${e.row}: ${e.error}`).join('\n') +
