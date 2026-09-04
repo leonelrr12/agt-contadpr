@@ -17,11 +17,8 @@ import {
   getOriginalInput,
   resetSession,
 } from './wa-session-store';
-import { extractFromImage } from './ocr';
 import { extractFromPDF } from './pdf-extractor';
 import { KEYWORD_MAP } from '@agt-contador/agents';
-import jsQR from 'jsqr';
-import sharp from 'sharp';
 
 const OPENWA_URL = process.env.OPENWA_API_URL || 'http://localhost:2785';
 const OPENWA_KEY = process.env.OPENWA_API_KEY || '';
@@ -91,77 +88,11 @@ const CMD_CONFIRM = /^(ok|confirmar|s[ií]|dale|aceptar|yes)$/i;
 const CMD_CANCEL = /^(xx|cancelar|no|nop|abortar)$/i;
 const CMD_RESET = /^(reiniciar|empezar de nuevo|nueva transacc[ió]on)$/i;
 
-/** Intenta decodificar un QR desde un buffer de imagen. Retorna la URL o null. */
-async function tryDecodeQR(buffer: Buffer): Promise<string | null> {
-  const scan = async (buf: Buffer): Promise<string | null> => {
-    const { data, info } = await sharp(buf)
-      .rotate() // aplicar orientación EXIF — las fotos de teléfono suelen traerla
-      .ensureAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    const result = jsQR(new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength), info.width, info.height);
-    // El QR de la DGI trae la URL con un salto de línea inicial (\nhttps://...)
-    // — sin el trim() el filtro de URL lo rechazaba y NINGÚN QR funcionaba.
-    const text = (result?.data || '').trim();
-    return text && /^https?:\/\//i.test(text) ? text : null;
-  };
-
-  try {
-    // Intento 1: imagen original (con orientación EXIF aplicada)
-    const direct = await scan(buffer);
-    if (direct) return direct;
-
-    const meta = await sharp(buffer).rotate().metadata();
-    const w = meta.width || 0;
-    const h = meta.height || 0;
-
-    // Imágenes a resolución completa (fotos enviadas como DOCUMENTO, 4000px+):
-    // jsQR falla con imágenes muy grandes — probar a resoluciones reducidas.
-    // El decode exitoso ocurrió exactamente a 0.5x (2040px de 4080), así que
-    // las fracciones exactas del original van primero.
-    if (w > 2200 || h > 2200) {
-      for (const target of [Math.round(w / 2), Math.round(w / 3), Math.round(w / 2.5), 2000, 1200, 800]) {
-        const down = await sharp(buffer)
-          .rotate()
-          .resize({ width: target, height: Math.round(target * (h / w)), fit: 'fill', kernel: 'lanczos3' })
-          .grayscale()
-          .normalize()
-          .toBuffer();
-        const qr = await scan(down);
-        if (qr) return qr;
-      }
-    }
-
-    // Intentos 2-3: ampliación + gris + contraste — los QR en fotos de
-    // WhatsApp llegan pequeños (600-900px) y jsQR falla a baja resolución.
-    for (const scale of [2, 3]) {
-      const upscaled = await sharp(buffer)
-        .rotate()
-        .resize({ width: w * scale, height: h * scale, fit: 'fill', kernel: 'lanczos3' })
-        .grayscale()
-        .normalize()
-        .toBuffer();
-      const qr = await scan(upscaled);
-      if (qr) return qr;
-    }
-
-    // Intento final: invertida (QR con colores invertidos)
-    const inverted = await sharp(buffer)
-      .rotate()
-      .grayscale()
-      .negate()
-      .normalize()
-      .toBuffer();
-    return await scan(inverted);
-  } catch {}
-  return null;
-}
-
 /**
- * Procesa un QR de factura DGI: descarga el PDF y lo procesa igual que extract-url.
- * También recibe la URL completa del QR (la que el usuario pega por WhatsApp).
+ * Procesa la URL del CUTE de una factura DGI (el enlace del QR, que el usuario
+ * pega por WhatsApp): descarga el PDF desde el visor y lo procesa igual que extract-url.
  */
-export async function processWhatsAppQR(
+export async function processWhatsAppDgiUrl(
   prisma: any,
   phoneNumber: string,
   chatId: string,
@@ -287,86 +218,6 @@ export async function processWhatsAppPDF(
   } catch (err: any) {
     console.error('[WhatsApp] PDF error:', err.message);
     return '❌ Error al procesar el PDF. Intenta con otro archivo.';
-  }
-}
-
-/**
- * Procesa una imagen de factura enviada por WhatsApp.
- * Descarga la imagen, ejecuta OCR y construye una transacción.
- */
-export async function processWhatsAppImage(
-  prisma: any,
-  phoneNumber: string,
-  chatId: string,
-  imageUrl: string,
-  caption?: string,
-): Promise<string | null> {
-  try {
-    // Descargar imagen desde whatsapp-ai-bot
-    const imgRes = await fetch(imageUrl);
-    if (!imgRes.ok) return '❌ No pude descargar la imagen. Intenta de nuevo.';
-    const buffer = Buffer.from(await imgRes.arrayBuffer());
-
-    // Intentar leer QR (factura DGI) antes de OCR
-    const qrUrl = await tryDecodeQR(buffer);
-    if (qrUrl) {
-      console.log('[WhatsApp] QR detectado:', qrUrl);
-      return await processWhatsAppQR(prisma, phoneNumber, chatId, qrUrl);
-    }
-
-    // OCR
-    const ocrData = await extractFromImage(buffer, prisma);
-
-    if (!ocrData.total && !ocrData.provider) {
-      return `📷 No pude extraer datos de esta imagen (confianza: ${Math.round(ocrData.confidence * 100)}%).\n\nSi envías el *código QR* de la factura DGI: fotografía *solo el QR*, de cerca y con buena luz. Si es una *factura impresa*: que la foto esté enfocada y sin reflejos.`;
-    }
-
-    // Construir texto para el orquestador — usar "compré" para clasificar como GASTO/COMPRA
-    const parts: string[] = ['compré'];
-    if (ocrData.provider) parts.push(`en ${ocrData.provider}`);
-    if (ocrData.total) parts.push(`$${ocrData.total}`);
-    if (ocrData.date) parts.push(`del ${ocrData.date}`);
-    if (ocrData.itbms) parts.push(`con ITBMS $${ocrData.itbms}`);
-    if (caption) parts.push(`(${caption})`);
-
-    const syntheticInput = parts.join(' ');
-    const ocrContext: Record<string, any> = {};
-    ocrContext.type = 'GASTO'; // Factura desde WhatsApp siempre es GASTO
-    // NO poner concept — dejar que el dialogAgent pida concept_category
-    if (ocrData.provider) ocrContext.provider = ocrData.provider;
-    if (ocrData.total) ocrContext.amount = ocrData.total;
-    if (ocrData.date) ocrContext.date = ocrData.date;
-    if (ocrData.ruc) ocrContext.ruc = ocrData.ruc;
-    ocrContext.itbms = !!ocrData.itbms;
-    if (ocrData.itbms) ocrContext.itbmsAmount = ocrData.itbms;
-    ocrContext.source = 'ocr';
-
-    // Construir resumen de lo extraído por OCR
-    const summaryParts: string[] = [];
-    if (ocrData.provider) summaryParts.push(`🏢 *Proveedor*: ${ocrData.provider}`);
-    if (ocrData.total) summaryParts.push(`💰 *Total*: $${ocrData.total}`);
-    if (ocrData.date) summaryParts.push(`📅 *Fecha*: ${ocrData.date}`);
-    if (ocrData.itbms) summaryParts.push(`📊 *ITBMS*: $${ocrData.itbms}`);
-
-    const context = { messages: [], extractedData: ocrContext };
-    const link = await prisma.whatsAppLink.findFirst({
-      where: { phoneNumber, verifiedAt: { not: null }, isActive: true },
-    });
-
-    // Asegurar sesión
-    if (!getSession(chatId)) createSession(chatId, phoneNumber);
-
-    // Delegar a processWithOrchestrator para manejo unificado
-    setOriginalInput(chatId, syntheticInput);
-    const reply = await processWithOrchestrator(prisma, chatId, link, syntheticInput, context);
-    if (!reply) return null;
-    const ocrPrefix = summaryParts.length > 0
-      ? `📷 *Factura procesada*\n\n${summaryParts.join('\n')}\n\n`
-      : `📷 *Factura procesada*\n\n`;
-    return `${ocrPrefix}${reply}`;
-  } catch (err: any) {
-    console.error('[WhatsApp] OCR error:', err.message);
-    return '❌ Error al procesar la imagen. Intenta con una foto más clara.';
   }
 }
 
@@ -944,7 +795,7 @@ async function processBatchQueue(sessionKey: string): Promise<void> {
       for (let intento = 0; intento < 2; intento++) {
         try {
           let reply = item.tipo === 'url'
-            ? await processWhatsAppQR(st.prisma, sessionKey, sessionKey, item.url)
+            ? await processWhatsAppDgiUrl(st.prisma, sessionKey, sessionKey, item.url)
             : await processWhatsAppPDF(st.prisma, sessionKey, sessionKey, item.url);
 
           // Auto-resolver pasos intermedios: categoría → Gasto (1),
