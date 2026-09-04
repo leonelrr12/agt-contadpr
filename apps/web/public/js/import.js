@@ -137,7 +137,13 @@ async function handleImportInlineFile(file) {
 
   const formData = new FormData();
   formData.append('file', file);
-  if (isCarga) formData.append('cargaInicial', 'true');
+  if (isCarga) {
+    formData.append('cargaInicial', 'true');
+  } else {
+    // Misma fecha global que usa /execute-all: la preview valida la fecha igual que la ejecución
+    const d = document.getElementById('import-inline-date').value;
+    if (d) formData.append('importDate', d);
+  }
   try {
     const res = await authFetch(`${API_URL}/import/preview`, { method: 'POST', body: formData });
     if (!res.ok) { const e = await res.json(); await showAlert(e.error || 'Error'); resetImportInline(); return; }
@@ -151,6 +157,9 @@ async function handleImportInlineFile(file) {
 function renderImportInlinePreview() {
   if (!importInlinePreview) return;
   const isCarga = importInlinePreview.cargaInicial === true;
+  // Limpiar aviso de filas fuera de la muestra de un render previo
+  const prevWarn = document.getElementById('import-inline-warn');
+  if (prevWarn) prevWarn.remove();
 
   document.getElementById('import-inline-summary').classList.remove('hidden');
   document.getElementById('import-inline-preview').classList.remove('hidden');
@@ -251,24 +260,44 @@ function renderImportInlinePreview() {
     const balanceRow = document.getElementById('import-inline-balance-row');
     if (balanceRow) balanceRow.remove();
 
-    const { totalRows, previewRows } = importInlinePreview;
+    const { totalRows, previewRows, invalidRows = [] } = importInlinePreview;
+    // El server valida TODAS las filas del archivo (invalidRows), no solo las
+    // 20 visibles: los contadores reflejan el archivo completo.
     document.getElementById('import-inline-total').textContent = totalRows;
-    const errs = previewRows.filter(r => !r.date || !r.amount || r.amount <= 0);
-    document.getElementById('import-inline-ok').textContent = Math.max(0, previewRows.length - errs.length) + (totalRows > 20 ? '+' : '');
-    document.getElementById('import-inline-err').textContent = errs.length;
+    document.getElementById('import-inline-ok').textContent = Math.max(0, totalRows - invalidRows.length);
+    document.getElementById('import-inline-err').textContent = invalidRows.length;
+
+    // Aviso si hay incompletas más allá de la muestra de 20
+    const beyond = invalidRows.filter(x => x.row > 20);
+    if (beyond.length > 0) {
+      const warn = document.createElement('div');
+      warn.id = 'import-inline-warn';
+      warn.style.cssText = 'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px';
+      warn.innerHTML = `⚠️ <strong>${beyond.length} fila(s) incompleta(s) fuera de la vista</strong> (#${beyond.map(x => x.row).join(', #')}): faltan datos obligatorios. Corrígelas en el archivo y vuelve a cargarlo.`;
+      document.getElementById('import-inline-summary').after(warn);
+    }
 
     const thead = document.getElementById('import-inline-thead');
-    thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Ref</th><th>RUC</th><th>Concepto</th><th>Cuenta</th><th>Conf</th></tr>';
+    thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Ref</th><th>RUC</th><th>Concepto</th><th>Cuenta</th><th>Conf</th><th></th></tr>';
     let html = '';
     previewRows.forEach((r, i) => {
       const conf = r.classification;
-      html += `<tr>
+      const faltantes = r.missing || [];
+      const rowCls = faltantes.length ? ' style="background:#fef2f2"' : '';
+      // Monto mostrado = neto + ITBMS (lo que realmente se paga)
+      let montoHtml = '—';
+      if (r.amount) {
+        const total = r.amount + (r.itbms || 0);
+        montoHtml = `$${total.toFixed(2)}${r.itbms ? ` <span style="color:#9ca3af;font-size:10px">(neto $${r.amount.toFixed(2)} + ITBMS $${r.itbms.toFixed(2)})</span>` : ''}`;
+      }
+      html += `<tr${rowCls}>
         <td>${i+1}</td><td>${r.date||'—'}</td><td>${escapeHtml(r.description||'')}</td>
-        <td>${r.amount?'$'+r.amount.toFixed(2):'—'}</td>
+        <td>${montoHtml}</td>
         <td>${escapeHtml(r.reference||'')}</td><td>${escapeHtml(r.ruc||'')}</td>
         <td>${escapeHtml(r.concept||'')}</td>
         <td>${conf?escapeHtml(conf.concept):'—'}</td>
-        <td>${conf?Math.round(conf.confidence*100)+'%':'—'}</td></tr>`;
+        <td>${conf?Math.round(conf.confidence*100)+'%':'—'}</td>
+        <td>${faltantes.length ? `<span style="color:#dc2626;font-size:11px">Falta: ${faltantes.join(', ')}</span>` : ''}</td></tr>`;
     });
     document.getElementById('import-inline-tbody').innerHTML = html;
   }
@@ -345,7 +374,13 @@ async function executeImportInline() {
     document.getElementById('import-inline-loading').classList.add('hidden');
     const result = await res.json();
     if (res.ok) {
-      await showAlert(`✅ Importación completada: ${result.success} de ${result.total} exitosas.${result.errors.length ? `\n${result.errors.length} errores.` : ''}`);
+      let msg = `✅ Importación completada: ${result.success} de ${result.total} exitosas.`;
+      if (result.errors && result.errors.length) {
+        msg += `\n\n❌ ${result.errors.length} fila(s) rechazadas:\n` +
+          result.errors.slice(0, 6).map(e => `• Fila ${e.row}: ${e.error}`).join('\n') +
+          (result.errors.length > 6 ? `\n… y ${result.errors.length - 6} más.` : '');
+      }
+      await showAlert(msg);
     } else {
       await showAlert(`❌ ${result.error || 'Error'}`);
     }

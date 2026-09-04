@@ -11,6 +11,8 @@ export interface ParsedRow {
   // Bancario
   reference: string | null;
   ruc: string | null;
+  // Impuesto (ITBMS): monto del impuesto por fila, si la columna existe
+  itbms: number | null;
   debit: number | null;
   credit: number | null;
   balance: number | null;
@@ -32,6 +34,7 @@ export interface ColumnMapping {
   balanceCol: string | null;
   referenceCol: string | null;
   rucCol: string | null;
+  itbmsCol: string | null;
 }
 
 export interface ParseResult {
@@ -53,6 +56,7 @@ const CREDIT_PATTERNS = [/cr[eé]dito/i, /credit/i, /abono/i, /entrada/i, /dep[o
 const BALANCE_PATTERNS = [/saldo/i, /balance/i];
 const REFERENCE_PATTERNS = [/referencia/i, /ref/i, /n[úu]mero/i, /cheque/i, /nro/i, /#[ ]*ref/i, /factura/i];
 const RUC_PATTERNS = [/ruc/i, /tax[_\s]?id/i, /c[ée]dula/i, /identificaci[óo]n/i];
+const ITBMS_PATTERNS = [/itbms/i, /impuesto/i, /^iva$/i];
 
 function matchHeader(header: string, patterns: RegExp[]): boolean {
   return patterns.some(p => p.test(header));
@@ -211,6 +215,7 @@ export async function parseImportFile(
     balanceCol: null,
     referenceCol: null,
     rucCol: null,
+    itbmsCol: null,
   };
 
   for (const h of headers) {
@@ -226,6 +231,7 @@ export async function parseImportFile(
     if (!mapping.balanceCol && matchHeader(h, BALANCE_PATTERNS)) mapping.balanceCol = h;
     if (!mapping.referenceCol && matchHeader(h, REFERENCE_PATTERNS)) mapping.referenceCol = h;
     if (!mapping.rucCol && matchHeader(h, RUC_PATTERNS)) mapping.rucCol = h;
+    if (!mapping.itbmsCol && matchHeader(h, ITBMS_PATTERNS)) mapping.itbmsCol = h;
   }
 
   // Si no se detectó amount, intentar debit/credit como fallback
@@ -265,6 +271,7 @@ export async function parseImportFile(
       provider: getVal(mapping.providerCol) || null,
       reference: getVal(mapping.referenceCol) || null,
       ruc: getVal(mapping.rucCol) || null,
+      itbms: parseAmount(getVal(mapping.itbmsCol)),
       debit,
       credit,
       balance: parseAmount(getVal(mapping.balanceCol)),

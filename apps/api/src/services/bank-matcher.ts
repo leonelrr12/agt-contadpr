@@ -163,6 +163,7 @@ export async function autoMatch(
       provider: null,
       reference: row.reference,
       ruc: null,
+      itbms: null,
       debit: row.debit,
       credit: row.credit,
       balance: row.balance,

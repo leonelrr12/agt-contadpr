@@ -147,6 +147,7 @@ export const importExecuteSchema = z.object({
     provider: z.string().nullable().optional(),
     reference: z.string().nullable().optional(),
     ruc: z.string().nullable().optional(),
+    itbms: z.number().positive().nullable().optional(),  // impuesto por fila (neto en amount)
     debitAccountId: z.string().optional(),
     creditAccountId: z.string().optional(),
   })).min(1, 'Se requiere al menos una fila'),
