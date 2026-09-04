@@ -3,6 +3,7 @@ import multer from 'multer';
 import { validate } from '../middleware/validate';
 import { requireQuota, incrementUsage } from '../middleware/quota';
 import { parseImportFile, parseCargaInicialFile } from '../services/csv-parser';
+import type { ParsedRow } from '../services/csv-parser';
 import { resolveCargaInicialRows } from '../services/account-lookup';
 import { ClassificationAgent } from '@agt-contador/agents';
 import { AccountingAgent } from '@agt-contador/agents';
@@ -80,6 +81,18 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
     // ── Flujo normal ──
     const parsed = await parseImportFile(req.file.buffer, req.file.originalname);
 
+    // Mismas reglas que /execute-all: fecha global solo si el usuario la indicó
+    const defaultDate = (req.body.importDate as string) || null;
+    const allRows = buildImportRows(parsed.rows, defaultDate);
+
+    // Validación estricta sobre TODAS las filas (no solo la muestra de 20):
+    // las incompletas se cuentan y se reportan aunque no se muestren en el preview.
+    const invalidRows: { row: number; missing: string[] }[] = [];
+    allRows.forEach((r, i) => {
+      const missing = missingImportFields(r);
+      if (missing.length > 0) invalidRows.push({ row: i + 1, missing });
+    });
+
     // Clasificar las primeras 20 filas para el preview
     const classifier = new ClassificationAgent({
       prisma: req.prisma,
@@ -88,10 +101,11 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
 
     const previewRows = [];
     const conceptColName = parsed.detectedMapping.conceptCol;
-    for (const row of parsed.rows.slice(0, 20)) {
+    for (let i = 0; i < Math.min(allRows.length, 20); i++) {
+      const row = allRows[i];
       // Si hay columna Concepto explícita, tomar el valor crudo (sin fallback a descripción)
       // Si no hay columna, dejar null — la clasificación BD se muestra en columna "Cuenta"
-      const rawConcept = conceptColName ? (row._raw[conceptColName]?.trim() || null) : null;
+      const rawConcept = conceptColName ? (parsed.rows[i]._raw[conceptColName]?.trim() || null) : null;
       const conceptForClassify = rawConcept || row.description || '';
       let classification = null;
       if (conceptForClassify) {
@@ -99,7 +113,7 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
       }
       previewRows.push({
         ...row,
-        _raw: undefined, // no enviar raw al frontend
+        missing: missingImportFields(row),
         concept: rawConcept,
         classification: classification ? {
           concept: classification.concept,
@@ -114,6 +128,7 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
       detectedMapping: parsed.detectedMapping,
       previewRows,
       totalRows: parsed.totalRows,
+      invalidRows,
     });
   } catch (error: any) {
     console.error('[Import] Preview error:', error);
@@ -133,9 +148,10 @@ function toLocalDate(dateStr: string): Date {
 }
 
 interface ImportRow {
-  date: string;
+  date: string | null;  // pueden faltar: la validación estricta los exige en runtime
   description: string;
-  amount: number;
+  amount: number | null;  // neto (sin ITBMS); el impuesto va en itbms
+  itbms?: number | null;  // monto del ITBMS de la fila (0/null si no aplica)
   concept?: string;
   paymentMethod?: string | null;
   type: string;
@@ -144,6 +160,58 @@ interface ImportRow {
   ruc?: string | null;
   debitAccountId?: string;
   creditAccountId?: string;
+}
+
+function r2(n: number): number { return Math.round(n * 100) / 100; }
+
+/**
+ * Reduce el error de Prisma a su causa (quita el "Invalid `prisma.x.y()` invocation:")
+ * para que el error mostrado al usuario sea legible.
+ */
+function cleanImportError(err: any): string {
+  const raw = (err?.message || err || 'Error desconocido').toString();
+  if (!raw.startsWith('Invalid `prisma')) return raw;
+  const parts = raw.split(/\n\s*\n/);
+  const last = parts[parts.length - 1] || raw;
+  return last.split('\n')[0].trim() || raw.slice(0, 200);
+}
+
+/**
+ * Validación estricta del import normal (la carga inicial usa su propio
+ * endpoint): TODAS las filas deben traer los datos completos.
+ * Única fuente de verdad — la usa el preview (sobre el archivo completo)
+ * y la ejecución.
+ */
+function missingImportFields(row: ImportRow): string[] {
+  const missing: string[] = [];
+  if (!row.date) missing.push('fecha');
+  if (!(row.concept || row.description || '').trim()) missing.push('concepto');
+  if (!row.amount || row.amount <= 0) missing.push('monto');
+  if (!row.ruc) missing.push('RUC');
+  if (!row.reference) missing.push('Nº de factura');
+  return missing;
+}
+
+/**
+ * Convierte filas parseadas → ImportRow. La fecha global SOLO aplica si el
+ * usuario la indicó (importDate); las filas incompletas se detectan después
+ * con missingImportFields (mismas reglas en preview y en /execute-all).
+ */
+function buildImportRows(parsedRows: ParsedRow[], defaultDate: string | null): ImportRow[] {
+  return parsedRows.map(r => ({
+    date: defaultDate ? (r.date || defaultDate) : r.date,
+    description: r.description || '',
+    amount: r.amount,
+    // Redondear a centavos: la columna ITBMS suele traer celdas con fórmula
+    // (=Monto*7%) cuyo valor flotante ensucia descripción y líneas (902.1341).
+    itbms: r.itbms && r.itbms > 0 ? r2(r.itbms) : null,
+    concept: r.concept || r.description || '',
+    paymentMethod: r.paymentMethod,
+    type: r.type || 'GASTO',
+    provider: r.provider,
+    reference: r.reference,
+    ruc: r.ruc,
+  }));
 }
 
 async function executeImportRows(
@@ -159,118 +227,137 @@ async function executeImportRows(
   await accountant.init();
 
   const results = { success: 0, errors: [] as { row: number; error: string }[], entryIds: [] as string[] };
-  const batchSize = 50;
 
-  for (let batchStart = 0; batchStart < rows.length; batchStart += batchSize) {
-    const batch = rows.slice(batchStart, batchStart + batchSize);
+  // CADA FILA se crea en SU PROPIA transacción. Antes el lote completo corría
+  // en un solo $transaction con catch por fila: si cualquier query fallaba,
+  // Postgres abortaba la transacción entera → error 25P02 en cadena sobre las
+  // filas siguientes, y el COMMIT final se convertía en rollback silencioso de
+  // TODO el lote (hasta los asientos ya contados como exitosos se perdían).
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNum = i + 1;
 
-    await prisma.$transaction(async (tx: any) => {
-      for (let i = 0; i < batch.length; i++) {
-        const row = batch[i];
-        const rowNum = batchStart + i + 1;
+    try {
+      const missing = missingImportFields(row);
+      if (missing.length > 0) {
+        throw new Error(`Faltan datos obligatorios: ${missing.join(', ')}`);
+      }
+      // Tras la validación estricta, date y amount están garantizados
+      // (TS no re-narrowa tras los await, por eso se capturan locales).
+      const date = row.date!;
+      const amount = row.amount!;
+      // Total pagado: neto + ITBMS (cuando la fila trae impuesto)
+      const total = row.itbms ? r2(amount + row.itbms) : amount;
 
-        try {
-          let accountId = row.debitAccountId || row.creditAccountId;
-          let classifiedConcept = row.concept || row.description || 'Gastos Varios';
-          let classConfidence = 0.9;
+      let accountId = row.debitAccountId || row.creditAccountId;
+      let classifiedConcept = row.concept || row.description || 'Gastos Varios';
+      let classConfidence = 0.9;
 
-          if (!accountId) {
-            const concept = row.concept || row.description || 'Gastos Varios';
-            const classResult = await classifier.classify(concept, row.type);
-            if (!classResult.accountId || classResult.confidence < 0.3) {
-              throw new Error(`No se pudo clasificar el concepto "${concept}"`);
-            }
-            accountId = classResult.accountId;
-            // Usar el concepto normalizado de la BD (ej. "Ventas" en vez de "Venta de Calzado")
-            classifiedConcept = classResult.concept;
-            classConfidence = classResult.confidence;
-          }
+      if (!accountId) {
+        const concept = row.concept || row.description || 'Gastos Varios';
+        const classResult = await classifier.classify(concept, row.type);
+        if (!classResult.accountId || classResult.confidence < 0.3) {
+          throw new Error(`No se pudo clasificar el concepto "${concept}"`);
+        }
+        accountId = classResult.accountId;
+        // Usar el concepto normalizado de la BD (ej. "Ventas" en vez de "Venta de Calzado")
+        classifiedConcept = classResult.concept;
+        classConfidence = classResult.confidence;
+      }
 
-          const dialog = {
-            type: row.type as any,
-            amount: row.amount,
-            currency: 'USD',
+      const dialog = {
+        type: row.type as any,
+        amount,  // neto: el agente desglosa el ITBMS cuando itbmsAmount > 0
+        currency: 'USD',
+        description: row.description,
+        concept: classifiedConcept,
+        paymentMethod: (row.paymentMethod || null) as any,
+        date,
+        confidence: 0.9,
+        missingFields: [] as string[],
+        itbms: !!row.itbms,
+        itbmsAmount: row.itbms && row.itbms > 0 ? row.itbms : undefined,
+        provider: row.provider || null,
+        reference: row.reference || null,
+        ruc: row.ruc || null,
+        suggestedResponse: '',
+      };
+
+      const classification = { concept: classifiedConcept, accountId, confidence: classConfidence };
+      const entry = accountant.generateEntry(dialog, classification);
+      const validation = accountant.validateEntry(entry);
+      if (!validation.valid) {
+        throw new Error(validation.error || 'Asiento no balanceado');
+      }
+
+      const debitLines = entry.debit.map((d: any) => ({
+        accountId: accountant.resolveAlias(d.accountId),
+        debit: d.amount,
+        credit: 0,
+      }));
+      const creditLines = entry.credit.map((c: any) => ({
+        accountId: accountant.resolveAlias(c.accountId),
+        debit: 0,
+        credit: c.amount,
+      }));
+
+      // Asiento + Transaction: transacción propia de la fila
+      const je = await prisma.$transaction(async (tx: any) => {
+        const created = await tx.journalEntry.create({
+          data: {
+            date: toLocalDate(date),
+            description: entry.description,
+            status: 'BORRADOR',
+            companyId,
+            createdById: userId,
+            lines: { create: [...debitLines, ...creditLines] },
+          },
+        });
+
+        await tx.transaction.create({
+          data: {
+            type: row.type,
+            amount: total,
             description: row.description,
             concept: classifiedConcept,
-            paymentMethod: (row.paymentMethod || null) as any,
-            date: row.date,
-            confidence: 0.9,
-            missingFields: [] as string[],
-            itbms: false,
-            provider: row.provider || null,
-            reference: row.reference || null,
-            ruc: row.ruc || null,
-            suggestedResponse: '',
-          };
+            paymentMethod: row.paymentMethod,
+            date: toLocalDate(date),
+            companyId,
+            createdById: userId,
+            journalEntryId: created.id,
+            metadata: (() => {
+              const m: Record<string, any> = {};
+              if (row.provider) m.provider = row.provider;
+              if (row.reference) m.reference = row.reference;
+              if (row.ruc) m.ruc = row.ruc;
+              if (row.itbms) m.itbms = row.itbms;
+              return JSON.stringify(m);
+            })(),
+          },
+        });
 
-          const classification = { concept: classifiedConcept, accountId, confidence: classConfidence };
-          const entry = accountant.generateEntry(dialog, classification);
-          const validation = accountant.validateEntry(entry);
-          if (!validation.valid) {
-            throw new Error(validation.error || 'Asiento no balanceado');
-          }
+        return created;
+      });
 
-          const debitLines = entry.debit.map((d: any) => ({
-            accountId: accountant.resolveAlias(d.accountId),
-            debit: d.amount,
-            credit: 0,
-          }));
-          const creditLines = entry.credit.map((c: any) => ({
-            accountId: accountant.resolveAlias(c.accountId),
-            debit: 0,
-            credit: c.amount,
-          }));
-
-          const je = await tx.journalEntry.create({
-            data: {
-              date: toLocalDate(row.date),
-              description: entry.description,
-              status: 'BORRADOR',
-              companyId,
-              createdById: userId,
-              lines: { create: [...debitLines, ...creditLines] },
-            },
-          });
-
-          await tx.transaction.create({
-            data: {
-              type: row.type,
-              amount: row.amount,
-              description: row.description,
-              concept: classifiedConcept,
-              paymentMethod: row.paymentMethod,
-              date: toLocalDate(row.date),
-              companyId,
-              createdById: userId,
-              journalEntryId: je.id,
-              metadata: (() => {
-                const m: Record<string, any> = {};
-                if (row.provider) m.provider = row.provider;
-                if (row.reference) m.reference = row.reference;
-                if (row.ruc) m.ruc = row.ruc;
-                return JSON.stringify(m);
-              })(),
-            },
-          });
-
-          // Sincronizar auxiliar (CxC/CxP): crear Cliente/Proveedor + Invoice/Bill si aplica
-          if (row.provider) {
-            try {
-              await syncEntityFromEntry(tx, companyId, je);
-            } catch (e) { /* no blocking */ }
-          }
-
-          results.entryIds.push(je.id);
-          results.success++;
-        } catch (err: any) {
-          results.errors.push({ row: rowNum, error: err.message || 'Error desconocido' });
+      // Sincronizar auxiliar (CxC/CxP) FUERA de la transacción de la fila:
+      // si falla no aborta la fila ya guardada (y no envenena las demás).
+      if (row.provider) {
+        try {
+          await syncEntityFromEntry(prisma, companyId, je);
+        } catch (e: any) {
+          console.warn(`[Import] sync auxiliar fila ${rowNum}:`, e?.message || e);
         }
       }
-    });
 
-    for (let i = 0; i < results.success; i++) {
-      try { await incrementUsageFn(req); } catch { /* quota exhausted */ }
+      results.entryIds.push(je.id);
+      results.success++;
+    } catch (err: any) {
+      results.errors.push({ row: rowNum, error: cleanImportError(err) });
     }
+  }
+
+  for (let i = 0; i < results.success; i++) {
+    try { await incrementUsageFn(req); } catch { /* quota exhausted */ }
   }
 
   return results;
@@ -317,35 +404,12 @@ importRouter.post('/execute-all', requireQuota, upload.single('file'), async (re
   try {
     const parsed = await parseImportFile(req.file.buffer, req.file.originalname);
 
-    // Construir rows desde el parseo automático
-    // Fecha por defecto: la que indica el usuario, o la de hoy
-    const defaultDate = (req.body.importDate as string) || new Date().toISOString().split('T')[0];
-    let skippedNoAmount = 0;
-
-    const rows = parsed.rows
-      .filter(r => {
-        if (!r.amount || r.amount <= 0) { skippedNoAmount++; return false; }
-        return true;
-      })
-      .map(r => ({
-        date: r.date || defaultDate,  // Si no tiene fecha, usar la fecha indicada por el usuario o la de hoy
-        description: r.description || 'Importado',
-        amount: r.amount!,
-        concept: r.concept || r.description || '',
-        paymentMethod: r.paymentMethod,
-        type: r.type || 'GASTO',
-        provider: r.provider,
-        reference: r.reference,
-        ruc: r.ruc,
-      }));
+    // Construir rows desde el parseo automático (mismas reglas que el preview)
+    const defaultDate = (req.body.importDate as string) || null;
+    const rows = buildImportRows(parsed.rows, defaultDate);
 
     if (rows.length === 0) {
-      const reasons: string[] = [];
-      if (skippedNoAmount > 0) reasons.push(`${skippedNoAmount} sin monto válido`);
-      const msg = reasons.length > 0
-        ? `No se encontraron filas válidas: ${reasons.join(', ')}.`
-        : 'No se encontraron filas válidas en el archivo.';
-      res.status(400).json({ error: msg });
+      res.status(400).json({ error: 'No se encontraron filas válidas en el archivo.' });
       return;
     }
 
