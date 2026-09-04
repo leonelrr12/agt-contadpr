@@ -4,7 +4,7 @@
 # Genera: backups/agt_contador_YYYYMMDD_HHMMSS.sql.gz
 set -euo pipefail
 
-BACKUP_DIR="$(cd "$(dirname "$0")/.." && pwd)/backups"
+BACKUP_DIR="/root/backups/contador507"
 RETENTION_DAYS=30
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="$BACKUP_DIR/agt_contador_$TIMESTAMP.sql.gz"
