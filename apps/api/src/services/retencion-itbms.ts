@@ -51,6 +51,60 @@ export function retencionPendiente(totalEsperada: number, yaRetenido: number): n
   return Math.max(0, Math.round((totalEsperada - yaRetenido) * 100) / 100);
 }
 
+export interface RetencionCobroInfo {
+  /** Tope aceptado para la retención de este cobro. */
+  cap: number;
+  /** Porcentaje usado para el tope (perfil del cliente o 50% estándar). */
+  pct: number;
+  /** ¿El cliente ya está marcado como agente vigente para la fecha de la factura? */
+  esAgente: boolean;
+}
+
+/**
+ * Info de retención para un COBRO, tolerante a clientes sin perfil: cuando el
+ * cliente no está marcado como agente se usa el 50% estándar de la DGI como
+ * tope (la evidencia del cobro —retención explícita o cierre del neto— marca
+ * al cliente después). El perfil solo ajusta el porcentaje, no bloquea.
+ */
+export function retencionCobroInfo(
+  client: ClienteAgentePerfil | null,
+  itbms: number,
+  fechaFactura: Date,
+): RetencionCobroInfo {
+  if (!itbms || itbms <= 0) return { cap: 0, pct: 0, esAgente: false };
+  const esAgente = esAgenteRetencionEn(client, fechaFactura);
+  const pct = esAgente ? (client?.porcentajeRetencionItbms ?? 0.5) : 0.5;
+  return { cap: Math.round(itbms * pct * 100) / 100, pct, esAgente };
+}
+
+/**
+ * Marca al cliente como agente de retención a partir de la evidencia del
+ * cobro (retención efectivamente aplicada). Respeta el porcentaje existente
+ * o lo deriva de la retención; fija la vigencia desde la fecha de la factura
+ * si el cliente no tenía ninguna (para que la operación quede cubierta).
+ */
+export async function marcarClienteAgente(
+  prisma: any,
+  clientId: string,
+  fechaFactura: Date,
+  retencion: number,
+  itbms: number,
+): Promise<void> {
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { id: true, esAgenteRetenedor: true, porcentajeRetencionItbms: true, vigenciaRetencionDesde: true },
+  });
+  if (!client || client.esAgenteRetenedor) return; // ya marcado — no pisar
+  const data: any = { esAgenteRetenedor: true };
+  if ((client.porcentajeRetencionItbms ?? 0.5) === 0.5 && itbms > 0 && retencion > 0) {
+    data.porcentajeRetencionItbms = Math.min(1, Math.max(0, retencion / itbms));
+  }
+  if (!client.vigenciaRetencionDesde) {
+    data.vigenciaRetencionDesde = new Date(fechaFactura);
+  }
+  await prisma.client.update({ where: { id: clientId }, data });
+}
+
 export interface CuentaConAlias {
   id: string;
   aliases?: string[] | null;
