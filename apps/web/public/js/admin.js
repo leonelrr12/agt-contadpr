@@ -387,3 +387,151 @@ async function annulEmpresaCierre(id, clave) {
     loadPanelCierresAdmin();
   } catch (e) { alert('❌ Error de conexión'); }
 }
+
+/* ── Usuarios de la empresa (admin/superadmin) ── */
+async function loadPanelUsuariosAdmin() {
+  const me = getUser();
+  const btn = document.getElementById('tab-usuarios-admin');
+  if (btn) btn.style.display = (me?.role === 'contador') ? 'none' : '';
+  if (me?.role === 'contador') return;
+  const list = document.getElementById('usuarios-admin-list');
+  const count = document.getElementById('usuarios-admin-count');
+  try {
+    const res = await authFetch(`${API_URL}/users`);
+    if (!res.ok) { list.innerHTML = '<tr><td colspan="5" style="padding:16px;text-align:center;color:#dc2626">Sin permiso para ver usuarios</td></tr>'; return; }
+    const users = await res.json();
+    count.textContent = `${users.length} usuario(s) de la empresa`;
+    if (!users.length) {
+      list.innerHTML = '<tr><td colspan="5" style="padding:16px;text-align:center;color:#6b7280">Sin usuarios adicionales. Crea el primero con "+ Nuevo usuario".</td></tr>';
+      return;
+    }
+    const roleBadge = r => ({ admin: ['Dueño', '#7c3aed', '#f5f3ff'], contador: ['Contador', '#0369a1', '#f0f9ff'], asistente: ['Asistente', '#6b7280', '#f3f4f6'] }[r] || [r, '#6b7280', '#f3f4f6']);
+    const rows = users.map(u => {
+      const [rl, rc, rb] = roleBadge(u.role);
+      const esYo = me && u.id === me.id;
+      return `<tr>
+        <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0">${escapeHtml(u.name)}${esYo ? ' <span style="font-size:10px;color:#6b7280">(tú)</span>' : ''}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0">${escapeHtml(u.email)}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0"><span style="font-size:11px;background:${rb};color:${rc};padding:2px 8px;border-radius:10px;font-weight:600">${rl}</span></td>
+        <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0">${u.isActive ? '<span style="color:#059669;font-size:12px;font-weight:600">✅ Activo</span>' : '<span style="color:#dc2626;font-size:12px;font-weight:600">⛔ Desactivado</span>'}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap">
+          ${esYo || u.role === 'admin' || u.role === 'superadmin' ? '' : `<button onclick="openEditarUsuario('${u.id}')" style="padding:4px 9px;font-size:11px;background:#4b5563;color:#fff;border:none;border-radius:4px;cursor:pointer">✏️</button>
+          <button onclick="${u.isActive ? 'desactivarUsuario' : 'reactivarUsuario'}('${u.id}')" style="padding:4px 9px;font-size:11px;background:${u.isActive ? '#ef4444' : '#059669'};color:#fff;border:none;border-radius:4px;cursor:pointer">${u.isActive ? '⛔' : '▶️'}</button>`}
+          <button onclick="resetPassUsuario('${u.id}')" title="Enviar email de reset de contraseña" style="padding:4px 9px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">🔁</button>
+        </td>
+      </tr>`;
+    });
+    list.innerHTML = rows.join('');
+  } catch (e) { list.innerHTML = '<tr><td colspan="5" style="padding:16px;text-align:center;color:#dc2626">Error de conexión</td></tr>'; }
+}
+
+function openCrearUsuario() {
+  const overlay = document.createElement('div');
+  overlay.className = 'app-dialog-overlay';
+  overlay.innerHTML = `<div class="app-dialog" style="max-width:420px">
+    <div style="font-weight:700;font-size:16px;margin-bottom:14px">👥 Nuevo usuario</div>
+    <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Nombre</label>
+    <input id="nu-name" placeholder="Nombre completo" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+    <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Email</label>
+    <input id="nu-email" type="email" placeholder="usuario@empresa.com" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+    <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Rol</label>
+    <select id="nu-rol" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px">
+      <option value="contador">Contador — registra y revisa la contabilidad</option>
+      <option value="asistente">Asistente — acceso básico</option>
+    </select>
+    <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Contraseña inicial (mín. 6 caracteres — entrégasela al usuario)</label>
+    <input id="nu-pass" type="password" placeholder="••••••••" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+    <div style="font-size:11px;color:#6b7280;margin-top:8px">💡 También puedes enviar un email de restablecimiento desde el listado (🔁).</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+      <button class="app-dialog-btn" onclick="this.closest('.app-dialog-overlay').remove()">Cancelar</button>
+      <button class="app-dialog-btn primary" onclick="guardarUsuarioNuevo(this)">💾 Crear</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function guardarUsuarioNuevo(btn) {
+  const body = {
+    name: document.getElementById('nu-name').value,
+    email: document.getElementById('nu-email').value,
+    role: document.getElementById('nu-rol').value,
+    password: document.getElementById('nu-pass').value,
+  };
+  const res = await authFetch(`${API_URL}/users`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const d = await res.json();
+  if (!res.ok) { await showAlert(`❌ ${d.error || 'Error'}`); return; }
+  btn.closest('.app-dialog-overlay').remove();
+  await showAlert(`✅ Usuario creado (${d.role}): ${escapeHtml(d.name)}`);
+  loadPanelUsuariosAdmin();
+}
+
+async function openEditarUsuario(id) {
+  const res = await authFetch(`${API_URL}/users`);
+  const users = await res.json();
+  const u = users.find(x => x.id === id);
+  if (!u) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'app-dialog-overlay';
+  overlay.innerHTML = `<div class="app-dialog" style="max-width:420px">
+    <div style="font-weight:700;font-size:16px;margin-bottom:14px">✏️ Editar usuario — ${escapeHtml(u.name)}</div>
+    <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Nombre</label>
+    <input id="eu-name" value="${escapeHtml(u.name || '')}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+    <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Rol</label>
+    <select id="eu-rol" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px">
+      <option value="contador" ${u.role === 'contador' ? 'selected' : ''}>Contador</option>
+      <option value="asistente" ${u.role === 'asistente' ? 'selected' : ''}>Asistente</option>
+    </select>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+      <button class="app-dialog-btn" onclick="this.closest('.app-dialog-overlay').remove()">Cancelar</button>
+      <button class="app-dialog-btn primary" onclick="guardarUsuarioEditado('${id}', this)">💾 Guardar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function guardarUsuarioEditado(id, btn) {
+  const body = { name: document.getElementById('eu-name').value, role: document.getElementById('eu-rol').value };
+  const res = await authFetch(`${API_URL}/users/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const d = await res.json();
+  if (!res.ok) { await showAlert(`❌ ${d.error || 'Error'}`); return; }
+  btn.closest('.app-dialog-overlay').remove();
+  loadPanelUsuariosAdmin();
+}
+
+async function desactivarUsuario(id) {
+  const ok = await showConfirm('¿Desactivar este usuario? No podrá iniciar sesión hasta reactivarlo.');
+  if (!ok) return;
+  const res = await authFetch(`${API_URL}/users/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isActive: false }),
+  });
+  const d = await res.json();
+  if (!res.ok) { await showAlert(`❌ ${d.error || 'Error'}`); return; }
+  loadPanelUsuariosAdmin();
+}
+async function reactivarUsuario(id) {
+  const res = await authFetch(`${API_URL}/users/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isActive: true }),
+  });
+  const d = await res.json();
+  if (!res.ok) { await showAlert(`❌ ${d.error || 'Error'}`); return; }
+  loadPanelUsuariosAdmin();
+}
+
+async function resetPassUsuario(id) {
+  const res = await authFetch(`${API_URL}/users`);
+  const users = await res.json();
+  const u = users.find(x => x.id === id);
+  if (!u) return;
+  const ok = await showConfirm(`¿Enviar email de restablecimiento de contraseña a <strong>${escapeHtml(u.email)}</strong>?`);
+  if (!ok) return;
+  const r2 = await fetch(`${API_URL}/auth/forgot-password`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: u.email }),
+  });
+  const d = await r2.json().catch(() => ({}));
+  await showAlert(d.success || d.ok ? '✅ Email de restablecimiento enviado.' : (d.error ? `❌ ${d.error}` : '✅ Si el correo existe, se envió el enlace.'));
+}

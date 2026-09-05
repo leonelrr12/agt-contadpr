@@ -398,6 +398,7 @@
           <button class="panel-tab-btn" data-panel="conceptos-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📝 Conceptos</button>
           <button class="panel-tab-btn" data-panel="config" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚙️ Configuración</button>
           <button class="panel-tab-btn" data-panel="cierres-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🗓 Cierres</button>
+          <button class="panel-tab-btn" data-panel="usuarios-admin" id="tab-usuarios-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">👥 Usuarios</button>
         </div>
         <!-- Cuentas Admin -->
         <div id="cuentas-admin-content"></div>
@@ -463,6 +464,23 @@
             </div>
           </div>
         </div>
+        <!-- Usuarios de la empresa (admin) -->
+        <div id="usuarios-admin-content" class="hidden" style="margin-top:4px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <span id="usuarios-admin-count" style="font-size:12px;color:#6b7280"></span>
+            <button class="btn-primary btn-sm" onclick="openCrearUsuario()" style="padding:6px 14px;font-size:12px">+ Nuevo usuario</button>
+          </div>
+          <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead><tr>
+              <th style="text-align:left;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280">Nombre</th>
+              <th style="text-align:left;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280">Email</th>
+              <th style="text-align:left;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280">Rol</th>
+              <th style="text-align:left;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280">Estado</th>
+              <th style="width:32px"></th>
+            </tr></thead>
+            <tbody id="usuarios-admin-list"><tr><td colspan="5" style="padding:16px;text-align:center;color:#6b7280">Cargando...</td></tr></tbody>
+          </table></div>
+        </div>
       </div>
     <!-- Panel de Facturas (módulo add-on) -->
       <div id="panel-facturas-content" class="hidden" style="padding:24px;max-width:1000px">
@@ -520,7 +538,7 @@
   <script src="js/capture-qr.js?v=73"></script>
   <script src="js/chat.js?v=73"></script>
   <script src="js/router.js?v=73"></script>
-  <script src="js/admin.js?v=79"></script>
+  <script src="js/admin.js?v=80"></script>
   <script src="js/init.js?v=73"></script>
   <script src="js/panels-sidebar.js?v=73"></script>
   <script src="js/import.js?v=80"></script>
