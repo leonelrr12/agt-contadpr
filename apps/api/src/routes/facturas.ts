@@ -225,11 +225,20 @@ facturasRouter.get('/', async (req, res) => {
   res.json({ items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) });
 });
 
-/** GET /api/facturas/:id — detalle con items. */
+/** GET /api/facturas/:id — detalle con items y perfil de retención del cliente. */
 facturasRouter.get('/:id', async (req, res) => {
   const invoice = await req.prisma.invoice.findFirst({
     where: { id: req.params.id, companyId: req.user!.companyId },
-    include: { items: true, client: { select: { id: true, name: true, taxId: true } } },
+    include: {
+      items: true,
+      client: {
+        select: {
+          id: true, name: true, taxId: true,
+          esAgenteRetenedor: true, porcentajeRetencionItbms: true,
+          vigenciaRetencionDesde: true, vigenciaRetencionHasta: true,
+        },
+      },
+    },
   });
   if (!invoice) { res.status(404).json({ error: 'Factura no encontrada' }); return; }
   res.json(invoice);

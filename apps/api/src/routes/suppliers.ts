@@ -37,7 +37,7 @@ suppliersRouter.get('/:id', async (req, res) => {
 });
 
 // POST /api/suppliers — Crear proveedor (dedupe por RUC/nombre: higiene de duplicidad)
-suppliersRouter.post('/', requireRole('admin', 'contador'), async (req, res) => {
+suppliersRouter.post('/', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
   const { name, taxId, phone, email, paymentTerms, notes } = req.body;
   if (!name) { res.status(400).json({ error: 'El nombre es requerido' }); return; }
 
@@ -62,7 +62,7 @@ suppliersRouter.post('/', requireRole('admin', 'contador'), async (req, res) => 
 });
 
 // PUT /api/suppliers/:id — Actualizar
-suppliersRouter.put('/:id', requireRole('admin', 'contador'), async (req, res) => {
+suppliersRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
   const { name, taxId, phone, email, paymentTerms, notes } = req.body;
   const existing = await req.prisma.supplier.findFirst({
     where: { id: req.params.id, companyId: req.user!.companyId },
@@ -88,7 +88,7 @@ suppliersRouter.get('/:id/bills', async (req, res) => {
 });
 
 // POST /api/suppliers/:id/bills — Registrar factura de proveedor
-suppliersRouter.post('/:id/bills', requireRole('admin', 'contador'), async (req, res) => {
+suppliersRouter.post('/:id/bills', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
   const { number, amount, itbms, dueDate, date, description } = req.body;
   if (!amount) { res.status(400).json({ error: 'El monto es requerido' }); return; }
 
@@ -117,7 +117,7 @@ suppliersRouter.post('/:id/bills', requireRole('admin', 'contador'), async (req,
 });
 
 // PATCH /api/suppliers/:id/bills/:billId/pay — Marcar como pagada
-suppliersRouter.patch('/:id/bills/:billId/pay', requireRole('admin', 'contador'), async (req, res) => {
+suppliersRouter.patch('/:id/bills/:billId/pay', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
   const bill = await req.prisma.bill.findFirst({
     where: { id: req.params.billId, supplierId: req.params.id, companyId: req.user!.companyId },
   });

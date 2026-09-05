@@ -212,17 +212,84 @@ async function saveFactura() {
   } catch (e) { alert('❌ Error de conexión'); }
 }
 
+/**
+ * Modal de cobro con retención ITBMS: efectivo recibido + retención sufrida
+ * (crédito fiscal si el cliente es agente de retención vigente).
+ */
 async function payFactura(id) {
-  if (!confirm('¿Marcar esta factura como cobrada? Se creará el asiento de cobro (BORRADOR).')) return;
+  let inv;
   try {
-    const res = await authFetch(`${API_URL}/facturas/${id}/pay`, { method: 'PATCH' });
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({}));
-      alert('❌ ' + (e.error || 'Error al cobrar'));
-      return;
-    }
+    const res = await authFetch(`${API_URL}/facturas/${id}`);
+    if (!res.ok) { alert('❌ No se pudo cargar la factura'); return; }
+    inv = await res.json();
+  } catch (e) { alert('❌ Error de conexión'); return; }
+
+  const total = inv.total || 0;
+  const saldo = Math.max(0, Math.round((total - (inv.paidAmount || 0)) * 100) / 100);
+  if (saldo <= 0.01) { alert('La factura ya está pagada.'); loadFacturasList(); return; }
+  const cli = inv.client || {};
+  const fechaFact = new Date(inv.date);
+  const agenteOk = !!cli.esAgenteRetenedor && inv.itbms > 0 &&
+    (!cli.vigenciaRetencionDesde || fechaFact >= new Date(cli.vigenciaRetencionDesde)) &&
+    (!cli.vigenciaRetencionHasta || fechaFact <= new Date(cli.vigenciaRetencionHasta));
+  const pct = Number(cli.porcentajeRetencionItbms ?? 0.5);
+  const retEsperada = agenteOk ? Math.round(inv.itbms * pct * 100) / 100 : 0;
+  const neto = saldo - retEsperada;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'app-dialog-overlay';
+  overlay.innerHTML = `<div class="app-dialog" style="max-width:440px">
+    <div style="font-weight:700;font-size:16px;margin-bottom:4px">💵 Cobrar factura ${escapeHtml(inv.number || '')}</div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:14px">${escapeHtml(cli.name || '')} · Saldo: <strong>${fmtFac(saldo)}</strong>${inv.itbms > 0 ? ` · ITBMS: ${fmtFac(inv.itbms)}` : ''}</div>
+    ${agenteOk ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 10px;font-size:12px;color:#1e40af;margin-bottom:12px">🔖 <strong>Cliente agente de retención</strong> (${Math.round(pct * 100)}% del ITBMS). Si te pagó el neto, la retención estimada es <strong>${fmtFac(retEsperada)}</strong> y el efectivo esperado ${fmtFac(neto)}.</div>` : ''}
+    ${!cli.esAgenteRetenedor && inv.itbms > 0 && saldo === total ? `<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:8px 10px;font-size:12px;color:#92400e;margin-bottom:12px">📌 ¿Este cliente te retiene ITBMS? Márcalo como agente en Auxiliares → ✏️ y el sistema lo sugerirá aquí.</div>` : ''}
+    <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Efectivo recibido</label>
+    <input id="pay-efectivo" type="number" step="0.01" min="0" value="${agenteOk ? Math.max(0, Math.round((saldo - retEsperada) * 100) / 100) : saldo}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:14px">
+    <label style="font-size:11px;color:#6b7280;display:block;margin:10px 0 2px">Retención ITBMS sufrida (crédito fiscal)</label>
+    <input id="pay-ret" type="number" step="0.01" min="0" value="${agenteOk ? retEsperada : 0}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:14px">
+    <div id="pay-info" style="font-size:12px;color:#6b7280;margin-top:8px"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      <button class="app-dialog-btn" onclick="this.closest('.app-dialog-overlay').remove()">Cancelar</button>
+      <button class="app-dialog-btn primary" onclick="confirmarCobro('${id}', this)">💵 Confirmar cobro</button>
+    </div>
+  </div>`;
+  const info = overlay.querySelector('#pay-info');
+  const upd = () => {
+    const ef = Number(overlay.querySelector('#pay-efectivo').value || 0);
+    const ret = Number(overlay.querySelector('#pay-ret').value || 0);
+    const ap = Math.round((ef + ret) * 100) / 100;
+    info.innerHTML = ap > saldo + 0.001
+      ? `<span style="color:#dc2626">⚠️ El total aplicado (${fmtFac(ap)}) excede el saldo (${fmtFac(saldo)}).</span>`
+      : (Math.abs((saldo - ap) - retEsperada) <= 0.01 && ret === 0 && retEsperada > 0
+        ? `<span style="color:#1e40af">💡 Si este efectivo completa el cobro neto, la retención es ${fmtFac(retEsperada)} — actívala arriba para que la factura quede saldada.</span>`
+        : `Aplicado: <strong>${fmtFac(ap)}</strong> · Queda por cobrar: ${fmtFac(Math.max(0, saldo - ap))}${ret > 0 ? ' · (retención = crédito fiscal, no queda pendiente en CxC)' : ''}`);
+  };
+  overlay.querySelector('#pay-efectivo').addEventListener('input', upd);
+  overlay.querySelector('#pay-ret').addEventListener('input', upd);
+  upd();
+  document.body.appendChild(overlay);
+}
+
+async function confirmarCobro(id, btn) {
+  const efectivo = Number(document.getElementById('pay-efectivo').value || 0);
+  const retencionItbms = Number(document.getElementById('pay-ret').value || 0);
+  if (efectivo < 0 || retencionItbms < 0) { alert('Montos inválidos'); return; }
+  btn.disabled = true;
+  try {
+    const res = await authFetch(`${API_URL}/facturas/${id}/pay`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ efectivo, retencionItbms }),
+    });
+    const d = await res.json();
+    if (!res.ok) { alert('❌ ' + (d.error || 'Error al cobrar')); btn.disabled = false; return; }
+    btn.closest('.app-dialog-overlay').remove();
+    const parts = [`Cobro aplicado: ${fmtFac(d.aplicado || efectivo + retencionItbms)}`];
+    if (d.retencionItbms > 0) parts.push(`retención ITBMS: ${fmtFac(d.retencionItbms)} (crédito fiscal — regístrala en Informes → Retenciones ITBMS cuando recibas el certificado)`);
+    if (d.status === 'PAGADA') parts.push('factura PAGADA ✅');
+    alert(parts.join(' · '));
     loadFacturasList();
-  } catch (e) { alert('❌ Error de conexión'); }
+  } catch (e) { alert('❌ Error de conexión'); btn.disabled = false; }
 }
 
 // ── Configuración (serie, resolución DGI, logo) ──

@@ -87,6 +87,42 @@ journalRouter.post('/:id/review', requireRole('admin', 'contador', 'superadmin')
           where: { journalEntryId: entry.id },
           data: { status: 'RECHAZADA' },
         });
+
+        // Cobros: el asiento es provisional — al rechazarlo se REVIERTEN sus
+        // efectos sobre la factura (InvoicePayment, retención y paidAmount),
+        // para que CxC vuelva al estado real y la carga pueda rehacerse.
+        // (El JE del cobro no referencia la factura: la referencia es del JE
+        // de VENTA; por eso hay que revertir explícitamente por payments.)
+        const cobroPayments = await tx.invoicePayment.findMany({
+          where: { journalEntryId: entry.id },
+          select: { id: true, invoiceId: true },
+        });
+        if (cobroPayments.length > 0) {
+          await tx.retentionItbms.deleteMany({
+            where: { invoicePaymentId: { in: cobroPayments.map(p => p.id) } },
+          });
+          await tx.invoicePayment.deleteMany({ where: { journalEntryId: entry.id } });
+          const invoiceIds = [...new Set(cobroPayments.map(p => p.invoiceId))];
+          for (const invId of invoiceIds) {
+            const inv = await tx.invoice.findUnique({ where: { id: invId } });
+            if (!inv) continue;
+            const restantes = await tx.invoicePayment.aggregate({
+              where: { invoiceId: invId },
+              _sum: { amount: true, retentionAmount: true },
+            });
+            const aplicado = Math.round(((restantes._sum.amount || 0) + (restantes._sum.retentionAmount || 0)) * 100) / 100;
+            const saldo = Math.round((inv.total - aplicado) * 100) / 100;
+            const quedaPagada = saldo <= 0.01;
+            await tx.invoice.update({
+              where: { id: invId },
+              data: {
+                paidAmount: aplicado,
+                status: quedaPagada ? 'PAGADA' : 'PENDIENTE',
+                paidAt: quedaPagada ? (inv.paidAt ?? new Date()) : null,
+              },
+            });
+          }
+        }
       }
 
       return { updated, previousStatus: entry.status };

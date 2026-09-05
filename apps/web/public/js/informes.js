@@ -29,15 +29,15 @@ function clickInformeTab(informe) {
   if (active) { active.classList.add('active'); active.style.color = '#1a1a2e'; active.style.borderBottomColor = '#1565c0'; }
   _currentInformeTab = informe;
   // Mostrar filtro de fecha solo para reportes que lo soportan
-  const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', resultados: 'estado-resultados', dashboard: null, auxiliares: null, revision: null, proveedores: 'proveedores' };
-  const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'resultados' || informe === 'proveedores' || informe === 'dashboard');
+  const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', resultados: 'estado-resultados', dashboard: null, auxiliares: null, revision: null, proveedores: 'proveedores', retenciones: null };
+  const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'resultados' || informe === 'proveedores' || informe === 'dashboard' || informe === 'retenciones');
   document.getElementById('informes-date-filter').classList.toggle('hidden', !showFilter);
   // Mostrar filtro de status solo en Diario
   const statusEl = document.getElementById('informes-filter-status');
   if (statusEl) statusEl.style.display = informe === 'diario' ? '' : 'none';
   setInformesExportBar(exportTypes[informe] || null);
   showInformesLoading();
-  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard, proveedores: loadReportProveedores };
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard, proveedores: loadReportProveedores, retenciones: loadRetencionesItbms };
   if (loaders[informe]) loaders[informe]();
 }
 
@@ -310,7 +310,7 @@ async function loadAuxCxC(el) {
       `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Vencidas</div><div style="font-size:20px;font-weight:700;color:#ef4444">${sum.overdueInvoices}</div></div>`+
     '</div>';
     html += clients.filter(c => c.totalDue > 0).length
-      ? buildInformesTable(['Cliente','RUC','Pendiente','Facturas',''], clients.filter(c => c.totalDue > 0).map(c => [escapeHtml(c.name), escapeHtml(c.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${c.totalDue.toLocaleString()}</span>`, c.invoiceCount||'—', `<button onclick="toggleFacturas('${c.id}','invoices')" style="padding:4px 10px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📋 Ver</button><div id="detalle-${c.id}" class="hidden" style="margin-top:8px"></div>`]))
+      ? buildInformesTable(['Cliente','RUC','Pendiente','Facturas',''], clients.filter(c => c.totalDue > 0).map(c => [escapeHtml(c.name), escapeHtml(c.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${c.totalDue.toLocaleString()}</span>`, c.invoiceCount||'—', `<button onclick="openClientProfileModal('${c.id}')" title="Ficha del cliente (perfil de agente de retención)" style="padding:4px 9px;font-size:11px;background:#4b5563;color:#fff;border:none;border-radius:4px;cursor:pointer">✏️</button> <button onclick="toggleFacturas('${c.id}','invoices')" style="padding:4px 10px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📋 Ver</button><div id="detalle-${c.id}" class="hidden" style="margin-top:8px"></div>`]))
       : '<div style="text-align:center;padding:24px;color:#6b7280">Sin clientes con saldo pendiente</div>';
     el.innerHTML = html;
   } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; }
@@ -376,7 +376,7 @@ function getInformesDateParams() {
   return params;
 }
 function loadCurrentInformeTab() {
-  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard, proveedores: loadReportProveedores };
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard, proveedores: loadReportProveedores, retenciones: loadRetencionesItbms };
   if (loaders[_currentInformeTab]) loaders[_currentInformeTab]();
 }
 
@@ -488,3 +488,179 @@ function toggleProveedorDetalle(i) {
   if (el) el.classList.toggle('hidden');
 }
 
+
+/* ── Retenciones ITBMS (crédito fiscal — Form. 430 renglón 52) ── */
+
+async function loadRetencionesItbms() {
+  const el = document.getElementById('informes-inline-result');
+  const from = document.getElementById('informes-filter-from')?.value || '';
+  const to = document.getElementById('informes-filter-to')?.value || '';
+  const q = new URLSearchParams();
+  if (from) q.set('desde', from);
+  if (to) q.set('hasta', to);
+  try {
+    const res = await authFetch(`${API_URL}/retenciones-itbms?${q.toString()}`);
+    if (!res.ok) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar</div>'; return; }
+    const rows = await res.json();
+    const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (!rows.length) {
+      el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Sin retenciones de ITBMS en el período seleccionado.<br><span style="font-size:12px">Las retenciones se registran automáticamente al cobrar a un cliente agente con retención.</span></div>';
+      return;
+    }
+    const total = rows.reduce((s, r) => s + (r.montoRetencion || 0), 0);
+    const pend = rows.filter(r => r.estado === 'PENDIENTE').length;
+    const recibidas = rows.filter(r => r.estado === 'RECIBIDA').length;
+    const cards = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">
+      <div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Retenciones registradas</div><div style="font-size:20px;font-weight:700">${rows.length}</div></div>
+      <div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Crédito fiscal total</div><div style="font-size:20px;font-weight:700;color:#1565c0">${money(total)}</div></div>
+      <div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">⏳ Pendientes de certificado</div><div style="font-size:20px;font-weight:700;color:#f59e0b">${pend}</div></div>
+      <div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">📄 Con certificado</div><div style="font-size:20px;font-weight:700;color:#0284c7">${recibidas}</div></div>
+    </div>`;
+    const toolbar = `<div style="margin-bottom:12px;display:flex;justify-content:flex-end">
+      <button onclick="exportarRetencionesCsv()" style="padding:5px 12px;font-size:11px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer">📥 CSV auxiliar DGI</button>
+    </div>`;
+    const est = s => ({
+      PENDIENTE: ['⏳ Pendiente', '#b45309', '#fffbeb'],
+      RECIBIDA: ['📄 Recibida', '#0369a1', '#f0f9ff'],
+      APLICADA: ['✅ Aplicada', '#047857', '#f0fdf4'],
+      ANULADA: ['🚫 Anulada', '#6b7280', '#f3f4f6'],
+    }[s] || [s, '#6b7280', '#f3f4f6']);
+    const rowsHtml = rows.map(r => {
+      const [sl, sc, sb] = est(r.estado);
+      let accion = '—';
+      if (r.estado === 'PENDIENTE') {
+        accion = `<input id="cert-${r.id}" placeholder="Nº certificado" style="width:110px;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px">
+          <input id="certfecha-${r.id}" type="date" style="padding:3px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px">
+          <button onclick="retencionRecibir('${r.id}')" style="padding:4px 8px;font-size:11px;background:#0284c7;color:#fff;border:none;border-radius:4px;cursor:pointer">📥 Recibir</button>
+          <button onclick="retencionAnular('${r.id}')" style="padding:4px 8px;font-size:11px;background:#ef4444;color:#fff;border:none;border-radius:4px;cursor:pointer">✕</button>`;
+      } else if (r.estado === 'RECIBIDA') {
+        accion = `<button onclick="retencionAplicar('${r.id}')" style="padding:4px 8px;font-size:11px;background:#059669;color:#fff;border:none;border-radius:4px;cursor:pointer">✅ Aplicar (R52)</button>
+          <button onclick="retencionAnular('${r.id}')" title="Anular" style="padding:4px 8px;font-size:11px;background:#ef4444;color:#fff;border:none;border-radius:4px;cursor:pointer">✕</button>`;
+      }
+      return [
+        escapeHtml(r.factura || '—'),
+        new Date(r.fecha).toLocaleDateString('es-PA'),
+        escapeHtml(r.cliente || '—'),
+        escapeHtml(r.ruc || '—'),
+        money(r.baseGravada),
+        money(r.itbmsFacturado),
+        (Math.round((r.porcentaje || 0) * 10000) / 100) + '%',
+        `<strong style="color:#1565c0">${money(r.montoRetencion)}</strong>`,
+        escapeHtml(r.numeroCertificado || '—'),
+        `<span style="font-size:11px;background:${sb};color:${sc};padding:2px 8px;border-radius:10px;font-weight:600">${sl}</span>`,
+        accion,
+      ];
+    });
+    const totalRow = rows.reduce((s, r) => s + (r.montoRetencion || 0), 0);
+    const table = buildInformesTable(
+      ['Nº Factura', 'Fecha', 'Cliente', 'RUC', 'Gravado', 'ITBMS', '%', 'Retenido', 'Certificado', 'Estado', 'Acciones'],
+      rowsHtml,
+      Array(11).fill('').map((_, i) => i === 7 ? `<strong>${money(totalRow)}</strong>` : (i === 0 ? 'TOTAL' : ''))
+    );
+    el.innerHTML = cards + toolbar + table;
+  } catch (e) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#dc2626">Error al cargar</div>'; }
+}
+
+async function retencionRecibir(id) {
+  const cert = (document.getElementById('cert-' + id)?.value || '').trim();
+  const fecha = document.getElementById('certfecha-' + id)?.value || new Date().toISOString().slice(0, 10);
+  if (!cert) { await showAlert('⚠️ Ingresa el número del certificado del agente antes de marcar la retención como recibida.'); return; }
+  const res = await authFetch(`${API_URL}/retenciones-itbms/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ estado: 'RECIBIDA', numeroCertificado: cert, fechaCertificado: fecha }),
+  });
+  const d = await res.json();
+  if (res.ok) { await showAlert('✅ Retención marcada como recibida (certificado registrado).'); loadCurrentInformeTab(); }
+  else await showAlert(`❌ ${d.error || 'Error'}`);
+}
+async function retencionAplicar(id) {
+  const ok = await showConfirm('¿Marcar esta retención como <strong>APLICADA</strong>? Se asume que el crédito se usó en la declaración (Form. 430, renglón 52).');
+  if (!ok) return;
+  const res = await authFetch(`${API_URL}/retenciones-itbms/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado: 'APLICADA' }),
+  });
+  const d = await res.json();
+  if (res.ok) { await showAlert('✅ Retención aplicada como crédito fiscal.'); loadCurrentInformeTab(); }
+  else await showAlert(`❌ ${d.error || 'Error'}`);
+}
+async function retencionAnular(id) {
+  const ok = await showConfirm('¿Anular esta retención? El crédito fiscal ya no estará disponible.');
+  if (!ok) return;
+  const res = await authFetch(`${API_URL}/retenciones-itbms/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado: 'ANULADA' }),
+  });
+  const d = await res.json();
+  if (res.ok) { await showAlert('Retención anulada.'); loadCurrentInformeTab(); }
+  else await showAlert(`❌ ${d.error || 'Error'}`);
+}
+function exportarRetencionesCsv() {
+  const from = document.getElementById('informes-filter-from')?.value || '';
+  const to = document.getElementById('informes-filter-to')?.value || '';
+  const q = new URLSearchParams({ token: getToken() });
+  if (from) q.set('desde', from);
+  if (to) q.set('hasta', to);
+  window.open(`${API_URL}/retenciones-itbms/report.csv?${q.toString()}`, '_blank');
+}
+
+/* ── Ficha del cliente: perfil de agente de retención ITBMS ── */
+async function openClientProfileModal(clientId) {
+  try {
+    const res = await authFetch(`${API_URL}/clients/${clientId}`);
+    if (!res.ok) { await showAlert('❌ No se pudo cargar el cliente'); return; }
+    const c = await res.json();
+    const overlay = document.createElement('div');
+    overlay.className = 'app-dialog-overlay';
+    overlay.innerHTML = `<div class="app-dialog" style="max-width:460px">
+      <div style="font-weight:700;font-size:16px;margin-bottom:14px">✏️ Ficha del cliente — retención ITBMS</div>
+      <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Cliente</label>
+      <input id="pf-name" value="${escapeHtml(c.name || '')}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+      <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">RUC</label>
+      <input id="pf-ruc" value="${escapeHtml(c.taxId || '')}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px;background:#f3f4f6" readonly>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="pf-agente" ${c.esAgenteRetenedor ? 'checked' : ''}> <strong>Es agente de retención ITBMS</strong>
+      </label>
+      <div id="pf-agente-fields" style="display:${c.esAgenteRetenedor ? 'block' : 'none'};margin-top:10px">
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">% de retención sobre el ITBMS (0-1; default 0.5 = 50%)</label>
+        <input id="pf-pct" type="number" step="0.05" min="0" max="1" value="${c.porcentajeRetencionItbms ?? 0.5}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <div style="flex:1"><label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Vigencia desde</label>
+            <input id="pf-desde" type="date" value="${c.vigenciaRetencionDesde ? String(c.vigenciaRetencionDesde).slice(0, 10) : ''}" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px"></div>
+          <div style="flex:1"><label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Vigencia hasta</label>
+            <input id="pf-hasta" type="date" value="${c.vigenciaRetencionHasta ? String(c.vigenciaRetencionHasta).slice(0, 10) : ''}" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px"></div>
+        </div>
+        <div style="font-size:11px;color:#6b7280;margin-top:8px">💡 La retención aplica solo si el cliente es agente en la <strong>fecha de la factura</strong> (las listas DGI cambian por resolución).</div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+        <button class="app-dialog-btn" onclick="this.closest('.app-dialog-overlay').remove()">Cancelar</button>
+        <button class="app-dialog-btn primary" onclick="saveClientProfileModal('${c.id}', this)">💾 Guardar</button>
+      </div>
+    </div>`;
+    overlay.querySelector('#pf-agente').addEventListener('change', e => {
+      document.getElementById('pf-agente-fields').style.display = e.target.checked ? 'block' : 'none';
+    });
+    document.body.appendChild(overlay);
+  } catch (e) { await showAlert('Error de conexión'); }
+}
+
+async function saveClientProfileModal(clientId, btn) {
+  const body = {
+    name: document.getElementById('pf-name').value,
+    taxId: document.getElementById('pf-ruc').value,
+    esAgenteRetenedor: document.getElementById('pf-agente').checked,
+  };
+  if (body.esAgenteRetenedor) {
+    body.porcentajeRetencionItbms = Number(document.getElementById('pf-pct').value || 0.5);
+    body.vigenciaRetencionDesde = document.getElementById('pf-desde').value || null;
+    body.vigenciaRetencionHasta = document.getElementById('pf-hasta').value || null;
+  }
+  const res = await authFetch(`${API_URL}/clients/${clientId}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const d = await res.json();
+  if (!res.ok) { await showAlert(`❌ ${d.error || 'Error'}`); return; }
+  btn.closest('.app-dialog-overlay').remove();
+  await showAlert('✅ Cliente actualizado.');
+  try { loadCurrentInformeTab(); } catch (e) { /* si no es tab de informes */ }
+  const auxBox = document.getElementById('aux-sidebar-content');
+  if (auxBox && !auxBox.classList.contains('hidden')) { try { loadAuxCxC(auxBox); } catch (e) { /* noop */ } }
+}
