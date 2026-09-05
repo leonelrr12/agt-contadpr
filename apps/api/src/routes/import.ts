@@ -5,7 +5,7 @@ import { requireQuota, incrementUsage } from '../middleware/quota';
 import { parseImportFile, parseCargaInicialFile, parseCobrosFile } from '../services/csv-parser';
 import type { ParsedRow, CobrosRow, CobrosParseResult } from '../services/csv-parser';
 import { resolveCargaInicialRows } from '../services/account-lookup';
-import { retencionTotalEsperada, findAccountByAlias } from '../services/retencion-itbms';
+import { retencionCobroInfo, marcarClienteAgente, findAccountByAlias } from '../services/retencion-itbms';
 import { ClassificationAgent } from '@agt-contador/agents';
 import { AccountingAgent } from '@agt-contador/agents';
 import { importExecuteSchema } from '../validation/schemas';
@@ -90,7 +90,7 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
           headers: parsed.headers,
           totalRows: parsed.totalRows,
           cobros: true,
-          cobrosPreview: { rows: [], success: 0, errors: [], pending: 0, omitted: 0, appliedTotal: 0, totalRetencionItbms: 0, markedPaid: 0 },
+          cobrosPreview: { rows: [], success: 0, errors: [], pending: 0, omitted: 0, appliedTotal: 0, totalRetencionItbms: 0, clientesAutoMarcados: 0, markedPaid: 0 },
         });
         return;
       }
@@ -114,6 +114,7 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
           omitted: sim.omitted,
           appliedTotal: sim.appliedTotal,
           totalRetencionItbms: sim.totalRetencionItbms,
+          clientesAutoMarcados: sim.clientesAutoMarcados,
           markedPaid: sim.markedPaid,
         },
       });
@@ -598,6 +599,7 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
     };
     let markedPaid = 0;
     let totalRetencionItbms = 0;
+    const autoMarcarIds = new Set<string>();
 
     for (let i = 0; i < parsed.rows.length; i++) {
       const row = parsed.rows[i];
@@ -722,6 +724,11 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
             });
           }
 
+          // Evidencia de retención en cliente sin perfil → marcarlo como agente
+          if (ret > 0 && validation.autoMarcar) {
+            await marcarClienteAgente(tx, invoice.clientId, invoice.date, ret, fresh.itbms || 0);
+          }
+
           const updated = await tx.invoice.update({
             where: { id: fresh.id },
             data: {
@@ -744,6 +751,7 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
 
         if (outcome.quedaPagada) markedPaid++;
         if (ret > 0) totalRetencionItbms = r2(totalRetencionItbms + ret);
+        if (validation.autoMarcar) autoMarcarIds.add(invoice.clientId);
         results.entryIds.push(outcome.created.id);
         results.success++;
       } catch (err: any) {
@@ -762,6 +770,7 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
       pending: results.pending,
       omitted: results.omitted,
       totalRetencionItbms,
+      clientesAutoMarcados: autoMarcarIds.size,
       entryIds: results.entryIds.slice(0, 5),
       markedPaid,
     });
@@ -1247,9 +1256,11 @@ export interface CobroValidation {
   invoice?: CobroInvoiceLite;
   viaDigits?: boolean;
   amount?: number;          // efectivo
-  retencionItbms?: number;  // retención declarada en la fila (default 0)
+  retencionItbms?: number;  // retención final de la fila (declarada o auto)
+  retencionAuto?: boolean;  // ¿detectada por cierre del neto (sin columna)?
+  autoMarcar?: boolean;     // ¿la retención marcará al cliente como agente?
   aplicado?: number;        // amount + retención (lo que reduce el saldo)
-  esperadaRetencion?: number; // retención total esperada según perfil (0 si no aplica)
+  esperadaRetencion?: number; // tope del % del ITBMS (perfil o 50% estándar)
   dateStr?: string;
   account?: CobroAccount;
   clientsAccount?: CobroAccount;
@@ -1314,20 +1325,24 @@ function validateCobroRow(
     };
   }
 
-  // Retención ITBMS sufrida: solo si el cliente es agente vigente en la fecha
-  // de la factura y nunca supera el porcentaje del ITBMS de la misma.
-  const esperadaRetencion = retencionTotalEsperada(invoice.clientProfile, invoice.itbms, invoice.date);
-  const pctAgente = Math.round((invoice.clientProfile?.porcentajeRetencionItbms ?? 0.5) * 100);
-  if (ret > 0 && esperadaRetencion <= COBRO_EPS) {
+  // Retención ITBMS sufrida. Tope: porcentaje del perfil si el cliente es
+  // agente vigente en la fecha de la factura; si NO está marcado se tolera la
+  // retención explícita hasta el 50% estándar (la evidencia del cobro marca
+  // al cliente como agente al aplicar — autoMarcar). Si la fila NO declara
+  // retención pero el efectivo cierra exactamente el neto (efectivo = saldo −
+  // tope), se detecta la retención automáticamente (retencionAuto).
+  const { cap, pct, esAgente } = retencionCobroInfo(invoice.clientProfile, invoice.itbms, invoice.date);
+  const pctAgente = Math.round(pct * 100);
+  if (ret > 0 && cap <= COBRO_EPS) {
     return {
       ok: false, code: 'RETENCION_NOT_AGENT',
-      message: `La factura ${invoice.number} no admite retención de ITBMS: el cliente no es agente retenedor vigente para la fecha de la factura o la factura no tiene ITBMS. Revise la ficha del cliente.`,
+      message: `La factura ${invoice.number} no tiene ITBMS para retener.`,
     };
   }
-  if (ret > esperadaRetencion + COBRO_EPS) {
+  if (ret > cap + COBRO_EPS) {
     return {
       ok: false, code: 'RETENCION_EXCEEDS',
-      message: `La retención de $${ret.toFixed(2)} excede el ${pctAgente}% del ITBMS ($${esperadaRetencion.toFixed(2)}) de la factura ${invoice.number}.`,
+      message: `La retención de $${ret.toFixed(2)} excede el ${pctAgente}% del ITBMS ($${cap.toFixed(2)}) de la factura ${invoice.number}.`,
     };
   }
 
@@ -1335,15 +1350,28 @@ function validateCobroRow(
   if (saldo <= COBRO_EPS) {
     return { ok: false, code: 'ALREADY_APPLIED', message: `La factura ${invoice.number} ya está pagada (se omite).` };
   }
-  const dupKey = cobroDupKey(invoice.id, amount!, account.id, dateStr!, ret);
+
+  // Cierre del neto sin columna de retención → retención automática sugerida.
+  // Comparación EN CENTAVOS (los floats: |167.67 − 167.68| da 0.010000000000005)
+  // y la retención toma la diferencia real del archivo, nunca más que el tope.
+  let retencionFinal = ret;
+  let retencionAuto = false;
+  const restanteCents = Math.round((saldo - amount!) * 100);
+  const capCents = Math.round(cap * 100);
+  if (ret === 0 && capCents > 0 && Math.abs(restanteCents - capCents) <= 1) {
+    retencionFinal = Math.min(cap, r2(saldo - amount!));
+    retencionAuto = true;
+  }
+
+  const dupKey = cobroDupKey(invoice.id, amount!, account.id, dateStr!, retencionFinal);
   if (dupKeysByInvoice?.get(invoice.id)?.has(dupKey)) {
     return { ok: false, code: 'ALREADY_APPLIED', message: `El pago de $${amount!.toFixed(2)} a la factura ${invoice.number} ya está registrado (se omite).` };
   }
-  const aplicado = r2(amount! + ret);
+  const aplicado = r2(amount! + retencionFinal);
   if (aplicado > saldo + COBRO_EPS) {
     return {
       ok: false, code: 'EXCEEDS_BALANCE',
-      message: `El total aplicado de $${aplicado.toFixed(2)} (efectivo $${amount!.toFixed(2)}${ret > 0 ? ` + retención $${ret.toFixed(2)}` : ''}) excede el saldo de la factura ${invoice.number} ($${saldo.toFixed(2)}).`,
+      message: `El total aplicado de $${aplicado.toFixed(2)} (efectivo $${amount!.toFixed(2)}${retencionFinal > 0 ? ` + retención $${retencionFinal.toFixed(2)}` : ''}) excede el saldo de la factura ${invoice.number} ($${saldo.toFixed(2)}).`,
     };
   }
 
@@ -1353,9 +1381,11 @@ function validateCobroRow(
     invoice,
     viaDigits: via === 'digits',
     amount: amount!,
-    retencionItbms: ret,
+    retencionItbms: retencionFinal,
+    retencionAuto,
+    autoMarcar: retencionFinal > 0 && !esAgente,
     aplicado,
-    esperadaRetencion,
+    esperadaRetencion: cap,
     dateStr: dateStr!,
     account,
     clientsAccount,
@@ -1382,7 +1412,9 @@ interface CobroPreviewRow {
   clientMatched: string | null;
   date: string | null;
   amount: number | null;           // efectivo
-  retencionItbms: number | null;   // retención declarada (0 si ninguna)
+  retencionItbms: number | null;   // retención aplicada (declarada o auto)
+  retencionAuto: boolean;          // ¿detectada por cierre del neto?
+  autoMarcarCliente: boolean;      // ¿marcará al cliente como agente?
   posibleRetencion: number | null; // sugerencia informativa (cierre con retención)
   accountName: string | null;
   accountCode: string | null;    // código de la cuenta contable resuelta
@@ -1407,6 +1439,7 @@ export async function simulateCobrosFile(
   omitted: number;
   appliedTotal: number;
   totalRetencionItbms: number;
+  clientesAutoMarcados: number;
   markedPaid: number;
 }> {
   const accounts = await loadCobroAccounts(prisma, companyId);
@@ -1422,6 +1455,7 @@ export async function simulateCobrosFile(
   let omitted = 0;
   let appliedTotal = 0;
   let totalRetencionItbms = 0;
+  const autoMarcarIds = new Set<string>();
   let markedPaid = 0;
 
   for (let i = 0; i < rows.length; i++) {
@@ -1436,8 +1470,8 @@ export async function simulateCobrosFile(
         row: rowNum, status: 'pending', code: 'PENDING',
         fileNumber: row.invoiceNumber, number: null, viaDigits: false,
         clientFile: row.client, clientMatched: null,
-        date: null, amount: null, retencionItbms: null, posibleRetencion: null,
-        accountName: null, accountCode: null,
+        date: null, amount: null, retencionItbms: null, retencionAuto: false, autoMarcarCliente: false,
+        posibleRetencion: null, accountName: null, accountCode: null,
         saldoBefore: null, saldoAfter: null, paid: false,
       });
       continue;
@@ -1459,6 +1493,8 @@ export async function simulateCobrosFile(
       retencionItbms: validation.ok || validation.code === 'ALREADY_APPLIED'
         ? (validation.retencionItbms ?? 0)
         : (row.retencionItbms != null && row.retencionItbms > 0 ? r2(row.retencionItbms) : null),
+      retencionAuto: (validation.ok || validation.code === 'ALREADY_APPLIED') ? !!validation.retencionAuto : false,
+      autoMarcarCliente: validation.ok ? !!validation.autoMarcar : false,
       posibleRetencion: null,
       accountName: row.accountName,
       accountCode: validation.ok ? validation.account!.code : null,
@@ -1468,13 +1504,12 @@ export async function simulateCobrosFile(
     };
 
     if (validation.ok && validation.invoice) {
-      // Sugerencia informativa: pago sin retención que deja exactamente la
-      // retención esperada pendiente → probable cierre con retención del agente.
-      if (!validation.retencionItbms && validation.esperadaRetencion! > COBRO_EPS) {
-        const restanteSinRet = r2(validation.saldoBefore! - validation.amount!);
-        if (Math.abs(restanteSinRet - validation.esperadaRetencion!) <= COBRO_EPS) {
-          base.posibleRetencion = validation.esperadaRetencion!;
-        }
+      // Retención auto-detectada (cierre del neto sin columna): marcarla en la
+      // fila para que la UI avise y, si el cliente no estaba marcado, se
+      // marcará como agente al ejecutar.
+      if (validation.retencionAuto && validation.retencionItbms! > 0) {
+        base.posibleRetencion = validation.retencionItbms!;
+        if (validation.autoMarcar) autoMarcarIds.add(validation.invoice.clientId);
       }
       // Aplicar al snapshot para las filas siguientes del mismo lote
       const inv = working.find(w => w.id === validation.invoice!.id)!;
@@ -1498,7 +1533,7 @@ export async function simulateCobrosFile(
     detail.push(base);
   }
 
-  return { rows: detail, errors, pending, omitted, appliedTotal, totalRetencionItbms, markedPaid };
+  return { rows: detail, errors, pending, omitted, appliedTotal, totalRetencionItbms, clientesAutoMarcados: autoMarcarIds.size, markedPaid };
 }
 
 // Manejo de errores de multer

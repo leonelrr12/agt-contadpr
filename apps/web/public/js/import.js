@@ -436,6 +436,9 @@ function renderImportCobrosPreview() {
         accountHtml = `<span style="color:#065f46">${escapeHtml(r.accountName||'')}</span> <span style="color:#9ca3af;font-size:10px">(${escapeHtml(r.accountCode)})</span>`;
       }
       estadoHtml = r.paid ? '✅ <strong>PAGADA</strong>' : '✅ Abono';
+      if (r.retencionItbms > 0) {
+        estadoHtml += ` <span style="font-size:10px;color:#1565c0;background:#eff6ff;padding:1px 6px;border-radius:8px">🔖 ret. ${fmt(r.retencionItbms)}${r.retencionAuto ? ' (auto)' : ''}</span>`;
+      }
       saldoHtml = `${fmt(r.saldoBefore)} → ${fmt(r.saldoAfter)}`;
     } else if (r.status === 'pending') {
       bg = 'style="background:#f8fafc"';
@@ -478,6 +481,9 @@ async function executeImportInline() {
     if ((cp.omitted || 0) > 0) {
       msg += `\n\n↩️ ${cp.omitted} abono(s) ya aplicado(s) se omitirán — re-subir el archivo no duplica pagos.`;
     }
+    if ((cp.clientesAutoMarcados || 0) > 0) {
+      msg += `\n\n🔖 ${cp.clientesAutoMarcados} cliente(s) sin perfil se marcarán automáticamente como agente de retención (evidencia del cobro). Puedes ajustarlo luego en su ficha.`;
+    }
     msg += `\n\nCada pago crea un asiento BORRADOR (débito banco/caja, crédito Clientes) y descuenta del saldo de la factura. Los abonos parciales quedan registrados.`;
     if (cp.errors && cp.errors.length > 0) {
       msg += `\n\n⚠️ ${cp.errors.length} fila(s) con error se omitirán:\n` +
@@ -504,6 +510,9 @@ async function executeImportInline() {
         }
         if ((result.omitted || 0) > 0) {
           msg2 += `\n↩️ ${result.omitted} fila(s) ya aplicada(s) se omitieron (no se duplicaron).`;
+        if ((result.clientesAutoMarcados || 0) > 0) {
+          msg2 += `\n🔖 ${result.clientesAutoMarcados} cliente(s) marcados como agente de retención (revisa su ficha si no aplica).`;
+        }
         }
         if (result.errors && result.errors.length) {
           msg2 += `\n\n❌ ${result.errors.length} fila(s) rechazadas:\n` +

@@ -10,7 +10,7 @@ import { buildFacturaPdf } from '../services/factura-pdf';
 import { createFacturaSchema } from '../validation/schemas';
 import { AccountingAgent } from '@agt-contador/agents';
 import { findOrCreateClient } from '../services/counterparty';
-import { retencionTotalEsperada } from '../services/retencion-itbms';
+import { retencionCobroInfo, marcarClienteAgente } from '../services/retencion-itbms';
 
 export const facturasRouter = Router();
 
@@ -297,21 +297,25 @@ facturasRouter.patch('/:id/pay', requireRole('admin', 'contador', 'superadmin'),
       }
       const quedaPagada = saldo - aplicado <= 0.01;
 
-      // Retención: validar perfil del cliente + tope legal del porcentaje del ITBMS
+      // Retención: tope del porcentaje del ITBMS. Si el cliente no está
+      // marcado como agente se tolera hasta el 50% estándar y se marca
+      // automáticamente al cobrar (evidencia del cobro) — ver retencionCobroInfo.
       const fechaFactura = invoice.date instanceof Date ? invoice.date : new Date(invoice.date);
       let retencionId: string | null = null;
       let retAccountId: string | null = null;
+      let autoMarcadoAgente = false;
       if (ret > 0) {
         if (invoice.paymentMethod !== 'CREDITO') {
           throw Object.assign(new Error('La retención solo aplica a facturas a crédito (CxC).'), { status: 400 });
         }
-        const esperada = retencionTotalEsperada(invoice.client, invoice.itbms, fechaFactura);
-        if (esperada <= 0) {
-          throw Object.assign(new Error('Este cliente no es agente de retención vigente para la fecha de la factura. Revise la ficha del cliente.'), { status: 400 });
+        const info = retencionCobroInfo(invoice.client, invoice.itbms, fechaFactura);
+        if (info.cap <= 0) {
+          throw Object.assign(new Error('La factura no tiene ITBMS para retener.'), { status: 400 });
         }
-        if (ret > esperada + 0.01) {
-          throw Object.assign(new Error(`La retención $${ret.toFixed(2)} excede el ${Math.round((invoice.client?.porcentajeRetencionItbms ?? 0.5) * 100)}% del ITBMS de la factura ($${esperada.toFixed(2)}).`), { status: 400 });
+        if (ret > info.cap + 0.01) {
+          throw Object.assign(new Error(`La retención $${ret.toFixed(2)} excede el ${Math.round(info.pct * 100)}% del ITBMS de la factura ($${info.cap.toFixed(2)}).`), { status: 400 });
         }
+        autoMarcadoAgente = !info.esAgente;
       }
 
       let journalEntryId = invoice.journalEntryId;
@@ -391,7 +395,6 @@ facturasRouter.patch('/:id/pay', requireRole('admin', 'contador', 'superadmin'),
 
       // Retención sufrida → registro de crédito fiscal (estado PENDIENTE hasta el certificado)
       if (ret > 0) {
-        const esperada = retencionTotalEsperada(invoice.client, invoice.itbms, fechaFactura);
         const created = await tx.retentionItbms.create({
           data: {
             companyId: req.user!.companyId,
@@ -401,16 +404,20 @@ facturasRouter.patch('/:id/pay', requireRole('admin', 'contador', 'superadmin'),
             fecha: new Date(),
             baseGravada: invoice.amount,
             itbmsFacturado: invoice.itbms,
-            porcentaje: esperada > 0 ? ret / invoice.itbms : 0.5,
+            porcentaje: invoice.itbms > 0 ? ret / invoice.itbms : 0.5,
             montoRetencion: ret,
             journalEntryId: jeId,
             estado: 'PENDIENTE',
           },
         });
         retencionId = created.id;
+        // Evidencia de retención en cliente sin perfil → marcarlo como agente
+        if (autoMarcadoAgente) {
+          await marcarClienteAgente(tx, invoice.clientId, fechaFactura, ret, invoice.itbms || 0);
+        }
       }
 
-      return { updated, journalEntryId: jeId, retencionId, aplicado, ret };
+      return { updated, journalEntryId: jeId, retencionId, aplicado, ret, autoMarcadoAgente };
     });
 
     await incrementUsage(req);
@@ -425,7 +432,7 @@ facturasRouter.patch('/:id/pay', requireRole('admin', 'contador', 'superadmin'),
     res.json({
       id: result.updated.id, status: result.updated.status, paidAt: result.updated.paidAt,
       journalEntryId: result.journalEntryId, aplicado: result.aplicado, retencionItbms: result.ret,
-      retencionId: result.retencionId,
+      retencionId: result.retencionId, autoMarcadoAgente: result.autoMarcadoAgente,
     });
   } catch (e: any) {
     const status = e.status || 500;
