@@ -97,7 +97,8 @@ body {
 #panel-taxcalendar-content:not(.hidden),
 #panel-salud-content:not(.hidden),
 #panel-whatsapp-content:not(.hidden),
-#panel-admin-content:not(.hidden) {
+#panel-admin-content:not(.hidden),
+#panel-facturas-content:not(.hidden) {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -117,7 +118,9 @@ body {
 #cuentas-admin-content,
 #conceptos-admin-content,
 #config-content,
-#aux-sidebar-content {
+#aux-sidebar-content,
+#facturas-lista-content,
+#facturas-config-content {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
