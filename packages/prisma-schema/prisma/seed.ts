@@ -187,6 +187,7 @@ const ALIAS_BY_CODE: Record<string, string[]> = {
   '6.06.01': ['gasto'],
   '2.1.05': ['itbms-por-pagar'],
   '6.05.01': ['itbms-gastado'],
+  '1.1.07': ['itbms-retenido-terceros'],
 };
 
   const accounts = [
@@ -206,6 +207,8 @@ const ALIAS_BY_CODE: Record<string, string[]> = {
     { code: '1.1.04.02', name: 'Inventario de Materia Prima', type: 'ACTIVO', parentCode: '1.1.04' },
     { code: '1.1.05', name: 'ITBMS por Cobrar', type: 'ACTIVO', parentCode: '1.1' },
     { code: '1.1.06', name: 'Anticipos', type: 'ACTIVO', parentCode: '1.1' },
+    // Crédito fiscal por retención sufrida: cliente agente retiene 50% del ITBMS al pagarnos
+    { code: '1.1.07', name: 'ITBMS Retenido por Terceros', type: 'ACTIVO', parentCode: '1.1' },
     { code: '1.2', name: 'ACTIVO NO CORRIENTE', type: 'ACTIVO', parentCode: '1' },
     { code: '1.2.01', name: 'Propiedad, Planta y Equipo', type: 'ACTIVO', parentCode: '1.2' },
     { code: '1.2.01.01', name: 'Terrenos', type: 'ACTIVO', parentCode: '1.2.01' },

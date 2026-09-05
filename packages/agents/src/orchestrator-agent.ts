@@ -1,8 +1,23 @@
+import crypto from 'crypto';
 import { DialogAgent } from './dialog-agent';
 import { ClassificationAgent, type ClassificationAgentConfig } from './classification-agent';
 import { AccountingAgent } from './accounting-agent';
 import type { DialogResult, DialogContext, PrismaLike } from './types';
 import type { AccountingEntry } from './accounting-agent';
+
+/**
+ * Hash determinista del RUC (HMAC-SHA256) para dedupe sin filtrar el valor
+ * cifrado. Duplicada de apps/api/src/services/crypto-fields.ts porque este
+ * paquete no puede importar código de la API; la derivación es idéntica.
+ * Los registros se guardan con taxIdHash al escribir (extensión en main.ts).
+ */
+function hashRuc(plain: string): string {
+  const keyB64 = process.env.FIELD_ENC_KEY || '';
+  const key = keyB64 ? Buffer.from(keyB64, 'base64') : null;
+  if (!key || key.length !== 32) return '';
+  const searchKey = crypto.createHmac('sha256', key).update('search').digest();
+  return crypto.createHmac('sha256', searchKey).update(String(plain)).digest('hex');
+}
 
 /** Parsea una fecha YYYY-MM-DD usando mediodía local para evitar
  *  desplazamientos de zona horaria (medianoche UTC-4 → día anterior en UTC-5).
@@ -222,11 +237,15 @@ export class OrchestratorAgent {
     const matches: any[] = [];
 
     // Coincidencia por RUC (si se suministra): identifica de forma única
+    // (el valor está cifrado en BD — se compara por taxIdHash determinista)
     if (ruc) {
-      const byRucC = await this.prisma.client.findFirst({ where: { companyId: this.companyId, taxId: ruc }, select: { id: true, name: true } });
-      if (byRucC) matches.push({ id: byRucC.id, name: byRucC.name, type: 'cliente' });
-      const byRucS = await this.prisma.supplier.findFirst({ where: { companyId: this.companyId, taxId: ruc }, select: { id: true, name: true } });
-      if (byRucS && !matches.find(m => m.id === byRucS.id)) matches.push({ id: byRucS.id, name: byRucS.name, type: 'proveedor' });
+      const hash = hashRuc(ruc);
+      if (hash) {
+        const byRucC = await this.prisma.client.findFirst({ where: { companyId: this.companyId, taxIdHash: hash }, select: { id: true, name: true } });
+        if (byRucC) matches.push({ id: byRucC.id, name: byRucC.name, type: 'cliente' });
+        const byRucS = await this.prisma.supplier.findFirst({ where: { companyId: this.companyId, taxIdHash: hash }, select: { id: true, name: true } });
+        if (byRucS && !matches.find(m => m.id === byRucS.id)) matches.push({ id: byRucS.id, name: byRucS.name, type: 'proveedor' });
+      }
       return matches; // el RUC es determinante — no mezclar con coincidencias parciales de nombre
     }
 
@@ -285,12 +304,15 @@ export class OrchestratorAgent {
    * Busca un cliente existente por nombre normalizado.
    */
   private async findClientByName(name: string, ruc?: string | null): Promise<any> {
-    // 0. Coincidencia por RUC (si se suministra): el RUC identifica de forma única
+    // 0. Coincidencia por RUC (taxIdHash determinista — el valor está cifrado)
     if (ruc) {
-      const byRuc = await this.prisma.client.findFirst({
-        where: { companyId: this.companyId, taxId: ruc },
-      });
-      if (byRuc) return byRuc;
+      const hash = hashRuc(ruc);
+      if (hash) {
+        const byRuc = await this.prisma.client.findFirst({
+          where: { companyId: this.companyId, taxIdHash: hash },
+        });
+        if (byRuc) return byRuc;
+      }
     }
     // 1. Coincidencia exacta case-insensitive
     let match = await this.prisma.client.findFirst({
@@ -321,12 +343,15 @@ export class OrchestratorAgent {
    * Busca un proveedor existente por nombre normalizado.
    */
   private async findSupplierByName(name: string, ruc?: string | null): Promise<any> {
-    // 0. Coincidencia por RUC (si se suministra): el RUC identifica de forma única
+    // 0. Coincidencia por RUC (taxIdHash determinista — el valor está cifrado)
     if (ruc) {
-      const byRuc = await this.prisma.supplier.findFirst({
-        where: { companyId: this.companyId, taxId: ruc },
-      });
-      if (byRuc) return byRuc;
+      const hash = hashRuc(ruc);
+      if (hash) {
+        const byRuc = await this.prisma.supplier.findFirst({
+          where: { companyId: this.companyId, taxIdHash: hash },
+        });
+        if (byRuc) return byRuc;
+      }
     }
     let match = await this.prisma.supplier.findFirst({
       where: { companyId: this.companyId, name: { equals: name, mode: 'insensitive' } },

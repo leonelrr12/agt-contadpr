@@ -9,6 +9,8 @@ import { logAudit } from '../services/audit-log';
 import { buildFacturaPdf } from '../services/factura-pdf';
 import { createFacturaSchema } from '../validation/schemas';
 import { AccountingAgent } from '@agt-contador/agents';
+import { findOrCreateClient } from '../services/counterparty';
+import { retencionTotalEsperada } from '../services/retencion-itbms';
 
 export const facturasRouter = Router();
 
@@ -114,11 +116,8 @@ facturasRouter.post('/', requireRole('admin', 'contador', 'superadmin'), require
         client = await tx.client.findFirst({ where: { id: clientId, companyId } });
         if (!client) throw Object.assign(new Error('Cliente no encontrado'), { status: 404 });
       } else {
-        const nombre = (clientName || 'CONSUMIDOR FINAL').trim();
-        client = await tx.client.findFirst({ where: { companyId, name: { equals: nombre, mode: 'insensitive' } } });
-        if (!client) {
-          client = await tx.client.create({ data: { companyId, name: nombre, taxId: clientTaxId || null } });
-        }
+        // Dedupe por RUC/nombre (higiene de duplicidad) — ver services/counterparty.ts
+        client = await findOrCreateClient(tx, companyId, { name: clientName || 'CONSUMIDOR FINAL', taxId: clientTaxId });
       }
 
       // 2) Número correlativo atómico (serie + increment)
@@ -253,31 +252,88 @@ facturasRouter.get('/:id/pdf', async (req, res) => {
 });
 
 /**
- * PATCH /api/facturas/:id/pay — abona el SALDO restante de la factura.
- * Consistente con el import de cobros (InvoicePayment + paidAmount): si la
- * factura ya recibió abonos parciales, solo se asienta el saldo que falta;
- * cuando el saldo llega a ≈ 0 la factura pasa a PAGADA.
+ * PATCH /api/facturas/:id/pay — registra un cobro con posible retención ITBMS.
+ *
+ * Body opcional: { efectivo?, retencionItbms?, cuentaId?, fecha? }
+ * - Sin body: comportamiento histórico — paga el saldo restante en efectivo
+ *   (caja) y salda la factura.
+ * - `efectivo`: monto recibido (default: saldo restante). Menor al saldo = abono
+ *   parcial (la factura queda PENDIENTE).
+ * - `retencionItbms`: retención sufrida (crédito fiscal). Se valida contra el
+ *   perfil del cliente (agente + vigencia en la fecha de la factura) y nunca
+ *   supera el porcentaje del ITBMS. El asiento divide: débito cuenta efectivo
+ *   + débito `itbms-retenido-terceros` / crédito Clientes por el total aplicado.
+ * - `cuentaId`: cuenta contable del depósito (default: alias 'caja').
  */
 facturasRouter.patch('/:id/pay', requireRole('admin', 'contador', 'superadmin'), requireQuota, async (req, res) => {
   try {
+    const { efectivo, retencionItbms, cuentaId } = req.body || {};
     const result = await req.prisma.$transaction(async (tx: any) => {
       const invoice = await tx.invoice.findFirst({
         where: { id: req.params.id, companyId: req.user!.companyId },
-        include: { client: { select: { name: true } } },
+        include: { client: { select: { name: true, esAgenteRetenedor: true, porcentajeRetencionItbms: true, vigenciaRetencionDesde: true, vigenciaRetencionHasta: true } } },
       });
       if (!invoice) throw Object.assign(new Error('Factura no encontrada'), { status: 404 });
 
       const saldo = Math.round((invoice.total - (invoice.paidAmount || 0)) * 100) / 100;
       if (saldo <= 0.01) throw Object.assign(new Error('La factura ya está pagada'), { status: 400 });
 
+      const r2v = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+      const cash = efectivo == null ? saldo : r2v(efectivo);
+      const ret = r2v(retencionItbms || 0);
+      if (cash < 0 || ret < 0) throw Object.assign(new Error('Montos inválidos'), { status: 400 });
+      const aplicado = r2v(cash + ret);
+      if (aplicado > saldo + 0.01) {
+        throw Object.assign(new Error(`El total aplicado $${aplicado.toFixed(2)} excede el saldo de la factura ($${saldo.toFixed(2)}).`), { status: 400 });
+      }
+      const quedaPagada = saldo - aplicado <= 0.01;
+
+      // Retención: validar perfil del cliente + tope legal del porcentaje del ITBMS
+      const fechaFactura = invoice.date instanceof Date ? invoice.date : new Date(invoice.date);
+      let retencionId: string | null = null;
+      let retAccountId: string | null = null;
+      if (ret > 0) {
+        if (invoice.paymentMethod !== 'CREDITO') {
+          throw Object.assign(new Error('La retención solo aplica a facturas a crédito (CxC).'), { status: 400 });
+        }
+        const esperada = retencionTotalEsperada(invoice.client, invoice.itbms, fechaFactura);
+        if (esperada <= 0) {
+          throw Object.assign(new Error('Este cliente no es agente de retención vigente para la fecha de la factura. Revise la ficha del cliente.'), { status: 400 });
+        }
+        if (ret > esperada + 0.01) {
+          throw Object.assign(new Error(`La retención $${ret.toFixed(2)} excede el ${Math.round((invoice.client?.porcentajeRetencionItbms ?? 0.5) * 100)}% del ITBMS de la factura ($${esperada.toFixed(2)}).`), { status: 400 });
+        }
+      }
+
       let journalEntryId = invoice.journalEntryId;
-      let cajaId: string | null = null;
+      let jeId = journalEntryId;
+      // Cuenta del depósito (solo relevante en crédito): cuentaId explícita o alias 'caja'
+      let cuentaIdResuelta: string | null = null;
       if (invoice.paymentMethod === 'CREDITO') {
         const agent = new AccountingAgent(tx, req.user!.companyId);
         await agent.init();
-        cajaId = agent.resolveAlias('caja');
         const clientesId = agent.resolveAlias('clientes');
-        const desc = `Cobro de factura ${invoice.number || ''} — $${saldo.toFixed(2)}`.trim();
+        if (cuentaId) {
+          const acc = await tx.account.findFirst({ where: { id: cuentaId, companyId: req.user!.companyId } });
+          if (!acc) throw Object.assign(new Error('Cuenta contable no encontrada'), { status: 400 });
+          cuentaIdResuelta = acc.id;
+        } else {
+          try { cuentaIdResuelta = agent.resolveAlias('caja'); } catch {
+            throw Object.assign(new Error('No se encontró la cuenta Caja (alias "caja") en el catálogo.'), { status: 400 });
+          }
+        }
+        if (ret > 0) {
+          try { retAccountId = agent.resolveAlias('itbms-retenido-terceros'); } catch {
+            throw Object.assign(new Error('No se encontró la cuenta "ITBMS Retenido por Terceros" (alias itbms-retenido-terceros) en el catálogo. Créela para registrar la retención.'), { status: 400 });
+          }
+        }
+        const descSuffix = ret > 0 ? ` (efectivo $${cash.toFixed(2)} + retención ITBMS $${ret.toFixed(2)})` : '';
+        const desc = `Cobro de factura ${invoice.number || ''} — $${aplicado.toFixed(2)}${descSuffix}`.trim();
+        const lines: any[] = [
+          { accountId: cuentaIdResuelta!, debit: cash > 0 ? cash : 0, credit: 0 },
+        ];
+        if (ret > 0) lines.push({ accountId: retAccountId!, debit: ret, credit: 0 });
+        lines.push({ accountId: clientesId, debit: 0, credit: aplicado });
         const je = await tx.journalEntry.create({
           data: {
             date: new Date(),
@@ -285,47 +341,67 @@ facturasRouter.patch('/:id/pay', requireRole('admin', 'contador', 'superadmin'),
             status: 'BORRADOR',
             companyId: req.user!.companyId,
             createdById: req.user!.userId,
-            lines: { create: [
-              { accountId: cajaId, debit: saldo, credit: 0 },
-              { accountId: clientesId, debit: 0, credit: saldo },
-            ] },
+            lines: { create: lines },
           },
         });
         await tx.transaction.create({
           data: {
-            type: 'COBRO_CLIENTE', amount: saldo, description: desc, concept: 'Cobro de factura',
+            type: 'COBRO_CLIENTE', amount: cash, description: desc, concept: 'Cobro de factura',
             paymentMethod: 'EFECTIVO', date: new Date(), companyId: req.user!.companyId,
             createdById: req.user!.userId, journalEntryId: je.id,
-            metadata: JSON.stringify({ source: 'factura-pdf', invoiceNumber: invoice.number || null }),
+            metadata: JSON.stringify({
+              source: 'factura-pdf', invoiceNumber: invoice.number || null,
+              appliedAmount: aplicado, retentionAmount: ret,
+            }),
           },
         });
-        journalEntryId = je.id;
+        jeId = je.id;
       }
 
       const updated = await tx.invoice.update({
         where: { id: invoice.id },
         data: {
-          paidAmount: Math.round((invoice.paidAmount + saldo) * 100) / 100,
-          status: 'PAGADA',
-          paidAt: new Date(),
+          paidAmount: r2v((invoice.paidAmount || 0) + aplicado),
+          ...(quedaPagada ? { status: 'PAGADA', paidAt: new Date() } : {}),
         },
       });
 
-      // Registrar el abono (pago manual de caja) con la misma estructura
-      // que los abonos del import de cobros
-      await tx.invoicePayment.create({
+      // Registrar el abono: amount = efectivo recibido; retentionAmount = crédito fiscal
+      const payment = await tx.invoicePayment.create({
         data: {
           companyId: req.user!.companyId,
           invoiceId: invoice.id,
-          amount: saldo,
+          amount: cash,
+          retentionAmount: ret,
           date: new Date(),
-          accountId: cajaId, // null en ventas de contado (sin asiento de cobro)
+          accountId: invoice.paymentMethod === 'CREDITO' ? cuentaIdResuelta : null,
           accountName: null,
-          journalEntryId: invoice.paymentMethod === 'CREDITO' ? journalEntryId : null,
+          journalEntryId: invoice.paymentMethod === 'CREDITO' ? jeId : null,
         },
       });
 
-      return { updated, journalEntryId };
+      // Retención sufrida → registro de crédito fiscal (estado PENDIENTE hasta el certificado)
+      if (ret > 0) {
+        const esperada = retencionTotalEsperada(invoice.client, invoice.itbms, fechaFactura);
+        const created = await tx.retentionItbms.create({
+          data: {
+            companyId: req.user!.companyId,
+            clientId: invoice.clientId,
+            invoiceId: invoice.id,
+            invoicePaymentId: payment.id,
+            fecha: new Date(),
+            baseGravada: invoice.amount,
+            itbmsFacturado: invoice.itbms,
+            porcentaje: esperada > 0 ? ret / invoice.itbms : 0.5,
+            montoRetencion: ret,
+            journalEntryId: jeId,
+            estado: 'PENDIENTE',
+          },
+        });
+        retencionId = created.id;
+      }
+
+      return { updated, journalEntryId: jeId, retencionId, aplicado, ret };
     });
 
     await incrementUsage(req);
@@ -335,9 +411,13 @@ facturasRouter.patch('/:id/pay', requireRole('admin', 'contador', 'superadmin'),
       entity: 'Invoice',
       entityId: result.updated.id,
       before: { status: 'PENDIENTE' },
-      after: { status: 'PAGADA' },
+      after: { status: result.updated.status },
     }).catch(() => {});
-    res.json({ id: result.updated.id, status: result.updated.status, paidAt: result.updated.paidAt, journalEntryId: result.journalEntryId });
+    res.json({
+      id: result.updated.id, status: result.updated.status, paidAt: result.updated.paidAt,
+      journalEntryId: result.journalEntryId, aplicado: result.aplicado, retencionItbms: result.ret,
+      retencionId: result.retencionId,
+    });
   } catch (e: any) {
     const status = e.status || 500;
     res.status(status).json({ error: e.message });

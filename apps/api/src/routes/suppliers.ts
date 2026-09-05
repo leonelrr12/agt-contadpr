@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth';
+import { findSupplier } from '../services/counterparty';
 
 export const suppliersRouter = Router();
 
@@ -35,10 +36,16 @@ suppliersRouter.get('/:id', async (req, res) => {
   res.json(supplier);
 });
 
-// POST /api/suppliers — Crear proveedor
+// POST /api/suppliers — Crear proveedor (dedupe por RUC/nombre: higiene de duplicidad)
 suppliersRouter.post('/', requireRole('admin', 'contador'), async (req, res) => {
   const { name, taxId, phone, email, paymentTerms, notes } = req.body;
   if (!name) { res.status(400).json({ error: 'El nombre es requerido' }); return; }
+
+  const existing = await findSupplier(req.prisma, req.user!.companyId, { name, taxId });
+  if (existing) {
+    res.status(409).json({ error: `El proveedor ya existe como "${existing.name}". ¿Quieres editarlo en vez de crearlo?` });
+    return;
+  }
 
   try {
     const supplier = await req.prisma.supplier.create({
