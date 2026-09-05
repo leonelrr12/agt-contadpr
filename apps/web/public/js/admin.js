@@ -440,7 +440,15 @@ function openCrearUsuario() {
       <option value="asistente">Asistente — acceso básico</option>
     </select>
     <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Contraseña inicial (mín. 6 caracteres — entrégasela al usuario)</label>
-    <input id="nu-pass" type="password" placeholder="••••••••" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+    <div style="display:flex;gap:6px;align-items:center">
+      <input id="nu-pass" type="password" placeholder="••••••••" style="flex:1;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+      <button type="button" onclick="togglePassVis('nu-pass', this)" style="padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;font-size:13px" title="Mostrar/ocultar contraseña">👁</button>
+    </div>
+    <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Confirmar contraseña</label>
+    <div style="display:flex;gap:6px;align-items:center">
+      <input id="nu-pass2" type="password" placeholder="••••••••" style="flex:1;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+      <button type="button" onclick="togglePassVis('nu-pass2', this)" style="padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;font-size:13px" title="Mostrar/ocultar contraseña">👁</button>
+    </div>
     <div style="font-size:11px;color:#6b7280;margin-top:8px">💡 También puedes enviar un email de restablecimiento desde el listado (🔁).</div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
       <button class="app-dialog-btn" onclick="this.closest('.app-dialog-overlay').remove()">Cancelar</button>
@@ -450,12 +458,23 @@ function openCrearUsuario() {
   document.body.appendChild(overlay);
 }
 
+function togglePassVis(inputId, btn) {
+  const inp = document.getElementById(inputId);
+  if (!inp) return;
+  const mostrar = inp.type === 'password';
+  inp.type = mostrar ? 'text' : 'password';
+  if (btn) btn.textContent = mostrar ? '🙈' : '👁';
+}
+
 async function guardarUsuarioNuevo(btn) {
+  const pass = document.getElementById('nu-pass').value;
+  const pass2 = document.getElementById('nu-pass2').value;
+  if (pass !== pass2) { await showAlert('❌ Las contraseñas no coinciden'); return; }
   const body = {
     name: document.getElementById('nu-name').value,
     email: document.getElementById('nu-email').value,
     role: document.getElementById('nu-rol').value,
-    password: document.getElementById('nu-pass').value,
+    password: pass,
   };
   const res = await authFetch(`${API_URL}/users`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
