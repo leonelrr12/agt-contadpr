@@ -287,21 +287,30 @@ model ApiKey {
 }
 
 model Client {
-  id         String    @id @default(cuid())
-  companyId  String
-  name       String
-  taxId      String?   // RUC
-  phone      String?
-  email      String?
-  address    String?
-  notes      String?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id                      String     @id @default(cuid())
+  companyId               String
+  name                    String
+  taxId                   String?    // RUC
+  taxIdHash               String?    // HMAC determinista — dedupe de RUC sin filtrar el valor
+  phone                   String?
+  email                   String?
+  address                 String?
+  notes                   String?
+  // Perfil de agente de retención ITBMS (retención SUFRIDA: el cliente retiene al pagarnos).
+  // Vigencia evaluada contra la fecha de la factura (las listas DGI cambian por resolución).
+  esAgenteRetenedor       Boolean    @default(false)
+  porcentajeRetencionItbms Float     @default(0.5) // 50% del ITBMS (default DGI)
+  vigenciaRetencionDesde  DateTime?
+  vigenciaRetencionHasta  DateTime?
+  createdAt               DateTime   @default(now())
+  updatedAt               DateTime   @updatedAt
 
-  company    Company   @relation(fields: [companyId], references: [id])
-  invoices   Invoice[]
+  company                 Company    @relation(fields: [companyId], references: [id])
+  invoices                Invoice[]
+  retencionesItbms        RetentionItbms[]
 
   @@unique([companyId, name])
+  @@unique([companyId, taxIdHash])
   @@index([companyId])
   @@map("client")
 }
@@ -311,6 +320,7 @@ model Supplier {
   companyId     String
   name          String
   taxId         String?
+  taxIdHash     String?    // HMAC determinista — dedupe de RUC sin filtrar el valor
   phone         String?
   email         String?
   paymentTerms  String?   @default("30") // días de crédito por defecto
@@ -322,6 +332,7 @@ model Supplier {
   bills         Bill[]
 
   @@unique([companyId, name])
+  @@unique([companyId, taxIdHash])
   @@index([companyId])
   @@map("supplier")
 }
@@ -348,6 +359,7 @@ model Invoice {
   client         Client          @relation(fields: [clientId], references: [id])
   items          InvoiceItem[]
   payments       InvoicePayment[]
+  retencionesItbms RetentionItbms[]
 
   @@unique([companyId, number])
   @@index([companyId])
@@ -357,21 +369,55 @@ model Invoice {
 }
 
 model InvoicePayment {
-  id             String    @id @default(cuid())
-  companyId      String
-  invoiceId      String
-  amount         Float     // monto del abono
-  date           DateTime  // fecha en que llegó el pago
-  accountId      String?   // cuenta contable/banco donde llegó el depósito
-  accountName    String?   // nombre tal como venía en el archivo (traza)
-  journalEntryId String?   // asiento BORRADOR de cobro creado
-  createdAt      DateTime  @default(now())
+  id              String    @id @default(cuid())
+  companyId       String
+  invoiceId       String
+  amount          Float     // EFECTIVO recibido (conciliación bancaria)
+  retentionAmount Float     @default(0) // retención ITBMS sufrida en este pago (crédito fiscal)
+  date            DateTime  // fecha en que llegó el pago
+  accountId       String?   // cuenta contable/banco donde llegó el depósito
+  accountName     String?   // nombre tal como venía en el archivo (traza)
+  journalEntryId  String?   // asiento BORRADOR de cobro creado
+  createdAt       DateTime  @default(now())
 
-  invoice        Invoice   @relation(fields: [invoiceId], references: [id])
+  invoice         Invoice   @relation(fields: [invoiceId], references: [id])
 
   @@index([invoiceId])
   @@index([companyId])
   @@map("invoice_payment")
+}
+
+// Retención de ITBMS SUFRIDA (50% del ITBMS, retenida por un cliente agente al
+// pagarnos). Es crédito fiscal del vendedor, no saldo de CxC. La factura se
+// aplica por completo (efectivo + retención) y el crédito se compensa contra
+// ITBMS por Pagar al declarar (Form. 430, renglón 52).
+model RetentionItbms {
+  id                String    @id @default(cuid())
+  companyId         String
+  clientId          String
+  invoiceId         String
+  invoicePaymentId  String?   // pago donde se materializó la retención
+  fecha             DateTime  // fecha del pago/retención
+  baseGravada       Float     // subtotal de la factura
+  itbmsFacturado    Float     // ITBMS de la factura
+  porcentaje        Float     // porcentaje aplicado (default 0.5)
+  montoRetencion    Float
+  numeroCertificado String?   // certificado del agente (soporte del crédito R52)
+  fechaCertificado  DateTime?
+  estado            String    @default("PENDIENTE") // PENDIENTE | RECIBIDA | APLICADA | ANULADA
+  journalEntryId    String?   // asiento del cobro que la materializó
+  notas             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  client            Client    @relation(fields: [clientId], references: [id])
+  invoice           Invoice   @relation(fields: [invoiceId], references: [id])
+
+  @@index([companyId])
+  @@index([clientId])
+  @@index([invoiceId])
+  @@index([estado])
+  @@map("retencion_itbms")
 }
 
 model InvoiceItem {

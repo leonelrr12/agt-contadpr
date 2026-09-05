@@ -38,12 +38,17 @@ const prisma: any = new PrismaClient().$extends({
   query: {
     $allModels: {
       $allOperations: async ({ model, operation, args, query }) => {
-        if (model === 'Company' && ['create', 'createMany', 'update', 'updateMany'].includes(operation)) {
-          // taxIdHash determinista para dedupe de RUC sin filtrar el valor
+        if (['Company', 'Client', 'Supplier'].includes(model) && ['create', 'createMany', 'update', 'updateMany'].includes(operation)) {
+          // taxIdHash determinista para dedupe de RUC sin filtrar el valor.
+          // Al vaciar el RUC se limpia el hash (evita dedupe obsoleto).
           const d: any = (args as any).data;
-          const taxIdPlain = d?.taxId;
-          if (typeof taxIdPlain === 'string' && taxIdPlain && !taxIdPlain.startsWith('v1:')) {
-            d.taxIdHash = hashField(taxIdPlain);
+          if (d && 'taxId' in d) {
+            const taxIdPlain = d.taxId;
+            if (typeof taxIdPlain === 'string' && taxIdPlain && !taxIdPlain.startsWith('v1:')) {
+              d.taxIdHash = hashField(taxIdPlain);
+            } else if (!taxIdPlain) {
+              d.taxIdHash = null;
+            }
           }
         }
         if (['create', 'createMany', 'update', 'updateMany'].includes(operation)) {

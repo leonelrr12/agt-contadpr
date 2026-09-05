@@ -5,6 +5,7 @@ import { requireQuota, incrementUsage } from '../middleware/quota';
 import { parseImportFile, parseCargaInicialFile, parseCobrosFile } from '../services/csv-parser';
 import type { ParsedRow, CobrosRow, CobrosParseResult } from '../services/csv-parser';
 import { resolveCargaInicialRows } from '../services/account-lookup';
+import { retencionTotalEsperada, findAccountByAlias } from '../services/retencion-itbms';
 import { ClassificationAgent } from '@agt-contador/agents';
 import { AccountingAgent } from '@agt-contador/agents';
 import { importExecuteSchema } from '../validation/schemas';
@@ -89,7 +90,7 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
           headers: parsed.headers,
           totalRows: parsed.totalRows,
           cobros: true,
-          cobrosPreview: { rows: [], success: 0, errors: [], pending: 0, omitted: 0, appliedTotal: 0, markedPaid: 0 },
+          cobrosPreview: { rows: [], success: 0, errors: [], pending: 0, omitted: 0, appliedTotal: 0, totalRetencionItbms: 0, markedPaid: 0 },
         });
         return;
       }
@@ -112,6 +113,7 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
           pending: sim.pending,
           omitted: sim.omitted,
           appliedTotal: sim.appliedTotal,
+          totalRetencionItbms: sim.totalRetencionItbms,
           markedPaid: sim.markedPaid,
         },
       });
@@ -581,6 +583,8 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
     // fresca dentro de ella (nada de estado compartido entre filas).
     const accounts = await loadCobroAccounts(req.prisma, companyId);
     const { list: invoicesList } = await loadCobroInvoices(req.prisma, companyId);
+    // Cuenta de crédito fiscal para la retención sufrida (alias itbms-retenido-terceros)
+    const retAccount = findAccountByAlias(accounts, 'itbms-retenido-terceros');
     // Pagos ya registrados en BD → re-subidas idempotentes. El índice se
     // actualiza con cada pago aplicado (también dedupe dentro del mismo archivo).
     const dupKeys = await buildCobroPaymentsIndex(req.prisma, companyId);
@@ -593,6 +597,7 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
       entryIds: [] as string[],
     };
     let markedPaid = 0;
+    let totalRetencionItbms = 0;
 
     for (let i = 0; i < parsed.rows.length; i++) {
       const row = parsed.rows[i];
@@ -616,6 +621,15 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
         if (!invoice || !account || !clientsAccount || amount == null || !dateStr) {
           throw new Error('Fila de cobro inválida (datos incompletos).');
         }
+        const ret = validation.retencionItbms || 0;
+        const aplicado = validation.aplicado || amount;
+        if (ret > 0 && !retAccount) {
+          results.errors.push({
+            row: rowNum,
+            error: 'No se encontró la cuenta "ITBMS Retenido por Terceros" (alias itbms-retenido-terceros) en el catálogo. Créela para registrar la retención.',
+          });
+          continue;
+        }
         const paymentMethod = cobroPaymentMethod(account);
 
         // Re-leer la factura fresca dentro de la transacción: entre el preload
@@ -627,15 +641,21 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
           // Ya pagada o abono idéntico ya registrado (re-subida / fila repetida
           // en el mismo archivo): se OMITE, no es error ni duplica el saldo.
           if (saldo <= 0.01) return { kind: 'omitted' as const };
-          const key = cobroDupKey(fresh.id, amount, account.id, dateStr);
+          const key = cobroDupKey(fresh.id, amount, account.id, dateStr, ret);
           if (dupKeys.get(fresh.id)?.has(key)) return { kind: 'omitted' as const };
-          if (amount > saldo + 0.01) {
-            throw new Error(`El abono $${amount.toFixed(2)} excede el saldo de la factura ${fresh.number} ($${saldo.toFixed(2)}).`);
+          if (aplicado > saldo + 0.01) {
+            throw new Error(`El total aplicado de $${aplicado.toFixed(2)} (efectivo $${amount.toFixed(2)}${ret > 0 ? ` + retención $${ret.toFixed(2)}` : ''}) excede el saldo de la factura ${fresh.number} ($${saldo.toFixed(2)}).`);
           }
-          const nuevoSaldo = r2(saldo - amount);
+          const nuevoSaldo = r2(saldo - aplicado);
           const quedaPagada = nuevoSaldo <= 0.01;
 
-          const desc = `Cobro de factura ${fresh.number} — $${amount.toFixed(2)}`;
+          const descSuffix = ret > 0 ? ` (efectivo $${amount.toFixed(2)} + retención ITBMS $${ret.toFixed(2)})` : '';
+          const desc = `Cobro de factura ${fresh.number} — $${aplicado.toFixed(2)}${descSuffix}`.trim();
+          const lines: any[] = [
+            { accountId: account.id, debit: amount, credit: 0 },
+          ];
+          if (ret > 0) lines.push({ accountId: retAccount!.id, debit: ret, credit: 0 });
+          lines.push({ accountId: clientsAccount.id, debit: 0, credit: aplicado });
           const created = await tx.journalEntry.create({
             data: {
               date: toLocalDate(dateStr),
@@ -643,10 +663,7 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
               status: 'BORRADOR',
               companyId,
               createdById: userId,
-              lines: { create: [
-                { accountId: account.id, debit: amount, credit: 0 },
-                { accountId: clientsAccount.id, debit: 0, credit: amount },
-              ] },
+              lines: { create: lines },
             },
           });
 
@@ -667,6 +684,8 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
                 fileNumber: row.invoiceNumber || null,
                 accountName: row.accountName || null,
                 client: invoice.clientName,
+                appliedAmount: aplicado,
+                retentionAmount: ret,
               }),
             },
           });
@@ -676,6 +695,7 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
               companyId,
               invoiceId: fresh.id,
               amount,
+              retentionAmount: ret,
               date: toLocalDate(dateStr),
               accountId: account.id,
               accountName: row.accountName || null,
@@ -683,10 +703,29 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
             },
           });
 
+          // Retención sufrida → registro de crédito fiscal (PENDIENTE hasta el certificado)
+          if (ret > 0) {
+            await tx.retentionItbms.create({
+              data: {
+                companyId,
+                clientId: invoice.clientId,
+                invoiceId: fresh.id,
+                invoicePaymentId: payment.id,
+                fecha: toLocalDate(dateStr),
+                baseGravada: fresh.amount,
+                itbmsFacturado: fresh.itbms,
+                porcentaje: fresh.itbms > 0 ? ret / fresh.itbms : 0.5,
+                montoRetencion: ret,
+                journalEntryId: created.id,
+                estado: 'PENDIENTE',
+              },
+            });
+          }
+
           const updated = await tx.invoice.update({
             where: { id: fresh.id },
             data: {
-              paidAmount: r2(fresh.paidAmount + amount),
+              paidAmount: r2(fresh.paidAmount + aplicado),
               ...(quedaPagada ? { status: 'PAGADA', paidAt: toLocalDate(dateStr) } : {}),
             },
           });
@@ -704,6 +743,7 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
         dupKeys.get(invoice.id)!.add(outcome.key);
 
         if (outcome.quedaPagada) markedPaid++;
+        if (ret > 0) totalRetencionItbms = r2(totalRetencionItbms + ret);
         results.entryIds.push(outcome.created.id);
         results.success++;
       } catch (err: any) {
@@ -721,6 +761,7 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
       total: candidates.length,
       pending: results.pending,
       omitted: results.omitted,
+      totalRetencionItbms,
       entryIds: results.entryIds.slice(0, 5),
       markedPaid,
     });
@@ -950,12 +991,21 @@ interface CobroAccount {
 
 interface CobroInvoiceLite {
   id: string;
+  clientId: string;
   number: string;
   clientName: string | null;
   total: number;
   paidAmount: number;
   paymentMethod: string | null;
   status: string;
+  itbms: number;
+  date: Date;
+  clientProfile: {
+    esAgenteRetenedor: boolean;
+    porcentajeRetencionItbms: number | null;
+    vigenciaRetencionDesde: Date | null;
+    vigenciaRetencionHasta: Date | null;
+  };
 }
 
 const COBRO_EPS = 0.01;
@@ -979,9 +1029,9 @@ function assertCobrosFileColumns(parsed: CobrosParseResult): void {
   }
 }
 
-/** Clave de dedupe de un pago: factura + monto (en céntimos) + cuenta + fecha. */
-function cobroDupKey(invoiceId: string, amount: number, accountId: string, dateStr: string): string {
-  return `${invoiceId}|${Math.round(r2(amount) * 100)}|${accountId}|${dateStr}`;
+/** Clave de dedupe de un pago: factura + efectivo + retención (céntimos) + cuenta + fecha. */
+function cobroDupKey(invoiceId: string, amount: number, accountId: string, dateStr: string, retention = 0): string {
+  return `${invoiceId}|${Math.round(r2(amount) * 100)}|${Math.round(r2(retention) * 100)}|${accountId}|${dateStr}`;
 }
 
 /** Fecha "YYYY-MM-DD" local de un Date (los InvoicePayment se guardan a mediodía local). */
@@ -998,12 +1048,12 @@ function localDateKey(d: Date): string {
 async function buildCobroPaymentsIndex(prisma: any, companyId: string): Promise<Map<string, Set<string>>> {
   const payments = await prisma.invoicePayment.findMany({
     where: { companyId },
-    select: { invoiceId: true, amount: true, accountId: true, date: true },
+    select: { invoiceId: true, amount: true, retentionAmount: true, accountId: true, date: true },
   });
   const index = new Map<string, Set<string>>();
   for (const p of payments) {
     if (!p.invoiceId || !p.accountId) continue;
-    const key = cobroDupKey(p.invoiceId, p.amount, p.accountId, localDateKey(p.date));
+    const key = cobroDupKey(p.invoiceId, p.amount, p.accountId, localDateKey(p.date), p.retentionAmount || 0);
     if (!index.has(p.invoiceId)) index.set(p.invoiceId, new Set());
     index.get(p.invoiceId)!.add(key);
   }
@@ -1056,18 +1106,36 @@ async function loadCobroInvoices(
   const rows = await prisma.invoice.findMany({
     where: { companyId },
     select: {
-      id: true, number: true, total: true, paidAmount: true, paymentMethod: true, status: true,
-      client: { select: { name: true } },
+      id: true, clientId: true, number: true, total: true, paidAmount: true, paymentMethod: true, status: true,
+      itbms: true, date: true,
+      client: {
+        select: {
+          name: true,
+          esAgenteRetenedor: true,
+          porcentajeRetencionItbms: true,
+          vigenciaRetencionDesde: true,
+          vigenciaRetencionHasta: true,
+        },
+      },
     },
   });
   const list: CobroInvoiceLite[] = rows.map((r: any) => ({
     id: r.id,
+    clientId: r.clientId,
     number: r.number,
     clientName: r.client?.name || null,
     total: r.total,
     paidAmount: r.paidAmount,
     paymentMethod: r.paymentMethod,
     status: r.status,
+    itbms: r.itbms || 0,
+    date: r.date,
+    clientProfile: {
+      esAgenteRetenedor: !!r.client?.esAgenteRetenedor,
+      porcentajeRetencionItbms: r.client?.porcentajeRetencionItbms ?? 0.5,
+      vigenciaRetencionDesde: r.client?.vigenciaRetencionDesde || null,
+      vigenciaRetencionHasta: r.client?.vigenciaRetencionHasta || null,
+    },
   }));
   const byId = new Map(list.map(i => [i.id, i]));
   return { list, byId };
@@ -1178,7 +1246,10 @@ export interface CobroValidation {
   code?: string;
   invoice?: CobroInvoiceLite;
   viaDigits?: boolean;
-  amount?: number;
+  amount?: number;          // efectivo
+  retencionItbms?: number;  // retención declarada en la fila (default 0)
+  aplicado?: number;        // amount + retención (lo que reduce el saldo)
+  esperadaRetencion?: number; // retención total esperada según perfil (0 si no aplica)
   dateStr?: string;
   account?: CobroAccount;
   clientsAccount?: CobroAccount;
@@ -1201,6 +1272,7 @@ function validateCobroRow(
 ): CobroValidation {
   const dateStr = row.paymentDate;
   const amount = row.amount != null && row.amount > 0 ? r2(row.amount) : null;
+  const ret = row.retencionItbms != null && row.retencionItbms > 0 ? r2(row.retencionItbms) : 0;
 
   const missing: string[] = [];
   if (!dateStr) missing.push('fecha de pago');
@@ -1242,18 +1314,36 @@ function validateCobroRow(
     };
   }
 
+  // Retención ITBMS sufrida: solo si el cliente es agente vigente en la fecha
+  // de la factura y nunca supera el porcentaje del ITBMS de la misma.
+  const esperadaRetencion = retencionTotalEsperada(invoice.clientProfile, invoice.itbms, invoice.date);
+  const pctAgente = Math.round((invoice.clientProfile?.porcentajeRetencionItbms ?? 0.5) * 100);
+  if (ret > 0 && esperadaRetencion <= COBRO_EPS) {
+    return {
+      ok: false, code: 'RETENCION_NOT_AGENT',
+      message: `La factura ${invoice.number} no admite retención de ITBMS: el cliente no es agente retenedor vigente para la fecha de la factura o la factura no tiene ITBMS. Revise la ficha del cliente.`,
+    };
+  }
+  if (ret > esperadaRetencion + COBRO_EPS) {
+    return {
+      ok: false, code: 'RETENCION_EXCEEDS',
+      message: `La retención de $${ret.toFixed(2)} excede el ${pctAgente}% del ITBMS ($${esperadaRetencion.toFixed(2)}) de la factura ${invoice.number}.`,
+    };
+  }
+
   const saldo = r2(invoice.total - invoice.paidAmount);
   if (saldo <= COBRO_EPS) {
     return { ok: false, code: 'ALREADY_APPLIED', message: `La factura ${invoice.number} ya está pagada (se omite).` };
   }
-  const dupKey = cobroDupKey(invoice.id, amount!, account.id, dateStr!);
+  const dupKey = cobroDupKey(invoice.id, amount!, account.id, dateStr!, ret);
   if (dupKeysByInvoice?.get(invoice.id)?.has(dupKey)) {
-    return { ok: false, code: 'ALREADY_APPLIED', message: `El abono de $${amount!.toFixed(2)} a la factura ${invoice.number} ya está registrado (se omite).` };
+    return { ok: false, code: 'ALREADY_APPLIED', message: `El pago de $${amount!.toFixed(2)} a la factura ${invoice.number} ya está registrado (se omite).` };
   }
-  if (amount! > saldo + COBRO_EPS) {
+  const aplicado = r2(amount! + ret);
+  if (aplicado > saldo + COBRO_EPS) {
     return {
       ok: false, code: 'EXCEEDS_BALANCE',
-      message: `El abono de $${amount!.toFixed(2)} excede el saldo de la factura ${invoice.number} ($${saldo.toFixed(2)}).`,
+      message: `El total aplicado de $${aplicado.toFixed(2)} (efectivo $${amount!.toFixed(2)}${ret > 0 ? ` + retención $${ret.toFixed(2)}` : ''}) excede el saldo de la factura ${invoice.number} ($${saldo.toFixed(2)}).`,
     };
   }
 
@@ -1263,11 +1353,14 @@ function validateCobroRow(
     invoice,
     viaDigits: via === 'digits',
     amount: amount!,
+    retencionItbms: ret,
+    aplicado,
+    esperadaRetencion,
     dateStr: dateStr!,
     account,
     clientsAccount,
     saldoBefore: saldo,
-    saldoAfter: r2(saldo - amount!),
+    saldoAfter: r2(saldo - aplicado),
   };
 }
 
@@ -1288,7 +1381,9 @@ interface CobroPreviewRow {
   clientFile: string | null;
   clientMatched: string | null;
   date: string | null;
-  amount: number | null;
+  amount: number | null;           // efectivo
+  retencionItbms: number | null;   // retención declarada (0 si ninguna)
+  posibleRetencion: number | null; // sugerencia informativa (cierre con retención)
   accountName: string | null;
   accountCode: string | null;    // código de la cuenta contable resuelta
   saldoBefore: number | null;
@@ -1311,6 +1406,7 @@ export async function simulateCobrosFile(
   pending: number;
   omitted: number;
   appliedTotal: number;
+  totalRetencionItbms: number;
   markedPaid: number;
 }> {
   const accounts = await loadCobroAccounts(prisma, companyId);
@@ -1325,6 +1421,7 @@ export async function simulateCobrosFile(
   let pending = 0;
   let omitted = 0;
   let appliedTotal = 0;
+  let totalRetencionItbms = 0;
   let markedPaid = 0;
 
   for (let i = 0; i < rows.length; i++) {
@@ -1339,7 +1436,8 @@ export async function simulateCobrosFile(
         row: rowNum, status: 'pending', code: 'PENDING',
         fileNumber: row.invoiceNumber, number: null, viaDigits: false,
         clientFile: row.client, clientMatched: null,
-        date: null, amount: null, accountName: null, accountCode: null,
+        date: null, amount: null, retencionItbms: null, posibleRetencion: null,
+        accountName: null, accountCode: null,
         saldoBefore: null, saldoAfter: null, paid: false,
       });
       continue;
@@ -1358,6 +1456,10 @@ export async function simulateCobrosFile(
       clientMatched: validation.invoice?.clientName || null,
       date: row.paymentDate,
       amount: validation.ok ? validation.amount! : row.amount ?? null,
+      retencionItbms: validation.ok || validation.code === 'ALREADY_APPLIED'
+        ? (validation.retencionItbms ?? 0)
+        : (row.retencionItbms != null && row.retencionItbms > 0 ? r2(row.retencionItbms) : null),
+      posibleRetencion: null,
       accountName: row.accountName,
       accountCode: validation.ok ? validation.account!.code : null,
       saldoBefore: validation.ok ? validation.saldoBefore! : null,
@@ -1366,17 +1468,26 @@ export async function simulateCobrosFile(
     };
 
     if (validation.ok && validation.invoice) {
+      // Sugerencia informativa: pago sin retención que deja exactamente la
+      // retención esperada pendiente → probable cierre con retención del agente.
+      if (!validation.retencionItbms && validation.esperadaRetencion! > COBRO_EPS) {
+        const restanteSinRet = r2(validation.saldoBefore! - validation.amount!);
+        if (Math.abs(restanteSinRet - validation.esperadaRetencion!) <= COBRO_EPS) {
+          base.posibleRetencion = validation.esperadaRetencion!;
+        }
+      }
       // Aplicar al snapshot para las filas siguientes del mismo lote
       const inv = working.find(w => w.id === validation.invoice!.id)!;
-      inv.paidAmount = r2(inv.paidAmount + validation.amount!);
+      inv.paidAmount = r2(inv.paidAmount + validation.aplicado!);
       // Registrar la clave en el índice: dos filas idénticas del MISMO archivo
       // → la segunda se omite como ya aplicada
-      const key = cobroDupKey(validation.invoice.id, validation.amount!, validation.account!.id, validation.dateStr!);
+      const key = cobroDupKey(validation.invoice.id, validation.amount!, validation.account!.id, validation.dateStr!, validation.retencionItbms!);
       if (!dupKeys.has(validation.invoice.id)) dupKeys.set(validation.invoice.id, new Set());
       dupKeys.get(validation.invoice.id)!.add(key);
       const paid = validation.saldoAfter! <= COBRO_EPS;
       base.paid = paid;
       appliedTotal = r2(appliedTotal + validation.amount!);
+      if (validation.retencionItbms! > 0) totalRetencionItbms = r2(totalRetencionItbms + validation.retencionItbms!);
       if (paid) markedPaid++;
     } else if (validation.code === 'ALREADY_APPLIED') {
       omitted++;
@@ -1387,7 +1498,7 @@ export async function simulateCobrosFile(
     detail.push(base);
   }
 
-  return { rows: detail, errors, pending, omitted, appliedTotal, markedPaid };
+  return { rows: detail, errors, pending, omitted, appliedTotal, totalRetencionItbms, markedPaid };
 }
 
 // Manejo de errores de multer

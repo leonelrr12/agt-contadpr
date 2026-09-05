@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { validate } from '../middleware/validate';
 import { requireRole } from '../middleware/auth';
+import { findClient } from '../services/counterparty';
 
 export const clientsRouter = Router();
 
@@ -47,15 +48,29 @@ clientsRouter.get('/:id', async (req, res) => {
   res.json(client);
 });
 
-// POST /api/clients — Crear cliente
+// POST /api/clients — Crear cliente (dedupe por RUC/nombre: higiene de duplicidad)
 clientsRouter.post('/', requireRole('admin', 'contador'), async (req, res) => {
   const { name, taxId, phone, email, address, notes } = req.body;
   if (!name) { res.status(400).json({ error: 'El nombre es requerido' }); return; }
 
-  const client = await req.prisma.client.create({
-    data: { name, taxId, phone, email, address, notes, companyId: req.user!.companyId },
-  });
-  res.status(201).json(client);
+  const existing = await findClient(req.prisma, req.user!.companyId, { name, taxId });
+  if (existing) {
+    res.status(409).json({ error: `El cliente ya existe como "${existing.name}". ¿Quieres editarlo en vez de crearlo?` });
+    return;
+  }
+
+  try {
+    const client = await req.prisma.client.create({
+      data: { name, taxId, phone, email, address, notes, companyId: req.user!.companyId },
+    });
+    res.status(201).json(client);
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      res.status(409).json({ error: `El cliente "${name}" ya existe` });
+    } else {
+      throw error;
+    }
+  }
 });
 
 // PUT /api/clients/:id — Actualizar cliente

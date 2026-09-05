@@ -8,71 +8,11 @@
  * - orchestrator-agent.ts (flujo chat — vía autoCreateEntity interno)
  */
 
+// Dedupe de contrapartes centralizado (RUC → nombre) en counterparty.ts
+import { findOrCreateClient, findOrCreateSupplier, r2 } from './counterparty';
+
 const CXC_ACCOUNTS = ['1.1.03.01']; // Clientes (cuentas por cobrar)
 const CXP_ACCOUNTS = ['2.1.01'];    // Proveedores (cuentas por pagar)
-
-const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
-
-function normalizeName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/\./g, ' ')
-    .replace(/\bs\s*a\b/g, '')
-    .replace(/\bsa\b/g, '')
-    .replace(/\bs\s*de\s*r\s*l\b/g, '')
-    .replace(/\bc\s*por\s*a\b/g, '')
-    .replace(/\binc\b/g, '')
-    .replace(/\bltda\b/g, '')
-    .replace(/[^a-z0-9áéíóúüñ ]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-async function findClientByName(prisma: any, companyId: string, name: string): Promise<any> {
-  let match = await prisma.client.findFirst({
-    where: { companyId, name: { equals: name, mode: 'insensitive' } },
-  });
-  if (match) return match;
-
-  const normalized = normalizeName(name);
-  if (normalized.length < 3) return null;
-
-  const clients = await prisma.client.findMany({
-    where: { companyId },
-    select: { id: true, name: true },
-  });
-
-  for (const c of clients) {
-    const cNorm = normalizeName(c.name);
-    if (cNorm === normalized || cNorm.includes(normalized) || normalized.includes(cNorm)) {
-      return c;
-    }
-  }
-  return null;
-}
-
-async function findSupplierByName(prisma: any, companyId: string, name: string): Promise<any> {
-  let match = await prisma.supplier.findFirst({
-    where: { companyId, name: { equals: name, mode: 'insensitive' } },
-  });
-  if (match) return match;
-
-  const normalized = normalizeName(name);
-  if (normalized.length < 3) return null;
-
-  const suppliers = await prisma.supplier.findMany({
-    where: { companyId },
-    select: { id: true, name: true },
-  });
-
-  for (const s of suppliers) {
-    const sNorm = normalizeName(s.name);
-    if (sNorm === normalized || sNorm.includes(normalized) || normalized.includes(sNorm)) {
-      return s;
-    }
-  }
-  return null;
-}
 
 export interface SyncResult {
   type: string;
@@ -175,12 +115,7 @@ export async function syncEntityFromEntry(
       return { type: 'cliente_existente', name: provider };
     }
 
-    let client = await findClientByName(prisma, companyId, provider);
-    if (!client) {
-      client = await prisma.client.create({
-        data: { companyId, name: provider, taxId: ruc || null },
-      });
-    }
+    const client = await findOrCreateClient(prisma, companyId, { name: provider, taxId: ruc });
 
     // Calcular montos desde las líneas
     const cxcLine = lines.find((l: any) => CXC_ACCOUNTS.includes(l.account?.code));
@@ -238,12 +173,7 @@ export async function syncEntityFromEntry(
       return { type: 'proveedor_existente', name: provider };
     }
 
-    let supplier = await findSupplierByName(prisma, companyId, provider);
-    if (!supplier) {
-      supplier = await prisma.supplier.create({
-        data: { companyId, name: provider, taxId: ruc || null },
-      });
-    }
+    const supplier = await findOrCreateSupplier(prisma, companyId, { name: provider, taxId: ruc });
 
     const cxpLine = lines.find((l: any) => CXP_ACCOUNTS.includes(l.account?.code));
     const total = cxpLine?.credit || cxpLine?.debit || (txn?.amount || 0);

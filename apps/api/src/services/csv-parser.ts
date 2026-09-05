@@ -155,11 +155,12 @@ export interface CobrosRow {
   client: string | null;
   description: string | null;
   concept: string | null;
-  invoiceDate: string | null;   // Fecha de la factura (informativa)
-  paymentDate: string | null;   // Fecha en que llegó el pago
-  accountName: string | null;   // Cuenta contable/banco del depósito
-  invoiceNumber: string | null; // Nº de factura a cobrar
-  amount: number | null;        // TOTAL cobrado (neto o parcial)
+  invoiceDate: string | null;       // Fecha de la factura (informativa)
+  paymentDate: string | null;       // Fecha en que llegó el pago
+  accountName: string | null;       // Cuenta contable/banco del depósito
+  invoiceNumber: string | null;     // Nº de factura a cobrar
+  amount: number | null;            // Efectivo recibido (TOTAL)
+  retencionItbms: number | null;    // Retención ITBMS sufrida (columna opcional "Retención ITBMS")
 }
 
 export interface CobrosParseResult {
@@ -178,6 +179,7 @@ const COBROS_ACCOUNT_PATTERNS = [/cuenta|banco|bancos|caja/i];
 const COBROS_INVOICE_NUMBER_PATTERNS = [/factura|n[úu]mero|nro|ref/i];
 const COBROS_PAYMENT_DATE_PATTERNS = [/pago|pagado|dep[ió]sito/i];
 const COBROS_AMOUNT_PATTERNS = [/^total|^monto|^importe|amount/i];
+const COBROS_RETENTION_PATTERNS = [/retenci[oó]n/i, /itbms[ _-]?retenido/i];
 
 /**
  * Parsea un archivo CSV/XLSX de cobros/pagos a facturas.
@@ -240,6 +242,7 @@ export async function parseCobrosFile(
   let accountCol: string | null = null;
   let invoiceNumberCol: string | null = null;
   let amountCol: string | null = null;
+  let retentionCol: string | null = null;
 
   for (const h of headers) {
     if (COBROS_PAYMENT_DATE_PATTERNS.some(p => p.test(h)) && !paymentDateCol) {
@@ -257,6 +260,8 @@ export async function parseCobrosFile(
     if (!accountCol && matchHeader(h, COBROS_ACCOUNT_PATTERNS)) { accountCol = h; continue; }
     if (!invoiceNumberCol && matchHeader(h, COBROS_INVOICE_NUMBER_PATTERNS)) { invoiceNumberCol = h; continue; }
     if (!amountCol && matchHeader(h, COBROS_AMOUNT_PATTERNS)) { amountCol = h; continue; }
+    // La columna de retención NO debe "robarse" la de monto (va después del amount)
+    if (!retentionCol && matchHeader(h, COBROS_RETENTION_PATTERNS) && !matchHeader(h, COBROS_AMOUNT_PATTERNS)) { retentionCol = h; continue; }
   }
 
   if (!amountCol) {
@@ -277,6 +282,7 @@ export async function parseCobrosFile(
       accountName: getVal(accountCol).trim() || null,
       invoiceNumber: getVal(invoiceNumberCol).trim() || null,
       amount: parseAmount(getVal(amountCol)),
+      retencionItbms: parseAmount(getVal(retentionCol)),
     };
   });
 
