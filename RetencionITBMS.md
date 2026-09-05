@@ -1,6 +1,6 @@
 # Plan — Retención ITBMS (retención sufrida, 50%) — seguimiento
 
-> Estado: **F1 + F2 IMPLEMENTADOS y E2E verificado 2026-09-05** (commit pendiente). F3 (UI) y F4 (reportes DGI) pendientes de orden.
+> Estado: **F1-F4 IMPLEMENTADOS y E2E verificado 2026-09-05** (commit pendiente). Pendiente: compensación R52 dentro del flujo PAGO_ITBMS (se hará con el módulo de declaraciones).
 > Fecha de inicio: 2026-09-05.
 
 ## Contexto
@@ -88,9 +88,9 @@ Demo limpia → crear fixtures (cliente marcado agente + facturas). Casos: cobro
 - [x] F2-B: PATCH /pay con `{efectivo, retencionItbms, cuentaId}` — split débito efectivo + `itbms-retenido-terceros` / crédito Clientes; parciales; retención solo con agente vigente y ≤ % ITBMS; crea InvoicePayment + RetentionItbms PENDIENTE.
 - [x] F2-C: columna "Retención ITBMS" en import; validaciones; dedupe incluye retención; sugerencia informativa (`posibleRetencion`) cuando efectivo deja exactamente la retención pendiente; respuestas con `totalRetencionItbms`.
 - [x] E2E demo (10 casos PATCH + import + re-subida idempotente + dedupe RUC 409): todos OK; datos de prueba limpiados; cuenta 1.1.07 demo conservada (la usa la feature).
-- [ ] F3 (UI): ficha cliente agente · modal cobro con retención · panel Retenciones ITBMS (certificado/estados) · badges import.
-- [ ] F4 (reportes): auxiliar retenciones DGI + compensación R52 al declarar.
+- [x] F3 (UI): tab "🔖 Retenciones ITBMS" en Informes (listado + certificado/estados RECIBIDA/APLICADA/ANULADA + resumen + CSV auxiliar DGI) · ficha del cliente con perfil agente (✏️ en Auxiliares CxC, PUT /clients/:id) · modal de cobro con retención en Facturas (prefill neto, sugerencias, validación client-side) — informes.js v77 / facturas.js v77.
+- [x] F4 (parcial): endpoints GET /api/retenciones-itbms (filtros estado/cliente/desde/hasta), PATCH /:id (certificado + transiciones validadas; RECIBIDA/APLICADA exigen Nº certificado), GET /report.csv (auxiliar DGI con RUC descifrado). Verificado E2E.
+- [ ] F4 (restante): compensación automática del crédito al declarar (flujo PAGO_ITBMS / Form. 430 R52) — requiere el módulo de declaraciones.
 
 ## Pendientes / próximos pasos
-- [ ] Commit de F1+F2 (develop → main, flujo habitual) cuando el usuario lo ordene.
-- [ ] Orden de implementación de F3/F4.
+- [ ] Commit de F1-F4 (develop → main, flujo habitual) cuando el usuario lo ordene.

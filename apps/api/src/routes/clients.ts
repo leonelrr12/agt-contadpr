@@ -49,7 +49,7 @@ clientsRouter.get('/:id', async (req, res) => {
 });
 
 // POST /api/clients — Crear cliente (dedupe por RUC/nombre: higiene de duplicidad)
-clientsRouter.post('/', requireRole('admin', 'contador'), async (req, res) => {
+clientsRouter.post('/', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
   const { name, taxId, phone, email, address, notes } = req.body;
   if (!name) { res.status(400).json({ error: 'El nombre es requerido' }); return; }
 
@@ -73,17 +73,30 @@ clientsRouter.post('/', requireRole('admin', 'contador'), async (req, res) => {
   }
 });
 
-// PUT /api/clients/:id — Actualizar cliente
-clientsRouter.put('/:id', requireRole('admin', 'contador'), async (req, res) => {
-  const { name, taxId, phone, email, address, notes } = req.body;
+// PUT /api/clients/:id — Actualizar cliente (incluye perfil de agente de retención ITBMS)
+clientsRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
+  const {
+    name, taxId, phone, email, address, notes,
+    esAgenteRetenedor, porcentajeRetencionItbms, vigenciaRetencionDesde, vigenciaRetencionHasta,
+  } = req.body;
   const existing = await req.prisma.client.findFirst({
     where: { id: req.params.id, companyId: req.user!.companyId },
   });
   if (!existing) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
 
+  const data: any = { name, taxId, phone, email, address, notes };
+  if (esAgenteRetenedor !== undefined) data.esAgenteRetenedor = !!esAgenteRetenedor;
+  if (porcentajeRetencionItbms !== undefined) {
+    const pct = Number(porcentajeRetencionItbms);
+    if (!(pct >= 0 && pct <= 1)) { res.status(400).json({ error: 'El porcentaje de retención debe estar entre 0 y 1 (ej. 0.5 = 50%)' }); return; }
+    data.porcentajeRetencionItbms = pct;
+  }
+  if (vigenciaRetencionDesde !== undefined) data.vigenciaRetencionDesde = vigenciaRetencionDesde ? new Date(String(vigenciaRetencionDesde) + 'T12:00:00') : null;
+  if (vigenciaRetencionHasta !== undefined) data.vigenciaRetencionHasta = vigenciaRetencionHasta ? new Date(String(vigenciaRetencionHasta) + 'T12:00:00') : null;
+
   const updated = await req.prisma.client.update({
     where: { id: req.params.id },
-    data: { name, taxId, phone, email, address, notes },
+    data,
   });
   res.json(updated);
 });
@@ -99,7 +112,7 @@ clientsRouter.get('/:id/invoices', async (req, res) => {
 });
 
 // POST /api/clients/:id/invoices — Crear factura para un cliente
-clientsRouter.post('/:id/invoices', requireRole('admin', 'contador'), async (req, res) => {
+clientsRouter.post('/:id/invoices', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
   const { number, amount, itbms, dueDate, date, description } = req.body;
   if (!amount) { res.status(400).json({ error: 'El monto es requerido' }); return; }
 
@@ -128,7 +141,7 @@ clientsRouter.post('/:id/invoices', requireRole('admin', 'contador'), async (req
 });
 
 // PATCH /api/clients/:id/invoices/:invId/pay — Marcar factura como pagada
-clientsRouter.patch('/:id/invoices/:invId/pay', requireRole('admin', 'contador'), async (req, res) => {
+clientsRouter.patch('/:id/invoices/:invId/pay', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
   const invoice = await req.prisma.invoice.findFirst({
     where: { id: req.params.invId, clientId: req.params.id, companyId: req.user!.companyId },
   });
