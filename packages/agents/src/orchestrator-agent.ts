@@ -11,6 +11,19 @@ import type { AccountingEntry } from './accounting-agent';
  * paquete no puede importar código de la API; la derivación es idéntica.
  * Los registros se guardan con taxIdHash al escribir (extensión en main.ts).
  */
+
+/** Tope de retención para un cobro (duplicado local de services/retencion-itbms).
+ *  Usa el % del perfil si el cliente es agente vigente en la fecha de la
+ *  factura; si no, el 50% estándar (la evidencia marca al cliente después). */
+function retencionCobroInfoLocal(client: any, itbms: number, fechaFactura: Date): { cap: number; pct: number; esAgente: boolean } {
+  if (!itbms || itbms <= 0) return { cap: 0, pct: 0, esAgente: false };
+  const f = new Date(fechaFactura);
+  const esAgente = !!(client?.esAgenteRetenedor) &&
+    (!client.vigenciaRetencionDesde || f >= new Date(client.vigenciaRetencionDesde)) &&
+    (!client.vigenciaRetencionHasta || f <= new Date(client.vigenciaRetencionHasta));
+  const pct = esAgente ? (client?.porcentajeRetencionItbms ?? 0.5) : 0.5;
+  return { cap: Math.round(itbms * pct * 100) / 100, pct, esAgente };
+}
 function hashRuc(plain: string): string {
   const keyB64 = process.env.FIELD_ENC_KEY || '';
   const key = keyB64 ? Buffer.from(keyB64, 'base64') : null;
@@ -83,6 +96,13 @@ export class OrchestratorAgent {
     if (dialog.missingFields.length > 0) {
       const prompt = this.dialogAgent.buildPrompt(dialog.missingFields);
       return { plan, prompt, needsConfirmation: false };
+    }
+
+    // COBRO de factura EXISTENTE: flujo dedicado — valida el Nº en BD, el
+    // saldo y la retención ITBMS (sugerida y confirmada explícitamente).
+    // Web, WhatsApp y batch confluyen aquí (process → confirm).
+    if (dialog.type === 'COBRO_CLIENTE') {
+      return this.procesarCobroFactura(dialog, plan);
     }
 
     const classification = await this.classificationAgent.classify(dialog.concept, dialog.type);
@@ -178,8 +198,272 @@ export class OrchestratorAgent {
     };
   }
 
+  /**
+   * Flujo dedicado para "cobré la factura Nº X por $Y": valida que la factura
+   * exista, calcula saldo/retención y arma el asiento split para confirmar.
+   * El Nº es obligatorio (decisión: solo facturas existentes); el RUC/razón
+   * social se valida si el usuario los menciona.
+   */
+  private async procesarCobroFactura(dialog: any, plan: ExecutionPlan): Promise<{
+    plan: ExecutionPlan; prompt?: string; needsConfirmation: boolean; result?: any;
+  }> {
+    const numero = (dialog.invoiceNumber || '').toString().trim();
+    if (!numero) {
+      return {
+        plan,
+        prompt: '¿Cuál es el Nº de la factura que te pagaron? Ej: "cobré la factura 1005 por $500"',
+        needsConfirmation: false,
+      };
+    }
+
+    const invoice = await (this.prisma as any).invoice.findFirst({
+      where: { companyId: this.companyId, number: numero },
+      include: {
+        client: {
+          select: {
+            id: true, name: true, taxId: true, esAgenteRetenedor: true,
+            porcentajeRetencionItbms: true, vigenciaRetencionDesde: true, vigenciaRetencionHasta: true,
+          },
+        },
+      },
+    });
+    if (!invoice) {
+      return { plan, prompt: `No encontré la factura Nº "${numero}". Verifica el número (ej. 1005 o A-000123).`, needsConfirmation: false };
+    }
+
+    const saldo = Math.round((invoice.total - (invoice.paidAmount || 0)) * 100) / 100;
+    if (saldo <= 0.01) {
+      return { plan, prompt: `La factura Nº ${invoice.number} ya está pagada (saldo $0.00).`, needsConfirmation: false };
+    }
+
+    const efectivo = Math.round((Number(dialog.amount) || 0) * 100) / 100;
+    if (efectivo <= 0) {
+      return { plan, prompt: '¿Cuánto efectivo recibiste por esta factura?', needsConfirmation: false };
+    }
+    if (efectivo > saldo + 0.01) {
+      return { plan, prompt: `El efectivo $${efectivo.toFixed(2)} excede el saldo de la factura Nº ${invoice.number} ($${saldo.toFixed(2)}).`, needsConfirmation: false };
+    }
+
+    // RUC/razón social opcionales: si el usuario los menciona, deben coincidir
+    const digits = (s: string | null | undefined) => (s || '').replace(/\D/g, '');
+    const rucFactura = digits(invoice.client?.taxId);
+    if (dialog.ruc && rucFactura && digits(dialog.ruc) !== rucFactura) {
+      return { plan, prompt: `El RUC no corresponde a la factura Nº ${invoice.number} (cliente: ${invoice.client?.name || '—'}). Revisa el número o el RUC.`, needsConfirmation: false };
+    }
+    if (dialog.provider && invoice.client?.name &&
+        this.normalizeName(dialog.provider) !== this.normalizeName(invoice.client.name)) {
+      return { plan, prompt: `La factura Nº ${invoice.number} es de "${invoice.client.name}", no de "${dialog.provider}".`, needsConfirmation: false };
+    }
+
+    // Retención ITBMS: sugerida cuando el efectivo cierra el neto
+    const fechaFactura = invoice.date instanceof Date ? invoice.date : new Date(invoice.date);
+    const info = retencionCobroInfoLocal(invoice.client, invoice.itbms, fechaFactura);
+    const diff = Math.round((saldo - efectivo) * 100);
+    const capCents = Math.round(info.cap * 100);
+    let ret = 0;
+    if (capCents > 0 && Math.abs(diff - capCents) <= 1) {
+      ret = Math.min(info.cap, Math.round((saldo - efectivo) * 100) / 100);
+    }
+    const aplicado = Math.round((efectivo + ret) * 100) / 100;
+    const autoMarcar = ret > 0 && !info.esAgente;
+
+    // Cuentas del asiento split
+    await this.accountingAgent.init();
+    let cajaId: string, clientesId: string;
+    try {
+      cajaId = this.accountingAgent.resolveAlias('caja');
+      clientesId = this.accountingAgent.resolveAlias('clientes');
+    } catch {
+      return { plan, prompt: 'Faltan cuentas en el catálogo (caja/clientes). Configúralas en el panel.', needsConfirmation: false };
+    }
+    let retAcctId: string | null = null;
+    if (ret > 0) {
+      try { retAcctId = this.accountingAgent.resolveAlias('itbms-retenido-terceros'); }
+      catch {
+        return { plan, prompt: 'Para registrar la retención crea la cuenta "ITBMS Retenido por Terceros" (alias itbms-retenido-terceros) en el catálogo.', needsConfirmation: false };
+      }
+    }
+
+    const accs = await this.prisma.account.findMany({
+      where: { id: { in: [cajaId, clientesId, ...(retAcctId ? [retAcctId] : [])] }, companyId: this.companyId },
+      select: { id: true, name: true },
+    });
+    const nameOf = (id: string) => accs.find(a => a.id === id)?.name || 'Cuenta';
+
+    const debit: any[] = [{ accountId: cajaId, name: nameOf(cajaId), amount: efectivo }];
+    if (ret > 0 && retAcctId) debit.push({ accountId: retAcctId, name: nameOf(retAcctId), amount: ret });
+    const credit: any[] = [{ accountId: clientesId, name: nameOf(clientesId), amount: aplicado }];
+    const descSuffix = ret > 0 ? ` (efectivo $${efectivo.toFixed(2)} + retención ITBMS $${ret.toFixed(2)})` : '';
+    const entry: AccountingEntry = {
+      debit, credit,
+      description: `Cobro de factura ${invoice.number} — $${aplicado.toFixed(2)}${descSuffix}`.trim(),
+    };
+
+    // Datos de decisión viajan en dialog (passthrough) para materializar en confirm()
+    const dd = dialog as any;
+    dd.invoiceNumber = invoice.number;
+    dd.facturaId = invoice.id;
+    dd.saldoFactura = saldo;
+    dd.efectivoFactura = efectivo;
+    dd.retencionItbms = ret;
+    dd.aplicadoFactura = aplicado;
+    dd.autoMarcarAgente = autoMarcar;
+    dd.clienteFactura = invoice.client?.name || null;
+
+    const lines = [
+      `**Cobro de factura Nº ${invoice.number}** — ${invoice.client?.name || ''}`,
+      `Saldo: **$${saldo.toFixed(2)}** · Efectivo recibido: **$${efectivo.toFixed(2)}**`,
+    ];
+    if (ret > 0) {
+      lines.push(`🔖 Retención ITBMS: **$${ret.toFixed(2)}** (crédito fiscal${autoMarcar ? ' — el cliente quedará marcado como agente de retención' : ''})`);
+    }
+    lines.push('', '**Asiento contable:**');
+    for (const d of entry.debit) lines.push(`  Débito: ${d.name} — $${d.amount}`);
+    for (const c of entry.credit) lines.push(`  Crédito: ${c.name} — $${c.amount}`);
+    lines.push('', '¿Confirmas? Responde **OK** o cancela con **XX**.');
+
+    plan.entry = entry;
+    return { plan, prompt: lines.join('\n'), needsConfirmation: true, result: { dialog, entry } };
+  }
+
+  /**
+   * Materializa el cobro de factura al confirmar: re-valida en frío dentro de
+   * la transacción y crea JE BORRADOR + InvoicePayment + Retención ITBMS
+   * (misma lógica que el import/PATCH pay). Sin InvoicePayment no hay
+   * duplicado: la re-subida por import lo omitiría por dedupe idéntico.
+   */
+  private async confirmarCobroFactura(dialog: any): Promise<{ journalEntry: any; autoCreated?: null }> {
+    const d = dialog as any;
+    const efectivo = Math.round((Number(d.efectivoFactura ?? d.amount) || 0) * 100) / 100;
+    const ret = Math.round((Number(d.retencionItbms) || 0) * 100) / 100;
+    const aplicado = Math.round((Number(d.aplicadoFactura ?? efectivo + ret) || 0) * 100) / 100;
+    const numero = String(d.invoiceNumber || '').trim();
+
+    const entryData: any = await (this.prisma as any).$transaction(async (tx: any) => {
+      const invoice = await tx.invoice.findFirst({
+        where: { id: d.facturaId, companyId: this.companyId },
+        include: {
+          client: {
+            select: { id: true, esAgenteRetenedor: true, porcentajeRetencionItbms: true, vigenciaRetencionDesde: true },
+          },
+        },
+      });
+      if (!invoice || String(invoice.number) !== numero) {
+        throw Object.assign(new Error(`La factura Nº "${numero}" ya no existe.`), { status: 404 });
+      }
+      const saldo = Math.round((invoice.total - (invoice.paidAmount || 0)) * 100) / 100;
+      if (saldo <= 0.01) throw Object.assign(new Error(`La factura Nº ${invoice.number} ya está pagada.`), { status: 400 });
+      if (aplicado > saldo + 0.01) {
+        throw Object.assign(new Error(`El total aplicado $${aplicado.toFixed(2)} excede el saldo de la factura Nº ${invoice.number} ($${saldo.toFixed(2)}).`), { status: 400 });
+      }
+      if (ret > 0) {
+        const fechaFactura = invoice.date instanceof Date ? invoice.date : new Date(invoice.date);
+        const info = retencionCobroInfoLocal(invoice.client, invoice.itbms, fechaFactura);
+        if (info.cap <= 0) throw Object.assign(new Error(`La factura Nº ${invoice.number} no tiene ITBMS para retener.`), { status: 400 });
+        if (ret > info.cap + 0.01) {
+          throw Object.assign(new Error(`La retención $${ret.toFixed(2)} excede el ${Math.round(info.pct * 100)}% del ITBMS ($${info.cap.toFixed(2)}).`), { status: 400 });
+        }
+      }
+
+      await this.accountingAgent.init();
+      const cajaId = this.accountingAgent.resolveAlias('caja');
+      const clientesId = this.accountingAgent.resolveAlias('clientes');
+      const retAcctId = ret > 0 ? this.accountingAgent.resolveAlias('itbms-retenido-terceros') : null;
+
+      const lines: any[] = [{ accountId: cajaId, debit: efectivo, credit: 0 }];
+      if (ret > 0 && retAcctId) lines.push({ accountId: retAcctId, debit: ret, credit: 0 });
+      lines.push({ accountId: clientesId, debit: 0, credit: aplicado });
+      const descSuffix = ret > 0 ? ` (efectivo $${efectivo.toFixed(2)} + retención ITBMS $${ret.toFixed(2)})` : '';
+      const desc = `Cobro de factura ${invoice.number} — $${aplicado.toFixed(2)}${descSuffix}`.trim();
+
+      const je = await tx.journalEntry.create({
+        data: {
+          date: parseLocalDate(d.date),
+          description: desc,
+          status: 'BORRADOR',
+          companyId: this.companyId,
+          createdById: this.userId,
+          lines: { create: lines },
+        },
+      });
+
+      const metadata: Record<string, unknown> = {
+        source: 'chat-cobro', invoiceNumber: invoice.number,
+        appliedAmount: aplicado, retentionAmount: ret,
+      };
+      if (d.ruc) metadata.ruc = d.ruc;
+      if (d.provider) metadata.provider = d.provider;
+      if (d.clienteFactura) metadata.clientName = d.clienteFactura;
+
+      await tx.transaction.create({
+        data: {
+          type: 'COBRO_CLIENTE', amount: efectivo, description: desc, concept: d.concept || 'Cobro de factura',
+          paymentMethod: d.paymentMethod || 'EFECTIVO', date: parseLocalDate(d.date),
+          companyId: this.companyId, createdById: this.userId, journalEntryId: je.id,
+          metadata: JSON.stringify(metadata),
+        },
+      });
+
+      const payment = await tx.invoicePayment.create({
+        data: {
+          companyId: this.companyId, invoiceId: invoice.id, amount: efectivo,
+          retentionAmount: ret, date: parseLocalDate(d.date), accountId: cajaId,
+          accountName: null, journalEntryId: je.id,
+        },
+      });
+
+      if (ret > 0) {
+        await tx.retentionItbms.create({
+          data: {
+            companyId: this.companyId, clientId: invoice.clientId, invoiceId: invoice.id,
+            invoicePaymentId: payment.id, fecha: parseLocalDate(d.date),
+            baseGravada: invoice.amount, itbmsFacturado: invoice.itbms,
+            porcentaje: invoice.itbms > 0 ? ret / invoice.itbms : 0.5,
+            montoRetencion: ret, journalEntryId: je.id, estado: 'PENDIENTE',
+          },
+        });
+      }
+      // Evidencia de retención en cliente sin perfil → marcarlo como agente
+      if (ret > 0 && d.autoMarcarAgente && invoice.client && !invoice.client.esAgenteRetenedor) {
+        const clientData: any = { esAgenteRetenedor: true };
+        if ((invoice.client.porcentajeRetencionItbms ?? 0.5) === 0.5 && invoice.itbms > 0) {
+          clientData.porcentajeRetencionItbms = Math.min(1, Math.max(0, ret / invoice.itbms));
+        }
+        if (!invoice.client.vigenciaRetencionDesde) {
+          const fechaFactura = invoice.date instanceof Date ? invoice.date : new Date(invoice.date);
+          clientData.vigenciaRetencionDesde = new Date(fechaFactura);
+        }
+        await tx.client.update({ where: { id: invoice.clientId }, data: clientData });
+      }
+
+      const quedaPagada = saldo - aplicado <= 0.01;
+      const updated = await tx.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          paidAmount: Math.round(((invoice.paidAmount || 0) + aplicado) * 100) / 100,
+          ...(quedaPagada ? { status: 'PAGADA', paidAt: parseLocalDate(d.date) } : {}),
+        },
+      });
+
+      return {
+        id: je.id, status: 'BORRADOR', // mismo contrato que el confirm genérico
+        number: updated.number,
+        saldo: Math.max(0, Math.round((updated.total - updated.paidAmount) * 100) / 100),
+        invoiceStatus: updated.status,
+        description: desc,
+      };
+    });
+
+    return { journalEntry: entryData, autoCreated: null };
+  }
+
   async confirm(result: any): Promise<{ journalEntry: any; autoCreated?: { type: string; name: string } | null }> {
     const { dialog, entry, selectedEntityId } = result;
+
+    // Cobro de factura existente → materializar con el motor de cobros
+    if (dialog?.type === 'COBRO_CLIENTE' && dialog.invoiceNumber) {
+      return this.confirmarCobroFactura(dialog);
+    }
 
     const entryData = await this.prisma.journalEntry.create({
       data: {

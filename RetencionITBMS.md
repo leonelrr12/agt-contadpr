@@ -94,4 +94,7 @@ Demo limpia → crear fixtures (cliente marcado agente + facturas). Casos: cobro
 - [ ] F4 (restante): compensación automática del crédito al declarar (flujo PAGO_ITBMS / Form. 430 R52) — requiere el módulo de declaraciones.
 
 ## Pendientes / próximos pasos
-- [ ] Commit de F1-F4 (develop → main, flujo habitual) cuando el usuario lo ordene.
+- [x] **COBRO por CHAT/WHATSAPP (implementado 06-09)**: en `OrchestratorAgent` (web + WS + batch confluyen en process→confirm sin tocar rutas). Flujo `COBRO_CLIENTE` con Nº de factura: valida existencia/saldo/RUC y razón social si se mencionan; retención sugerida al cerrar el neto (comparación en centavos) y confirmada explícitamente (OK); materializa JE BORRADOR + InvoicePayment + RetentionItbms + auto-marcado del cliente (misma lógica que import/PATCH pay). UI: modal de chat muestra 🧾 factura/cliente/🔖 retención (chat.js v74). Verificado E2E API: factura inexistente → prompt; 1023 neto → retención 8.75 sugerida y aplicada; datos revertidos tras la prueba. Pendiente menor: probar el flujo multi-turn real en WhatsApp (orden categoría→pago→resto) y el caso "respuesta corta con solo el número".
+- [ ] Compensación R52 dentro de PAGO_ITBMS (módulo de declaraciones) — futura.
+
+## Hecho y verificado (2026-09-05/06)
