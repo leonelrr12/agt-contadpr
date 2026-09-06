@@ -198,6 +198,19 @@ export class OrchestratorAgent {
     };
   }
 
+  /** Cuenta de crédito fiscal por retención: alias → código 1.1.07 → nombre. */
+  private async cuentaRetencionId(): Promise<string | null> {
+    await this.accountingAgent.init();
+    try { return this.accountingAgent.resolveAlias('itbms-retenido-terceros'); } catch { /* fallback */ }
+    const accs = await this.prisma.account.findMany({
+      where: { companyId: this.companyId },
+      select: { id: true, code: true, name: true },
+    });
+    const hit = accs.find(a => (a.code || '').trim() === '1.1.07')
+      || accs.find(a => (a.name || '').toLowerCase().includes('retenido por terceros'));
+    return hit?.id || null;
+  }
+
   /**
    * Flujo dedicado para "cobré la factura Nº X por $Y": valida que la factura
    * exista, calcula saldo/retención y arma el asiento split para confirmar.
@@ -278,9 +291,9 @@ export class OrchestratorAgent {
     }
     let retAcctId: string | null = null;
     if (ret > 0) {
-      try { retAcctId = this.accountingAgent.resolveAlias('itbms-retenido-terceros'); }
-      catch {
-        return { plan, prompt: 'Para registrar la retención crea la cuenta "ITBMS Retenido por Terceros" (alias itbms-retenido-terceros) en el catálogo.', needsConfirmation: false };
+      retAcctId = await this.cuentaRetencionId();
+      if (!retAcctId) {
+        return { plan, prompt: 'Para registrar la retención crea la cuenta "ITBMS Retenido por Terceros" (código 1.1.07) en el catálogo.', needsConfirmation: false };
       }
     }
 
@@ -368,7 +381,7 @@ export class OrchestratorAgent {
       await this.accountingAgent.init();
       const cajaId = this.accountingAgent.resolveAlias('caja');
       const clientesId = this.accountingAgent.resolveAlias('clientes');
-      const retAcctId = ret > 0 ? this.accountingAgent.resolveAlias('itbms-retenido-terceros') : null;
+      const retAcctId = ret > 0 ? await this.cuentaRetencionId() : null;
 
       const lines: any[] = [{ accountId: cajaId, debit: efectivo, credit: 0 }];
       if (ret > 0 && retAcctId) lines.push({ accountId: retAcctId, debit: ret, credit: 0 });
