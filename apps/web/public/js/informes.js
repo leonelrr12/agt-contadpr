@@ -491,6 +491,8 @@ function toggleProveedorDetalle(i) {
 
 /* ── Retenciones ITBMS (crédito fiscal — Form. 430 renglón 52) ── */
 
+let _retencionesRows = [];
+
 async function loadRetencionesItbms() {
   const el = document.getElementById('informes-inline-result');
   const from = document.getElementById('informes-filter-from')?.value || '';
@@ -502,6 +504,7 @@ async function loadRetencionesItbms() {
     const res = await authFetch(`${API_URL}/retenciones-itbms?${q.toString()}`);
     if (!res.ok) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar</div>'; return; }
     const rows = await res.json();
+    _retencionesRows = rows;
     const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     if (!rows.length) {
       el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Sin retenciones de ITBMS en el período seleccionado.<br><span style="font-size:12px">Las retenciones se registran automáticamente al cobrar a un cliente agente con retención.</span></div>';
@@ -515,8 +518,12 @@ async function loadRetencionesItbms() {
       <div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Crédito fiscal total</div><div style="font-size:20px;font-weight:700;color:#1565c0">${money(total)}</div></div>
       <div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">⏳ Pendientes de certificado</div><div style="font-size:20px;font-weight:700;color:#f59e0b">${pend}</div></div>
       <div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">📄 Con certificado</div><div style="font-size:20px;font-weight:700;color:#0284c7">${recibidas}</div></div>
+      <div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">🔖 Disponible R52</div><div style="font-size:20px;font-weight:700;color:#059669">${money(rows.filter(r => r.estado === 'RECIBIDA').reduce((s, r) => s + (r.montoRetencion || 0), 0))}</div><div style="font-size:10px;color:#9ca3af">crédito con certificado para renglón 52</div></div>
+      <div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">✅ Aplicado (R52)</div><div style="font-size:20px;font-weight:700;color:#6b7280">${money(rows.filter(r => r.estado === 'APLICADA').reduce((s, r) => s + (r.montoRetencion || 0), 0))}</div></div>
     </div>`;
-    const toolbar = `<div style="margin-bottom:12px;display:flex;justify-content:flex-end">
+    const toolbar = `<div style="margin-bottom:12px;display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap">
+      <button onclick="abrirCompensarR52()" title="Compensa el crédito de retenciones con certificado contra ITBMS por Pagar (renglón 52)" style="padding:5px 12px;font-size:11px;background:#059669;color:#fff;border:none;border-radius:4px;cursor:pointer">💼 Compensar crédito (R52)</button>
+      <button onclick="exportarRetencionesPdf()" style="padding:5px 12px;font-size:11px;background:#b91c1c;color:#fff;border:none;border-radius:4px;cursor:pointer">📄 PDF</button>
       <button onclick="exportarRetencionesCsv()" style="padding:5px 12px;font-size:11px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer">📥 CSV auxiliar DGI</button>
     </div>`;
     const est = s => ({
@@ -600,6 +607,67 @@ function exportarRetencionesCsv() {
   if (from) q.set('desde', from);
   if (to) q.set('hasta', to);
   window.open(`${API_URL}/retenciones-itbms/report.csv?${q.toString()}`, '_blank');
+}
+
+function exportarRetencionesPdf() {
+  const from = document.getElementById('informes-filter-from')?.value || '';
+  const to = document.getElementById('informes-filter-to')?.value || '';
+  const q = new URLSearchParams({ token: getToken() });
+  if (from) q.set('desde', from);
+  if (to) q.set('hasta', to);
+  window.open(`${API_URL}/retenciones-itbms/report.pdf?${q.toString()}`, '_blank');
+}
+
+/** Modal de compensación R52: elige las retenciones RECIBIDAS (con certificado)
+ *  del período y crea el asiento débito ITBMS por Pagar / crédito ITBMS Retenido. */
+function abrirCompensarR52() {
+  const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const candidatas = _retencionesRows.filter(r => r.estado === 'RECIBIDA');
+  if (!candidatas.length) {
+    showAlert('📋 No hay retenciones RECIBIDAS (con certificado) en el período seleccionado. Marca las retenciones como recibidas (📥) para poder compensarlas en el renglón 52.');
+    return;
+  }
+  const overlay = document.createElement('div');
+  overlay.className = 'app-dialog-overlay';
+  const listHtml = candidatas.map((r, i) => `<label style="display:flex;gap:8px;align-items:center;padding:6px 0;font-size:13px;cursor:pointer;border-bottom:1px solid #f0f0f0">
+    <input type="checkbox" class="r52-check" data-i="${i}" checked style="accent-color:#059669">
+    <span style="flex:1">${escapeHtml(r.factura || '—')} · ${escapeHtml(r.cliente || '')}</span>
+    <strong>${money(r.montoRetencion)}</strong>
+  </label>`).join('');
+  overlay.innerHTML = `<div class="app-dialog" style="max-width:520px">
+    <div style="font-weight:700;font-size:16px;margin-bottom:4px">💼 Compensación R52</div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:12px">Débito <strong>ITBMS por Pagar</strong> / Crédito <strong>ITBMS Retenido por Terceros</strong> — las retenciones seleccionadas pasan a <strong>APLICADA</strong> (Form. 430, renglón 52).</div>
+    <div style="max-height:300px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px">${listHtml}</div>
+    <div style="text-align:right;font-size:14px;font-weight:700;margin-top:10px">Total: <span id="r52-total">${money(candidatas.reduce((s, r) => s + r.montoRetencion, 0))}</span></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      <button class="app-dialog-btn" onclick="this.closest('.app-dialog-overlay').remove()">Cancelar</button>
+      <button class="app-dialog-btn primary" onclick="confirmarCompensarR52(this)">✅ Compensar y aplicar</button>
+    </div>
+  </div>`;
+  overlay.querySelectorAll('.r52-check').forEach(chk => chk.addEventListener('change', () => {
+    let total = 0;
+    overlay.querySelectorAll('.r52-check').forEach(c => { if (c.checked) total += candidatas[Number(c.dataset.i)].montoRetencion; });
+    overlay.querySelector('#r52-total').textContent = money(total);
+  }));
+  document.body.appendChild(overlay);
+}
+
+async function confirmarCompensarR52(btn) {
+  const overlay = btn.closest('.app-dialog-overlay');
+  const candidatas = _retencionesRows.filter(r => r.estado === 'RECIBIDA');
+  const seleccionadas = [];
+  overlay.querySelectorAll('.r52-check').forEach(c => { if (c.checked) seleccionadas.push(candidatas[Number(c.dataset.i)].id); });
+  if (!seleccionadas.length) { await showAlert('Selecciona al menos una retención'); return; }
+  btn.disabled = true;
+  const res = await authFetch(`${API_URL}/retenciones-itbms/compensar`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ retencionIds: seleccionadas }),
+  });
+  const d = await res.json();
+  if (!res.ok) { await showAlert(`❌ ${d.error || 'Error'}`); btn.disabled = false; return; }
+  overlay.remove();
+  await showAlert(`✅ Compensación creada: asiento BORRADOR #${d.journalEntryId.slice(0, 8)} por $${Number(d.total).toFixed(2)}. ${d.aplicadas} retención(es) marcadas como APLICADA.`);
+  loadCurrentInformeTab();
 }
 
 /* ── Ficha del cliente: perfil de agente de retención ITBMS ── */
