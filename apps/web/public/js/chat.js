@@ -407,6 +407,11 @@ function showConfirmationModal(data) {
     html += `• Concepto: ${conceptDisplay}<br>`;
     html += `• Monto: $${dialog.amount}<br>`;
     if (dialog.paymentMethod) html += `• Pago: ${dialog.paymentMethod}<br>`;
+    if (dialog.invoiceNumber) html += `• 🧾 Factura Nº: ${dialog.invoiceNumber}<br>`;
+    if (dialog.clienteFactura) html += `• Cliente: ${dialog.clienteFactura}<br>`;
+    if (dialog.retencionItbms > 0) {
+      html += `• 🔖 Retención ITBMS: $${dialog.retencionItbms} (crédito fiscal${dialog.autoMarcarAgente ? ' — el cliente quedará marcado como agente' : ''})<br>`;
+    }
     html += `• 📅 Fecha: ${formatDateForDisplay(dialog.date)}<br>`;
   }
   html += `</div>`;
