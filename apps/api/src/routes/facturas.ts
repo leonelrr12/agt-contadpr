@@ -336,9 +336,23 @@ facturasRouter.patch('/:id/pay', requireRole('admin', 'contador', 'superadmin'),
           }
         }
         if (ret > 0) {
-          try { retAccountId = agent.resolveAlias('itbms-retenido-terceros'); } catch {
-            throw Object.assign(new Error('No se encontró la cuenta "ITBMS Retenido por Terceros" (alias itbms-retenido-terceros) en el catálogo. Créela para registrar la retención.'), { status: 400 });
+          // Resolución tolerante: alias, código 1.1.07 o nombre (cuentas
+          // creadas a mano desde el panel no llevan alias)
+          const acc = await tx.account.findFirst({
+            where: {
+              companyId: req.user!.companyId,
+              OR: [
+                { aliases: { has: 'itbms-retenido-terceros' } },
+                { code: '1.1.07' },
+                { name: { contains: 'retenido por terceros', mode: 'insensitive' } },
+              ],
+            },
+            select: { id: true },
+          });
+          if (!acc) {
+            throw Object.assign(new Error('No se encontró la cuenta "ITBMS Retenido por Terceros" (código 1.1.07) en el catálogo. Créela para registrar la retención.'), { status: 400 });
           }
+          retAccountId = acc.id;
         }
         const descSuffix = ret > 0 ? ` (efectivo $${cash.toFixed(2)} + retención ITBMS $${ret.toFixed(2)})` : '';
         const desc = `Cobro de factura ${invoice.number || ''} — $${aplicado.toFixed(2)}${descSuffix}`.trim();

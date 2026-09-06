@@ -5,7 +5,7 @@ import { requireQuota, incrementUsage } from '../middleware/quota';
 import { parseImportFile, parseCargaInicialFile, parseCobrosFile } from '../services/csv-parser';
 import type { ParsedRow, CobrosRow, CobrosParseResult } from '../services/csv-parser';
 import { resolveCargaInicialRows } from '../services/account-lookup';
-import { retencionCobroInfo, marcarClienteAgente, findAccountByAlias } from '../services/retencion-itbms';
+import { retencionCobroInfo, marcarClienteAgente, findRetencionAccount } from '../services/retencion-itbms';
 import { ClassificationAgent } from '@agt-contador/agents';
 import { AccountingAgent } from '@agt-contador/agents';
 import { importExecuteSchema } from '../validation/schemas';
@@ -585,7 +585,7 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
     const accounts = await loadCobroAccounts(req.prisma, companyId);
     const { list: invoicesList } = await loadCobroInvoices(req.prisma, companyId);
     // Cuenta de crédito fiscal para la retención sufrida (alias itbms-retenido-terceros)
-    const retAccount = findAccountByAlias(accounts, 'itbms-retenido-terceros');
+    const retAccount = findRetencionAccount(accounts);
     // Pagos ya registrados en BD → re-subidas idempotentes. El índice se
     // actualiza con cada pago aplicado (también dedupe dentro del mismo archivo).
     const dupKeys = await buildCobroPaymentsIndex(req.prisma, companyId);

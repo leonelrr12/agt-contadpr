@@ -107,6 +107,8 @@ export async function marcarClienteAgente(
 
 export interface CuentaConAlias {
   id: string;
+  code?: string;
+  name?: string;
   aliases?: string[] | null;
 }
 
@@ -115,6 +117,30 @@ export function findAccountByAlias(accounts: CuentaConAlias[], alias: string): C
   for (const a of accounts) {
     const aliases = (a.aliases || []).map(x => x.trim().toLowerCase());
     if (aliases.includes(alias)) return a;
+  }
+  return null;
+}
+
+/** Normaliza un texto (minúsculas, sin acentos) para comparar nombres. */
+function normKey(s: string): string {
+  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+/**
+ * Resuelve la cuenta de crédito fiscal por retención sufrida con tolerancia:
+ * 1) alias exacto `itbms-retenido-terceros`; 2) código `1.1.07`;
+ * 3) nombre normalizado que contenga "retenido por terceros".
+ * (Las cuentas creadas a mano desde el panel no llevan alias.)
+ */
+export function findRetencionAccount(accounts: CuentaConAlias[]): CuentaConAlias | null {
+  const porAlias = findAccountByAlias(accounts, 'itbms-retenido-terceros');
+  if (porAlias) return porAlias;
+  for (const a of accounts) {
+    if ((a.code || '').trim() === '1.1.07') return a;
+  }
+  for (const a of accounts) {
+    const n = normKey(a.name || '');
+    if (n.includes('retenido por terceros')) return a;
   }
   return null;
 }
