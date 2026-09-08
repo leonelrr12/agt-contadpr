@@ -106,7 +106,7 @@ function importMode() {
 }
 
 const IMPORT_MODE_HINTS = {
-  transacciones: 'Sube el CSV/Excel con tus transacciones históricas. La IA clasificará cada concepto.',
+  transacciones: 'Sube el CSV/Excel con tus transacciones históricas. La IA clasificará cada concepto. En Gastos/Compras, la columna "Estado" (Contado/Crédito) define el pago: "Crédito" carga a Proveedores y exige Nº de factura; Contado/sin estado sale del banco indicado en la columna "Banco/Cuenta" (opcional) o del banco por defecto de Configuración.',
   carga: 'Balance de apertura: columnas Categoria, Concepto, Monto. Se crea un solo asiento.',
   cobros: 'Pagos/abonos a facturas: columnas Cliente, Fecha de Pago, Cuenta (banco), Factura # y TOTAL. Las filas SIN "Fecha de Pago" y "Cuenta" son facturas aún no pagadas: quedan ⏳ pendientes y se omiten. Puedes re-subir el mismo archivo: los pagos ya aplicados no se duplican (se omiten).',
 };
@@ -206,6 +206,17 @@ async function handleImportInlineFile(file) {
     }
     renderImportInlinePreview();
   } catch (e) { await showAlert('Error de conexión'); resetImportInline(); }
+}
+
+/** Etiqueta legible del método de pago derivado del Estado (columna "Pago"). */
+function importPagoLabel(pm) {
+  if (pm === 'CREDITO') return ['Crédito', '#b45309'];
+  if (pm === 'EFECTIVO') return ['Efectivo', '#065f46'];
+  if (pm === 'TRANSFERENCIA') return ['Transferencia', '#0369a1'];
+  if (pm === 'CHEQUE') return ['Cheque', '#0369a1'];
+  if (pm === 'TARJETA_CREDITO') return ['Tarjeta crédito', '#7c3aed'];
+  if (pm === 'TARJETA_DEBITO') return ['Tarjeta débito', '#7c3aed'];
+  return null;
 }
 
 function renderImportInlinePreview() {
@@ -345,7 +356,7 @@ function renderImportInlinePreview() {
     }
 
     const thead = document.getElementById('import-inline-thead');
-    thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Ref</th><th>RUC</th><th>Concepto</th><th>Cuenta</th><th>Conf</th><th></th></tr>';
+    thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Pago</th><th>Ref</th><th>RUC</th><th>Concepto</th><th>Cuenta</th><th>Conf</th><th></th></tr>';
     let html = '';
     previewRows.forEach((r, i) => {
       const conf = r.classification;
@@ -357,9 +368,18 @@ function renderImportInlinePreview() {
         const total = r.amount + (r.itbms || 0);
         montoHtml = `$${total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}${r.itbms ? ` <span style="color:#9ca3af;font-size:10px">(neto $${r.amount.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} + ITBMS $${r.itbms.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})})</span>` : ''}`;
       }
+      // Pago derivado del Estado (Contado/Crédito) o del método detectado
+      const pagoLbl = importPagoLabel(r.paymentMethod);
+      let pagoHtml = '—';
+      if (pagoLbl) {
+        pagoHtml = `<span style="color:${pagoLbl[1]};font-size:11px;font-weight:600">${pagoLbl[0]}</span>`;
+      } else if (r.type === 'GASTO' || r.type === 'COMPRA') {
+        pagoHtml = '<span style="color:#059669;font-size:11px;font-weight:600" title="Al contado: sale del banco indicado en la columna Banco/Cuenta o del banco por defecto">Contado (banco)</span>';
+      }
       html += `<tr${rowCls}>
         <td>${i+1}</td><td>${r.date||'—'}</td><td>${escapeHtml(r.description||'')}</td>
         <td>${montoHtml}</td>
+        <td>${pagoHtml}</td>
         <td>${escapeHtml(r.reference||'')}</td><td>${escapeHtml(r.ruc||'')}</td>
         <td>${escapeHtml(r.concept||'')}</td>
         <td>${conf?escapeHtml(conf.concept):'—'}</td>

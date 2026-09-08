@@ -3,7 +3,7 @@ import multer from 'multer';
 import { validate } from '../middleware/validate';
 import { requireQuota, incrementUsage } from '../middleware/quota';
 import { parseImportFile, parseCargaInicialFile, parseCobrosFile } from '../services/csv-parser';
-import type { ParsedRow, CobrosRow, CobrosParseResult } from '../services/csv-parser';
+import type { ParsedRow, CobrosRow, CobrosParseResult, ColumnMapping } from '../services/csv-parser';
 import { resolveCargaInicialRows } from '../services/account-lookup';
 import { retencionCobroInfo, marcarClienteAgente, findRetencionAccount } from '../services/retencion-itbms';
 import { ClassificationAgent } from '@agt-contador/agents';
@@ -126,7 +126,7 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
 
     // Mismas reglas que /execute-all: fecha global solo si el usuario la indicó
     const defaultDate = (req.body.importDate as string) || null;
-    const allRows = buildImportRows(parsed.rows, defaultDate);
+    const allRows = buildImportRows(parsed.rows, defaultDate, parsed.detectedMapping);
 
     // Validación estricta sobre TODAS las filas (no solo la muestra de 20):
     // las incompletas se cuentan y se reportan aunque no se muestren en el preview.
@@ -204,6 +204,40 @@ interface ImportRow {
   ruc?: string | null;
   debitAccountId?: string;
   creditAccountId?: string;
+  // Maestro de Gastos/Compras: "Estado" crudo (Contado/Crédito) y banco de donde sale el dinero
+  state?: string | null;
+  bankName?: string | null;
+}
+
+/** Métodos de pago que se pagan desde una cuenta bancaria (crédito a banco). */
+const BANK_PAID_METHODS: ReadonlySet<string> = new Set(['TRANSFERENCIA', 'CHEQUE', 'TARJETA_DEBITO']);
+
+/**
+ * Interpreta la celda "Estado" del maestro de Gastos/Compras:
+ * - "Crédito" (queda debiendo al proveedor) → CREDITO
+ * - "Tarjeta de crédito"/TC/Visa/Mastercard → TARJETA_CREDITO · "Tarjeta débito"/TD → TARJETA_DEBITO
+ * - "Efectivo"/Cash → EFECTIVO (sale de caja) · "Transferencia"/"Cheque" → método respectivo
+ * - "Contado"/"Pagado"/"Cancelado" u otros → null = pago inmediato desde el banco (default)
+ */
+function estadoToPaymentMethod(raw: string | null | undefined): string | null {
+  const t = (raw || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (!t) return null;
+  if (/tarjeta.*credito|credito.*tarjeta|visa|mastercard|amex|\btc\b/.test(t)) return 'TARJETA_CREDITO';
+  if (/tarjeta.*debito|\btd\b/.test(t)) return 'TARJETA_DEBITO';
+  if (/\bcredito\b/.test(t)) return 'CREDITO'; // compra a crédito → Proveedores
+  if (/efectivo|cash/.test(t)) return 'EFECTIVO';
+  if (/transferencia|ach|wire/.test(t)) return 'TRANSFERENCIA';
+  if (/cheque|chq/.test(t)) return 'CHEQUE';
+  return null; // "Contado"/"Pagado"…: pago inmediato desde el banco
+}
+
+/** ¿El pago de esta fila sale de una cuenta bancaria (crédito a banco en el asiento)? */
+function pagoSaleDelBanco(paymentMethod: string | null): boolean {
+  return !paymentMethod || BANK_PAID_METHODS.has(paymentMethod);
 }
 
 function r2(n: number): number { return Math.round(n * 100) / 100; }
@@ -225,6 +259,8 @@ function cleanImportError(err: any): string {
  * endpoint): TODAS las filas deben traer los datos completos.
  * Única fuente de verdad — la usa el preview (sobre el archivo completo)
  * y la ejecución.
+ * Gastos/Compras al contado no exigen Nº de factura; el crédito (columna
+ * Estado = "Crédito" o método CREDITO) sí: queda debiendo al proveedor.
  */
 function missingImportFields(row: ImportRow): string[] {
   const missing: string[] = [];
@@ -232,7 +268,11 @@ function missingImportFields(row: ImportRow): string[] {
   if (!(row.concept || row.description || '').trim()) missing.push('concepto');
   if (!row.amount || row.amount <= 0) missing.push('monto');
   if (!row.ruc) missing.push('RUC');
-  if (!row.reference) missing.push('Nº de factura');
+  const typeNorm = (row.type || '').toUpperCase();
+  const esGastoCompra = typeNorm === 'GASTO' || typeNorm === 'COMPRA';
+  if (!row.reference && (!esGastoCompra || row.paymentMethod === 'CREDITO')) {
+    missing.push(esGastoCompra ? 'Nº de factura (obligatorio en crédito)' : 'Nº de factura');
+  }
   return missing;
 }
 
@@ -272,22 +312,76 @@ function isCobrosFileRows(rows: { concept?: string; description: string }[]): bo
  * Convierte filas parseadas → ImportRow. La fecha global SOLO aplica si el
  * usuario la indicó (importDate); las filas incompletas se detectan después
  * con missingImportFields (mismas reglas en preview y en /execute-all).
+ * Gastos/Compras con columna "Estado" (Contado/Crédito): el estado manda —
+ * "Contado"/vacío = pago inmediato desde el banco (paymentMethod null), solo
+ * "Crédito"/"Tarjeta"/"Efectivo"/etc. fijan el método. Sin columna Estado se
+ * conserva la detección previa (columna de pago o por texto).
  */
-function buildImportRows(parsedRows: ParsedRow[], defaultDate: string | null): ImportRow[] {
-  return parsedRows.map(r => ({
-    date: defaultDate ? (r.date || defaultDate) : r.date,
-    description: r.description || '',
-    amount: r.amount,
-    // Redondear a centavos: la columna ITBMS suele traer celdas con fórmula
-    // (=Monto*7%) cuyo valor flotante ensucia descripción y líneas (902.1341).
-    itbms: r.itbms && r.itbms > 0 ? r2(r.itbms) : null,
-    concept: r.concept || r.description || '',
-    paymentMethod: r.paymentMethod,
-    type: r.type || 'GASTO',
-    provider: r.provider,
-    reference: r.reference,
-    ruc: r.ruc,
-  }));
+function buildImportRows(
+  parsedRows: ParsedRow[],
+  defaultDate: string | null,
+  mapping?: ColumnMapping | null,
+): ImportRow[] {
+  const hasStateCol = !!mapping?.stateCol;
+  return parsedRows.map(r => {
+    const type = (r.type || 'GASTO').trim().toUpperCase();
+    let paymentMethod = r.paymentMethod;
+    if ((type === 'GASTO' || type === 'COMPRA') && hasStateCol) {
+      paymentMethod = estadoToPaymentMethod(r.state);
+    }
+    return {
+      date: defaultDate ? (r.date || defaultDate) : r.date,
+      description: r.description || '',
+      amount: r.amount,
+      // Redondear a centavos: la columna ITBMS suele traer celdas con fórmula
+      // (=Monto*7%) cuyo valor flotante ensucia descripción y líneas (902.1341).
+      itbms: r.itbms && r.itbms > 0 ? r2(r.itbms) : null,
+      concept: r.concept || r.description || '',
+      paymentMethod,
+      type,
+      provider: r.provider,
+      reference: r.reference,
+      ruc: r.ruc,
+      state: r.state || null,
+      bankName: r.bankName || null,
+    };
+  });
+}
+
+/**
+ * Cuenta de banco/caja de donde sale el dinero de un gasto/compra al contado.
+ * Cadena (igual que el chat): (1) banco indicado en la fila del archivo
+ * (columna "Banco/Cuenta", match exacto/alias/typo) → (2) banco por defecto
+ * de la empresa (Company.bancoDefaultId, Panel Admin → Configuración) →
+ * null = se mantiene el alias 'banco-general' (fallback histórico).
+ * Solo candidatas: cuentas de banco (código 1.1.02.*) o cajas.
+ */
+async function resolveImportPayoutAccount(
+  prisma: any,
+  companyId: string,
+  bankName: string | null,
+  bancoDefaultId: string | null,
+  cache: { accounts: CobroAccount[] | null },
+): Promise<CobroAccount | null> {
+  if (!cache.accounts) {
+    const all = await loadCobroAccounts(prisma, companyId);
+    cache.accounts = all.filter(a => {
+      const haystack = `${a.code} ${a.name} ${(a.aliases || []).join(' ')}`.toLowerCase();
+      return a.code.startsWith('1.1.02') || haystack.includes('caja');
+    });
+  }
+  const bancos = cache.accounts;
+  if (bancos.length === 0) return null;
+
+  if (bankName && bankName.trim()) {
+    const acc = resolveCobroAccount(bancos, bankName);
+    if (acc) return acc;
+  }
+  if (bancoDefaultId) {
+    const cfg = bancos.find(a => a.id === bancoDefaultId);
+    if (cfg) return cfg;
+  }
+  return null;
 }
 
 async function executeImportRows(
@@ -303,6 +397,15 @@ async function executeImportRows(
   await accountant.init();
 
   const results = { success: 0, errors: [] as { row: number; error: string }[], entryIds: [] as string[] };
+
+  // Banco por defecto de la empresa (una consulta por lote; el catálogo de
+  // bancos se carga solo si alguna fila lo pide en el archivo)
+  const company: any = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { bancoDefaultId: true },
+  });
+  const bancoDefaultId: string | null = company?.bancoDefaultId || null;
+  const payoutCache: { accounts: CobroAccount[] | null } = { accounts: null };
 
   // CADA FILA se crea en SU PROPIA transacción. Antes el lote completo corría
   // en un solo $transaction con catch por fila: si cualquier query fallaba,
@@ -361,6 +464,27 @@ async function executeImportRows(
 
       const classification = { concept: classifiedConcept, accountId, confidence: classConfidence };
       const entry = accountant.generateEntry(dialog, classification);
+
+      // Gastos/Compras al contado: el dinero sale de la cuenta bancaria que
+      // indica la fila (columna "Banco/Cuenta") o del banco por defecto de la
+      // empresa. Sin ninguna, se deja el alias 'banco-general' como siempre.
+      // Crédito (Proveedores), tarjeta de crédito, caja/efectivo y otros tipos
+      // no se tocan: solo la línea genérica de banco del agente.
+      const typeNorm = (row.type || '').toUpperCase();
+      if ((typeNorm === 'GASTO' || typeNorm === 'COMPRA') && pagoSaleDelBanco(row.paymentMethod ?? null)) {
+        const payout = await resolveImportPayoutAccount(
+          prisma, companyId, row.bankName || null, bancoDefaultId, payoutCache,
+        );
+        if (payout) {
+          for (const l of entry.credit) {
+            if (l.accountId === 'banco-general') {
+              l.accountId = payout.id;
+              l.name = payout.name;
+            }
+          }
+        }
+      }
+
       const validation = accountant.validateEntry(entry);
       if (!validation.valid) {
         throw new Error(validation.error || 'Asiento no balanceado');
@@ -482,7 +606,7 @@ importRouter.post('/execute-all', requireQuota, upload.single('file'), async (re
 
     // Construir rows desde el parseo automático (mismas reglas que el preview)
     const defaultDate = (req.body.importDate as string) || null;
-    const rows = buildImportRows(parsed.rows, defaultDate);
+    const rows = buildImportRows(parsed.rows, defaultDate, parsed.detectedMapping);
 
     if (rows.length === 0) {
       res.status(400).json({ error: 'No se encontraron filas válidas en el archivo.' });

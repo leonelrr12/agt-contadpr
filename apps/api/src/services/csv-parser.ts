@@ -16,6 +16,10 @@ export interface ParsedRow {
   debit: number | null;
   credit: number | null;
   balance: number | null;
+  // Maestro de Gastos/Compras: "Estado" (Contado/Crédito) y banco/cuenta de
+  // donde sale el dinero (opcionales; la interpretación vive en routes/import.ts)
+  state?: string | null;
+  bankName?: string | null;
   // Raw data por si el usuario necesita ajustar
   _raw: Record<string, string>;
 }
@@ -35,6 +39,9 @@ export interface ColumnMapping {
   referenceCol: string | null;
   rucCol: string | null;
   itbmsCol: string | null;
+  // Maestro de Gastos/Compras (opcionales)
+  stateCol: string | null;
+  bankCol: string | null;
 }
 
 export interface ParseResult {
@@ -60,6 +67,20 @@ const ITBMS_PATTERNS = [/itbms/i, /impuesto/i, /^iva$/i];
 
 function matchHeader(header: string, patterns: RegExp[]): boolean {
   return patterns.some(p => p.test(header));
+}
+
+/** Columna "Estado" del maestro de Gastos/Compras (Contado/Crédito). Excluye "Estado de Cuenta" (extracto). */
+function isStateHeader(h: string): boolean {
+  const l = h.trim().toLowerCase();
+  if (/^estado[ _-]?de/i.test(l) || /^status[ _-]?de/i.test(l)) return false;
+  return /^estado|^status/i.test(l);
+}
+
+/** Columna de banco/caja de donde sale el dinero. Excluye "Nº de cuenta" (≠ banco destino). */
+function isBankHeader(h: string): boolean {
+  const l = h.trim().toLowerCase();
+  if (/^(n|no|nro|num)([º°.]*\s*de\s*)?(cuenta|banco|cheque)/i.test(l)) return false;
+  return /^banco|^bancos|^caja|^cuenta/i.test(l);
 }
 
 function detectDelimiter(firstLine: string): string {
@@ -363,6 +384,8 @@ export async function parseImportFile(
     referenceCol: null,
     rucCol: null,
     itbmsCol: null,
+    stateCol: null,
+    bankCol: null,
   };
 
   for (const h of headers) {
@@ -379,6 +402,8 @@ export async function parseImportFile(
     if (!mapping.referenceCol && matchHeader(h, REFERENCE_PATTERNS)) mapping.referenceCol = h;
     if (!mapping.rucCol && matchHeader(h, RUC_PATTERNS)) mapping.rucCol = h;
     if (!mapping.itbmsCol && matchHeader(h, ITBMS_PATTERNS)) mapping.itbmsCol = h;
+    if (!mapping.stateCol && isStateHeader(h)) mapping.stateCol = h;
+    if (!mapping.bankCol && isBankHeader(h)) mapping.bankCol = h;
   }
 
   // Si no se detectó amount, intentar debit/credit como fallback
@@ -422,6 +447,8 @@ export async function parseImportFile(
       debit,
       credit,
       balance: parseAmount(getVal(mapping.balanceCol)),
+      state: getVal(mapping.stateCol) || null,
+      bankName: getVal(mapping.bankCol) || null,
       _raw: raw,
     };
 
