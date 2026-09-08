@@ -18,6 +18,7 @@ const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 async function buildProveedoresReport(prisma: any, companyId: string, startDate?: string, endDate?: string) {
   const where: Record<string, unknown> = {
     companyId,
+    type: { notIn: ['VENTA', 'COBRO_CLIENTE'] }, // ventas guardan al CLIENTE en metadata.provider — este reporte es solo de compras
     metadata: { contains: 'provider' },
     journalEntry: { is: { status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false } },
   };
