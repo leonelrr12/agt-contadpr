@@ -11,18 +11,19 @@ publicConfigRouter.get('/wa-phone', (_req, res) => {
 configRouter.get('/', async (req, res) => {
   const company = await req.prisma.company.findUnique({
     where: { id: req.user!.companyId },
-    select: { declaraITBMS: true },
+    select: { declaraITBMS: true, bancoDefaultId: true },
   });
   res.json({
     itbmsRate: parseFloat(process.env.ITBMS_RATE || '') || 0.07,
     itbmsEnabled: process.env.ITBMS_ENABLED !== 'false',
     declaraITBMS: company?.declaraITBMS ?? true,
+    bancoDefaultId: company?.bancoDefaultId ?? null,
     waBotPhone: process.env.WA_BOT_PHONE || '+507 6403-4863',
   });
 });
 
 configRouter.put('/', async (req, res) => {
-  const { itbmsRate, itbmsEnabled, declaraITBMS } = req.body;
+  const { itbmsRate, itbmsEnabled, declaraITBMS, bancoDefaultId } = req.body;
 
   if (itbmsRate !== undefined) {
     const rate = parseFloat(String(itbmsRate));
@@ -44,13 +45,32 @@ configRouter.put('/', async (req, res) => {
     });
   }
 
+  if (bancoDefaultId !== undefined) {
+    const bancoId = bancoDefaultId ? String(bancoDefaultId) : null;
+    if (bancoId) {
+      const acc = await req.prisma.account.findFirst({
+        where: { id: bancoId, companyId: req.user!.companyId },
+        select: { id: true },
+      });
+      if (!acc) {
+        res.status(400).json({ error: 'La cuenta bancaria seleccionada no existe en esta empresa' });
+        return;
+      }
+    }
+    await req.prisma.company.update({
+      where: { id: req.user!.companyId },
+      data: { bancoDefaultId: bancoId },
+    });
+  }
+
   const company = await req.prisma.company.findUnique({
     where: { id: req.user!.companyId },
-    select: { declaraITBMS: true },
+    select: { declaraITBMS: true, bancoDefaultId: true },
   });
   res.json({
     itbmsRate: parseFloat(process.env.ITBMS_RATE || '') || 0.07,
     itbmsEnabled: process.env.ITBMS_ENABLED !== 'false',
     declaraITBMS: company?.declaraITBMS ?? true,
+    bancoDefaultId: company?.bancoDefaultId ?? null,
   });
 });

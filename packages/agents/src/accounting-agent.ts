@@ -94,6 +94,8 @@ export class AccountingAgent {
         const totalAmount = r2(dialog.amount + itbmsAmount);
         if (dialog.paymentMethod === 'EFECTIVO') {
           entry.debit.push({ accountId: 'caja', name: 'Caja', amount: totalAmount });
+        } else if (dialog.paymentMethod === 'TRANSFERENCIA' || dialog.paymentMethod === 'CHEQUE' || dialog.paymentMethod === 'TARJETA_DEBITO') {
+          entry.debit.push({ accountId: 'banco-general', name: 'Bancos', amount: totalAmount });
         } else {
           entry.debit.push({ accountId: 'clientes', name: 'Clientes', amount: totalAmount });
         }
@@ -123,7 +125,8 @@ export class AccountingAgent {
         } else if (dialog.paymentMethod === 'CREDITO') {
           entry.credit.push({ accountId: 'proveedores', name: 'Proveedores', amount: totalAmount });
         } else {
-          entry.credit.push({ accountId: 'proveedores', name: 'Proveedores', amount: totalAmount });
+          // Banco/transferencia/cheque/débito → cuenta bancaria (alias banco-general)
+          entry.credit.push({ accountId: 'banco-general', name: 'Bancos', amount: totalAmount });
         }
         break;
       }

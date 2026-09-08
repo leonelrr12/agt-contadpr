@@ -437,6 +437,13 @@
                   <option value="false">❌ No — ITBMS como parte del gasto/costo</option>
                 </select>
               </div>
+              <div style="min-width:100%">
+                <label>Cuenta de banco por defecto (pagos por chat/WhatsApp)</label>
+                <select id="config-banco-default" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit">
+                  <option value="">— Sin definir (usa 1.1.02.01) —</option>
+                </select>
+                <div style="font-size:11px;color:#6b7280;margin-top:4px">Si el texto no menciona un banco o el nombre no coincide con ninguno del catálogo, el pago se acredita aquí; si queda sin definir se usa la cuenta 1.1.02.01.</div>
+              </div>
             </div>
             <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
               <button class="btn-primary" onclick="saveConfig()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar Configuración</button>
@@ -538,7 +545,7 @@
   <script src="js/capture-qr.js?v=73"></script>
   <script src="js/chat.js?v=74"></script>
   <script src="js/router.js?v=73"></script>
-  <script src="js/admin.js?v=81"></script>
+  <script src="js/admin.js?v=82"></script>
   <script src="js/init.js?v=73"></script>
   <script src="js/panels-sidebar.js?v=73"></script>
   <script src="js/import.js?v=81"></script>
