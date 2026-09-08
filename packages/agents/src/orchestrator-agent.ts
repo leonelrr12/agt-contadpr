@@ -86,6 +86,22 @@ export class OrchestratorAgent {
     entityMatches?: any[];
   }> {
     const dialog = await this.dialogAgent.processInput(input, context);
+
+    // Banco mencionado ("... ACH Banco de Panama", "... Banco General"): se
+    // extrae del texto crudo (el LLM no siempre lo propaga) para acreditar la
+    // cuenta real del catálogo en lugar del banco por defecto.
+    if (!(dialog as any).cuentaBanco) {
+      const bi = input.search(/\bbanco\b/i);
+      if (bi >= 0) {
+        const tail = input.slice(bi).replace(/^[^A-ZÁÉÍÓÚÑ]*/, '');
+        const nm = tail.match(/^([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ .'’]{1,45})/);
+        if (nm) {
+          const rawName = nm[1].trim().replace(/\s{2,}/g, ' ');
+          (dialog as any).cuentaBanco = rawName.replace(/\s+(?:por|con|itbms|iva|impuesto|factura|compra|venta|pago|del|el|la)\s+.*$/i, '') || null;
+        }
+      }
+    }
+
     const plan: ExecutionPlan = {
       steps: [
         { agent: 'dialogo', action: 'extraer_informacion', status: 'completed', result: dialog as any },
@@ -151,9 +167,24 @@ export class OrchestratorAgent {
 
     await this.accountingAgent.init();
     const raw = this.accountingAgent.generateEntry(dialog, classification);
+    // Banco mencionado / default configurado / 1.1.02.01 → línea con código
+    await this.aplicarBancoMencionado(dialog, raw);
+    // Resolución alias → id; si el valor es un CÓDIGO (p.ej. 1.1.02.03) se
+    // busca por código en el catálogo (no por alias)
+    const resolveRef = async (ref: string): Promise<string> => {
+      try { return this.accountingAgent.resolveAlias(ref); } catch { /* intentar por código */ }
+      if (/^\d+(\.\d+)+$/.test(ref)) {
+        const accs = await this.prisma.account.findMany({
+          where: { companyId: this.companyId, code: ref },
+          select: { id: true },
+        });
+        if (accs?.[0]) return accs[0].id;
+      }
+      throw new Error(`Cuenta contable no encontrada: ${ref}`);
+    };
     const entry: AccountingEntry = {
-      debit: raw.debit.map((d: any) => ({ ...d, accountId: this.accountingAgent.resolveAlias(d.accountId) })),
-      credit: raw.credit.map((c: any) => ({ ...c, accountId: this.accountingAgent.resolveAlias(c.accountId) })),
+      debit: await Promise.all(raw.debit.map(async (d: any) => ({ ...d, accountId: await resolveRef(d.accountId) }))),
+      credit: await Promise.all(raw.credit.map(async (c: any) => ({ ...c, accountId: await resolveRef(c.accountId) }))),
       description: raw.description,
     };
     const validation = this.accountingAgent.validateEntry(entry);
@@ -196,6 +227,75 @@ export class OrchestratorAgent {
       needsConfirmation: true,
       result: { dialog, classification, entry },
     };
+  }
+
+  /**
+   * Resuelve la cuenta bancaria de un pago por banco/transferencia (chat/WS).
+   * Cadena: (1) banco mencionado por nombre en el texto → (2) cuenta default
+   * configurada en Panel Admin (Company.bancoDefaultId) → (3) cuenta 1.1.02.01
+   * (existe en todos los catálogos) → si nada, se mantiene la línea con el
+   * alias 'banco-general' (resuelto por AccountingAgent).
+   * Muta las líneas crudas ANTES de mapear aliases/códigos a ids reales.
+   */
+  private async aplicarBancoMencionado(dialog: any, raw: { debit: any[]; credit: any[] }): Promise<void> {
+    const metodo = (dialog.paymentMethod || '').toUpperCase();
+    if (!['TRANSFERENCIA', 'BANCO', 'CHEQUE', 'TARJETA_DEBITO'].includes(metodo)) return;
+
+    const bancos = await this.prisma.account.findMany({
+      where: { companyId: this.companyId, code: { startsWith: '1.1.02' }, isActive: true },
+      select: { id: true, code: true, name: true },
+      orderBy: { code: 'asc' },
+    });
+    if (!bancos.length) return;
+
+    const elegir = (b: { code: string; name: string }) => b;
+
+    // 1) Banco mencionado por nombre
+    const nombre = (dialog.cuentaBanco || '').trim();
+    let target: { code: string; name: string } | null = null;
+    if (nombre) {
+      const want = this.normalizeName(nombre);
+      if (want.length >= 3) {
+        let best: { code: string; name: string; score: number } | null = null;
+        for (const b of bancos) {
+          const bn = this.normalizeName(b.name);
+          const score = bn === want ? 2 : (bn.includes(want) || want.includes(bn)) && want.length >= 4 ? 1 : 0;
+          if (score === 0) continue;
+          if (!best || score > best.score || (score === best.score && b.name.length < best.name.length)) {
+            best = { code: b.code, name: b.name, score };
+          }
+        }
+        target = best ? elegir(best) : null;
+      }
+    }
+
+    // 2) Cuenta default configurada (Panel Admin → Configuración)
+    if (!target) {
+      const company: any = await (this.prisma as any).company.findUnique({
+        where: { id: this.companyId },
+        select: { bancoDefaultId: true },
+      });
+      if (company?.bancoDefaultId) {
+        const cfg = bancos.find(b => b.id === company.bancoDefaultId);
+        if (cfg) target = elegir(cfg);
+      }
+    }
+
+    // 3) Cuenta 1.1.02.01 como respaldo universal
+    if (!target) {
+      const code1 = bancos.find(b => b.code === '1.1.02.01');
+      if (code1) target = elegir(code1);
+    }
+
+    if (!target) return;
+    // Reemplaza la línea de banco genérica por la cuenta elegida (se emite su
+    // código; la resolución a id real ocurre al mapear las líneas)
+    for (const l of [...raw.debit, ...raw.credit]) {
+      if (l.accountId === 'banco-general') {
+        l.accountId = target.code;
+        l.name = target.name;
+      }
+    }
   }
 
   /** Cuenta de crédito fiscal por retención: alias → código 1.1.07 → nombre. */

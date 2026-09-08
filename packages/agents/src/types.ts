@@ -22,6 +22,8 @@ export interface DialogResult {
   reference?: string | null;
   ruc?: string | null;
   invoiceNumber?: string | null;
+  /** Nombre del banco mencionado ("ACH Banco de Panama") para acreditar la cuenta real. */
+  cuentaBanco?: string | null;
 }
 
 export interface AgentTask {

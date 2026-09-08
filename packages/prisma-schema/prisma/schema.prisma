@@ -24,6 +24,9 @@ model Company {
   facturaResolucion     String?
   facturaResolucionFecha DateTime?
   facturaCorrelativo    Int      @default(0)
+  // Cuenta bancaria por defecto para pagos desde chat/WS cuando no se
+  // menciona el banco o el nombre no coincide (fallback: 1.1.02.01)
+  bancoDefaultId        String?
   createdAt    DateTime @default(now())
   updatedAt DateTime @updatedAt
 

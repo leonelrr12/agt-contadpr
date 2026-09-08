@@ -269,6 +269,24 @@ async function loadPanelConfig() {
     document.getElementById('config-itbms-enabled').value = cfg.itbmsEnabled ? 'true' : 'false';
     const declaraEl = document.getElementById('config-declara-itbms');
     if (declaraEl) declaraEl.value = cfg.declaraITBMS !== false ? 'true' : 'false';
+    // Selector de cuenta bancaria default (pagos por chat/WS)
+    const sel = document.getElementById('config-banco-default');
+    if (sel) {
+      sel.innerHTML = '<option value="">— Sin definir (usa 1.1.02.01) —</option>';
+      try {
+        const ra = await authFetch(`${API_URL}/accounts?search=`); // cuentas de la empresa
+        const accs = await ra.json();
+        const bancos = Array.isArray(accs) ? accs.filter(a => String(a.code || '').startsWith('1.1.02') || (a.aliases || []).includes('banco')) : [];
+        bancos.sort((a, b) => String(a.code).localeCompare(String(b.code)));
+        for (const b of bancos) {
+          const opt = document.createElement('option');
+          opt.value = b.id;
+          opt.textContent = `${b.code} — ${b.name}`;
+          sel.appendChild(opt);
+        }
+      } catch { /* sin cuentas */ }
+      sel.value = cfg.bancoDefaultId || '';
+    }
   } catch (e) { /* keep defaults */ }
 }
 
@@ -281,10 +299,12 @@ async function saveConfig() {
   if (isNaN(rate) || rate < 0 || rate > 20) { await showAlert('Tasa ITBMS debe estar entre 0 y 20'); return; }
 
   try {
+    const sel = document.getElementById('config-banco-default');
+    const bancoDefaultId = sel ? (sel.value || null) : undefined;
     const res = await authFetch(`${API_URL}/config`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ itbmsRate: rate / 100, itbmsEnabled: enabled, declaraITBMS }),
+      body: JSON.stringify({ itbmsRate: rate / 100, itbmsEnabled: enabled, declaraITBMS, bancoDefaultId }),
     });
     if (!res.ok) { const e = await res.json(); await showAlert(e.error); return; }
     const msg = document.getElementById('config-saved-msg');

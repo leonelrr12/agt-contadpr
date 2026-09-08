@@ -1,6 +1,46 @@
 import type { DialogResult, DialogContext } from './types';
 import { LLMService } from './llm-service';
 
+/**
+ * Parsea montos en formato panameño: admite separadores mixtos/es-PA.
+ *  "3.526,03" / "3526,03" / "3,526.03" / "3526.03" / "246,83" / "1.000"
+ * Reglas: si hay AMBOS separadores, el último es el decimal.
+ * Con UN separador: "," → decimal ("246,83"); "." con 3 dígitos después →
+ * miles ("1.000"); "." con ≤2 dígitos → decimal ("3.52").
+ */
+export function parseMoneyPanama(raw: string): number | null {
+  const s = String(raw || '').replace(/[^\d.,-]/g, '').trim();
+  if (!s) return null;
+  const clean = s.replace(/^-\s*/, '-');
+  const negative = clean.startsWith('-');
+  const digits = clean.replace(/[-,]/g, '');
+  if (!/^\d+$/.test(digits.replace('-', '')) || digits.replace('-', '').length === 0) return null;
+
+  const dots = (clean.match(/\./g) || []).length;
+  const commas = (clean.match(/,/g) || []).length;
+  let normalized = clean.replace(/,/g, '');
+  if (dots > 0 && commas > 0) {
+    // Ambos: el último separador es el decimal; si el decimal es ",", los "." son miles
+    const lastDot = clean.lastIndexOf('.');
+    const lastComma = clean.lastIndexOf(',');
+    const lastSep = Math.max(lastDot, lastComma);
+    if (clean[lastSep] === ',') {
+      normalized = clean.replace(/\./g, '').replace(',', '.');
+    } else {
+      normalized = clean.replace(/,/g, '');
+    }
+  } else if (commas > 0) {
+    const after = clean.split(',').pop() || '';
+    normalized = after.length === 3 && commas === 1 ? clean.replace(/,/g, '') : clean.replace(',', '.');
+  } else if (dots > 0) {
+    const after = clean.split('.').pop() || '';
+    if (after.length === 3) normalized = clean.replace(/\./g, ''); // miles
+  }
+  const value = parseFloat(normalized.replace('-', ''));
+  if (isNaN(value) || value <= 0) return null;
+  return negative ? -value : value;
+}
+
 /** Retorna true si día, mes, año forman una fecha válida y el año está en rango. */
 function isValidDate(d: number, m: number, y: number): boolean {
   if (m < 1 || m > 12) return false;
@@ -45,6 +85,7 @@ export function parseInput(input: string): {
   provider: string | null;
   invoiceNumber?: string | null;
   ruc?: string | null;
+  cuentaBanco?: string | null;
 } {
   const lower = input.toLowerCase();
 
@@ -57,8 +98,19 @@ export function parseInput(input: string): {
   // no capturen sus dígitos ni la etiqueta
   const amountInput = ruc ? input.replace(ruc, ' ').replace(/\bruc\b/i, ' ') : input;
 
-  const amountMatch = amountInput.match(/\$?(\d+(?:[.,]\d+)?)/);
-  const amount = amountMatch ? parseFloat(amountMatch[1].replace(',', '.')) : 0;
+  // Monto con formato panameño (3.526,03 / 246,83). Preferimos el número que
+  // sigue a una palabra de precio ("por/de/en/pago/cobré...") y si no, el mayor
+  // del texto (evita capturar el Nº de factura o el ITBMS como monto).
+  const moneyScan = (t: string) => (t.match(/\d[\d.,]*/g) || [])
+    .map(m => parseMoneyPanama(m))
+    .filter((v): v is number => v != null);
+  const priceMatch = amountInput.match(/(?:por|de|en|pago|cobr[eé]|cobro|compr[ée]|pagu[ée]|vend[ií]|abon[oó]|me pagaron)\s*(?:b\s*\/?\s*\.?|s\s*\/?\s*\.?|usd|\$)?\s*(\d[\d.,]*)/i);
+  let amount = 0;
+  if (priceMatch) amount = parseMoneyPanama(priceMatch[1]) ?? 0;
+  if (!amount) {
+    const all = moneyScan(amountInput.replace(/b\/?\.?|s\/?\.?|usd|\$/gi, ' '));
+    if (all.length) amount = Math.max(...all);
+  }
 
   let date: string | null = tryParseDate(input);
   if (!date && input.includes('ayer')) {
@@ -131,7 +183,7 @@ export function parseInput(input: string): {
     paymentMethod = 'CREDITO';
   } else if (lower.includes('efectivo')) {
     paymentMethod = 'EFECTIVO';
-  } else if (lower.includes('banco general') || lower.includes('transferencia')) {
+  } else if (lower.includes('banco') || lower.includes('transferencia')) {
     paymentMethod = 'TRANSFERENCIA';
   } else if (lower.includes('cheque')) {
     paymentMethod = 'CHEQUE';
@@ -141,9 +193,10 @@ export function parseInput(input: string): {
 
   const itbms = lower.includes('itbms') || lower.includes('iva') || lower.includes('impuesto') || lower.includes('7%');
 
-  // Extraer monto de ITBMS explícito: "ITBMS por 7.54", "ITBMS $7.54", "ITBMS de 0.19"
+  // Extraer monto de ITBMS explícito: "ITBMS por 7.54", "ITBMS $7.54",
+  // "ITBMS por B/.246.83", "ITBMS de 0.19". NUNCA recalcular si viene dado.
   let itbmsAmount: number | null = null;
-  const itbmsAmtMatch = input.match(/(?:itbms|iva|impuesto)\s+(?:por|de|:?\s*\$?)\s*(\d+(?:\.\d{1,2})?)/i);
+  const itbmsAmtMatch = input.match(/(?:itbms|iva|impuesto)\s+(?:por|de|es|:)?\s*(?:b\s*\/?\s*\.?|s\s*\/?\s*\.?|usd|\$)?\s*(\d+(?:\.\d{1,2})?)/i);
   if (itbmsAmtMatch) itbmsAmount = parseFloat(itbmsAmtMatch[1]);
 
   // Número de factura: "factura FE-2026-0001", "fact #12345", "No. 0000634220",
@@ -151,6 +204,20 @@ export function parseInput(input: string): {
   let invoiceNumber: string | null = null;
   const invoiceMatch = input.match(/(?:factura|fact\.?|no\.?\s*(?:factura)?|#)\s*[:#-]?\s*(FE-?[A-Z0-9-]+|\d{3,}[A-Z0-9-]*)/i);
   if (invoiceMatch) invoiceNumber = invoiceMatch[1];
+
+  // Cuenta bancaria mencionada ("... ACH Banco de Panama", "... por Banco General"):
+  // se captura el nombre tras la palabra "banco" para acreditar la cuenta REAL.
+  let cuentaBanco: string | null = null;
+  const bi = lower.search(/\bbanco\b/);
+  if (bi >= 0) {
+    const tail = input.slice(bi).replace(/^[^A-ZÁÉÍÓÚÑ]*/, '');
+    const nm = tail.match(/^([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ .'’]{1,45})/);
+    if (nm) {
+      const rawName = nm[1].trim().replace(/\s{2,}/g, ' ');
+      // cortar si arrastra el resto de la frase
+      cuentaBanco = rawName.replace(/\s+(?:por|con|itbms|iva|impuesto|factura|compra|venta|pago|del|el|la)\s+.*$/i, '') || null;
+    }
+  }
 
   let provider: string | null = null;
   // Busca patrón "a [Nombre]", "proveedor [Nombre]", "de [Nombre]" con nombre propio
@@ -173,7 +240,7 @@ export function parseInput(input: string): {
   if (amount === 0) missingFields.push('amount');
   if (!paymentMethod) missingFields.push('paymentMethod');
 
-  return { amount, date, type, concept, paymentMethod, missingFields, itbms, itbmsAmount, provider, invoiceNumber, ruc };
+  return { amount, date, type, concept, paymentMethod, missingFields, itbms, itbmsAmount, provider, invoiceNumber, ruc, cuentaBanco };
 }
 
 /** Detecta si el usuario mencionó explícitamente una fecha válida en el mensaje.
