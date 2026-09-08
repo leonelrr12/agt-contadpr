@@ -1,15 +1,27 @@
 import type { PrismaClient } from '@agt-contador/prisma-schema';
+import fs from 'fs';
 import { processDueItems } from './recurring-processor';
 import { registerOpenWaWebhook } from './whatsapp-service';
 import { generateUpcomingObligations } from './tax-calendar';
+
+/** Marcador de pausa del bot de WhatsApp (entrega bloqueada por WhatsApp).
+ *  touch = pausa (no registra webhook ni responde) · rm = reanuda. */
+export const WA_PAUSE_MARKER = '/tmp/wa-webhook-paused';
+export const waPaused = (): boolean => fs.existsSync(WA_PAUSE_MARKER);
 
 /**
  * Tareas de inicio del servidor, separadas del arranque del HTTP server.
  * Se ejecutan una vez, después de prisma.$connect().
  */
 export async function runStartupTasks(prisma: PrismaClient): Promise<void> {
-  // Registrar webhook de WhatsApp con OpenWa (no bloquea el arranque)
-  registerOpenWaWebhook().catch(err => console.error('[WhatsApp] Webhook registration failed:', err.message));
+  // Registrar webhook de WhatsApp con OpenWa (no bloquea el arranque).
+  // En pausa (entrega restringida por WhatsApp) no se registra: nada entra,
+  // nada sale — el silencio total deja decaer el flag de la cuenta.
+  if (!waPaused()) {
+    registerOpenWaWebhook().catch(err => console.error('[WhatsApp] Webhook registration failed:', err.message));
+  } else {
+    console.log('[WhatsApp] Webhook PAUSADO (marcador presente). No se procesan mensajes.');
+  }
 
   // Generar obligaciones fiscales para TODAS las empresas (no solo demo)
   const companies = await prisma.company.findMany({ select: { id: true } });

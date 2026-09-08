@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
+import { waPaused } from '../services/startup';
 import { processWhatsAppMessage, processWhatsAppPDF, processWhatsAppDgiUrl, verifyCode, generateCode, sendWhatsAppMessage, isBatchActive, startBatch, endBatch, getBatch, setBatchMetodoPago, enqueueBatchItem, confirmBatch, buildBatchResumen } from '../services/whatsapp-service';
 
 export const whatsappRouter = Router();
@@ -36,6 +37,12 @@ async function handleWebhook(req: any, res: any): Promise<void> {
 
   // Validar que sea un mensaje recibido
   if (body.event !== 'message.received') {
+    return res.sendStatus(200);
+  }
+
+  // Pausa operativa (entrega bloqueada por WhatsApp): no procesar ni enviar.
+  // Reactivar: rm /tmp/wa-webhook-paused
+  if (waPaused()) {
     return res.sendStatus(200);
   }
 
