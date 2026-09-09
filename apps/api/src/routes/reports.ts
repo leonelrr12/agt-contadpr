@@ -59,11 +59,18 @@ async function buildProveedoresReport(prisma: any, companyId: string, startDate?
     };
     const aux = tx.journalEntryId ? auxByJe.get(tx.journalEntryId) : undefined;
     const itbmsMeta = Number(m.itbmsAmount) || 0;
+    // Import del archivo maestro (import.ts): guarda el ITBMS en metadata.itbms
+    // y su amount YA incluye el impuesto (neto + itbms). El chat/PDF guardan
+    // metadata.itbmsAmount con amount neto. El Bill/Invoice del asiento queda
+    // de respaldo (créditos).
+    const itbmsImport = Number(m.itbms) || 0;
+    const esImport = !m.source && itbmsImport > 0 && itbmsMeta === 0;
     const invoiceNumber = m.invoiceNumber || aux?.number || null;
     const amountTotal = Number(tx.amount) || 0;
-    const itbms = r2(itbmsMeta > 0 ? itbmsMeta : (aux?.itbms || 0));
-    const subtotal = m.source ? Math.round((amountTotal - itbms) * 100) / 100 : amountTotal;
-    const total = m.source ? amountTotal : Math.round((amountTotal + itbms) * 100) / 100;
+    const itbms = r2(itbmsMeta > 0 ? itbmsMeta : (itbmsImport > 0 ? itbmsImport : (aux?.itbms || 0)));
+    const amountIncluyeItbms = m.source || esImport;
+    const subtotal = amountIncluyeItbms ? Math.round((amountTotal - itbms) * 100) / 100 : amountTotal;
+    const total = amountIncluyeItbms ? amountTotal : Math.round((amountTotal + itbms) * 100) / 100;
     p.facturas++;
     p.subtotal = Math.round((p.subtotal + subtotal) * 100) / 100;
     p.itbms = Math.round((p.itbms + itbms) * 100) / 100;
