@@ -69,11 +69,11 @@ function matchHeader(header: string, patterns: RegExp[]): boolean {
   return patterns.some(p => p.test(header));
 }
 
-/** Columna "Estado" del maestro de Gastos/Compras (Contado/Crédito). Excluye "Estado de Cuenta" (extracto). */
+/** Columna "Estado"/"Estatus" del maestro de Gastos/Compras (Contado/Crédito). Excluye "Estado de Cuenta" (extracto). */
 function isStateHeader(h: string): boolean {
   const l = h.trim().toLowerCase();
-  if (/^estado[ _-]?de/i.test(l) || /^status[ _-]?de/i.test(l)) return false;
-  return /^estado|^status/i.test(l);
+  if (/^(estado|estatus|status)[ _-]?de/i.test(l)) return false;
+  return /^(estado|estatus|status)/i.test(l);
 }
 
 /** Columna de banco/caja de donde sale el dinero. Excluye "Nº de cuenta" (≠ banco destino). */
@@ -144,16 +144,22 @@ function parseAmount(raw: string): number | null {
   return isNaN(num) ? null : num;
 }
 
+/**
+ * Deduce el tipo (GASTO/COMPRA/VENTA/…) SOLO del texto del movimiento
+ * (descripción + concepto). El resto de celdas —proveedor, RUC, fechas,
+ * montos— NO define el tipo: "Ferretería La Ventaja" no es una venta.
+ * Las señales usan límites de palabra para no tropezar con nombres propios
+ * que CONTIENEN la palabra clave ("La Ventaja" ⊃ "venta").
+ */
 function detectType(row: ParsedRow): string {
-  const desc = (row.description || row.concept || '').toLowerCase();
-  const rawDesc = Object.values(row._raw).join(' ').toLowerCase();
+  const texto = `${row.description || ''} ${row.concept || ''}`.toLowerCase();
 
-  if (/venta|factur[éa]|ingreso|servicio|cobr[éoa]|client/i.test(rawDesc)) return 'VENTA';
-  if (/compra|gasto|pag[uéoa]|combustible|alquiler|servicio|honorario/i.test(rawDesc)) return 'GASTO';
-  if (/inventario|mercanc[ií]a|mercader[ií]a/i.test(rawDesc)) return 'COMPRA';
-  if (/pr[eé]stamo|financiamiento/i.test(rawDesc)) return 'PRESTAMO';
-  if (/pago\s+proveedor|abon[ée]\s+a/i.test(rawDesc)) return 'PAGO_PROVEEDOR';
-  if (/cobro\s+cliente|abono\s+cliente/i.test(rawDesc)) return 'COBRO_CLIENTE';
+  if (/\bventas?\b|\bfactur[ée]s?\b|\bingresos?\b|\bservicios?\b|\bcobros?\b|\bcobranzas?\b|\bclientes?\b/i.test(texto)) return 'VENTA';
+  if (/\bcompras?\b|\bgastos?\b|\bcombustibles?\b|\balquileres?\b|\bhonorarios?\b/i.test(texto)) return 'GASTO';
+  if (/\binventarios?\b|\bmercanc[ií]as?\b|\bmercader[ií]as?\b/i.test(texto)) return 'COMPRA';
+  if (/\bpr[eé]stamos?\b|\bfinanciamientos?\b/i.test(texto)) return 'PRESTAMO';
+  if (/pago\s+proveedor|abon[ée]\s+a/i.test(texto)) return 'PAGO_PROVEEDOR';
+  if (/cobro\s+cliente|abono\s+cliente/i.test(texto)) return 'COBRO_CLIENTE';
 
   return 'GASTO'; // default
 }
