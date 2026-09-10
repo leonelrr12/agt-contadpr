@@ -310,7 +310,11 @@ async function loadAuxCxC(el) {
       `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Vencidas</div><div style="font-size:20px;font-weight:700;color:#ef4444">${sum.overdueInvoices}</div></div>`+
     '</div>';
     html += clients.filter(c => c.totalDue > 0).length
-      ? buildInformesTable(['Cliente','RUC','Pendiente','Facturas',''], clients.filter(c => c.totalDue > 0).map(c => [escapeHtml(c.name), escapeHtml(c.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${c.totalDue.toLocaleString()}</span>`, c.invoiceCount||'—', `<button onclick="openClientProfileModal('${c.id}')" title="Ficha del cliente (perfil de agente de retención)" style="padding:4px 9px;font-size:11px;background:#4b5563;color:#fff;border:none;border-radius:4px;cursor:pointer">✏️</button> <button onclick="toggleFacturas('${c.id}','invoices')" style="padding:4px 10px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📋 Ver</button><div id="detalle-${c.id}" class="hidden" style="margin-top:8px"></div>`]))
+      ? buildInformesTable(['Cliente','RUC','Pendiente','Facturas',''], clients.filter(c => c.totalDue > 0).map(c => ({
+          detalleId: c.id,
+          cells: [escapeHtml(c.name), escapeHtml(c.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${c.totalDue.toLocaleString()}</span>`, c.invoiceCount||'—',
+            `<button onclick="openClientProfileModal('${c.id}')" title="Ficha del cliente (perfil de agente de retención)" style="padding:4px 9px;font-size:11px;background:#4b5563;color:#fff;border:none;border-radius:4px;cursor:pointer">✏️</button> <button onclick="toggleFacturas('${c.id}','invoices', this)" style="padding:4px 10px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📋 Detalle</button>`],
+        })))
       : '<div style="text-align:center;padding:24px;color:#6b7280">Sin clientes con saldo pendiente</div>';
     el.innerHTML = html;
   } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; }
@@ -326,16 +330,27 @@ async function loadAuxCxP(el) {
       `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Vencidas</div><div style="font-size:20px;font-weight:700;color:#ef4444">${sum.overdueBills}</div></div>`+
     '</div>';
     html += supps.filter(s => s.totalOwed > 0).length
-      ? buildInformesTable(['Proveedor','RUC','Pendiente','Facturas',''], supps.filter(s => s.totalOwed > 0).map(s => [escapeHtml(s.name), escapeHtml(s.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${s.totalOwed.toLocaleString()}</span>`, s.billCount||'—', `<button onclick="toggleFacturas('${s.id}','bills')" style="padding:4px 10px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📋 Ver</button><div id="detalle-${s.id}" class="hidden" style="margin-top:8px"></div>`]))
+      ? buildInformesTable(['Proveedor','RUC','Pendiente','Facturas',''], supps.filter(s => s.totalOwed > 0).map(s => ({
+          detalleId: s.id,
+          cells: [escapeHtml(s.name), escapeHtml(s.taxId||'—'), `<span style="color:#c62828;font-weight:600">$${s.totalOwed.toLocaleString()}</span>`, s.billCount||'—',
+            `<button onclick="toggleFacturas('${s.id}','bills', this)" style="padding:4px 10px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📋 Detalle</button>`],
+        })))
       : '<div style="text-align:center;padding:24px;color:#6b7280">Sin proveedores con saldo pendiente</div>';
     el.innerHTML = html;
   } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; }
 }
 
-async function toggleFacturas(entityId, type) {
+async function toggleFacturas(entityId, type, btn) {
+  // El detalle vive en la fila que está JUSTO DEBAJO del proveedor/cliente
+  const tr = document.getElementById('detalle-row-' + entityId);
+  if (!tr) return;
   const det = document.getElementById('detalle-' + entityId);
-  if (!det.classList.contains('hidden')) { det.classList.add('hidden'); return; }
-  det.classList.remove('hidden');
+  const oculto = tr.classList.toggle('hidden');
+  if (btn) btn.textContent = oculto ? '📋 Detalle' : '▲ Ocultar';
+  if (oculto) return;
+  // Solo la primera vez se consulta; después abre/cierra al instante
+  if (det.dataset.loaded === '1') return;
+  det.dataset.loaded = '1';
   det.innerHTML = '<div style="text-align:center;padding:12px;color:#6b7280">Cargando...</div>';
   const url = type === 'invoices' ? `${API_URL}/clients/${entityId}/invoices` : `${API_URL}/suppliers/${entityId}/bills`;
   try {
@@ -393,14 +408,28 @@ function exportInforme(type, format) {
   window.open(`${API_URL}/reports/export/${type}?format=${format}&token=${encodeURIComponent(token)}`, '_blank');
 }
 
+/**
+ * Tabla de informes. Cada fila puede ser:
+ * - un array de celdas (fila normal), o
+ * - un objeto { cells, detalleId, detalleHtml? } → añade una FILA DE DETALLE
+ *   a ancho completo JUSTO DEBAJO de la fila (oculta por defecto; el botón de
+ *   la fila la muestra/oculta con toggleInformesDetalle). Uniforme en
+ *   Proveedores, Honorarios, CxC y CxP: el detalle nunca aparece al final del
+ *   listado ni dentro de una celda.
+ */
 function buildInformesTable(headers, rows, footer) {
   let h = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>';
   for (const th of headers) h += `<th style="text-align:left;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;text-transform:uppercase">${th}</th>`;
   h += '</tr></thead><tbody>';
   for (const row of rows) {
+    const cells = Array.isArray(row) ? row : (row.cells || []);
     h += '<tr>';
-    for (const td of row) h += `<td style="padding:8px 10px;border-bottom:1px solid #e5e7eb">${td}</td>`;
+    for (const td of cells) h += `<td style="padding:8px 10px;border-bottom:1px solid #e5e7eb">${td}</td>`;
     h += '</tr>';
+    if (!Array.isArray(row) && row.detalleId) {
+      h += `<tr id="detalle-row-${row.detalleId}" class="hidden"><td colspan="${headers.length}" style="padding:0;border-bottom:1px solid #e5e7eb;background:#f8fafc">`
+        + `<div id="detalle-${row.detalleId}" style="padding:10px 12px;border-left:3px solid #1565c0;margin:6px 0 6px 8px;max-height:340px;overflow:auto">${row.detalleHtml || ''}</div></td></tr>`;
+    }
   }
   h += '</tbody>';
   if (footer) {
@@ -410,6 +439,17 @@ function buildInformesTable(headers, rows, footer) {
   }
   h += '</table></div>';
   return h;
+}
+
+/**
+ * Muestra/oculta la fila de detalle bajo la línea clickeada (uniforme en las
+ * consultas de detalle) y actualiza el texto del botón.
+ */
+function toggleInformesDetalle(detalleId, btn) {
+  const tr = document.getElementById('detalle-row-' + detalleId);
+  if (!tr) return;
+  const oculto = tr.classList.toggle('hidden');
+  if (btn) btn.textContent = oculto ? '📋 Detalle' : '▲ Ocultar';
 }
 
 /** Línea de información del período efectivo que muestra el reporte. */
@@ -451,21 +491,7 @@ async function loadReportProveedores() {
           </div>`).join('')}
       </div>`;
 
-    const rows = d.proveedores.map((p, i) => [
-      p.provider,
-      p.ruc || '—',
-      p.facturas,
-      money(p.subtotal),
-      money(p.itbms),
-      money(p.total),
-      `<button onclick="toggleProveedorDetalle(${i})" style="padding:4px 10px;font-size:11px;background:#f0f0f0;border:1px solid #d1d5db;border-radius:5px;cursor:pointer">📋 Detalle</button>`,
-    ]);
-    const footer = ['', '', d.facturas, money(d.subtotal), money(d.itbms), money(d.total), ''];
-
-    let html = informesPeriodoInfo(d) + cards + buildInformesTable(['Proveedor', 'RUC', 'Facturas', 'Subtotal', 'ITBMS', 'Total', ''], rows, footer);
-
-    // Detalle por proveedor (toggle)
-    d.proveedores.forEach((p, i) => {
+    const rows = d.proveedores.map((p, i) => {
       const detRows = p.detalle.map(f => [
         f.invoiceNumber || '—',
         new Date(f.date).toLocaleDateString('es-PA'),
@@ -474,18 +500,26 @@ async function loadReportProveedores() {
         money(f.total),
       ]);
       const detFooter = ['Total', '', money(p.subtotal), money(p.itbms), money(p.total)];
-      html += `<div id="prov-detalle-${i}" class="hidden" style="margin:8px 0 16px 8px;border-left:3px solid #1565c0;padding-left:12px">${buildInformesTable(['N° Factura', 'Fecha', 'Monto', 'ITBMS', 'Total'], detRows, detFooter)}</div>`;
+      return {
+        detalleId: `prov-${i}`,
+        detalleHtml: buildInformesTable(['N° Factura', 'Fecha', 'Monto', 'ITBMS', 'Total'], detRows, detFooter),
+        cells: [
+          p.provider,
+          p.ruc || '—',
+          p.facturas,
+          money(p.subtotal),
+          money(p.itbms),
+          money(p.total),
+          `<button onclick="toggleInformesDetalle('prov-${i}', this)" style="padding:4px 10px;font-size:11px;background:#f0f0f0;border:1px solid #d1d5db;border-radius:5px;cursor:pointer">📋 Detalle</button>`,
+        ],
+      };
     });
+    const footer = ['', '', d.facturas, money(d.subtotal), money(d.itbms), money(d.total), ''];
 
-    el.innerHTML = html;
+    el.innerHTML = informesPeriodoInfo(d) + cards + buildInformesTable(['Proveedor', 'RUC', 'Facturas', 'Subtotal', 'ITBMS', 'Total', ''], rows, footer);
   } catch (e) {
     el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar el reporte</div>';
   }
-}
-
-function toggleProveedorDetalle(i) {
-  const el = document.getElementById(`prov-detalle-${i}`);
-  if (el) el.classList.toggle('hidden');
 }
 
 // ── Informe de Honorarios Profesionales (pagos por RUC/Cédula) ──
@@ -518,39 +552,32 @@ async function loadReportHonorarios() {
           </div>`).join('')}
       </div>`;
 
-    const rows = d.profesionales.map((p, i) => [
-      p.nombre,
-      p.ruc || '—',
-      p.pagos,
-      money(p.total),
-      `<button onclick="toggleHonorariosDetalle(${i})" style="padding:4px 10px;font-size:11px;background:#f0f0f0;border:1px solid #d1d5db;border-radius:5px;cursor:pointer">📋 Detalle</button>`,
-    ]);
-    const footer = ['', '', d.pagos, money(d.total), ''];
-
-    let html = informesPeriodoInfo(d) + cards + buildInformesTable(['Profesional', 'RUC/Cédula', 'Pagos', 'Total', ''], rows, footer);
-
-    // Detalle de pagos por profesional (toggle)
-    d.profesionales.forEach((p, i) => {
+    const rows = d.profesionales.map((p, i) => {
       const detRows = p.detalle.map(f => [
         new Date(f.fecha).toLocaleDateString('es-PA'),
         f.concepto || '—',
         money(f.monto),
       ]);
       const detFooter = ['Total', '', money(p.total)];
-      html += `<div id="hon-detalle-${i}" class="hidden" style="margin:8px 0 16px 8px;border-left:3px solid #0e7490;padding-left:12px">${buildInformesTable(['Fecha', 'Concepto', 'Monto'], detRows, detFooter)}</div>`;
+      return {
+        detalleId: `hon-${i}`,
+        detalleHtml: buildInformesTable(['Fecha', 'Concepto', 'Monto'], detRows, detFooter),
+        cells: [
+          p.nombre,
+          p.ruc || '—',
+          p.pagos,
+          money(p.total),
+          `<button onclick="toggleInformesDetalle('hon-${i}', this)" style="padding:4px 10px;font-size:11px;background:#f0f0f0;border:1px solid #d1d5db;border-radius:5px;cursor:pointer">📋 Detalle</button>`,
+        ],
+      };
     });
+    const footer = ['', '', d.pagos, money(d.total), ''];
 
-    el.innerHTML = html;
+    el.innerHTML = informesPeriodoInfo(d) + cards + buildInformesTable(['Profesional', 'RUC/Cédula', 'Pagos', 'Total', ''], rows, footer);
   } catch (e) {
     el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar el reporte</div>';
   }
 }
-
-function toggleHonorariosDetalle(i) {
-  const el = document.getElementById(`hon-detalle-${i}`);
-  if (el) el.classList.toggle('hidden');
-}
-
 
 /* ── Retenciones ITBMS (crédito fiscal — Form. 430 renglón 52) ── */
 

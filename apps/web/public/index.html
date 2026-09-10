@@ -358,9 +358,12 @@
       <div id="panel-revision-content" class="hidden" style="padding:24px;max-width:1000px">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px">
           <h2 style="margin:0;color:#1a1a2e">🔍 Revisión de Asientos</h2>
-          <button id="btn-asiento-manual" onclick="showCreateEntryModal()" style="display:none;padding:8px 16px;font-size:13px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">➕ Asiento Manual</button>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button onclick="loadRevisionList()" title="Buscar asientos nuevos pendientes" style="padding:8px 16px;font-size:13px;background:#e5e7eb;color:#374151;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">🔄 Actualizar</button>
+            <button id="btn-asiento-manual" onclick="showCreateEntryModal()" style="display:none;padding:8px 16px;font-size:13px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">➕ Asiento Manual</button>
+          </div>
         </div>
-        <p style="margin:0 0 20px 0;color:#6b7280;font-size:13px">Asientos pendientes de revisión por el contador</p>
+        <p id="revision-subtitle" style="margin:0 0 20px 0;color:#6b7280;font-size:13px">Asientos pendientes de revisión por el contador</p>
         <div id="revision-inline-list">
           <div style="text-align:center;padding:32px;color:#6b7280">Cargando...</div>
         </div>
@@ -649,9 +652,9 @@
   <script src="js/planilla.js?v=1"></script>
   <script src="js/honorarios.js?v=1"></script>
   <script src="js/carga-inicial.js?v=1"></script>
-  <script src="js/auxiliares-revision.js?v=74"></script>
+  <script src="js/auxiliares-revision.js?v=75"></script>
   <script src="js/entry-modals.js?v=74"></script>
-  <script src="js/informes.js?v=79"></script>
+  <script src="js/informes.js?v=80"></script>
   <script src="js/tax-calendar.js?v=73"></script>
   <script src="js/salud.js?v=73"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>

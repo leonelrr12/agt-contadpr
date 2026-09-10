@@ -45,12 +45,17 @@ function loadPanelRevision() {
 
 async function loadRevisionList() {
   const el = document.getElementById('revision-inline-list');
-  el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Cargando...</div>';
+  // Al refrescar con la lista ya visible no se vacía (evita el parpadeo);
+  // "Cargando..." solo la primera vez o cuando no hay tarjetas.
+  if (!el.querySelector('[id^="rev-entry-"]')) {
+    el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Cargando...</div>';
+  }
   try {
     const res = await authFetch(`${API_URL}/journal/pendientes`);
     const d = await res.json();
     if (!d || !d.length) {
       el.innerHTML = '<div style="text-align:center;padding:48px;color:#059669;font-size:15px">✅ No hay asientos pendientes de revisión</div>';
+      updateRevisionCount(0);
       return;
     }
     let html = '';
@@ -68,7 +73,7 @@ async function loadRevisionList() {
         }
         lineasHtml += '</tbody></table>';
       }
-      html += `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:10px">
+      html += `<div id="rev-entry-${e.id}" style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:10px">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px">
           <div style="flex:1;min-width:0">
             <div style="font-weight:700;font-size:14px">${escapeHtml(e.description||'Sin descripción')}${e.provider ? ` — <span style="font-size:11px;color:#6b7280;font-weight:400">${escapeHtml(e.provider)}</span>` : ''}</div>
@@ -84,7 +89,38 @@ async function loadRevisionList() {
       </div>`;
     }
     el.innerHTML = html;
+    updateRevisionCount(d.length);
   } catch (e) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar</div>'; }
+}
+
+/** Subtítulo con el número de asientos pendientes (feedback de cuántos quedan). */
+function updateRevisionCount(n) {
+  const sub = document.getElementById('revision-subtitle');
+  if (sub) sub.textContent = n > 0
+    ? `${n} asiento(s) pendiente(s) de revisión por el contador`
+    : 'Asientos pendientes de revisión por el contador';
+}
+
+/**
+ * Quita la tarjeta del asiento ya revisado SIN recargar la lista: los de
+ * abajo suben y el scroll se mantiene donde estaba. Si era la última, deja
+ * el mensaje de "no hay pendientes". (El botón 🔄 Actualizar trae nuevas.)
+ */
+function removeRevisionEntry(id) {
+  const card = document.getElementById(`rev-entry-${id}`);
+  if (!card) return;
+  card.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+  card.style.opacity = '0';
+  card.style.transform = 'translateX(16px)';
+  setTimeout(() => {
+    card.remove();
+    const el = document.getElementById('revision-inline-list');
+    const restantes = el.querySelectorAll('[id^="rev-entry-"]').length;
+    if (restantes === 0) {
+      el.innerHTML = '<div style="text-align:center;padding:48px;color:#059669;font-size:15px">✅ No hay asientos pendientes de revisión</div>';
+    }
+    updateRevisionCount(restantes);
+  }, 250);
 }
 
 async function reviewApprove(id) {
@@ -92,8 +128,13 @@ async function reviewApprove(id) {
   if (!ok) return;
   try {
     const res = await authFetch(`${API_URL}/journal/${id}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'aprobar' }) });
-    if (res.ok) loadRevisionList();
-  } catch (e) { /* silencioso */ }
+    if (res.ok) {
+      removeRevisionEntry(id);
+    } else {
+      const e = await res.json().catch(() => ({}));
+      await showAlert(e.error || 'No se pudo aprobar el asiento');
+    }
+  } catch (e) { await showAlert('Error de conexión'); }
 }
 
 async function reviewReject(id) {
@@ -130,8 +171,13 @@ async function reviewReject(id) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'rechazar', notes }),
       });
-      if (res.ok) { loadRevisionList(); }
-    } catch (e) { await showAlert('Error'); }
+      if (res.ok) {
+        removeRevisionEntry(id);
+      } else {
+        const e = await res.json().catch(() => ({}));
+        await showAlert(e.error || 'No se pudo rechazar el asiento');
+      }
+    } catch (e) { await showAlert('Error de conexión'); }
   };
 }
 
