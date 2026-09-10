@@ -2,6 +2,8 @@ import { Router } from 'express';
 import multer from 'multer';
 import { parseHonorariosFile } from '../services/honorarios-parser';
 import type { HonorariosRow } from '../services/honorarios-parser';
+import { resolvePayoutAccount, payoutAviso } from '../services/account-resolver';
+import type { PayoutCache, PayoutResolution } from '../services/account-resolver';
 
 /**
  * Carga masiva de HONORARIOS PROFESIONALES — proceso independiente de las
@@ -51,17 +53,15 @@ function esFechaValida(s: string | null | undefined): boolean {
 
 interface HonorariosAccountIds {
   gasto: string | null;
-  banco: string | null;
 }
 
 async function loadHonorariosAccounts(prisma: any, companyId: string): Promise<HonorariosAccountIds> {
   const c: any = await prisma.company.findUnique({
     where: { id: companyId },
-    select: { honorariosGastoId: true, honorariosBancoId: true },
+    select: { honorariosGastoId: true },
   });
   return {
     gasto: c?.honorariosGastoId || null,
-    banco: c?.honorariosBancoId || null,
   };
 }
 
@@ -81,9 +81,8 @@ function validateHonorariosRow(row: HonorariosRow, cuentas: HonorariosAccountIds
 
   const faltantes: string[] = [];
   if (!cuentas.gasto) faltantes.push('Honorarios Profesionales (gasto)');
-  if (!cuentas.banco) faltantes.push('Banco');
   if (faltantes.length > 0) {
-    return `Configura la cuenta de ${faltantes.join(', ')} en Configuración → Honorarios`;
+    return `Configura la cuenta de ${faltantes.join(', ')} en Configuración → Cargas`;
   }
   return null;
 }
@@ -136,9 +135,17 @@ interface HonorariosPreviewRow extends HonorariosRow {
   status: 'ok' | 'error' | 'omitida';
   error?: string;
   fechaFinal: string | null;
+  /** Cuenta de banco que se usará en el asiento (columna Banco o la por defecto) */
+  bankAccount?: { id: string; code: string; name: string } | null;
+  bankSource?: string | null;
+  bankAviso?: string | null;
 }
 
-/** Valida todas las filas y devuelve la muestra (20) con estado + errores. */
+/**
+ * Valida todas las filas y devuelve la muestra (20) con estado + errores.
+ * El banco de cada fila se resuelve aquí: columna "Banco" del archivo →
+ * cuenta de banco por defecto → respaldo 1.1.02.01 (con aviso).
+ */
 async function buildHonorariosValidation(
   prisma: any,
   companyId: string,
@@ -147,17 +154,20 @@ async function buildHonorariosValidation(
 ) {
   const cuentas = await loadHonorariosAccounts(prisma, companyId);
   const dupIndex = await buildHonorariosIndex(prisma, companyId);
+  const payoutCache: PayoutCache = { accounts: null, defaultId: null };
 
   const previewRows: HonorariosPreviewRow[] = [];
   const errors: { row: number; error: string }[] = [];
   let ok = 0;
   let omitted = 0;
 
-  rows.forEach((row, i) => {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
     const rowNum = i + 1;
     const fechaFinal = row.fecha || (esFechaValida(defaultDate) ? defaultDate : null);
     let status: HonorariosPreviewRow['status'] = 'ok';
     let error: string | undefined;
+    let payout: PayoutResolution | null = null;
 
     if (!fechaFinal) {
       status = 'error';
@@ -167,9 +177,15 @@ async function buildHonorariosValidation(
       if (invalid) {
         status = 'error';
         error = invalid;
-      } else if (dupIndex.has(honorariosDupKey(row, fechaFinal))) {
-        status = 'omitida';
-        error = 'Ya cargado (misma fecha, RUC/Cédula, nombre y monto)';
+      } else {
+        payout = await resolvePayoutAccount(prisma, companyId, row.bankName, payoutCache);
+        if (!payout.account) {
+          status = 'error';
+          error = 'No hay cuentas de banco (1.1.02.*) en el catálogo: crea una o configura el banco por defecto';
+        } else if (dupIndex.has(honorariosDupKey(row, fechaFinal))) {
+          status = 'omitida';
+          error = 'Ya cargado (misma fecha, RUC/Cédula, nombre y monto)';
+        }
       }
     }
 
@@ -177,8 +193,17 @@ async function buildHonorariosValidation(
     else if (status === 'omitida') omitted++;
     else errors.push({ row: rowNum, error: error || 'Error' });
 
-    if (i < 20) previewRows.push({ ...row, row: rowNum, status, error, fechaFinal });
-  });
+    if (i < 20) {
+      previewRows.push({
+        ...row, row: rowNum, status, error, fechaFinal,
+        bankAccount: payout?.account
+          ? { id: payout.account.id, code: payout.account.code, name: payout.account.name }
+          : null,
+        bankSource: payout?.source || null,
+        bankAviso: payoutAviso(payout),
+      });
+    }
+  }
 
   return { rows: previewRows, errors, ok, omitted, total: rows.length };
 }
@@ -249,6 +274,8 @@ honorariosRouter.post('/execute-all', upload.single('file'), async (req, res) =>
 
     const cuentas = await loadHonorariosAccounts(req.prisma, companyId);
     const dupIndex = await buildHonorariosIndex(req.prisma, companyId);
+    // Banco por fila (columna "Banco" → por defecto → 1.1.02.01), una carga por lote
+    const payoutCache: PayoutCache = { accounts: null, defaultId: null };
 
     const results = {
       success: 0,
@@ -278,6 +305,12 @@ honorariosRouter.post('/execute-all', upload.single('file'), async (req, res) =>
         const concept = row.concepto || 'Honorarios profesionales';
         const description = `Honorarios profesionales — ${row.nombre} — ${fecha}`;
 
+        // Banco de la fila: columna "Banco" → banco por defecto → 1.1.02.01
+        const payout = await resolvePayoutAccount(req.prisma, companyId, row.bankName, payoutCache);
+        if (!payout.account) {
+          throw new Error('No hay cuentas de banco (1.1.02.*) en el catálogo: crea una o configura el banco por defecto');
+        }
+
         const je = await req.prisma.$transaction(async (tx: any) => {
           const created = await tx.journalEntry.create({
             data: {
@@ -289,7 +322,7 @@ honorariosRouter.post('/execute-all', upload.single('file'), async (req, res) =>
               lines: {
                 create: [
                   { accountId: cuentas.gasto!, debit: monto, credit: 0 },
-                  { accountId: cuentas.banco!, debit: 0, credit: monto },
+                  { accountId: payout.account!.id, debit: 0, credit: monto },
                 ],
               },
             },

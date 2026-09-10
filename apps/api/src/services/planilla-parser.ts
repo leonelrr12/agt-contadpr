@@ -27,6 +27,8 @@ export interface PlanillaRow {
   se: number;
   isr: number;
   neto: number;
+  /** Columna "Banco" opcional: banco del que sale el pago (si no, el default) */
+  bankName?: string | null;
   /** Error de estructura de la fila (p. ej. separador decimal ambiguo) */
   parseError?: string | null;
 }
@@ -49,6 +51,7 @@ interface PlanillaColumns {
   se: string | null;
   isr: string | null;
   neto: string | null;
+  banco: string | null;
 }
 
 const QUINCENA_PATTERNS = [/quincena/i, /fecha/i, /periodo/i, /^d[ií]a/i];
@@ -61,6 +64,8 @@ const SS_PATTERNS = [/^ss\b/i, /seguro\s*social/i, /^c\.?s\.?s\b/i];
 const SE_PATTERNS = [/^se\b/i, /seguro\s*educativo/i];
 const ISR_PATTERNS = [/^isr\b/i, /impuesto\s*sobre\s*la\s*renta/i, /^renta\b/i];
 const NETO_PATTERNS = [/topal/i, /total\s*a\s*pagar/i, /neto/i, /a\s*pagar/i];
+// Columna opcional "Banco" (o "Cuenta"): si el pago sale de un banco concreto
+const BANCO_PATTERNS = [/^banco/i, /^cuenta/i, /banco/i];
 
 function matchHeader(header: string, patterns: RegExp[]): boolean {
   return patterns.some(p => p.test(header));
@@ -88,7 +93,7 @@ export async function parsePlanillaFile(
   // SS antes que SE, TOPAL/TOTAL antes que NETO).
   const cols: PlanillaColumns = {
     quincena: null, employee: null, cedula: null, salario: null, horasExtras: null,
-    decimo: null, ss: null, se: null, isr: null, neto: null,
+    decimo: null, ss: null, se: null, isr: null, neto: null, banco: null,
   };
 
   for (const h of headers) {
@@ -103,6 +108,7 @@ export async function parsePlanillaFile(
     if (!cols.se && matchHeader(h, SE_PATTERNS)) { cols.se = h; continue; }
     if (!cols.isr && matchHeader(h, ISR_PATTERNS)) { cols.isr = h; continue; }
     if (!cols.neto && matchHeader(h, NETO_PATTERNS)) { cols.neto = h; continue; }
+    if (!cols.banco && matchHeader(h, BANCO_PATTERNS)) { cols.banco = h; continue; }
   }
 
   if (!cols.employee) {
@@ -120,6 +126,7 @@ export async function parsePlanillaFile(
   const vacia = (parseError: string | null = null): PlanillaRow => ({
     quincena: null, employee: null, cedula: null,
     salario: 0, horasExtras: 0, decimo: 0, ss: 0, se: 0, isr: 0, neto: 0,
+    bankName: null,
     parseError,
   });
 
@@ -127,12 +134,16 @@ export async function parsePlanillaFile(
     // Filas con más campos que encabezados: casi siempre coma decimal partida
     // por un CSV con coma como separador. Intentar el reparo; si no cuadra,
     // la fila queda marcada con error (no se corren las columnas).
-    if (rawRow.length !== headers.length) {
+    if (rawRow.length > headers.length) {
       const fixed = repararComaDecimal(rawRow, headers, moneyCols);
       if (!fixed) {
         return vacia(`Fila con ${rawRow.length} campos (se esperaban ${headers.length}): revisa los separadores decimales del archivo`);
       }
       rawRow = fixed;
+    } else if (rawRow.length < headers.length) {
+      // Menos campos que encabezados: celdas vacías al final que Excel no
+      // guarda (p. ej. la columna "Banco" opcional en blanco) → completar.
+      rawRow = [...rawRow, ...Array(headers.length - rawRow.length).fill('')];
     }
 
     const raw: Record<string, string> = {};
@@ -149,6 +160,7 @@ export async function parsePlanillaFile(
       se: parseMonto(get(cols.se)),
       isr: parseMonto(get(cols.isr)),
       neto: parseMonto(get(cols.neto)),
+      bankName: get(cols.banco).trim() || null,
       parseError: null,
     };
   });

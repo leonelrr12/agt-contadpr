@@ -408,8 +408,7 @@
           <button class="panel-tab-btn active" data-panel="cuentas-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#1a1a2e;border-bottom:2px solid #1565c0;margin-bottom:-2px">🏦 Cuentas</button>
           <button class="panel-tab-btn" data-panel="conceptos-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📝 Conceptos</button>
           <button class="panel-tab-btn" data-panel="config" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚙️ Configuración</button>
-          <button class="panel-tab-btn" data-panel="planilla" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">👷 Planilla</button>
-          <button class="panel-tab-btn" data-panel="honorarios" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚖️ Honorarios</button>
+          <button class="panel-tab-btn" data-panel="planilla" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">👷 Cargas</button>
           <button class="panel-tab-btn" data-panel="carga-inicial" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📋 Carga Inicial</button>
           <button class="panel-tab-btn" data-panel="cierres-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🗓 Cierres</button>
           <button class="panel-tab-btn" data-panel="usuarios-admin" id="tab-usuarios-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">👥 Usuarios</button>
@@ -452,7 +451,7 @@
                 </select>
               </div>
               <div style="min-width:100%">
-                <label>Cuenta de banco por defecto (pagos por chat/WhatsApp)</label>
+                <label>Cuenta de banco por defecto (chat/WhatsApp y cargas de Planilla/Honorarios)</label>
                 <select id="config-banco-default" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit">
                   <option value="">— Sin definir (usa 1.1.02.01) —</option>
                 </select>
@@ -468,8 +467,8 @@
         <!-- Planilla Admin: cuentas contables por columna del archivo de planilla -->
         <div id="planilla-content" class="hidden">
           <div class="admin-form-card">
-            <h4>👷 Cuentas de Planilla</h4>
-            <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">Cuenta contable para cada columna del archivo de planilla (carga en Importar → 👷 Planilla). El asiento de cada empleado debita Sueldo, Horas Extras y Décimo III, y acredita SS, SE, ISR y el Neto que va al banco.</p>
+            <h4>👷 Cuentas de Cargas (Planilla · Honorarios)</h4>
+            <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">Cuenta contable para cada columna del archivo de planilla (carga en Importar → 👷 Planilla). El asiento de cada empleado debita Sueldo, Horas Extras y Décimo III, y acredita SS, SE, ISR y el Neto. El banco del Neto sale de la columna "Banco" del archivo o de la cuenta de banco por defecto (Configuración).</p>
             <div class="form-grid">
               <div>
                 <label>📋 Sueldo (DEBE)</label>
@@ -495,37 +494,19 @@
                 <label>🧾 Impuesto sobre la Renta — ISR (HABER)</label>
                 <select id="planilla-isr" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
               </div>
-              <div style="min-width:100%">
-                <label>🏦 Neto que va al banco (HABER)</label>
-                <select id="planilla-banco" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
-                <div style="font-size:11px;color:#6b7280;margin-top:4px">Cuenta de banco desde la que se paga la planilla (el importe "TOPAL A PAGAR" del archivo).</div>
-              </div>
             </div>
-            <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
-              <button class="btn-primary" onclick="saveConfigPlanilla()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar Planilla</button>
-              <span id="planilla-saved-msg" style="display:none;color:#059669;font-size:13px;font-weight:600">✅ Guardado</span>
-            </div>
-          </div>
-        </div>
-        <!-- Honorarios Admin: cuentas del gasto y del banco -->
-        <div id="honorarios-content" class="hidden">
-          <div class="admin-form-card">
-            <h4>⚖️ Cuentas de Honorarios Profesionales</h4>
-            <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">Cuentas que usa la carga masiva de honorarios (Importar → ⚖️ Honorarios). El asiento de cada pago debita Honorarios Profesionales y acredita el Banco.</p>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0">
+            <h4>⚖️ Honorarios Profesionales</h4>
+            <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">Cuenta del gasto para la carga de honorarios (Importar → ⚖️ Honorarios). El banco sale de la columna "Banco" del archivo o de la cuenta de banco por defecto (Configuración).</p>
             <div class="form-grid">
-              <div>
+              <div style="min-width:100%">
                 <label>⚖️ Honorarios Profesionales (DEBE)</label>
                 <select id="honorarios-gasto" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
               </div>
-              <div>
-                <label>🏦 Banco (HABER)</label>
-                <select id="honorarios-banco" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
-                <div style="font-size:11px;color:#6b7280;margin-top:4px">Cuenta de banco desde la que se pagan los honorarios.</div>
-              </div>
             </div>
             <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
-              <button class="btn-primary" onclick="saveConfigHonorarios()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar Honorarios</button>
-              <span id="honorarios-saved-msg" style="display:none;color:#059669;font-size:13px;font-weight:600">✅ Guardado</span>
+              <button class="btn-primary" onclick="saveConfigPlanilla()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar Cargas</button>
+              <span id="planilla-saved-msg" style="display:none;color:#059669;font-size:13px;font-weight:600">✅ Guardado</span>
             </div>
           </div>
         </div>
@@ -660,11 +641,11 @@
   <script src="js/capture.js?v=73"></script>
   <script src="js/capture-qr.js?v=73"></script>
   <script src="js/chat.js?v=74"></script>
-  <script src="js/router.js?v=75"></script>
-  <script src="js/admin.js?v=84"></script>
+  <script src="js/router.js?v=76"></script>
+  <script src="js/admin.js?v=85"></script>
   <script src="js/init.js?v=73"></script>
   <script src="js/panels-sidebar.js?v=73"></script>
-  <script src="js/import.js?v=84"></script>
+  <script src="js/import.js?v=85"></script>
   <script src="js/planilla.js?v=1"></script>
   <script src="js/honorarios.js?v=1"></script>
   <script src="js/carga-inicial.js?v=1"></script>

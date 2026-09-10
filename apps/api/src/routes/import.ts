@@ -10,6 +10,10 @@ import { ClassificationAgent } from '@agt-contador/agents';
 import { AccountingAgent } from '@agt-contador/agents';
 import { importExecuteSchema } from '../validation/schemas';
 import { syncEntityFromEntry } from '../services/entity-service';
+import {
+  loadCompanyAccounts, filterPayoutAccounts, resolveAccount, normalizeNameKey,
+} from '../services/account-resolver';
+import type { CompanyAccount as CobroAccount } from '../services/account-resolver';
 
 export const importRouter = Router();
 
@@ -386,17 +390,13 @@ async function resolveImportPayoutAccount(
   cache: { accounts: CobroAccount[] | null },
 ): Promise<CobroAccount | null> {
   if (!cache.accounts) {
-    const all = await loadCobroAccounts(prisma, companyId);
-    cache.accounts = all.filter(a => {
-      const haystack = `${a.code} ${a.name} ${(a.aliases || []).join(' ')}`.toLowerCase();
-      return a.code.startsWith('1.1.02') || haystack.includes('caja');
-    });
+    cache.accounts = filterPayoutAccounts(await loadCompanyAccounts(prisma, companyId));
   }
   const bancos = cache.accounts;
   if (bancos.length === 0) return null;
 
   if (bankName && bankName.trim()) {
-    const acc = resolveCobroAccount(bancos, bankName);
+    const acc = resolveAccount(bancos, bankName);
     if (acc) return acc;
   }
   if (bancoDefaultId) {
@@ -728,7 +728,7 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
     // Cargar catálogo + facturas UNA vez; cada fila corre en SU PROPIA
     // transacción (lección 25P02 del import normal) y re-lee la factura
     // fresca dentro de ella (nada de estado compartido entre filas).
-    const accounts = await loadCobroAccounts(req.prisma, companyId);
+    const accounts = await loadCompanyAccounts(req.prisma, companyId);
     const { list: invoicesList } = await loadCobroInvoices(req.prisma, companyId);
     // Cuenta de crédito fiscal para la retención sufrida (alias itbms-retenido-terceros)
     const retAccount = findRetencionAccount(accounts);
@@ -1174,12 +1174,7 @@ importRouter.get('/carga-inicial/existe', async (req, res) => {
 
 // ── Helpers cobros / pagos a facturas ──
 
-interface CobroAccount {
-  id: string;
-  code: string;
-  name: string;
-  aliases: string[];
-}
+
 
 interface CobroInvoiceLite {
   id: string;
@@ -1252,44 +1247,13 @@ async function buildCobroPaymentsIndex(prisma: any, companyId: string): Promise<
   return index;
 }
 
-function levenshtein(a: string, b: string): number {
-  if (a === b) return 0;
-  const m = a.length, n = b.length;
-  if (m === 0) return n;
-  if (n === 0) return m;
-  let prev = Array.from({ length: n + 1 }, (_, i) => i);
-  for (let i = 1; i <= m; i++) {
-    const cur = [i];
-    for (let j = 1; j <= n; j++) {
-      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-    }
-    prev = cur;
-  }
-  return prev[n];
-}
 
-/** Normaliza texto para comparar nombres: minúsculas, sin acentos ni puntuación. */
-function normalizeNameKey(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
-/** Normaliza a solo letras para comparación de tokens (palabra a palabra). */
-function wordKey(w: string): string {
-  return w.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
-}
 
-async function loadCobroAccounts(prisma: any, companyId: string): Promise<CobroAccount[]> {
-  return prisma.account.findMany({
-    where: { companyId },
-    select: { id: true, code: true, name: true, aliases: true },
-  });
-}
+
+
+
+
 
 async function loadCobroInvoices(
   prisma: any,
@@ -1333,68 +1297,7 @@ async function loadCobroInvoices(
   return { list, byId };
 }
 
-/**
- * Resuelve la cuenta de destino del depósito desde el texto del archivo:
- * 1. coincidencia exacta con código/alias/nombre (sin acentos ni símbolos),
- * 2. tolerante a typos ("Bnaco General" → "Banco General"): por tokens con
- *    distancia de edición ≤ 1 en palabras de ≥ 4 letras, cobertura completa
- *    de ambos lados y menor distancia total.
- */
-function resolveCobroAccount(accounts: CobroAccount[], raw: string | null): CobroAccount | null {
-  if (!raw) return null;
-  const input = raw.trim();
-  if (!input) return null;
 
-  // 1) Exacta: código, alias o nombre, normalizados (sin acentos ni símbolos)
-  const want = wordKey(input).replace(/\s+/g, '');
-  for (const a of accounts) {
-    const keys = [a.code, a.name, ...(a.aliases || [])];
-    for (const k of keys) {
-      if (wordKey(k).replace(/\s+/g, '') === want) return a;
-    }
-  }
-
-  // 2) Tolerante a typos. IMPORTANTE: se normaliza conservando los espacios
-  // (normalizeNameKey) — wordKey elimina todo lo no alfanumérico y colapsaría
-  // "Banco de Panama" a un solo token "bancodepanama".
-  const inputWords = normalizeNameKey(input).split(/\s+/).filter(w => w.length >= 2);
-  if (inputWords.length === 0) return null;
-
-  const wordMatch = (a: string, b: string): boolean => {
-    if (a === b) return true;
-    if (a.includes(b) || b.includes(a)) return true; // "bancos" vs "banco"
-    if (a.length >= 5 && b.length >= 5 && levenshtein(a, b) <= 2) return true; // "Bnaco" ↔ "Banco" (transposición)
-    return a.length >= 4 && b.length >= 4 && levenshtein(a, b) <= 1;
-  };
-
-  let best: { account: CobroAccount; dist: number } | null = null;
-
-  for (const acc of accounts) {
-    const accWords = [
-      ...normalizeNameKey(acc.name).split(/\s+/).filter(w => w.length >= 2),
-      ...(acc.aliases || []).map(normalizeNameKey).flatMap(a => a.split(/\s+/)).filter(w => w.length >= 2),
-    ];
-    if (accWords.length === 0) continue;
-
-    // Cobertura completa de ambos lados
-    const inputOk = inputWords.every(iw => accWords.some(aw => wordMatch(iw, aw)));
-    const accOk = accWords.every(aw => inputWords.some(iw => wordMatch(iw, aw)));
-    if (!inputOk || !accOk) continue;
-
-    // Menor distancia total (suma del mejor match por token de entrada)
-    let dist = 0;
-    for (const iw of inputWords) {
-      let bestWord = Infinity;
-      for (const aw of accWords) bestWord = Math.min(bestWord, levenshtein(iw, aw));
-      dist += bestWord;
-    }
-    if (!best || dist < best.dist || (dist === best.dist && acc.name.length < best.account.name.length)) {
-      best = { account: acc, dist };
-    }
-  }
-
-  return best ? best.account : null;
-}
 
 /** Cuenta contrapartida del cobro: la de Clientes (alias "clientes"). */
 function findClientsAccount(accounts: CobroAccount[]): CobroAccount | null {
@@ -1477,7 +1380,7 @@ function validateCobroRow(
     return { ok: false, code: 'MISSING_FIELDS', message: `Faltan datos obligatorios: ${missing.join(', ')}` };
   }
 
-  const account = resolveCobroAccount(accounts, row.accountName!);
+  const account = resolveAccount(accounts, row.accountName!);
   if (!account) {
     return { ok: false, code: 'ACCOUNT_NOT_FOUND', message: `Cuenta contable no encontrada: "${row.accountName}". Revise la columna Cuenta o cree la cuenta en el catálogo.` };
   }
@@ -1625,7 +1528,7 @@ export async function simulateCobrosFile(
   clientesAutoMarcados: number;
   markedPaid: number;
 }> {
-  const accounts = await loadCobroAccounts(prisma, companyId);
+  const accounts = await loadCompanyAccounts(prisma, companyId);
   const { list } = await loadCobroInvoices(prisma, companyId);
   // Pagos ya registrados en BD: re-subidas idempotentes (misma factura+monto+cuenta+fecha)
   const dupKeys = await buildCobroPaymentsIndex(prisma, companyId);

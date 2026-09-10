@@ -63,6 +63,8 @@ function renderPlanillaPreview() {
   // Limpiar avisos/tarjetas de un render previo
   const prevWarn = document.getElementById('import-inline-warn');
   if (prevWarn) prevWarn.remove();
+  const prevBankWarn = document.getElementById('import-inline-bank-warn');
+  if (prevBankWarn) prevBankWarn.remove();
   const prevCards = document.getElementById('import-inline-planilla-cards');
   if (prevCards) prevCards.remove();
 
@@ -102,6 +104,16 @@ function renderPlanillaPreview() {
     }
   }
 
+  // Aviso si alguna fila no trae un banco reconocido (se usará el default)
+  const bankAvisos = pp.rows.filter(r => r.bankAviso);
+  if (bankAvisos.length > 0) {
+    const warn = document.createElement('div');
+    warn.id = 'import-inline-bank-warn';
+    warn.style.cssText = 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px';
+    warn.innerHTML = `🏦 ${bankAvisos.length} fila(s) con banco no reconocido en el archivo: se usará la cuenta por defecto (columna <strong>Banco</strong>). Ej.: ${escapeHtml(bankAvisos[0].bankAviso)}`;
+    document.getElementById('import-inline-summary').after(warn);
+  }
+
   // Tarjetas extra: neto a pagar, retenciones y omitidas
   const rowsOk = pp.rows.filter(r => r.status === 'ok');
   const totalNeto = rowsOk.reduce((s, r) => s + (r.neto || 0), 0);
@@ -121,7 +133,7 @@ function renderPlanillaPreview() {
   );
 
   const thead = document.getElementById('import-inline-thead');
-  thead.innerHTML = '<tr><th>#</th><th>Quincena</th><th>Nombre</th><th>Cédula</th><th>Sueldo</th><th>Extras</th><th>Décimo</th><th>SS</th><th>SE</th><th>ISR</th><th>Neto</th><th>Estado</th></tr>';
+  thead.innerHTML = '<tr><th>#</th><th>Quincena</th><th>Nombre</th><th>Cédula</th><th>Sueldo</th><th>Extras</th><th>Décimo</th><th>SS</th><th>SE</th><th>ISR</th><th>Neto</th><th>Banco</th><th>Estado</th></tr>';
 
   let html = '';
   for (const r of pp.rows) {
@@ -136,11 +148,18 @@ function renderPlanillaPreview() {
       bg = 'style="background:#fef2f2"';
       estadoHtml = `<span style="color:#b91c1c;font-size:11px">❌ ${escapeHtml(r.error || 'Error')}</span>`;
     }
+    // Cuenta de banco que se usará (columna Banco del archivo o el default)
+    let bancoHtml = '—';
+    if (r.bankAccount) {
+      bancoHtml = `<span title="${escapeHtml(r.bankSource === 'archivo' ? 'Banco del archivo' : r.bankAviso || 'Banco por defecto')}">${escapeHtml(r.bankAccount.code)} — ${escapeHtml(r.bankAccount.name)}</span>`;
+      if (r.bankAviso) bancoHtml += ' <span style="color:#b45309;cursor:help" title="' + escapeHtml(r.bankAviso) + '">⚠️</span>';
+    }
     html += `<tr${bg}>
       <td>${r.row}</td><td>${r.quincenaFinal || '—'}</td><td>${escapeHtml(r.employee || '')}</td>
       <td>${escapeHtml(r.cedula || '')}</td>
       <td>${planillaFmt(r.salario)}</td><td>${planillaFmt(r.horasExtras)}</td><td>${planillaFmt(r.decimo)}</td>
       <td>${planillaFmt(r.ss)}</td><td>${planillaFmt(r.se)}</td><td>${planillaFmt(r.isr)}</td><td>${planillaFmt(r.neto)}</td>
+      <td style="font-size:11px">${bancoHtml}</td>
       <td>${estadoHtml}</td></tr>`;
   }
   document.getElementById('import-inline-tbody').innerHTML = html;

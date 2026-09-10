@@ -2,6 +2,8 @@ import { Router } from 'express';
 import multer from 'multer';
 import { parsePlanillaFile } from '../services/planilla-parser';
 import type { PlanillaRow } from '../services/planilla-parser';
+import { resolvePayoutAccount, payoutAviso } from '../services/account-resolver';
+import type { PayoutCache, PayoutResolution } from '../services/account-resolver';
 
 /**
  * Carga masiva de PLANILLA (nómina) — proceso independiente de las demás
@@ -67,7 +69,6 @@ interface PlanillaAccountIds {
   ss: string | null;
   se: string | null;
   isr: string | null;
-  banco: string | null;
 }
 
 async function loadPlanillaAccounts(prisma: any, companyId: string): Promise<PlanillaAccountIds> {
@@ -80,7 +81,6 @@ async function loadPlanillaAccounts(prisma: any, companyId: string): Promise<Pla
       planillaSSId: true,
       planillaSEId: true,
       planillaISRId: true,
-      planillaBancoId: true,
     },
   });
   return {
@@ -90,9 +90,11 @@ async function loadPlanillaAccounts(prisma: any, companyId: string): Promise<Pla
     ss: c?.planillaSSId || null,
     se: c?.planillaSEId || null,
     isr: c?.planillaISRId || null,
-    banco: c?.planillaBancoId || null,
   };
 }
+
+/** Aviso de la fila cuando el banco no salió de la columna del archivo. */
+
 
 /**
  * Validación de una fila de planilla (fuente de verdad: la usan el preview
@@ -127,7 +129,6 @@ function validatePlanillaRow(
   if (row.ss > 0 && !cuentas.ss) faltantes.push('SS');
   if (row.se > 0 && !cuentas.se) faltantes.push('SE');
   if (row.isr > 0 && !cuentas.isr) faltantes.push('ISR');
-  if (row.neto > 0 && !cuentas.banco) faltantes.push('Neto a banco');
   if (faltantes.length > 0) {
     return `Configura la cuenta de ${faltantes.join(', ')} en Configuración → Planilla`;
   }
@@ -184,11 +185,17 @@ interface PlanillaPreviewRow extends PlanillaRow {
   status: 'ok' | 'error' | 'omitida';
   error?: string;
   quincenaFinal: string | null;
+  /** Cuenta de banco que se usará en el asiento (columna Banco o la por defecto) */
+  bankAccount?: { id: string; code: string; name: string } | null;
+  bankSource?: string | null;
+  bankAviso?: string | null;
 }
 
 /**
  * Valida todas las filas y devuelve la muestra (20) con su estado, más el
  * detalle de errores del archivo completo. No escribe nada.
+ * El banco de cada fila se resuelve aquí: columna "Banco" del archivo →
+ * cuenta de banco por defecto → respaldo 1.1.02.01 (con aviso).
  */
 async function buildPlanillaValidation(
   prisma: any,
@@ -199,17 +206,20 @@ async function buildPlanillaValidation(
 ) {
   const cuentas = await loadPlanillaAccounts(prisma, companyId);
   const dupIndex = await buildPlanillaIndex(prisma, companyId);
+  const payoutCache: PayoutCache = { accounts: null, defaultId: null };
 
   const previewRows: PlanillaPreviewRow[] = [];
   const errors: { row: number; error: string }[] = [];
   let ok = 0;
   let omitted = 0;
 
-  rows.forEach((row, i) => {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
     const rowNum = i + 1;
     const quincenaFinal = row.quincena || (esFechaValida(defaultDate) ? defaultDate : null);
     let status: PlanillaPreviewRow['status'] = 'ok';
     let error: string | undefined;
+    let payout: PayoutResolution | null = null;
 
     if (!quincenaFinal) {
       status = 'error';
@@ -219,9 +229,15 @@ async function buildPlanillaValidation(
       if (invalid) {
         status = 'error';
         error = invalid;
-      } else if (dupIndex.has(planillaDupKey(tipo, row, quincenaFinal))) {
-        status = 'omitida';
-        error = 'Ya cargada (mismo tipo, quincena, empleado y montos)';
+      } else {
+        payout = await resolvePayoutAccount(prisma, companyId, row.bankName, payoutCache);
+        if (row.neto > 0 && !payout.account) {
+          status = 'error';
+          error = 'No hay cuentas de banco (1.1.02.*) en el catálogo: crea una o configura el banco por defecto';
+        } else if (dupIndex.has(planillaDupKey(tipo, row, quincenaFinal))) {
+          status = 'omitida';
+          error = 'Ya cargada (mismo tipo, quincena, empleado y montos)';
+        }
       }
     }
 
@@ -229,8 +245,17 @@ async function buildPlanillaValidation(
     else if (status === 'omitida') omitted++;
     else errors.push({ row: rowNum, error: error || 'Error' });
 
-    if (i < 20) previewRows.push({ ...row, row: rowNum, status, error, quincenaFinal });
-  });
+    if (i < 20) {
+      previewRows.push({
+        ...row, row: rowNum, status, error, quincenaFinal,
+        bankAccount: payout?.account
+          ? { id: payout.account.id, code: payout.account.code, name: payout.account.name }
+          : null,
+        bankSource: payout?.source || null,
+        bankAviso: payoutAviso(payout),
+      });
+    }
+  }
 
   return { rows: previewRows, errors, ok, omitted, total: rows.length };
 }
@@ -313,6 +338,8 @@ planillaRouter.post('/execute-all', upload.single('file'), async (req, res) => {
     const cuentas = await loadPlanillaAccounts(req.prisma, companyId);
     // Dedupe: lo ya cargado se re-detecta aquí (la BD pudo cambiar desde el preview)
     const dupIndex = await buildPlanillaIndex(req.prisma, companyId);
+    // Banco por fila (columna "Banco" → por defecto → 1.1.02.01), una carga por lote
+    const payoutCache: PayoutCache = { accounts: null, defaultId: null };
 
     const results = {
       success: 0,
@@ -342,6 +369,8 @@ planillaRouter.post('/execute-all', upload.single('file'), async (req, res) => {
 
         // Líneas del asiento: DEBE gastos (sueldo/extras/décimo), HABER
         // retenciones (SS/SE/ISR) y neto al banco — solo columnas con monto.
+        // El banco sale de la columna "Banco" de la fila o del banco por
+        // defecto (respaldo 1.1.02.01).
         const lines: { accountId: string; debit: number; credit: number }[] = [];
         if (row.salario > 0) lines.push({ accountId: cuentas.sueldo!, debit: row.salario, credit: 0 });
         if (row.horasExtras > 0) lines.push({ accountId: cuentas.horasExtras!, debit: row.horasExtras, credit: 0 });
@@ -349,7 +378,13 @@ planillaRouter.post('/execute-all', upload.single('file'), async (req, res) => {
         if (row.ss > 0) lines.push({ accountId: cuentas.ss!, debit: 0, credit: row.ss });
         if (row.se > 0) lines.push({ accountId: cuentas.se!, debit: 0, credit: row.se });
         if (row.isr > 0) lines.push({ accountId: cuentas.isr!, debit: 0, credit: row.isr });
-        if (row.neto > 0) lines.push({ accountId: cuentas.banco!, debit: 0, credit: row.neto });
+        if (row.neto > 0) {
+          const payout = await resolvePayoutAccount(req.prisma, companyId, row.bankName, payoutCache);
+          if (!payout.account) {
+            throw new Error('No hay cuentas de banco (1.1.02.*) en el catálogo: crea una o configura el banco por defecto');
+          }
+          lines.push({ accountId: payout.account.id, debit: 0, credit: row.neto });
+        }
 
         const totalDebit = r2(lines.reduce((s, l) => s + l.debit, 0));
         const totalCredit = r2(lines.reduce((s, l) => s + l.credit, 0));

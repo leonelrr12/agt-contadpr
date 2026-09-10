@@ -17,6 +17,8 @@ export interface HonorariosRow {
   nombre: string | null;
   concepto: string | null;
   monto: number;
+  /** Columna "Banco" opcional: banco del que sale el pago (si no, el default) */
+  bankName?: string | null;
   /** Error de estructura de la fila (p. ej. separador decimal ambiguo) */
   parseError?: string | null;
 }
@@ -36,6 +38,7 @@ interface HonorariosColumns {
   nombre: string | null;
   concepto: string | null;
   monto: string | null;
+  banco: string | null;
 }
 
 const FECHA_PATTERNS = [/fecha/i, /^d[ií]a/i, /^periodo/i];
@@ -43,6 +46,8 @@ const TAXID_PATTERNS = [/^ruc/i, /c[eé]dula/i, /identificaci[óo]n/i, /^ci\b/i,
 const NOMBRE_PATTERNS = [/nombre/i, /beneficiario/i, /profesional/i, /prestador/i, /^a\s*nombre/i];
 const CONCEPTO_PATTERNS = [/descripc/i, /concepto/i, /detalle/i, /servicio/i, /glosa/i];
 const MONTO_PATTERNS = [/monto/i, /importe/i, /total/i, /honorario/i, /valor/i, /^pago/i];
+// Columna opcional "Banco" (o "Cuenta"): si el pago sale de un banco concreto
+const BANCO_PATTERNS = [/^banco/i, /^cuenta/i, /banco/i];
 
 function matchHeader(header: string, patterns: RegExp[]): boolean {
   return patterns.some(p => p.test(header));
@@ -59,7 +64,7 @@ export async function parseHonorariosFile(
   const { headers, rawRows } = await leerTabla(buffer, fileName);
 
   const cols: HonorariosColumns = {
-    fecha: null, taxId: null, nombre: null, concepto: null, monto: null,
+    fecha: null, taxId: null, nombre: null, concepto: null, monto: null, banco: null,
   };
 
   for (const h of headers) {
@@ -69,6 +74,7 @@ export async function parseHonorariosFile(
     if (!cols.nombre && matchHeader(h, NOMBRE_PATTERNS)) { cols.nombre = h; continue; }
     if (!cols.monto && matchHeader(h, MONTO_PATTERNS)) { cols.monto = h; continue; }
     if (!cols.concepto && matchHeader(h, CONCEPTO_PATTERNS)) { cols.concepto = h; continue; }
+    if (!cols.banco && matchHeader(h, BANCO_PATTERNS)) { cols.banco = h; continue; }
   }
 
   if (!cols.nombre) {
@@ -85,16 +91,20 @@ export async function parseHonorariosFile(
 
   let repairCount = 0;
   const rows: HonorariosRow[] = rawRows.map(rawRow => {
-    if (rawRow.length !== headers.length) {
+    if (rawRow.length > headers.length) {
       const fixed = repararComaDecimal(rawRow, headers, moneyCols);
       if (!fixed) {
         return {
-          fecha: null, taxId: null, nombre: null, concepto: null, monto: 0,
+          fecha: null, taxId: null, nombre: null, concepto: null, monto: 0, bankName: null,
           parseError: `Fila con ${rawRow.length} campos (se esperaban ${headers.length}): revisa los separadores decimales del archivo`,
         };
       }
       rawRow = fixed;
       repairCount++;
+    } else if (rawRow.length < headers.length) {
+      // Menos campos que encabezados: celdas vacías al final que Excel no
+      // guarda (p. ej. la columna "Banco" opcional en blanco) → completar.
+      rawRow = [...rawRow, ...Array(headers.length - rawRow.length).fill('')];
     }
 
     const raw: Record<string, string> = {};
@@ -106,6 +116,7 @@ export async function parseHonorariosFile(
       nombre: get(cols.nombre).trim() || null,
       concepto: get(cols.concepto).trim() || null,
       monto: parseMonto(get(cols.monto)),
+      bankName: get(cols.banco).trim() || null,
       parseError: null,
     };
   });

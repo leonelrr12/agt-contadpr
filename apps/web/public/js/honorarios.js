@@ -49,6 +49,8 @@ function renderHonorariosPreview() {
 
   const prevWarn = document.getElementById('import-inline-warn');
   if (prevWarn) prevWarn.remove();
+  const prevBankWarn = document.getElementById('import-inline-bank-warn');
+  if (prevBankWarn) prevBankWarn.remove();
   const prevCards = document.getElementById('import-inline-honorarios-cards');
   if (prevCards) prevCards.remove();
 
@@ -93,6 +95,16 @@ function renderHonorariosPreview() {
     }
   }
 
+  // Aviso si alguna fila no trae un banco reconocido (se usará el default)
+  const bankAvisos = hp.rows.filter(r => r.bankAviso);
+  if (bankAvisos.length > 0) {
+    const warn = document.createElement('div');
+    warn.id = 'import-inline-bank-warn';
+    warn.style.cssText = 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px';
+    warn.innerHTML = `🏦 ${bankAvisos.length} fila(s) con banco no reconocido en el archivo: se usará la cuenta por defecto (columna <strong>Banco</strong>). Ej.: ${escapeHtml(bankAvisos[0].bankAviso)}`;
+    document.getElementById('import-inline-summary').after(warn);
+  }
+
   // Tarjetas extra: total a pagar y omitidas
   const rowsOk = hp.rows.filter(r => r.status === 'ok');
   const totalPagar = rowsOk.reduce((s, r) => s + (r.monto || 0), 0);
@@ -112,7 +124,7 @@ function renderHonorariosPreview() {
   );
 
   const thead = document.getElementById('import-inline-thead');
-  thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Profesional</th><th>RUC/Cédula</th><th>Concepto</th><th>Monto</th><th>Estado</th></tr>';
+  thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Profesional</th><th>RUC/Cédula</th><th>Concepto</th><th>Monto</th><th>Banco</th><th>Estado</th></tr>';
 
   let html = '';
   for (const r of hp.rows) {
@@ -127,10 +139,17 @@ function renderHonorariosPreview() {
       bg = 'style="background:#fef2f2"';
       estadoHtml = `<span style="color:#b91c1c;font-size:11px">❌ ${escapeHtml(r.error || 'Error')}</span>`;
     }
+    // Cuenta de banco que se usará (columna Banco del archivo o el default)
+    let bancoHtml = '—';
+    if (r.bankAccount) {
+      bancoHtml = `<span title="${escapeHtml(r.bankSource === 'archivo' ? 'Banco del archivo' : r.bankAviso || 'Banco por defecto')}">${escapeHtml(r.bankAccount.code)} — ${escapeHtml(r.bankAccount.name)}</span>`;
+      if (r.bankAviso) bancoHtml += ' <span style="color:#b45309;cursor:help" title="' + escapeHtml(r.bankAviso) + '">⚠️</span>';
+    }
     html += `<tr${bg}>
       <td>${r.row}</td><td>${r.fechaFinal || '—'}</td><td>${escapeHtml(r.nombre || '')}</td>
       <td>${escapeHtml(r.taxId || '')}</td><td>${escapeHtml(r.concepto || '')}</td>
       <td>${honorariosFmt(r.monto)}</td>
+      <td style="font-size:11px">${bancoHtml}</td>
       <td>${estadoHtml}</td></tr>`;
   }
   document.getElementById('import-inline-tbody').innerHTML = html;

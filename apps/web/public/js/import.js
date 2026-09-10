@@ -12,8 +12,8 @@ function importMode() {
 const IMPORT_MODE_HINTS = {
   transacciones: 'Sube el CSV/Excel con tus transacciones históricas. La IA clasificará cada concepto. En Gastos/Compras, la columna "Estado" (Contado/Crédito) define el pago: "Crédito" carga a Proveedores y exige Nº de factura; Contado/sin estado sale del banco indicado en la columna "Banco/Cuenta" (opcional) o del banco por defecto de Configuración.',
   cobros: 'Pagos/abonos a facturas: columnas Cliente, Fecha de Pago, Cuenta (banco), Factura # y TOTAL. Las filas SIN "Fecha de Pago" y "Cuenta" son facturas aún no pagadas: quedan ⏳ pendientes y se omiten. Puedes re-subir el mismo archivo: los pagos ya aplicados no se duplican (se omiten).',
-  planilla: 'Planilla (nómina): columnas QUINCENA, NOMBRE, CEDULA, SUELDO, HORAS EXTRAS, DECIMO, SS, SE, ISR y TOPAL A PAGAR. Elige el Tipo (Sueldo o Décimo III: son procesos aparte) y configura las cuentas en Administración → Planilla. Un asiento BORRADOR por empleado; re-subir el mismo archivo no duplica.',
-  honorarios: 'Honorarios Profesionales: columnas FECHA, RUC/CÉDULA, NOMBRE, DESCRIPCIÓN/CONCEPTO y MONTO (lo que sale del banco). Configura las cuentas en Administración → Honorarios. Un asiento BORRADOR por pago (Honorarios Profesionales al Debe vs Banco); re-subir el mismo archivo no duplica.',
+  planilla: 'Planilla (nómina): columnas QUINCENA, NOMBRE, CEDULA, SUELDO, HORAS EXTRAS, DECIMO, SS, SE, ISR y TOPAL A PAGAR, con "Banco" opcional al final (si no, el banco por defecto de Configuración). Elige el Tipo (Sueldo o Décimo III: son procesos aparte) y configura las cuentas en Administración → Cargas. Un asiento BORRADOR por empleado; re-subir el mismo archivo no duplica.',
+  honorarios: 'Honorarios Profesionales: columnas FECHA, RUC/CÉDULA, NOMBRE, DESCRIPCIÓN/CONCEPTO y MONTO (lo que sale del banco), con "Banco" opcional al final (si no, el banco por defecto de Configuración). Configura la cuenta del gasto en Administración → Cargas. Un asiento BORRADOR por pago; re-subir el mismo archivo no duplica.',
 };
 
 function applyImportModeUI() {
@@ -154,6 +154,9 @@ function renderImportInlinePreview() {
   // Limpiar tarjetas de honorarios de un render previo
   const prevHonorariosCards = document.getElementById('import-inline-honorarios-cards');
   if (prevHonorariosCards) prevHonorariosCards.remove();
+  // Limpiar aviso de banco no reconocido (planilla/honorarios)
+  const prevBankWarn = document.getElementById('import-inline-bank-warn');
+  if (prevBankWarn) prevBankWarn.remove();
 
   document.getElementById('import-inline-summary').classList.remove('hidden');
   document.getElementById('import-inline-preview').classList.remove('hidden');
@@ -440,6 +443,9 @@ function resetImportInline() {
   // Limpiar tarjetas de honorarios si existen
   const honorariosCards = document.getElementById('import-inline-honorarios-cards');
   if (honorariosCards) honorariosCards.remove();
+  // Limpiar aviso de banco no reconocido si existe
+  const bankWarn = document.getElementById('import-inline-bank-warn');
+  if (bankWarn) bankWarn.remove();
   // Resetear botón y modo de importación
   const btn = document.getElementById('import-inline-execute');
   btn.textContent = '✅ Importar transacciones';
