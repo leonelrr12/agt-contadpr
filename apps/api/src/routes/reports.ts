@@ -112,6 +112,88 @@ reportsRouter.get('/proveedores', async (req, res) => {
 });
 
 /**
+ * Informe de HONORARIOS PROFESIONALES: pagos agrupados por RUC/Cédula del
+ * profesional con el detalle de cada pago (patrón de proveedores).
+ * Independiente del Informe Por Proveedores: filtra SOLO las transacciones
+ * con metadata.source='honorarios' (que no llevan provider) — no se mezclan.
+ * Sin filtro de fechas → año fiscal activo.
+ */
+async function buildHonorariosReport(prisma: any, companyId: string, startDate?: string, endDate?: string) {
+  const where: Record<string, unknown> = {
+    companyId,
+    type: 'HONORARIOS',
+    metadata: { contains: '"source":"honorarios"' },
+    journalEntry: {
+      is: {
+        status: { notIn: ['RECHAZADO', 'ANULADO'] },
+        isClosing: false,
+        // Al anular un asiento, journal.ts re-apunta sus Transactions al
+        // asiento de reversión ("ANULACIÓN: …", CONFIRMADO): sin este filtro
+        // un pago anulado seguiría contando en el informe.
+        NOT: { description: { startsWith: 'ANULACIÓN:' } },
+      },
+    },
+  };
+  const anioFiscal = await getAnioFiscal(prisma, companyId);
+  const rango = anioFiscalRange(anioFiscal);
+  const dateFilter = startDate || endDate
+    ? buildDateFilter(startDate, endDate)
+    : { gte: rango.start, lte: rango.end };
+  if (dateFilter) where.date = dateFilter;
+
+  const txs = await prisma.transaction.findMany({
+    where,
+    select: { id: true, date: true, amount: true, metadata: true },
+    orderBy: { date: 'asc' },
+  });
+
+  const profesionales = new Map<string, any>();
+  for (const tx of txs) {
+    let m: any = {};
+    try { m = JSON.parse(tx.metadata); } catch {}
+    if (m.source !== 'honorarios') continue;
+    const ruc = m.ruc || null;
+    const nombre = m.nombre || '—';
+    const key = `${ruc || ''}|${nombre.toLowerCase()}`;
+    const p = profesionales.get(key) || {
+      nombre, ruc, pagos: 0, total: 0, detalle: [],
+    };
+    const monto = r2(Number(m.monto) || Number(tx.amount) || 0);
+    p.pagos++;
+    p.total = r2(p.total + monto);
+    p.detalle.push({
+      transactionId: tx.id,
+      fecha: tx.date,
+      concepto: m.concepto || null,
+      monto,
+    });
+    profesionales.set(key, p);
+  }
+
+  const lista = Array.from(profesionales.values())
+    .map((p: any) => ({ ...p, detalle: p.detalle.sort((a: any, b: any) => a.fecha - b.fecha) }))
+    .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre));
+
+  const tot = lista.reduce((acc: any, p: any) => ({
+    pagos: acc.pagos + p.pagos,
+    total: r2(acc.total + p.total),
+  }), { pagos: 0, total: 0 });
+
+  return {
+    periodo: { start: dateFilter?.gte || null, end: dateFilter?.lte || null, anioFiscal },
+    totalProfesionales: lista.length,
+    ...tot,
+    profesionales: lista,
+  };
+}
+
+reportsRouter.get('/honorarios', async (req, res) => {
+  const { startDate, endDate } = req.query;
+  const report = await buildHonorariosReport(req.prisma, req.user!.companyId, startDate as string | undefined, endDate as string | undefined);
+  res.json(report);
+});
+
+/**
  * Balance de comprobación con doble dimensión:
  * - Débito/Crédito: SOLO movimientos del período analizado (startDate..endDate,
  *   o el año fiscal activo si no hay filtro — derivado del último asiento).
@@ -656,10 +738,15 @@ reportsRouter.get('/export/:type', async (req, res) => {
         break;
       }
 
+      case 'honorarios': {
+        data = await buildHonorariosReport(req.prisma, req.user!.companyId, startDate as string | undefined, endDate as string | undefined);
+        break;
+      }
+
       default:
         res.status(400).json({
           error: 'Tipo de reporte no soportado',
-          tipos: ['balance-comprobacion', 'balance-general', 'estado-resultados', 'flujo-caja', 'diario', 'proveedores'],
+          tipos: ['balance-comprobacion', 'balance-general', 'estado-resultados', 'flujo-caja', 'diario', 'proveedores', 'honorarios'],
         });
         return;
     }

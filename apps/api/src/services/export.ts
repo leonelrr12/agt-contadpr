@@ -336,6 +336,40 @@ export async function exportReport(
       };
     }
 
+    case 'honorarios': {
+      const d = data as any;
+      const columns: ColumnDef[] = [
+        { header: 'RUC/Cédula', key: 'ruc' },
+        { header: 'Profesional', key: 'nombre' },
+        { header: 'Concepto', key: 'concepto' },
+        { header: 'Fecha', key: 'date' },
+        { header: 'Monto', key: 'monto' },
+      ];
+      const rows: Record<string, unknown>[] = [];
+      for (const p of d.profesionales || []) {
+        for (const f of p.detalle || []) {
+          rows.push({
+            ruc: p.ruc || '—',
+            nombre: p.nombre,
+            concepto: f.concepto || '—',
+            date: new Date(f.fecha).toLocaleDateString('es-PA'),
+            monto: f.monto,
+          });
+        }
+      }
+      const footerRow = {
+        ruc: '', nombre: '', concepto: 'Total', date: '', monto: d.total,
+      };
+      const buffer = format === 'xlsx'
+        ? await buildXlsx('Honorarios Profesionales', columns, rows, ['monto'], footerRow)
+        : Buffer.from(buildCsv(columns, rows, footerRow), 'utf-8');
+      return {
+        buffer,
+        contentType: format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv',
+        filename: `honorarios-${today}.${format}`,
+      };
+    }
+
     default:
       throw new Error(`Tipo de reporte no soportado: ${reportType}`);
   }

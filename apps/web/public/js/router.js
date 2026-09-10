@@ -76,11 +76,14 @@ document.querySelectorAll('#panel-tabs-admin button').forEach(btn => {
       'cuentas-admin': ['cuentas-admin-content', 'cuentas-admin-actions', 'cuentas-admin-form'],
       'conceptos-admin': ['conceptos-admin-content', 'conceptos-admin-actions', 'conceptos-admin-form'],
       'config': ['config-content'],
+      'planilla': ['planilla-content'],
+      'honorarios': ['honorarios-content'],
+      'carga-inicial': ['carga-inicial-content'],
       'cierres-admin': ['cierres-admin-content'],
       'usuarios-admin': ['usuarios-admin-content'],
     };
     // Ocultar todo
-    document.querySelectorAll('#cuentas-admin-content, #cuentas-admin-actions, #cuentas-admin-form, #conceptos-admin-content, #conceptos-admin-actions, #conceptos-admin-form, #config-content, #cierres-admin-content, #usuarios-admin-content').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('#cuentas-admin-content, #cuentas-admin-actions, #cuentas-admin-form, #conceptos-admin-content, #conceptos-admin-actions, #conceptos-admin-form, #config-content, #planilla-content, #honorarios-content, #carga-inicial-content, #cierres-admin-content, #usuarios-admin-content').forEach(el => el.classList.add('hidden'));
     // Mostrar lo relevante
     const ids = contentIds[btn.dataset.panel] || [];
     ids.forEach(id => { const el = document.getElementById(id); if (el) el.classList.remove('hidden'); });
@@ -88,6 +91,9 @@ document.querySelectorAll('#panel-tabs-admin button').forEach(btn => {
     if (btn.dataset.panel === 'cuentas-admin') loadPanelCuentasAdmin();
     if (btn.dataset.panel === 'conceptos-admin') loadPanelConceptosAdmin();
     if (btn.dataset.panel === 'config') loadPanelConfig();
+    if (btn.dataset.panel === 'planilla') loadPanelConfigPlanilla();
+    if (btn.dataset.panel === 'honorarios') loadPanelConfigHonorarios();
+    if (btn.dataset.panel === 'carga-inicial') loadPanelCargaInicial();
     if (btn.dataset.panel === 'cierres-admin') loadPanelCierresAdmin();
     if (btn.dataset.panel === 'usuarios-admin') loadPanelUsuariosAdmin();
   });

@@ -29,15 +29,15 @@ function clickInformeTab(informe) {
   if (active) { active.classList.add('active'); active.style.color = '#1a1a2e'; active.style.borderBottomColor = '#1565c0'; }
   _currentInformeTab = informe;
   // Mostrar filtro de fecha solo para reportes que lo soportan
-  const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', resultados: 'estado-resultados', dashboard: null, auxiliares: null, revision: null, proveedores: 'proveedores', retenciones: null };
-  const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'resultados' || informe === 'proveedores' || informe === 'dashboard' || informe === 'retenciones');
+  const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', resultados: 'estado-resultados', dashboard: null, auxiliares: null, revision: null, proveedores: 'proveedores', honorarios: 'honorarios', retenciones: null };
+  const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'resultados' || informe === 'proveedores' || informe === 'honorarios' || informe === 'dashboard' || informe === 'retenciones');
   document.getElementById('informes-date-filter').classList.toggle('hidden', !showFilter);
   // Mostrar filtro de status solo en Diario
   const statusEl = document.getElementById('informes-filter-status');
   if (statusEl) statusEl.style.display = informe === 'diario' ? '' : 'none';
   setInformesExportBar(exportTypes[informe] || null);
   showInformesLoading();
-  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard, proveedores: loadReportProveedores, retenciones: loadRetencionesItbms };
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard, proveedores: loadReportProveedores, honorarios: loadReportHonorarios, retenciones: loadRetencionesItbms };
   if (loaders[informe]) loaders[informe]();
 }
 
@@ -376,7 +376,7 @@ function getInformesDateParams() {
   return params;
 }
 function loadCurrentInformeTab() {
-  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard, proveedores: loadReportProveedores, retenciones: loadRetencionesItbms };
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard, proveedores: loadReportProveedores, honorarios: loadReportHonorarios, retenciones: loadRetencionesItbms };
   if (loaders[_currentInformeTab]) loaders[_currentInformeTab]();
 }
 
@@ -485,6 +485,69 @@ async function loadReportProveedores() {
 
 function toggleProveedorDetalle(i) {
   const el = document.getElementById(`prov-detalle-${i}`);
+  if (el) el.classList.toggle('hidden');
+}
+
+// ── Informe de Honorarios Profesionales (pagos por RUC/Cédula) ──
+// Separado del Informe Por Proveedores: solo incluye las cargas de
+// Importar → ⚖️ Honorarios (metadata.source='honorarios').
+async function loadReportHonorarios() {
+  const el = document.getElementById('informes-inline-result');
+  const params = getInformesDateParams();
+  try {
+    const res = await authFetch(`${API_URL}/reports/honorarios?${params.toString()}`);
+    if (!res.ok) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar el reporte</div>'; return; }
+    const d = await res.json();
+
+    if (!d.profesionales.length) {
+      el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">No hay pagos de honorarios en el período seleccionado</div>';
+      return;
+    }
+
+    const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const cards = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">
+        ${[
+          ['⚖️ Profesionales', d.totalProfesionales],
+          ['💸 Pagos', d.pagos],
+          ['✅ Total pagado', money(d.total)],
+        ].map(([label, value]) => `
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:11px;color:#6b7280">${label}</div>
+            <div style="font-size:17px;font-weight:700;color:#1a1a2e;margin-top:4px">${value}</div>
+          </div>`).join('')}
+      </div>`;
+
+    const rows = d.profesionales.map((p, i) => [
+      p.nombre,
+      p.ruc || '—',
+      p.pagos,
+      money(p.total),
+      `<button onclick="toggleHonorariosDetalle(${i})" style="padding:4px 10px;font-size:11px;background:#f0f0f0;border:1px solid #d1d5db;border-radius:5px;cursor:pointer">📋 Detalle</button>`,
+    ]);
+    const footer = ['', '', d.pagos, money(d.total), ''];
+
+    let html = informesPeriodoInfo(d) + cards + buildInformesTable(['Profesional', 'RUC/Cédula', 'Pagos', 'Total', ''], rows, footer);
+
+    // Detalle de pagos por profesional (toggle)
+    d.profesionales.forEach((p, i) => {
+      const detRows = p.detalle.map(f => [
+        new Date(f.fecha).toLocaleDateString('es-PA'),
+        f.concepto || '—',
+        money(f.monto),
+      ]);
+      const detFooter = ['Total', '', money(p.total)];
+      html += `<div id="hon-detalle-${i}" class="hidden" style="margin:8px 0 16px 8px;border-left:3px solid #0e7490;padding-left:12px">${buildInformesTable(['Fecha', 'Concepto', 'Monto'], detRows, detFooter)}</div>`;
+    });
+
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar el reporte</div>';
+  }
+}
+
+function toggleHonorariosDetalle(i) {
+  const el = document.getElementById(`hon-detalle-${i}`);
   if (el) el.classList.toggle('hidden');
 }
 

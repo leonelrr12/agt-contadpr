@@ -27,6 +27,18 @@ model Company {
   // Cuenta bancaria por defecto para pagos desde chat/WS cuando no se
   // menciona el banco o el nombre no coincide (fallback: 1.1.02.01)
   bancoDefaultId        String?
+  // Planilla (nómina): cuenta contable por columna del archivo maestro,
+  // configurable en Administración → Configuración → Planilla.
+  planillaSueldoId      String?
+  planillaHorasExtrasId String?
+  planillaDecimoId      String?
+  planillaSSId          String?
+  planillaSEId          String?
+  planillaISRId         String?
+  planillaBancoId       String?
+  // Honorarios Profesionales: cuenta del gasto (DEBE) y del banco (HABER)
+  honorariosGastoId     String?
+  honorariosBancoId     String?
   createdAt    DateTime @default(now())
   updatedAt DateTime @updatedAt
 

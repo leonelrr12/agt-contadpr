@@ -313,6 +313,110 @@ async function saveConfig() {
   } catch (e) { await showAlert('Error de conexión'); }
 }
 
+/* ── Administración: Configuración → Planilla ──
+ * Cuenta contable por columna del archivo de planilla (Importar → 👷 Planilla).
+ * Se guardan en Company (planillaSueldoId, planillaHorasExtrasId, …) vía
+ * PUT /api/config, que valida que cada cuenta exista en la empresa. */
+const PLANILLA_CONFIG_FIELDS = [
+  ['planilla-sueldo', 'planillaSueldoId'],
+  ['planilla-horas-extras', 'planillaHorasExtrasId'],
+  ['planilla-decimo', 'planillaDecimoId'],
+  ['planilla-ss', 'planillaSSId'],
+  ['planilla-se', 'planillaSEId'],
+  ['planilla-isr', 'planillaISRId'],
+  ['planilla-banco', 'planillaBancoId'],
+];
+
+async function loadPanelConfigPlanilla() {
+  try {
+    // Todas las cuentas activas ordenadas por código (patrón de selects del repo)
+    let cuentas = [];
+    try {
+      const ra = await authFetch(`${API_URL}/accounts`);
+      cuentas = (await ra.json() || []).filter(a => a.isActive !== false)
+        .sort((a, b) => String(a.code).localeCompare(String(b.code), undefined, { numeric: true }));
+    } catch { /* sin cuentas */ }
+    const optionsHtml = cuentas.map(a => `<option value="${a.id}">${escapeHtml(a.code)} — ${escapeHtml(a.name)}</option>`).join('');
+
+    const res = await authFetch(`${API_URL}/config`);
+    const cfg = await res.json();
+    const planilla = cfg.planilla || {};
+    for (const [selectId, field] of PLANILLA_CONFIG_FIELDS) {
+      const sel = document.getElementById(selectId);
+      if (!sel) continue;
+      sel.innerHTML = `<option value="">— Sin definir —</option>${optionsHtml}`;
+      sel.value = planilla[field] || '';
+    }
+  } catch (e) { /* keep defaults */ }
+}
+
+async function saveConfigPlanilla() {
+  const body = {};
+  for (const [selectId, field] of PLANILLA_CONFIG_FIELDS) {
+    const sel = document.getElementById(selectId);
+    body[field] = sel ? (sel.value || null) : undefined;
+  }
+  try {
+    const res = await authFetch(`${API_URL}/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) { const e = await res.json(); await showAlert(e.error || 'Error al guardar'); return; }
+    const msg = document.getElementById('planilla-saved-msg');
+    if (msg) { msg.style.display = 'inline'; setTimeout(() => { msg.style.display = 'none'; }, 2000); }
+  } catch (e) { await showAlert('Error de conexión'); }
+}
+
+/* ── Administración: Honorarios Profesionales ──
+ * Cuenta del gasto (DEBE) y del banco (HABER) que usa la carga masiva de
+ * honorarios (Importar → ⚖️ Honorarios). Se guardan en Company
+ * (honorariosGastoId / honorariosBancoId) vía PUT /api/config. */
+const HONORARIOS_CONFIG_FIELDS = [
+  ['honorarios-gasto', 'honorariosGastoId'],
+  ['honorarios-banco', 'honorariosBancoId'],
+];
+
+async function loadPanelConfigHonorarios() {
+  try {
+    let cuentas = [];
+    try {
+      const ra = await authFetch(`${API_URL}/accounts`);
+      cuentas = (await ra.json() || []).filter(a => a.isActive !== false)
+        .sort((a, b) => String(a.code).localeCompare(String(b.code), undefined, { numeric: true }));
+    } catch { /* sin cuentas */ }
+    const optionsHtml = cuentas.map(a => `<option value="${a.id}">${escapeHtml(a.code)} — ${escapeHtml(a.name)}</option>`).join('');
+
+    const res = await authFetch(`${API_URL}/config`);
+    const cfg = await res.json();
+    const honorarios = cfg.honorarios || {};
+    for (const [selectId, field] of HONORARIOS_CONFIG_FIELDS) {
+      const sel = document.getElementById(selectId);
+      if (!sel) continue;
+      sel.innerHTML = `<option value="">— Sin definir —</option>${optionsHtml}`;
+      sel.value = honorarios[field] || '';
+    }
+  } catch (e) { /* keep defaults */ }
+}
+
+async function saveConfigHonorarios() {
+  const body = {};
+  for (const [selectId, field] of HONORARIOS_CONFIG_FIELDS) {
+    const sel = document.getElementById(selectId);
+    body[field] = sel ? (sel.value || null) : undefined;
+  }
+  try {
+    const res = await authFetch(`${API_URL}/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) { const e = await res.json(); await showAlert(e.error || 'Error al guardar'); return; }
+    const msg = document.getElementById('honorarios-saved-msg');
+    if (msg) { msg.style.display = 'inline'; setTimeout(() => { msg.style.display = 'none'; }, 2000); }
+  } catch (e) { await showAlert('Error de conexión'); }
+}
+
 document.getElementById('message-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();

@@ -59,9 +59,12 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
         return;
       }
 
-      const previewRows = parsed.rows.slice(0, 20);
+      // Se resuelven TODAS las filas del archivo (antes solo las 20 primeras:
+      // un balance con más de 20 cuentas cargaba las demás en silencio). La
+      // UI decide cuántas muestra; totales y cuentas sin asignar son del
+      // archivo completo.
       const { results, totalDebit, totalCredit } = await resolveCargaInicialRows(
-        req.prisma, req.user!.companyId, previewRows,
+        req.prisma, req.user!.companyId, parsed.rows,
       );
 
       res.json({
@@ -173,6 +176,7 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
       totalRows: parsed.totalRows,
       invalidRows,
       detectedCobrosFile: isCobrosFileHeaders(parsed.headers) || isCobrosFileRows(allRows),
+      detectedHonorariosFile: isHonorariosFileRows(allRows),
     });
   } catch (error: any) {
     console.error('[Import] Preview error:', error);
@@ -304,6 +308,24 @@ function isCobrosFileRows(rows: { concept?: string; description: string }[]): bo
   const signal = rows.filter(isCobrosConcept).length;
   // Archivos de 1-2 filas: todas deben decir cobro (evita falso positivo
   // en lotes mixtos pequeños); con más filas, mayoría estricta.
+  if (rows.length < 3) return signal === rows.length;
+  return signal > rows.length / 2;
+}
+
+/**
+ * Detección de archivo de HONORARIOS PROFESIONALES cargado en el modo normal
+ * (Transacciones): allí la IA lo registra como GASTO con proveedor y los pagos
+ * quedarían mezclados en el Informe Por Proveedores en vez de su informe.
+ * Señal de contenido: la mayoría de las filas dicen "honorario(s)" en el
+ * concepto o la descripción → el chip ⚖️ Honorarios se activa solo.
+ */
+function isHonorariosConcept(row: { concept?: string; description: string }): boolean {
+  return /honorario/i.test(`${row.concept || ''} ${row.description || ''}`);
+}
+
+function isHonorariosFileRows(rows: { concept?: string; description: string }[]): boolean {
+  if (rows.length === 0) return false;
+  const signal = rows.filter(isHonorariosConcept).length;
   if (rows.length < 3) return signal === rows.length;
   return signal > rows.length / 2;
 }
@@ -1110,6 +1132,43 @@ importRouter.post('/carga-inicial/execute', requireQuota, async (req, res) => {
       error: 'Error interno al crear la carga inicial.',
       detail: error?.message,
     });
+  }
+});
+
+/**
+ * GET /api/import/carga-inicial/existe
+ * ¿Ya se hizo una carga inicial en esta empresa? El asiento de apertura se
+ * identifica por su descripción fija ("Carga Inicial - <fecha>"); al anular
+ * el original queda ANULADO y la reversión empieza por "ANULACIÓN:" → no
+ * cuentan. Alimenta el aviso de la pestaña Administración → Carga Inicial.
+ */
+importRouter.get('/carga-inicial/existe', async (req, res) => {
+  try {
+    const entry = await req.prisma.journalEntry.findFirst({
+      where: {
+        companyId: req.user!.companyId,
+        description: { startsWith: 'Carga Inicial' },
+        status: { notIn: ['ANULADO'] },
+        NOT: { description: { startsWith: 'ANULACIÓN:' } },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, date: true, description: true, status: true, createdAt: true, lines: { select: { debit: true, credit: true } } },
+    });
+    res.json({
+      existe: !!entry,
+      entry: entry ? {
+        id: entry.id,
+        date: entry.date,
+        description: entry.description,
+        status: entry.status,
+        createdAt: entry.createdAt,
+        lineas: entry.lines.length,
+        totalDebit: r2(entry.lines.reduce((s: number, l: any) => s + (l.debit || 0), 0)),
+      } : null,
+    });
+  } catch (error: any) {
+    console.error('[Import] Carga inicial existe error:', error);
+    res.status(500).json({ error: 'Error al verificar la carga inicial', detail: error?.message });
   }
 });
 

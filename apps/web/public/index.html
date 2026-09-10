@@ -250,15 +250,25 @@
               <label style="padding:6px 12px;border-radius:6px;font-size:12.5px;cursor:pointer;color:#374151;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.08)" id="import-mode-label-tx">
                 <input type="radio" name="import-inline-mode" value="transacciones" style="display:none" checked> Transacciones
               </label>
-              <label style="padding:6px 12px;border-radius:6px;font-size:12.5px;cursor:pointer;color:#374151" id="import-mode-label-carga">
-                <input type="radio" name="import-inline-mode" value="carga" style="display:none"> Carga Inicial
-              </label>
               <label style="padding:6px 12px;border-radius:6px;font-size:12.5px;cursor:pointer;color:#374151" id="import-mode-label-cobros">
                 <input type="radio" name="import-inline-mode" value="cobros" style="display:none"> 💰 Pagos a facturas
+              </label>
+              <label style="padding:6px 12px;border-radius:6px;font-size:12.5px;cursor:pointer;color:#374151" id="import-mode-label-planilla">
+                <input type="radio" name="import-inline-mode" value="planilla" style="display:none"> 👷 Planilla
+              </label>
+              <label style="padding:6px 12px;border-radius:6px;font-size:12.5px;cursor:pointer;color:#374151" id="import-mode-label-honorarios">
+                <input type="radio" name="import-inline-mode" value="honorarios" style="display:none"> ⚖️ Honorarios
               </label>
             </div>
             <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap" id="import-inline-date-label">📅 Fecha:</label>
             <input type="date" id="import-inline-date" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;width:160px">
+            <span id="import-inline-planilla-tipo-wrap" style="display:none;align-items:center;gap:6px">
+              <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap">Tipo:</label>
+              <select id="import-inline-planilla-tipo" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit">
+                <option value="SUELDO">Sueldo + Horas Extras</option>
+                <option value="DECIMO">Décimo III</option>
+              </select>
+            </span>
             <span id="import-inline-file-name" style="font-size:13px;color:#6b7280"></span>
           </div>
           <p id="import-inline-mode-hint" style="margin:8px 0 0 0;color:#6b7280;font-size:12px">Sube el CSV/Excel con tus transacciones históricas. La IA clasificará cada concepto.</p>
@@ -366,6 +376,7 @@
           <button class="panel-tab-btn" data-informe="resultados" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📊 Resultados</button>
           <button class="panel-tab-btn" data-informe="dashboard" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📈 Dashboard</button>
           <button class="panel-tab-btn" data-informe="proveedores" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🧾 Por Proveedor</button>
+          <button class="panel-tab-btn" data-informe="honorarios" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚖️ Honorarios</button>
           <button class="panel-tab-btn" data-informe="retenciones" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🔖 Retenciones ITBMS</button>
         </div>
         <div id="informes-date-filter" class="hidden" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
@@ -397,6 +408,9 @@
           <button class="panel-tab-btn active" data-panel="cuentas-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#1a1a2e;border-bottom:2px solid #1565c0;margin-bottom:-2px">🏦 Cuentas</button>
           <button class="panel-tab-btn" data-panel="conceptos-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📝 Conceptos</button>
           <button class="panel-tab-btn" data-panel="config" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚙️ Configuración</button>
+          <button class="panel-tab-btn" data-panel="planilla" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">👷 Planilla</button>
+          <button class="panel-tab-btn" data-panel="honorarios" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚖️ Honorarios</button>
+          <button class="panel-tab-btn" data-panel="carga-inicial" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📋 Carga Inicial</button>
           <button class="panel-tab-btn" data-panel="cierres-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🗓 Cierres</button>
           <button class="panel-tab-btn" data-panel="usuarios-admin" id="tab-usuarios-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">👥 Usuarios</button>
         </div>
@@ -448,6 +462,108 @@
             <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
               <button class="btn-primary" onclick="saveConfig()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar Configuración</button>
               <span id="config-saved-msg" style="display:none;color:#059669;font-size:13px;font-weight:600">✅ Guardado</span>
+            </div>
+          </div>
+        </div>
+        <!-- Planilla Admin: cuentas contables por columna del archivo de planilla -->
+        <div id="planilla-content" class="hidden">
+          <div class="admin-form-card">
+            <h4>👷 Cuentas de Planilla</h4>
+            <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">Cuenta contable para cada columna del archivo de planilla (carga en Importar → 👷 Planilla). El asiento de cada empleado debita Sueldo, Horas Extras y Décimo III, y acredita SS, SE, ISR y el Neto que va al banco.</p>
+            <div class="form-grid">
+              <div>
+                <label>📋 Sueldo (DEBE)</label>
+                <select id="planilla-sueldo" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
+              </div>
+              <div>
+                <label>⏱ Horas Extras (DEBE)</label>
+                <select id="planilla-horas-extras" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
+              </div>
+              <div>
+                <label>🎁 Décimo III (DEBE)</label>
+                <select id="planilla-decimo" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
+              </div>
+              <div>
+                <label>🏥 Seguro Social — SS (HABER)</label>
+                <select id="planilla-ss" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
+              </div>
+              <div>
+                <label>🎓 Seguro Educativo — SE (HABER)</label>
+                <select id="planilla-se" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
+              </div>
+              <div>
+                <label>🧾 Impuesto sobre la Renta — ISR (HABER)</label>
+                <select id="planilla-isr" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
+              </div>
+              <div style="min-width:100%">
+                <label>🏦 Neto que va al banco (HABER)</label>
+                <select id="planilla-banco" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
+                <div style="font-size:11px;color:#6b7280;margin-top:4px">Cuenta de banco desde la que se paga la planilla (el importe "TOPAL A PAGAR" del archivo).</div>
+              </div>
+            </div>
+            <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
+              <button class="btn-primary" onclick="saveConfigPlanilla()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar Planilla</button>
+              <span id="planilla-saved-msg" style="display:none;color:#059669;font-size:13px;font-weight:600">✅ Guardado</span>
+            </div>
+          </div>
+        </div>
+        <!-- Honorarios Admin: cuentas del gasto y del banco -->
+        <div id="honorarios-content" class="hidden">
+          <div class="admin-form-card">
+            <h4>⚖️ Cuentas de Honorarios Profesionales</h4>
+            <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">Cuentas que usa la carga masiva de honorarios (Importar → ⚖️ Honorarios). El asiento de cada pago debita Honorarios Profesionales y acredita el Banco.</p>
+            <div class="form-grid">
+              <div>
+                <label>⚖️ Honorarios Profesionales (DEBE)</label>
+                <select id="honorarios-gasto" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
+              </div>
+              <div>
+                <label>🏦 Banco (HABER)</label>
+                <select id="honorarios-banco" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
+                <div style="font-size:11px;color:#6b7280;margin-top:4px">Cuenta de banco desde la que se pagan los honorarios.</div>
+              </div>
+            </div>
+            <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
+              <button class="btn-primary" onclick="saveConfigHonorarios()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar Honorarios</button>
+              <span id="honorarios-saved-msg" style="display:none;color:#059669;font-size:13px;font-weight:600">✅ Guardado</span>
+            </div>
+          </div>
+        </div>
+        <!-- Carga Inicial Admin (balance de apertura — un solo uso por empresa) -->
+        <div id="carga-inicial-content" class="hidden">
+          <div class="admin-form-card">
+            <h4>📋 Carga Inicial (Balance de Apertura)</h4>
+            <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">Sube el archivo con las columnas <strong>Categoria</strong> (Activo/Pasivo/Patrimonio), <strong>Concepto</strong> y <strong>Monto</strong>. Se crea <strong>un solo asiento BORRADOR</strong> de apertura. Este proceso se usa una sola vez por empresa: si ya existe una carga inicial, revisa antes de crear otra.</p>
+            <div id="carga-inicial-existe-warn" class="hidden" style="background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:10px"></div>
+            <div id="carga-inicial-zone" style="border:2px dashed #d0d5dd;border-radius:12px;padding:24px;text-align:center;background:#f9fafb;cursor:pointer;margin-bottom:12px">
+              <div style="font-size:28px;margin-bottom:6px">📂</div>
+              <h3 style="margin:0 0 6px 0;color:#1a1a2e;font-size:15px">Arrastra tu archivo aquí o haz clic</h3>
+              <p style="margin:0;color:#6b7280;font-size:12px">Formatos aceptados: CSV, XLSX (máx. 10MB)</p>
+              <input type="file" id="carga-inicial-file" accept=".csv,.xlsx" style="display:none">
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+              <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap">📅 Fecha del balance:</label>
+              <input type="date" id="carga-inicial-date" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;width:160px">
+              <span id="carga-inicial-file-name" style="font-size:13px;color:#6b7280"></span>
+            </div>
+            <div id="carga-inicial-loading" class="hidden" style="text-align:center;padding:16px;color:#6b7280">
+              <div style="display:inline-block;width:22px;height:22px;border:3px solid #e5e7eb;border-top-color:#7c3aed;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:6px"></div>
+              <p id="carga-inicial-loading-text" style="margin:0;font-size:13px">Procesando...</p>
+            </div>
+            <div id="carga-inicial-summary" class="hidden" style="display:flex;gap:14px;margin-bottom:12px">
+              <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:10px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:18px;font-weight:700" id="carga-inicial-total">0</div><div style="font-size:11px;color:#6b7280">Cuentas</div></div>
+              <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:10px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:18px;font-weight:700;color:#059669" id="carga-inicial-ok">0</div><div style="font-size:11px;color:#6b7280">Encontradas</div></div>
+              <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:10px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:18px;font-weight:700;color:#dc2626" id="carga-inicial-err">0</div><div style="font-size:11px;color:#6b7280">Sin asignar</div></div>
+            </div>
+            <div id="carga-inicial-preview" class="hidden" style="overflow-x:auto;margin-bottom:12px">
+              <table style="width:100%;border-collapse:collapse;font-size:12px">
+                <thead id="carga-inicial-thead"></thead>
+                <tbody id="carga-inicial-tbody"></tbody>
+              </table>
+            </div>
+            <div id="carga-inicial-actions" class="hidden" style="display:flex;gap:10px;align-items:center">
+              <button id="carga-inicial-execute" class="btn-primary" onclick="executeCargaInicial()" style="padding:8px 18px;border:none;border-radius:8px;background:#7c3aed;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">📋 Cargar Balance Inicial</button>
+              <button class="btn-secondary" onclick="resetCargaInicial()" style="padding:8px 16px;font-size:13px;background:#e5e7eb;color:#374151;border:none;border-radius:8px;cursor:pointer">↩ Cancelar</button>
             </div>
           </div>
         </div>
@@ -544,14 +660,17 @@
   <script src="js/capture.js?v=73"></script>
   <script src="js/capture-qr.js?v=73"></script>
   <script src="js/chat.js?v=74"></script>
-  <script src="js/router.js?v=73"></script>
-  <script src="js/admin.js?v=82"></script>
+  <script src="js/router.js?v=75"></script>
+  <script src="js/admin.js?v=84"></script>
   <script src="js/init.js?v=73"></script>
   <script src="js/panels-sidebar.js?v=73"></script>
-  <script src="js/import.js?v=81"></script>
+  <script src="js/import.js?v=84"></script>
+  <script src="js/planilla.js?v=1"></script>
+  <script src="js/honorarios.js?v=1"></script>
+  <script src="js/carga-inicial.js?v=1"></script>
   <script src="js/auxiliares-revision.js?v=74"></script>
   <script src="js/entry-modals.js?v=74"></script>
-  <script src="js/informes.js?v=78"></script>
+  <script src="js/informes.js?v=79"></script>
   <script src="js/tax-calendar.js?v=73"></script>
   <script src="js/salud.js?v=73"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
