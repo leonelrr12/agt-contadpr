@@ -193,10 +193,15 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
 
 // ── Lógica compartida de ejecución ──
 
-/** Convierte una fecha "YYYY-MM-DD" a Date en hora local (evita offset UTC → día anterior) */
+/**
+ * Convierte "YYYY-MM-DD" a Date a MEDIODÍA local (12:00): guardado así, ningún
+ * lector de la región (p. ej. navegador en Panamá UTC-5 con server en UTC-4)
+ * ve el día anterior por el desfase de zona horaria. (Antes guardaba a
+ * medianoche local, lo que corría un día las fechas vistas desde Panamá.)
+ */
 function toLocalDate(dateStr: string): Date {
   const [y, m, d] = dateStr.split('-').map(Number);
-  return new Date(y, m - 1, d);  // Mediodía local: sin riesgo de cambio de día por zona horaria
+  return new Date(y, m - 1, d, 12);
 }
 
 interface ImportRow {
