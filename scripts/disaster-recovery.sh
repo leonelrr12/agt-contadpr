@@ -129,4 +129,11 @@ echo ""
 echo "⚠️  Guarda este archivo en un lugar SEGURO fuera de este servidor."
 echo "   Recomendación: descárgalo a tu computadora o súbelo a Google Drive."
 echo ""
+# Retención: mantener solo los últimos 8 días
+RETENTION_DAYS=8
+DELETED=$(find "$DR_DIR" -name "disaster_recovery_*.tar.gz" -mtime +$RETENTION_DAYS -delete -print | wc -l)
+if [ "$DELETED" -gt 0 ]; then
+  echo "🗑️  $DELETED paquetes de recuperación antiguos eliminados"
+fi
+
 echo "📋 Próximo paso automático: configurar backup diario + recovery semanal"

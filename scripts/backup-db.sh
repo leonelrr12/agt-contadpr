@@ -5,7 +5,7 @@
 set -euo pipefail
 
 BACKUP_DIR="/root/backups/contador507"
-RETENTION_DAYS=30
+RETENTION_DAYS=8
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="$BACKUP_DIR/agt_contador_$TIMESTAMP.sql.gz"
 
@@ -31,7 +31,7 @@ docker exec agt-contador-db-1 pg_dump \
 SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
 echo "[$(date)] ✅ Backup creado: $BACKUP_FILE ($SIZE)"
 
-# Eliminar backups antiguos (>30 días)
+# Eliminar backups antiguos (>8 días)
 DELETED=$(find "$BACKUP_DIR" -name "agt_contador_*.sql.gz" -mtime +$RETENTION_DAYS -delete -print | wc -l)
 if [ "$DELETED" -gt 0 ]; then
   echo "[$(date)] 🗑️  $DELETED backups antiguos eliminados"
