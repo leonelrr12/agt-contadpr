@@ -20,7 +20,7 @@
 
 ## BD y despliegue
 - `DATABASE_URL` en `.env` (raíz y `packages/prisma-schema/`). PrismaClient re-exportado desde `@agt-contador/prisma-schema`; `req.prisma` inyectado en Express.
-- **PM2** gestiona la API (`pm2 start ecosystem.config.js`). Tras cambios backend: `pm2 restart agt-contador-api`. **Trampa env**: cambiar credenciales/keys en `.env` requiere `pm2 delete` + `start` (dotenv NO sobreescribe vars existentes; `restart` conserva env congelado).
+- **PM2** gestiona la API (`pm2 start ecosystem.config.js`). Tras cambios backend: `pm2 restart agt-contador-api`. **Trampa env**: cambiar credenciales/keys en `.env` requiere `pm2 delete` + `start` (dotenv NO sobreescribe vars existentes; `restart` conserva env congelado) **y luego `pm2 save`** — el servicio systemd de PM2 vuelve con `pm2 resurrect` (p. ej. cuando la actualización automática de paquetes reinicia systemd de madrugada): si el dump quedó viejo, la API resucita con credenciales anteriores y el login falla (pasó el 11-09 con la contraseña de BD del 27-08).
 - **Trampa caché tsx**: el caché real está en **`/tmp/tsx-0`** (no `/root/.tsx-cache`) — borrar SIEMPRE antes de reiniciar tras cambios en `apps/api`.
 - nginx sirve `apps/web/public` y proxea `/api/*` → `localhost:3001` (fallback SPA).
 - Docker: `docker compose up -d` (PostgreSQL 5433, API 3001, nginx 8090). El entrypoint del API corre `prisma db push` + seed al arrancar.
