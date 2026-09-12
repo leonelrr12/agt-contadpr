@@ -40,6 +40,18 @@ function loadPanelRevision() {
   const role = getUser()?.role;
   const btnManual = document.getElementById('btn-asiento-manual');
   if (btnManual) btnManual.style.display = (role === 'admin' || role === 'superadmin') ? 'inline-block' : 'none';
+  // Modo 1-click: SIEMPRE apagado al entrar (no persiste entre visitas).
+  // Al activarlo se avisa de lo que implica y se pide confirmación (cancelar
+  // lo deja apagado); apagarlo no requiere aviso.
+  const oneClick = document.getElementById('revision-oneclick');
+  if (oneClick) {
+    oneClick.checked = false;
+    oneClick.onchange = async () => {
+      if (!oneClick.checked) return;
+      const ok = await showConfirm('⚡ Modo 1-click\n\nCon un solo click en ✅ Aprobar los asientos se confirman AL INSTANTE, sin diálogo de confirmación.\n\n⚠️ Un asiento aprobado ya no se puede editar: solo se puede anular y emitir uno nuevo.\n\n¿Activar el modo 1-click?');
+      if (!ok) oneClick.checked = false;
+    };
+  }
   loadRevisionList();
 }
 
@@ -124,8 +136,13 @@ function removeRevisionEntry(id) {
 }
 
 async function reviewApprove(id) {
-  const ok = await showConfirm('¿Apruebas este asiento?\n\n✅ El asiento quedará CONFIRMADO y afectará los saldos contables.');
-  if (!ok) return;
+  // Modo 1-click activo → se aprueba sin diálogo (la tarjeta desaparece como
+  // feedback). Sin el modo, se pide la confirmación de siempre.
+  const oneClick = document.getElementById('revision-oneclick');
+  if (!(oneClick && oneClick.checked)) {
+    const ok = await showConfirm('¿Apruebas este asiento?\n\n✅ El asiento quedará CONFIRMADO y afectará los saldos contables.');
+    if (!ok) return;
+  }
   try {
     const res = await authFetch(`${API_URL}/journal/${id}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'aprobar' }) });
     if (res.ok) {
