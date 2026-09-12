@@ -486,7 +486,10 @@ function setInformesExportBar(type) {
 }
 function exportInforme(type, format) {
   const token = getToken();
-  window.open(`${API_URL}/reports/export/${type}?format=${format}&token=${encodeURIComponent(token)}`, '_blank');
+  let url = `${API_URL}/reports/export/${type}?format=${format}&token=${encodeURIComponent(token)}`;
+  // El archivo exportado respeta el modo 📊 Nivel 3 del Balance cuando está activo
+  if (type === 'balance-comprobacion' && _balanceNivel3) url += '&nivel=3';
+  window.open(url, '_blank');
 }
 
 /**

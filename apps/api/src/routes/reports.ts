@@ -9,6 +9,36 @@ export const reportsRouter = Router();
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
 /**
+ * Totaliza filas del balance por cuenta de nivel 3 ("1.1.02.01" → "1.1.02"):
+ * suma el débito/crédito del período y el saldo acumulado (con signo según su
+ * naturaleza) de todas las subcuentas y usa el nombre del padre del catálogo.
+ * La usa el export del balance cuando viene `?nivel=3` (mismo algoritmo que el
+ * botón "📊 Nivel 3" de la pantalla de Informes).
+ */
+function rollupNivel3(rows: any[], namesByCode: Map<string, string>) {
+  const grupos = new Map<string, any>();
+  for (const c of rows) {
+    const segs = String(c.account?.code || '').split('.').filter(Boolean);
+    if (segs.length === 0) continue;
+    const key = segs.slice(0, 3).join('.');
+    const g = grupos.get(key) || { code: key, name: '', type: c.account?.type, totalDebit: 0, totalCredit: 0, saldo: 0 };
+    g.totalDebit = r2(g.totalDebit + (c.totalDebit || 0));
+    g.totalCredit = r2(g.totalCredit + (c.totalCredit || 0));
+    g.saldo = r2(g.saldo + (c.balanceType === 'ACREEDOR' ? -(c.balance || 0) : (c.balance || 0)));
+    if (!g.name && namesByCode.get(key)) g.name = namesByCode.get(key);
+    if (!g.name && segs.length <= 3) g.name = c.account?.name || '';
+    grupos.set(key, g);
+  }
+  return [...grupos.values()].map(g => ({
+    account: { code: g.code, name: g.name || '(cuenta de nivel 3)', type: g.type },
+    totalDebit: g.totalDebit,
+    totalCredit: g.totalCredit,
+    balance: Math.abs(g.saldo),
+    balanceType: g.saldo >= 0 ? 'DEUDOR' : 'ACREEDOR',
+  }));
+}
+
+/**
  * Reporte por proveedor de facturas DGI (declaración de rentas).
  * Agrupa transacciones por metadata.provider (patrón de journal.ts):
  * filtro contains en BD + parseo JSON en memoria.
@@ -556,7 +586,7 @@ reportsRouter.get('/dashboard', async (req, res) => {
 reportsRouter.get('/export/:type', async (req, res) => {
   const { type } = req.params;
   const format: ExportFormat = (req.query.format as string) === 'csv' ? 'csv' : 'xlsx';
-  const { startDate, endDate } = req.query;
+  const { startDate, endDate, nivel } = req.query;
 
   try {
     let data: Record<string, unknown>;
@@ -607,7 +637,17 @@ reportsRouter.get('/export/:type', async (req, res) => {
             balanceType: rawBal > 0 ? 'DEUDOR' : 'ACREEDOR',
           });
         }
-        data = result.sort((a, b) => a.account.code.localeCompare(b.account.code, undefined, { numeric: true })) as unknown as Record<string, unknown>;
+        // ?nivel=3 → el archivo exportado sale totalizado por cuenta de nivel 3
+        // (mismo modo que el botón "📊 Nivel 3" de la pantalla)
+        let out = result;
+        if (String(nivel) === '3') {
+          const accs = await req.prisma.account.findMany({
+            where: { companyId: req.user!.companyId },
+            select: { code: true, name: true },
+          });
+          out = rollupNivel3(result, new Map(accs.map((a: any) => [a.code, a.name])));
+        }
+        data = out.sort((a, b) => a.account.code.localeCompare(b.account.code, undefined, { numeric: true })) as unknown as Record<string, unknown>;
         break;
       }
 
