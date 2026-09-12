@@ -32,6 +32,10 @@ function clickInformeTab(informe) {
   const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', resultados: 'estado-resultados', dashboard: null, auxiliares: null, revision: null, proveedores: 'proveedores', honorarios: 'honorarios', retenciones: null };
   const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'resultados' || informe === 'proveedores' || informe === 'honorarios' || informe === 'dashboard' || informe === 'retenciones');
   document.getElementById('informes-date-filter').classList.toggle('hidden', !showFilter);
+  // El botón "Nivel 3" es solo del Balance (conserva su estado al volver)
+  const n3btn = document.getElementById('informes-nivel3-btn');
+  if (n3btn) n3btn.style.display = informe === 'balance' ? '' : 'none';
+  paintNivel3Btn();
   // Mostrar filtro de status solo en Diario
   const statusEl = document.getElementById('informes-filter-status');
   if (statusEl) statusEl.style.display = informe === 'diario' ? '' : 'none';
@@ -89,13 +93,87 @@ async function loadReportDiario() {
     el.innerHTML = informesPeriodoInfo(d) + html;
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
+/* ── Balance: modo "Nivel 3" (cuentas totalizadas) ──
+ * Agrupa cada cuenta por su código de 3 segmentos ("1.1.02.01" → "1.1.02"):
+ * el movimiento del período y el saldo acumulado se suman de todas las
+ * subcuentas y se muestra el nombre de la cuenta padre. El botón solo
+ * aparece en la pestaña Balance y se apaga con ✕ Limpiar. */
+let _balanceNivel3 = false;
+let _accountsByCode = null;
+
+async function getAccountsByCode() {
+  if (_accountsByCode) return _accountsByCode;
+  try {
+    const res = await authFetch(`${API_URL}/accounts`);
+    const list = await res.json();
+    _accountsByCode = {};
+    for (const a of (list || [])) _accountsByCode[a.code] = a.name;
+  } catch { _accountsByCode = {}; }
+  return _accountsByCode;
+}
+
+function paintNivel3Btn() {
+  const btn = document.getElementById('informes-nivel3-btn');
+  if (!btn) return;
+  btn.style.background = _balanceNivel3 ? '#1565c0' : '#e0f2fe';
+  btn.style.color = _balanceNivel3 ? '#fff' : '#0369a1';
+  btn.style.borderColor = _balanceNivel3 ? '#1565c0' : '#7dd3fc';
+  btn.textContent = _balanceNivel3 ? '📊 Nivel 3 ✓' : '📊 Nivel 3';
+}
+
+/** Alterna el balance detallado ↔ totalizado a nivel 3 y lo recarga. */
+function toggleBalanceNivel3() {
+  _balanceNivel3 = !_balanceNivel3;
+  paintNivel3Btn();
+  loadReportBalance();
+}
+
+/** ✕ Limpiar: fechas por defecto + vuelve el balance al detalle. */
+function clearInformesFilters() {
+  document.getElementById('informes-filter-from').value = '';
+  document.getElementById('informes-filter-to').value = '';
+  document.getElementById('informes-filter-status').value = 'CONFIRMADO';
+  _balanceNivel3 = false;
+  paintNivel3Btn();
+  loadCurrentInformeTab();
+}
+
+async function rollupNivel3(cuentas) {
+  const names = await getAccountsByCode();
+  const r2 = n => Math.round(n * 100) / 100;
+  const grupos = new Map();
+  for (const c of cuentas) {
+    const code = String(c.account?.code || '');
+    const segs = code.split('.').filter(Boolean);
+    if (segs.length === 0) continue;
+    const key = segs.slice(0, 3).join('.');  // nivel 3 (cuentas de nivel ≤3 quedan igual)
+    const g = grupos.get(key) || { code: key, name: '', type: c.account?.type, totalDebit: 0, totalCredit: 0, saldo: 0 };
+    g.totalDebit = r2(g.totalDebit + (c.totalDebit || 0));
+    g.totalCredit = r2(g.totalCredit + (c.totalCredit || 0));
+    g.saldo = r2(g.saldo + (c.balanceType === 'ACREEDOR' ? -(c.balance || 0) : (c.balance || 0)));
+    if (!g.name && names[key]) g.name = names[key];
+    if (!g.name && segs.length <= 3) g.name = c.account?.name || '';
+    grupos.set(key, g);
+  }
+  return [...grupos.values()]
+    .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }))
+    .map(g => ({
+      account: { code: g.code, name: g.name || '(cuenta de nivel 3)', type: g.type },
+      totalDebit: g.totalDebit,
+      totalCredit: g.totalCredit,
+      balance: Math.abs(g.saldo),
+      balanceType: g.saldo >= 0 ? 'DEUDOR' : 'ACREEDOR',
+    }));
+}
+
 async function loadReportBalance() {
   const el = document.getElementById('informes-inline-result');
   try {
     const params = getInformesDateParams();
     const res = await authFetch(`${API_URL}/reports/balance-comprobacion?${params}`);
     const d = await res.json();
-    const cuentas = d.cuentas || d || [];
+    let cuentas = d.cuentas || d || [];
+    if (_balanceNivel3) cuentas = await rollupNivel3(cuentas);
     const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
     let totDeb = 0, totCred = 0;
     const rows = cuentas.map(a => {
@@ -109,10 +187,13 @@ async function loadReportBalance() {
       ];
     });
     const footer = ['', '<span style="padding-left:24px">Total</span>', `<span style="color:#2e7d32;font-weight:700">${fmt(totDeb)}</span>`, `<span style="color:#c62828;font-weight:700">${fmt(totCred)}</span>`, ''];
-    const periodoInfo = d.periodo
-      ? `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">📅 Período de movimientos: ${new Date(d.periodo.start).toLocaleDateString('es-PA')} — ${new Date(d.periodo.end).toLocaleDateString('es-PA')} · Año fiscal ${d.periodo.anioFiscal} · <strong>Saldo acumulado</strong> al corte</div>`
+    const nivelInfo = _balanceNivel3
+      ? ' · <strong style="color:#0369a1">📊 Resumido a nivel 3 (subcuentas totalizadas)</strong>'
       : '';
-    el.innerHTML = periodoInfo + buildInformesTable(['Código','Cuenta','Débito (período)','Crédito (período)','Saldo (acumulado)'], rows, footer);
+    const periodoInfo = d.periodo
+      ? `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">📅 Período de movimientos: ${new Date(d.periodo.start).toLocaleDateString('es-PA')} — ${new Date(d.periodo.end).toLocaleDateString('es-PA')} · Año fiscal ${d.periodo.anioFiscal} · <strong>Saldo acumulado</strong> al corte${nivelInfo}</div>`
+      : '';
+    el.innerHTML = periodoInfo + buildInformesTable([_balanceNivel3 ? 'Código (nivel 3)' : 'Código','Cuenta','Débito (período)','Crédito (período)','Saldo (acumulado)'], rows, footer);
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
 async function loadReportResultados() {
