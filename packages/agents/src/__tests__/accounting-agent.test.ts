@@ -224,9 +224,24 @@ describe('AccountingAgent', () => {
       expect(entry.credit[0].name).toBe('Proveedores');
     });
 
-    it('credits proveedores by default for COMPRA (null, TRANSFERENCIA, CHEQUE)', () => {
+    // Pago por banco (no a crédito): el crédito va a la cuenta bancaria, no a
+    // proveedores — una compra pagada por transferencia/cheque no genera deuda.
+    it('credits banco for COMPRA paid by TRANSFERENCIA', () => {
       const entry = agent.generateEntry(dialog, classification);
-      expect(entry.credit[0].accountId).toBe('proveedores');
+      expect(entry.credit[0].accountId).toBe('banco-general');
+      expect(entry.credit[0].name).toBe('Bancos');
+    });
+
+    it('credits banco for COMPRA paid by CHEQUE', () => {
+      const chequeDialog = { ...dialog, paymentMethod: 'CHEQUE' };
+      const entry = agent.generateEntry(chequeDialog, classification);
+      expect(entry.credit[0].accountId).toBe('banco-general');
+    });
+
+    it('credits banco when COMPRA has no payment method (banco por defecto)', () => {
+      const noMethodDialog = { ...dialog, paymentMethod: null };
+      const entry = agent.generateEntry(noMethodDialog, classification);
+      expect(entry.credit[0].accountId).toBe('banco-general');
     });
 
     it('credits tarjeta-credito when payment is TARJETA_CREDITO for COMPRA', () => {
