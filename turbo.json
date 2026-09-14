@@ -21,13 +21,15 @@
     },
     "db:generate": {
       "dependsOn": ["^build"],
-      "outputs": ["src/generated/**"]
+      "cache": false
     },
     "db:push": {
-      "dependsOn": ["^db:generate"]
+      "dependsOn": ["^db:generate"],
+      "cache": false
     },
     "db:seed": {
-      "dependsOn": ["^db:push"]
+      "dependsOn": ["^db:push"],
+      "cache": false
     }
   }
 }

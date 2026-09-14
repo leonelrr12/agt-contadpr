@@ -43,3 +43,13 @@ BORRADOR → `POST /api/journal/:id/review` (`aprobar`→CONFIRMADO / `rechazar`
 
 ## Local dev
 - Frontend: `http://localhost:8090` y `http://147.93.145.67` · API: `http://localhost:3001`
+
+### Laptop (Windows) — arranque
+1. `docker compose -f docker-compose-local.yml up -d` — Postgres 16 (`:5432`) + nginx (`:8090`, sirve `apps/web/public` y proxea `/api/` a `host.docker.internal:3001`).
+2. `npm run dev --workspace @agt-contador/api` — API con `tsx watch` en el host (`:3001`).
+3. Abrir `http://localhost:8090/login.html` — `admin@demo.com` / `admin123`.
+
+- **`.env` por workspace**: la API (`import 'dotenv/config'`) lee `apps/api/.env`; el Prisma CLI lee `packages/prisma-schema/.env`. En el VPS no existen: los inyecta PM2/entrypoint. Ambos están en `.gitignore`.
+- **No usar `docker-compose.yml`** en la laptop: su `DATABASE_URL` apunta al servicio `db` del contenedor y expone Postgres en `5433`.
+- **Servicios ausentes en local**: OpenWA (WhatsApp), mailer y `FIELD_ENC_KEY` (vacío = pass-through, coherente con no restaurar datos de producción).
+- **Binarios nativos**: `sharp` y `@napi-rs/canvas` necesitan su paquete de plataforma en el lockfile. Si el install se regeneró en Linux y faltan en Windows: `npm install --no-save @napi-rs/canvas-win32-x64-msvc@<ver>` / `npm install --include=optional sharp`.

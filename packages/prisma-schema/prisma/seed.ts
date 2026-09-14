@@ -7,7 +7,9 @@ async function main() {
   console.log('Seeding database...');
 
   const company = await prisma.company.upsert({
-    where: { taxId: '00-0000000-0-00' },
+    // taxId dejó de ser único cuando se añadió taxIdHash (cifrado en reposo);
+    // el upsert va por id, que es el que define este mismo seed.
+    where: { id: 'demo-company' },
     update: {},
     create: {
       id: 'demo-company',

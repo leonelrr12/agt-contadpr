@@ -13,6 +13,12 @@ claude.sh
 backups/
 *.pub
 xxcc*
+agt_claude.bat
+
+# Config local de la laptop (no aplica al VPS)
+# docker-compose-local.yml lleva la contraseña de Postgres en texto plano — no versionar
+docker-compose-local.yml
+nginx.local.conf
 
 # Seguridad: archivos con credenciales y documentos personales
 .env.save
