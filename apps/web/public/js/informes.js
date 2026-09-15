@@ -259,9 +259,11 @@ async function loadReportBalanceGeneral() {
     const ganancia = Number(d.capital?.gananciaPeriodo || 0);
     const gananciaHtml = `<tr><td style="${celda}"><em>Ganancia del periodo</em></td><td style="text-align:right;${celda};font-weight:600;color:${ganancia >= 0 ? '#2e7d32' : '#c62828'}">${fmt(ganancia)}</td></tr>`;
 
+    // El corte es el filtro «hasta»: se muestra tal cual al inicio (el período
+    // "desde–hasta" de informesPeriodoInfo no aplica: este estado es acumulado).
     const corte = d.periodo?.end ? new Date(d.periodo.end).toLocaleDateString('es-PA') : null;
     const desde = document.getElementById('informes-filter-from')?.value;
-    const cab = `<div style="font-size:12px;color:#6b7280;margin-bottom:12px">📅 ${corte ? `Saldo acumulado al ${corte}` : 'Saldo acumulado (todo el histórico)'}${d.periodo?.anioFiscal ? ` · Año fiscal ${d.periodo.anioFiscal}` : ''} · <span title="Cada línea suma las subcuentas de su nivel 3">totalizado por cuenta de nivel 3</span>${desde ? ' · <em>«Desde» no aplica: el balance es acumulado, no de período</em>' : ''}</div>`;
+    const cab = `<div style="font-size:12px;color:#6b7280;margin-bottom:12px">📅 <strong style="color:#374151">${corte ? `Balance acumulado hasta el ${corte}` : 'Balance acumulado (todo el histórico)'}</strong>${d.periodo?.anioFiscal ? ` · Año fiscal ${d.periodo.anioFiscal}` : ''} · <span title="Cada línea suma las subcuentas de su nivel 3">totalizado por cuenta de nivel 3</span>${desde ? ' · <em>El «desde» no aplica: el balance es acumulado, no de período</em>' : ''}</div>`;
 
     const eq = d.ecuacion || {};
     const pasivoPatrimonio = eq.pasivoCapital != null ? eq.pasivoCapital : d.pasivos?.total;
@@ -274,7 +276,7 @@ async function loadReportBalanceGeneral() {
         ⚠️ El balance NO cuadra: Activo ${money(d.activos?.total)} ≠ Pasivo y Patrimonio ${money(pasivoPatrimonio)} · diferencia ${money(Math.abs(eq.diferencia || 0))}
       </div>`;
 
-    el.innerHTML = informesPeriodoInfo(d) + cab + `
+    el.innerHTML = cab + `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
         <div>
           <h3 style="font-size:14px;color:#2e7d32;margin:0 0 8px 0">🏦 Activo</h3>
@@ -594,10 +596,20 @@ function setInformesExportBar(type) {
 }
 function exportInforme(type, format) {
   const token = getToken();
-  let url = `${API_URL}/reports/export/${type}?format=${format}&token=${encodeURIComponent(token)}`;
+  // El archivo sale con los MISMOS filtros que la pantalla: antes solo se pasaba
+  // el formato, así que el export ignoraba el rango de fechas elegido.
+  const params = getInformesDateParams();
+  params.set('format', format);
+  params.set('token', token);
   // El archivo exportado respeta el modo 📊 Nivel 3 del Balance cuando está activo
-  if (type === 'balance-comprobacion' && _balanceNivel3) url += '&nivel=3';
-  window.open(url, '_blank');
+  if (type === 'balance-comprobacion' && _balanceNivel3) params.set('nivel', '3');
+  // Anexos-DGI se exporta de la CUENTA elegida en el selector (si no, saldría el
+  // informe de proveedores completo)
+  if (type === 'proveedores') {
+    const cuentaId = document.getElementById('informes-anexos-cuenta')?.value;
+    if (cuentaId) params.set('accountId', cuentaId);
+  }
+  window.open(`${API_URL}/reports/export/${type}?${params.toString()}`, '_blank');
 }
 
 /**
