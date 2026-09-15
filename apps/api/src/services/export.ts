@@ -295,8 +295,9 @@ export async function exportReport(
       der('Patrimonio de los Accionistas', '', true);
       for (const c of d.capital.detalle) der(cuenta(c), c.saldo);
       // Sangrada como las cuentas del bloque (es una línea más del patrimonio, no
-      // un total) — igual que en la pantalla.
-      der(`${SANGRIA}Ganancia del periodo`, d.capital.gananciaPeriodo);
+      // un total) — igual que en la pantalla. En cero no se pone: no aporta nada al
+      // bloque (pasa cuando el ejercicio ya está cerrado).
+      if (d.capital.gananciaPeriodo !== 0) der(`${SANGRIA}Ganancia del periodo`, d.capital.gananciaPeriodo);
       der('Total Patrimonio', d.capital.total, true);
       der('Total Pasivo y Patrimonio', d.ecuacion.pasivoCapital, true);
       // Solo se avisa cuando NO cuadra (igual que la pantalla)

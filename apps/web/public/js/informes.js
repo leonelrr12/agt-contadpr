@@ -29,22 +29,19 @@ function clickInformeTab(informe) {
   if (active) { active.classList.add('active'); active.style.color = '#1a1a2e'; active.style.borderBottomColor = '#1565c0'; }
   _currentInformeTab = informe;
   // Mostrar filtro de fecha solo para reportes que lo soportan
-  const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', 'balance-general': 'balance-general', resultados: 'estado-resultados', 'flujo-caja': 'flujo-caja', dashboard: null, auxiliares: null, revision: null, proveedores: 'proveedores', retenciones: null };
-  const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'balance-general' || informe === 'resultados' || informe === 'flujo-caja' || informe === 'proveedores' || informe === 'dashboard' || informe === 'retenciones');
+  const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', 'balance-general': 'balance-general', resultados: 'estado-resultados', 'flujo-caja': 'flujo-caja', dashboard: null, auxiliares: null, revision: null, retenciones: null };
+  const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'balance-general' || informe === 'resultados' || informe === 'flujo-caja' || informe === 'dashboard' || informe === 'retenciones');
   document.getElementById('informes-date-filter').classList.toggle('hidden', !showFilter);
   // El botón "Nivel 3" es solo del Balance (conserva su estado al volver)
   const n3btn = document.getElementById('informes-nivel3-btn');
   if (n3btn) n3btn.style.display = informe === 'balance' ? '' : 'none';
-  // Anexos-DGI se pide POR CUENTA: su selector vive en la barra de filtros
-  const anexosSel = document.getElementById('informes-anexos-cuenta');
-  if (anexosSel) anexosSel.style.display = informe === 'proveedores' ? '' : 'none';
   paintNivel3Btn();
   // Mostrar filtro de status solo en Diario
   const statusEl = document.getElementById('informes-filter-status');
   if (statusEl) statusEl.style.display = informe === 'diario' ? '' : 'none';
   setInformesExportBar(exportTypes[informe] || null);
   showInformesLoading();
-  const loaders = { diario: loadReportDiario, balance: loadReportBalance, 'balance-general': loadReportBalanceGeneral, resultados: loadReportResultados, 'flujo-caja': loadReportFlujoCaja, dashboard: loadReportDashboard, proveedores: loadReportProveedores, retenciones: loadRetencionesItbms };
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, 'balance-general': loadReportBalanceGeneral, resultados: loadReportResultados, 'flujo-caja': loadReportFlujoCaja, dashboard: loadReportDashboard, retenciones: loadRetencionesItbms };
   if (loaders[informe]) loaders[informe]();
 }
 
@@ -258,8 +255,9 @@ async function loadReportBalanceGeneral() {
 
     const ganancia = Number(d.capital?.gananciaPeriodo || 0);
     // Sangrada como las cuentas del bloque (celdaCuenta): es una línea más del
-    // patrimonio, no un total, así que no va pegada al borde.
-    const gananciaHtml = `<tr><td style="${celdaCuenta}"><em>Ganancia del periodo</em></td><td style="text-align:right;${celda};font-weight:600;color:${ganancia >= 0 ? '#2e7d32' : '#c62828'}">${fmt(ganancia)}</td></tr>`;
+    // patrimonio, no un total, así que no va pegada al borde. En cero no se muestra:
+    // no aporta nada al bloque (pasa cuando el ejercicio ya está cerrado).
+    const gananciaHtml = ganancia === 0 ? '' : `<tr><td style="${celdaCuenta}"><em>Ganancia del periodo</em></td><td style="text-align:right;${celda};font-weight:600;color:${ganancia >= 0 ? '#2e7d32' : '#c62828'}">${fmt(ganancia)}</td></tr>`;
 
     // El corte es el filtro «hasta»: se muestra tal cual al inicio (el período
     // "desde–hasta" de informesPeriodoInfo no aplica: este estado es acumulado).
@@ -584,7 +582,7 @@ function getInformesDateParams() {
   return params;
 }
 function loadCurrentInformeTab() {
-  const loaders = { diario: loadReportDiario, balance: loadReportBalance, 'balance-general': loadReportBalanceGeneral, resultados: loadReportResultados, 'flujo-caja': loadReportFlujoCaja, dashboard: loadReportDashboard, proveedores: loadReportProveedores, retenciones: loadRetencionesItbms };
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, 'balance-general': loadReportBalanceGeneral, resultados: loadReportResultados, 'flujo-caja': loadReportFlujoCaja, dashboard: loadReportDashboard, retenciones: loadRetencionesItbms };
   if (loaders[_currentInformeTab]) loaders[_currentInformeTab]();
 }
 
@@ -605,12 +603,6 @@ function exportInforme(type, format) {
   params.set('token', token);
   // El archivo exportado respeta el modo 📊 Nivel 3 del Balance cuando está activo
   if (type === 'balance-comprobacion' && _balanceNivel3) params.set('nivel', '3');
-  // Anexos-DGI se exporta de la CUENTA elegida en el selector (si no, saldría el
-  // informe de proveedores completo)
-  if (type === 'proveedores') {
-    const cuentaId = document.getElementById('informes-anexos-cuenta')?.value;
-    if (cuentaId) params.set('accountId', cuentaId);
-  }
   window.open(`${API_URL}/reports/export/${type}?${params.toString()}`, '_blank');
 }
 
@@ -668,94 +660,144 @@ function informesPeriodoInfo(d) {
 }
 
 /* ── Anexos-DGI por CUENTA (declaración de rentas) ──
- * Antes "Por Proveedor": ahora el eje es la cuenta del catálogo, así que se pide
- * POR CUENTA (sugiere las que llevan el flag 📎 Anexo, pero acepta cualquiera) y
- * absorbe el retirado informe de Honorarios.
+ * Vive en el panel Auxiliares (pestaña ⚖️ Anexos-DGI): en Informes era la novena
+ * pestaña y partía la barra en dos líneas. Antes "Por Proveedor": ahora el eje es la
+ * cuenta del catálogo, así que se pide POR CUENTA (sugiere las que llevan el flag
+ * 📎 Anexo, pero acepta cualquiera) y absorbe el retirado informe de Honorarios.
  * Ojo al elegir: el filtro son las LÍNEAS del asiento que tocan la cuenta, así que
  * una cuenta de banco lista todo lo que pasó por ella (con su tercero).
  */
-let _anexosCuentasCargadas = false;
+// Opciones del selector de cuentas ya armadas (se reusan al volver a la pestaña: el
+// <select> se crea de nuevo cada vez, así que hay que volver a rellenarlo).
+let _anexosCuentasHtml = '';
+// Última cuenta consultada: el selector la conserva al salir y volver a la pestaña.
+let _anexosCuentaId = '';
 
 /** Rellena el selector de cuentas: "📎 Con Anexo" (flag) + todas las demás. */
-async function loadAnexosCuentaOptions() {
-  const sel = document.getElementById('informes-anexos-cuenta');
-  if (!sel || _anexosCuentasCargadas) return;
-  try {
-    const res = await authFetch(`${API_URL}/accounts`);
-    const cuentas = (await res.json() || []).filter(a => a.isActive !== false);
-    const conAnexo = cuentas.filter(a => a.requiresAnexo);
-    const resto = cuentas.filter(a => !a.requiresAnexo);
-    const opt = c => `<option value="${c.id}">${escapeHtml(c.code)} — ${escapeHtml(c.name)}</option>`;
-    sel.innerHTML = '<option value="">— Elige una cuenta —</option>'
-      + (conAnexo.length ? `<optgroup label="📎 Con Anexo">${conAnexo.map(opt).join('')}</optgroup>` : '')
-      + `<optgroup label="Todas las cuentas">${resto.map(opt).join('')}</optgroup>`;
-    _anexosCuentasCargadas = true;
-  } catch { /* sin cuentas: queda el placeholder */ }
+async function loadAnexosCuentaOptions(sel) {
+  if (!sel) return;
+  if (!_anexosCuentasHtml) {
+    try {
+      const res = await authFetch(`${API_URL}/accounts`);
+      const cuentas = (await res.json() || []).filter(a => a.isActive !== false);
+      const conAnexo = cuentas.filter(a => a.requiresAnexo);
+      const resto = cuentas.filter(a => !a.requiresAnexo);
+      const opt = c => `<option value="${c.id}">${escapeHtml(c.code)} — ${escapeHtml(c.name)}</option>`;
+      _anexosCuentasHtml = '<option value="">— Elige una cuenta —</option>'
+        + (conAnexo.length ? `<optgroup label="📎 Con Anexo">${conAnexo.map(opt).join('')}</optgroup>` : '')
+        + `<optgroup label="Todas las cuentas">${resto.map(opt).join('')}</optgroup>`;
+    } catch { /* sin cuentas: queda el placeholder */ }
+  }
+  if (_anexosCuentasHtml) sel.innerHTML = _anexosCuentasHtml;
 }
 
-async function loadReportProveedores() {
-  const el = document.getElementById('informes-inline-result');
-  await loadAnexosCuentaOptions();
-  const cuentaId = document.getElementById('informes-anexos-cuenta')?.value || '';
+/** Pestaña ⚖️ Anexos-DGI del panel Auxiliares: controles + informe. */
+async function loadAuxAnexos(el) {
+  el.innerHTML = `
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+      <select id="aux-anexos-cuenta" onchange="loadAuxAnexosData()" title="Cuenta cuyos movimientos con tercero se listan (las 📎 llevan el flag Anexo)" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;min-width:280px;font-size:13px;background:#fff">
+        <option value="">— Elige una cuenta —</option>
+      </select>
+      <input type="date" id="aux-anexos-from" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px" title="Desde (opcional)">
+      <input type="date" id="aux-anexos-to" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px" title="Hasta (opcional)">
+      <button onclick="loadAuxAnexosData()" style="padding:8px 14px;border:1px solid #1565c0;border-radius:6px;background:#1565c0;color:#fff;cursor:pointer;font-size:12px">🔍 Buscar</button>
+      <span style="flex:1"></span>
+      <button onclick="exportAnexosDgi('xlsx')" title="Descarga el anexo de la cuenta elegida" style="padding:5px 12px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📥 Excel</button>
+      <button onclick="exportAnexosDgi('csv')" style="padding:5px 12px;font-size:11px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer">CSV</button>
+    </div>
+    <div id="aux-anexos-data"><div style="text-align:center;padding:32px;color:#6b7280">Elige una cuenta para ver sus Anexos-DGI.<br><span style="font-size:12px">Las de arriba con 📎 son las que llevan Anexo; también puedes consultar cualquier otra cuenta.</span></div></div>`;
+  const sel = document.getElementById('aux-anexos-cuenta');
+  await loadAnexosCuentaOptions(sel);
+  if (_anexosCuentaId && sel) { sel.value = _anexosCuentaId; loadAuxAnexosData(); }
+}
+
+/** Pide el informe de la cuenta elegida y lo pinta en la pestaña. */
+async function loadAuxAnexosData() {
+  const el = document.getElementById('aux-anexos-data');
+  const sel = document.getElementById('aux-anexos-cuenta');
+  const cuentaId = sel?.value || '';
+  _anexosCuentaId = cuentaId;
   if (!cuentaId) {
-    el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Elige una cuenta para ver sus Anexos-DGI.<br><span style="font-size:12px">Las de arriba con 📎 son las que llevan Anexo; también puedes consultar cualquier otra cuenta.</span></div>';
+    el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Elige una cuenta para ver sus Anexos-DGI.</div>';
     return;
   }
-
-  const params = getInformesDateParams();
+  const params = new URLSearchParams();
   params.set('accountId', cuentaId);
+  const from = document.getElementById('aux-anexos-from')?.value || '';
+  const to = document.getElementById('aux-anexos-to')?.value || '';
+  if (from) params.set('startDate', from);
+  if (to) params.set('endDate', to);
+  el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Cargando...</div>';
   try {
     const res = await authFetch(`${API_URL}/reports/proveedores?${params.toString()}`);
     if (!res.ok) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar el reporte</div>'; return; }
-    const d = await res.json();
-    const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-
-    const cuenta = d.cuenta || {};
-    const cab = `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">📎 Cuenta <strong>${escapeHtml(cuenta.code || '')} — ${escapeHtml(cuenta.name || '')}</strong>`
-      + (cuenta.requiresAnexo ? '' : ' <span style="color:#b45309">(sin el flag "Lleva Anexo")</span>')
-      + `<br>Lista las filas con tercero que tocan esta cuenta${cuenta.requiresAnexo ? '' : ''}; una cuenta de banco incluye todo lo que pasó por ella.</div>`;
-
-    if (!d.terceros || !d.terceros.length) {
-      el.innerHTML = cab + informesPeriodoInfo(d) + '<div style="text-align:center;padding:32px;color:#6b7280">No hay movimientos con tercero en esta cuenta durante el período</div>';
-      return;
-    }
-
-    const cards = `
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">
-        ${[
-          ['👤 Terceros', d.totalTerceros],
-          ['📄 Movimientos', d.movimientos],
-          ['✅ Total', money(d.total)],
-        ].map(([label, value]) => `
-          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center">
-            <div style="font-size:11px;color:#6b7280">${label}</div>
-            <div style="font-size:17px;font-weight:700;color:#1a1a2e;margin-top:4px">${value}</div>
-          </div>`).join('')}
-      </div>`;
-
-    // Una fila por movimiento (mismas columnas que el export); el RUC y el tercero
-    // se escriben una sola vez por grupo y cierran con el subtotal del tercero.
-    const rows = [];
-    for (const t of d.terceros) {
-      t.detalle.forEach((f, i) => {
-        rows.push([
-          i === 0 ? escapeHtml(t.ruc || '—') : '',
-          i === 0 ? `<strong>${escapeHtml(t.tercero)}</strong>` : '',
-          new Date(f.fecha).toLocaleDateString('es-PA'),
-          escapeHtml(f.detalle || '—'),
-          escapeHtml(f.factura || '—'),
-          money(f.monto),
-        ]);
-      });
-      rows.push(['', `<span style="padding-left:24px;color:#6b7280">Subtotal ${escapeHtml(t.tercero)}</span>`, '', '', '', `<strong>${money(t.total)}</strong>`]);
-    }
-    const footer = ['', '', '', '', 'Total', `<strong>${money(d.total)}</strong>`];
-
-    el.innerHTML = cab + informesPeriodoInfo(d) + cards
-      + buildInformesTable(['RUC/Cédula', 'Tercero', 'Fecha', 'Detalle', 'Factura', 'Monto'], rows, footer);
+    renderAnexosDgi(await res.json(), el);
   } catch (e) {
     el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar el reporte</div>';
   }
+}
+
+/** Exporta el anexo de la cuenta elegida (mismos filtros que la pantalla). */
+async function exportAnexosDgi(format) {
+  const cuentaId = document.getElementById('aux-anexos-cuenta')?.value;
+  if (!cuentaId) { await showAlert('Elige una cuenta para exportar su anexo.'); return; }
+  const params = new URLSearchParams();
+  params.set('accountId', cuentaId);
+  params.set('format', format);
+  params.set('token', getToken());
+  const from = document.getElementById('aux-anexos-from')?.value || '';
+  const to = document.getElementById('aux-anexos-to')?.value || '';
+  if (from) params.set('startDate', from);
+  if (to) params.set('endDate', to);
+  window.open(`${API_URL}/reports/export/proveedores?${params.toString()}`, '_blank');
+}
+
+function renderAnexosDgi(d, el) {
+  const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  const cuenta = d.cuenta || {};
+  const cab = `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">📎 Cuenta <strong>${escapeHtml(cuenta.code || '')} — ${escapeHtml(cuenta.name || '')}</strong>`
+    + (cuenta.requiresAnexo ? '' : ' <span style="color:#b45309">(sin el flag "Lleva Anexo")</span>')
+    + `<br>Lista las filas con tercero que tocan esta cuenta; una cuenta de banco incluye todo lo que pasó por ella.</div>`;
+
+  if (!d.terceros || !d.terceros.length) {
+    el.innerHTML = cab + informesPeriodoInfo(d) + '<div style="text-align:center;padding:32px;color:#6b7280">No hay movimientos con tercero en esta cuenta durante el período</div>';
+    return;
+  }
+
+  const cards = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">
+      ${[
+        ['👤 Terceros', d.totalTerceros],
+        ['📄 Movimientos', d.movimientos],
+        ['✅ Total', money(d.total)],
+      ].map(([label, value]) => `
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center">
+          <div style="font-size:11px;color:#6b7280">${label}</div>
+          <div style="font-size:17px;font-weight:700;color:#1a1a2e;margin-top:4px">${value}</div>
+        </div>`).join('')}
+    </div>`;
+
+  // Una fila por movimiento (mismas columnas que el export); el RUC y el tercero
+  // se escriben una sola vez por grupo y cierran con el subtotal del tercero.
+  const rows = [];
+  for (const t of d.terceros) {
+    t.detalle.forEach((f, i) => {
+      rows.push([
+        i === 0 ? escapeHtml(t.ruc || '—') : '',
+        i === 0 ? `<strong>${escapeHtml(t.tercero)}</strong>` : '',
+        new Date(f.fecha).toLocaleDateString('es-PA'),
+        escapeHtml(f.detalle || '—'),
+        escapeHtml(f.factura || '—'),
+        money(f.monto),
+      ]);
+    });
+    rows.push(['', `<span style="padding-left:24px;color:#6b7280">Subtotal ${escapeHtml(t.tercero)}</span>`, '', '', '', `<strong>${money(t.total)}</strong>`]);
+  }
+  const footer = ['', '', '', '', 'Total', `<strong>${money(d.total)}</strong>`];
+
+  el.innerHTML = cab + informesPeriodoInfo(d) + cards
+    + buildInformesTable(['RUC/Cédula', 'Tercero', 'Fecha', 'Detalle', 'Factura', 'Monto'], rows, footer);
 }
 
 /* ── Retenciones ITBMS (crédito fiscal — Form. 430 renglón 52) ── */

@@ -29,6 +29,7 @@ function clickAuxTab(tab) {
   if (tab === 'cuenta') loadAuxCuenta(sub);
   else if (tab === 'cxc') loadAuxCxC(sub);
   else if (tab === 'cxp') loadAuxCxP(sub);
+  else if (tab === 'anexos') loadAuxAnexos(sub);
 }
 
 /* ── Panel: Revisión (sidebar) ── */
