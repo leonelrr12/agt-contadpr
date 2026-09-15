@@ -169,18 +169,46 @@ export async function exportReport(
     }
 
     case 'balance-general': {
-      const d = data as { activos: { total: number }; pasivos: { total: number }; patrimonio: { total: number }; ecuacion: string };
+      type CuentaSaldo = { code: string; name: string; saldo: number };
+      const d = data as {
+        periodo?: { corte: string | null; anioFiscal: number };
+        activos: { detalle: CuentaSaldo[]; total: number };
+        pasivos: { detalle: CuentaSaldo[]; total: number };
+        capital: { detalle: CuentaSaldo[]; totalCuentas: number; gananciaPeriodo: number; total: number };
+        ecuacion: { ok: boolean; pasivoCapital: number; diferencia: number };
+      };
       const columns: ColumnDef[] = [
         { header: 'Concepto', key: 'concepto' },
         { header: 'Monto', key: 'monto' },
       ];
-      const rows = [
-        { concepto: 'ACTIVOS', monto: d.activos.total },
-        { concepto: 'PASIVOS', monto: d.pasivos.total },
-        { concepto: 'PATRIMONIO', monto: d.patrimonio.total },
-        { concepto: 'PASIVO + PATRIMONIO', monto: d.pasivos.total + d.patrimonio.total },
-        { concepto: 'Ecuación', monto: d.ecuacion },
-      ];
+      const cuenta = (c: CuentaSaldo) => `  ${c.code} ${c.name}`;
+      const rows: { concepto: string; monto: number | string }[] = [];
+      // Al ser un estado acumulado, la fecha de corte es parte del encabezado.
+      rows.push({
+        concepto: d.periodo?.corte
+          ? `Balance al ${new Date(d.periodo.corte).toLocaleDateString('es-PA')}`
+          : 'Balance acumulado (todo el histórico)',
+        monto: '',
+      });
+      rows.push({ concepto: '', monto: '' });
+      rows.push({ concepto: 'ACTIVO', monto: '' });
+      for (const c of d.activos.detalle) rows.push({ concepto: cuenta(c), monto: c.saldo });
+      rows.push({ concepto: 'Total Activo', monto: d.activos.total });
+      rows.push({ concepto: '', monto: '' });
+      rows.push({ concepto: 'PASIVO', monto: '' });
+      for (const c of d.pasivos.detalle) rows.push({ concepto: cuenta(c), monto: c.saldo });
+      rows.push({ concepto: 'Total Pasivo', monto: d.pasivos.total });
+      rows.push({ concepto: '', monto: '' });
+      rows.push({ concepto: 'CAPITAL', monto: '' });
+      for (const c of d.capital.detalle) rows.push({ concepto: cuenta(c), monto: c.saldo });
+      rows.push({ concepto: '  Ganancia del periodo', monto: d.capital.gananciaPeriodo });
+      rows.push({ concepto: 'Total Capital', monto: d.capital.total });
+      rows.push({ concepto: '', monto: '' });
+      rows.push({ concepto: 'TOTAL PASIVO + CAPITAL', monto: d.ecuacion.pasivoCapital });
+      rows.push({
+        concepto: d.ecuacion.ok ? 'Ecuación: BALANCEADA' : `Ecuación: DESBALANCEADA (diferencia ${d.ecuacion.diferencia})`,
+        monto: '',
+      });
       const buffer = format === 'xlsx'
         ? await buildXlsx('Balance General', columns, rows, ['monto'])
         : Buffer.from(buildCsv(columns, rows), 'utf-8');
@@ -230,22 +258,49 @@ export async function exportReport(
     }
 
     case 'flujo-caja': {
-      const d = data as { movimientos: { date: string; description: string; debit: number; credit: number; saldo: number }[]; saldoActual: number };
+      const d = data as {
+        saldoInicial?: number;
+        totalDebit?: number;
+        totalCredit?: number;
+        movimientos: {
+          date: string;
+          description: string;
+          account?: { code: string; name: string };
+          debit: number;
+          credit: number;
+          saldo: number;
+        }[];
+        saldoActual: number;
+      };
       const columns: ColumnDef[] = [
         { header: 'Fecha', key: 'date' },
+        { header: 'Cuenta', key: 'cuenta' },
         { header: 'Descripción', key: 'description' },
         { header: 'Entrada', key: 'debit' },
         { header: 'Salida', key: 'credit' },
         { header: 'Saldo', key: 'saldo' },
       ];
+      // La columna Cuenta es necesaria desde que el reporte suma Caja + Bancos.
       const rows = d.movimientos.map((m) => ({
         date: m.date ? new Date(m.date).toLocaleDateString('es-PA') : '',
+        cuenta: m.account ? `${m.account.code} ${m.account.name}` : '',
         description: m.description,
         debit: m.debit,
         credit: m.credit,
         saldo: m.saldo,
       }));
-      rows.push({ date: '', description: 'SALDO ACTUAL', debit: 0, credit: 0, saldo: d.saldoActual });
+      if (typeof d.saldoInicial === 'number') {
+        rows.unshift({ date: '', cuenta: '', description: 'SALDO INICIAL', debit: 0, credit: 0, saldo: d.saldoInicial });
+      }
+      // Totales del período en las columnas de entrada/salida, y el saldo de cierre.
+      rows.push({
+        date: '',
+        cuenta: '',
+        description: 'SALDO ACTUAL',
+        debit: d.totalDebit ?? 0,
+        credit: d.totalCredit ?? 0,
+        saldo: d.saldoActual,
+      });
       const buffer = format === 'xlsx'
         ? await buildXlsx('Flujo de Caja', columns, rows, ['debit', 'credit', 'saldo'])
         : Buffer.from(buildCsv(columns, rows), 'utf-8');

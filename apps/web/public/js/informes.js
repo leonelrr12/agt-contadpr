@@ -29,8 +29,8 @@ function clickInformeTab(informe) {
   if (active) { active.classList.add('active'); active.style.color = '#1a1a2e'; active.style.borderBottomColor = '#1565c0'; }
   _currentInformeTab = informe;
   // Mostrar filtro de fecha solo para reportes que lo soportan
-  const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', resultados: 'estado-resultados', dashboard: null, auxiliares: null, revision: null, proveedores: 'proveedores', honorarios: 'honorarios', retenciones: null };
-  const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'resultados' || informe === 'proveedores' || informe === 'honorarios' || informe === 'dashboard' || informe === 'retenciones');
+  const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', 'balance-general': 'balance-general', resultados: 'estado-resultados', 'flujo-caja': 'flujo-caja', dashboard: null, auxiliares: null, revision: null, proveedores: 'proveedores', honorarios: 'honorarios', retenciones: null };
+  const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'balance-general' || informe === 'resultados' || informe === 'flujo-caja' || informe === 'proveedores' || informe === 'honorarios' || informe === 'dashboard' || informe === 'retenciones');
   document.getElementById('informes-date-filter').classList.toggle('hidden', !showFilter);
   // El botón "Nivel 3" es solo del Balance (conserva su estado al volver)
   const n3btn = document.getElementById('informes-nivel3-btn');
@@ -41,7 +41,7 @@ function clickInformeTab(informe) {
   if (statusEl) statusEl.style.display = informe === 'diario' ? '' : 'none';
   setInformesExportBar(exportTypes[informe] || null);
   showInformesLoading();
-  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard, proveedores: loadReportProveedores, honorarios: loadReportHonorarios, retenciones: loadRetencionesItbms };
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, 'balance-general': loadReportBalanceGeneral, resultados: loadReportResultados, 'flujo-caja': loadReportFlujoCaja, dashboard: loadReportDashboard, proveedores: loadReportProveedores, honorarios: loadReportHonorarios, retenciones: loadRetencionesItbms };
   if (loaders[informe]) loaders[informe]();
 }
 
@@ -228,6 +228,80 @@ async function loadReportResultados() {
       </div>`;
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
+
+// Balance General: estado ACUMULADO (a fecha de corte), no de período. El backend
+// entrega el detalle ya clasificado y la "Ganancia del periodo" (resultado no cerrado
+// al corte), que se pinta como línea dentro de Capital.
+async function loadReportBalanceGeneral() {
+  const el = document.getElementById('informes-inline-result');
+  try {
+    const params = getInformesDateParams();
+    const res = await authFetch(`${API_URL}/reports/balance-general?${params}`);
+    const d = await res.json();
+    if (!res.ok) { el.innerHTML = '<div class="empty">Error al cargar el reporte</div>'; return; }
+    const fmt = n => Number(n||0)===0 ? '—' : '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const filas = arr => (arr||[]).map(c => [escapeHtml(c.code), escapeHtml(c.name), `<span style="font-weight:600">${fmt(c.saldo)}</span>`]);
+    const bloque = (titulo, color, detalle, total, extra) => `
+      <div style="margin-bottom:16px">
+        <h3 style="font-size:14px;color:${color};margin:0 0 8px 0">${titulo}</h3>
+        ${buildInformesTable(['Código','Cuenta','Saldo'], [...filas(detalle), ...(extra||[])],
+          ['', '<span style="padding-left:24px">Total</span>', `<span style="color:${color}">${fmt(total)}</span>`])}
+      </div>`;
+    const ganancia = Number(d.capital?.gananciaPeriodo || 0);
+    const gananciaFila = ['', '<em>Ganancia del periodo</em>',
+      `<span style="font-weight:600;color:${ganancia>=0?'#2e7d32':'#c62828'}">${fmt(ganancia)}</span>`];
+    const corte = d.periodo?.end ? new Date(d.periodo.end).toLocaleDateString('es-PA') : null;
+    const desde = document.getElementById('informes-filter-from')?.value;
+    const cab = `<div style="font-size:12px;color:#6b7280;margin-bottom:12px">📅 ${corte ? `Saldo acumulado al ${corte}` : 'Saldo acumulado (todo el histórico)'}${d.periodo?.anioFiscal ? ` · Año fiscal ${d.periodo.anioFiscal}` : ''}${desde ? ' · <em>«Desde» no aplica: el balance es acumulado, no de período</em>' : ''}</div>`;
+    const eq = d.ecuacion || {};
+    const eqCard = `<div style="padding:14px;background:${eq.ok?'#f0fdf4':'#fef2f2'};border-radius:8px;text-align:center;font-size:15px;font-weight:700;color:#1a1a2e">
+        ${eq.ok ? '✅ Ecuación balanceada' : `⚠️ Descuadre: <span style="color:#c62828">${fmt(Math.abs(eq.diferencia||0))}</span>`}
+        &nbsp;|&nbsp; Total Pasivo + Capital: <span style="color:#1565c0">${fmt(eq.pasivoCapital)}</span>
+      </div>`;
+    el.innerHTML = cab
+      + bloque('ACTIVO', '#2e7d32', d.activos?.detalle, d.activos?.total)
+      + bloque('PASIVO', '#c62828', d.pasivos?.detalle, d.pasivos?.total)
+      + bloque('CAPITAL', '#1565c0', d.capital?.detalle, d.capital?.total, [gananciaFila])
+      + eqCard;
+  } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
+}
+
+// Flujo de Caja: movimientos de efectivo con saldo corrido. Las cuentas incluidas las
+// decide el catálogo (Caja, Bancos y cualquiera con alias de efectivo), así que se
+// listan en la cabecera en vez de dar por sentado que es "toda la caja".
+async function loadReportFlujoCaja() {
+  const el = document.getElementById('informes-inline-result');
+  try {
+    const params = getInformesDateParams();
+    const res = await authFetch(`${API_URL}/reports/flujo-caja?${params}`);
+    const d = await res.json();
+    if (!res.ok) { el.innerHTML = '<div class="empty">Error al cargar el reporte</div>'; return; }
+    const money = n => '$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const cuentas = (d.cuentas||[]).map(c => `${c.code} ${c.name}`).join(' · ');
+    const desde = d.periodo?.start ? new Date(d.periodo.start).toLocaleDateString('es-PA') : null;
+    const hasta = d.periodo?.end ? new Date(d.periodo.end).toLocaleDateString('es-PA') : null;
+    const cab = `<div style="font-size:12px;color:#6b7280;margin-bottom:12px">📅 ${desde && hasta ? `Del ${desde} al ${hasta}` : 'Todo el histórico'} · Cuentas incluidas: <strong>${escapeHtml(cuentas) || 'ninguna'}</strong></div>`;
+    if (!d.movimientos?.length) {
+      el.innerHTML = cab + '<div class="empty">No hay movimientos de efectivo en el período</div>';
+      return;
+    }
+    const rows = d.movimientos.map(m => [
+      new Date(m.date).toLocaleDateString('es-PA'),
+      `<span style="color:#6b7280;font-size:12px">${escapeHtml(m.account?.code || '')}</span>`,
+      escapeHtml(m.description || ''),
+      m.debit ? `<span style="color:#2e7d32">${money(m.debit)}</span>` : '—',
+      m.credit ? `<span style="color:#c62828">${money(m.credit)}</span>` : '—',
+      `<strong>${money(m.saldo)}</strong>`
+    ]);
+    if (d.saldoInicial) rows.unshift(['', '', '<em>Saldo inicial</em>', '', '', `<strong>${money(d.saldoInicial)}</strong>`]);
+    const footer = ['', '', 'Saldo actual',
+      `<span style="color:#2e7d32">${money(d.totalDebit)}</span>`,
+      `<span style="color:#c62828">${money(d.totalCredit)}</span>`,
+      `<strong>${money(d.saldoActual)}</strong>`];
+    el.innerHTML = cab + buildInformesTable(['Fecha','Código','Descripción','Entrada','Salida','Saldo'], rows, footer);
+  } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
+}
+
 // Carga Chart.js desde CDN si aún no está disponible (primer uso o sin panel dashboard previo)
 async function ensureChartJs() {
   if (typeof Chart !== 'undefined') return true;
@@ -472,7 +546,7 @@ function getInformesDateParams() {
   return params;
 }
 function loadCurrentInformeTab() {
-  const loaders = { diario: loadReportDiario, balance: loadReportBalance, resultados: loadReportResultados, dashboard: loadReportDashboard, proveedores: loadReportProveedores, honorarios: loadReportHonorarios, retenciones: loadRetencionesItbms };
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, 'balance-general': loadReportBalanceGeneral, resultados: loadReportResultados, 'flujo-caja': loadReportFlujoCaja, dashboard: loadReportDashboard, proveedores: loadReportProveedores, honorarios: loadReportHonorarios, retenciones: loadRetencionesItbms };
   if (loaders[_currentInformeTab]) loaders[_currentInformeTab]();
 }
 
