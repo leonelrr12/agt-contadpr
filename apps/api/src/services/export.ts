@@ -12,6 +12,10 @@ interface ColumnDef {
  *  formato, así que allí solo se ve la sangría de espacios). */
 interface RowStyle {
   bold?: boolean;
+  /** Negrita celda por celda (por índice de columna, 0 = A). Hace falta cuando la
+   *  fila lleva dos bloques a la vez (el total de uno junto a la cuenta del otro):
+   *  `bold` pinta la fila entera y los dejaría a los dos en negrita. */
+  boldCells?: boolean[];
 }
 
 /** Línea del encabezado del estado (empresa / nombre / período): se escribe
@@ -25,6 +29,12 @@ interface TitleRow {
 interface XlsxOptions {
   rowStyles?: RowStyle[];
   titleRows?: TitleRow[];
+  /** Sin la fila azul de columnas: el Balance General la omite porque su
+   *  encabezado son los títulos combinados de arriba y el detalle va debajo. */
+  hideHeaderRow?: boolean;
+  /** Columnas (por `key`) que no llevan borde: el hueco que separa los dos bloques
+   *  del Balance General, que debe verse como un espacio en blanco. */
+  borderlessColumns?: string[];
 }
 
 /**
@@ -52,21 +62,31 @@ async function buildXlsx(
     sheet.mergeCells(tr.number, 1, tr.number, columns.length);
   }
 
-  // Fila de columnas (azul, como el resto de los exports)
-  const headerRow = sheet.addRow(columns.map((c) => c.header));
-  headerRow.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
-  headerRow.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FF1565C0' },
-  };
-  headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
-  headerRow.height = 22;
+  // Fila de columnas (azul, como el resto de los exports). Los reportes que ya
+  // llevan su propio encabezado la omiten (`hideHeaderRow`).
+  let headerRowNumber: number | undefined;
+  if (!opts.hideHeaderRow) {
+    const headerRow = sheet.addRow(columns.map((c) => c.header));
+    headerRow.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1565C0' },
+    };
+    headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
+    headerRow.height = 22;
+    headerRowNumber = headerRow.number;
+  }
 
   // Filas de datos (con su estilo, si el reporte lo pide: títulos y totales)
+  const firstBodyRow = sheet.rowCount + 1;
   for (let i = 0; i < rows.length; i++) {
     const r = sheet.addRow(rows[i]);
-    if (opts.rowStyles?.[i]?.bold) r.font = { bold: true };
+    const estilo = opts.rowStyles?.[i];
+    if (estilo?.bold) r.font = { bold: true };
+    estilo?.boldCells?.forEach((bold, c) => {
+      if (bold) r.getCell(c + 1).font = { bold: true };
+    });
   }
 
   // Fila de totales (footer)
@@ -89,8 +109,9 @@ async function buildXlsx(
     }
   }
 
-  // Auto-ajustar ancho (máx 40)
+  // Auto-ajustar ancho (máx 40); las columnas con ancho propio no se tocan
   for (let i = 0; i < columns.length; i++) {
+    if (columns[i].width) continue;
     const col = sheet.getColumn(i + 1);
     let maxLen = columns[i].header.length;
     for (const row of rows) {
@@ -104,12 +125,13 @@ async function buildXlsx(
     col.width = Math.min(maxLen + 4, 40);
   }
 
-  // Borde sutil en todas las celdas con datos (desde la fila de columnas: arriba
-  // pueden ir las líneas de título, que no llevan borde)
-  const lastRow = sheet.lastRow ? sheet.lastRow.number : headerRow.number;
-  for (let r = headerRow.number; r <= lastRow; r++) {
+  // Borde sutil en todas las celdas con datos (desde la primera fila del detalle:
+  // arriba van las líneas de título, que no llevan borde)
+  const lastRow = sheet.lastRow ? sheet.lastRow.number : headerRowNumber || firstBodyRow;
+  for (let r = headerRowNumber || firstBodyRow; r <= lastRow; r++) {
     const row = sheet.getRow(r);
     for (let c = 1; c <= columns.length; c++) {
+      if (opts.borderlessColumns?.includes(columns[c - 1].key)) continue;
       row.getCell(c).border = {
         top: { style: 'thin', color: { argb: 'FFDDDDDD' } },
         bottom: { style: 'thin', color: { argb: 'FFDDDDDD' } },
@@ -134,6 +156,22 @@ function buildCsv(columns: ColumnDef[], rows: Record<string, unknown>[], footerR
     csv += '\n' + columns.map((c) => escapeCsv(String(footerRow[c.key] ?? ''))).join(',');
   }
   return csv;
+}
+
+/**
+ * «31 de enero de 2026» para el encabezado del Balance General. El día se toma en
+ * UTC (el corte llega como Date de 23:59:59.999Z, y el "sin corte" como YYYY-MM-DD)
+ * y se formatea también en UTC: con el huso del servidor por medio, un corte de fin
+ * de día podría correrse al día siguiente.
+ */
+function fechaLarga(fecha: string | Date): string {
+  const iso = typeof fecha === 'string' ? fecha : fecha.toISOString();
+  return new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString('es-PA', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
 function escapeCsv(val: string): string {
@@ -199,65 +237,125 @@ export async function exportReport(
     case 'balance-general': {
       type CuentaSaldo = { code: string; name: string; saldo: number };
       const d = data as {
-        periodo?: { start: string | null; end: string | null; anioFiscal: number; acumulado?: boolean };
+        // OJO: `end` llega como Date (el 23:59:59.999Z del corte), no como string.
+        periodo?: { start: string | null; end: string | Date | null; anioFiscal: number; acumulado?: boolean };
         activos: { detalle: CuentaSaldo[]; total: number };
         pasivos: { detalle: CuentaSaldo[]; total: number };
         capital: { detalle: CuentaSaldo[]; totalCuentas: number; gananciaPeriodo: number; total: number };
         ecuacion: { ok: boolean; pasivoCapital: number; diferencia: number };
       };
-      const columns: ColumnDef[] = [
+      // Anchos en CARACTERES, que es la unidad del cuadro «Ancho de columna» de
+      // Excel — el mismo que muestra los píxeles entre paréntesis. El dueño los dio
+      // en píxeles (300 / 115 / 30), así que se convierten con la fórmula de Excel
+      // para Calibri 11: píxeles = caracteres × 7 + 5. Al abrir el archivo, el
+      // cuadro dirá 42,14 (300 píxeles), 15,71 (115 píxeles) y 3,57 (30 píxeles).
+      // (En caracteres no cabrían: el tope de Excel son 255, no 300.)
+      const ANCHO_CONCEPTO = 42.14;
+      const ANCHO_MONTO = 15.71;
+      const ANCHO_HUECO = 3.57;
+      const columnasXlsx: ColumnDef[] = [
+        { header: 'Concepto', key: 'concepto', width: ANCHO_CONCEPTO },
+        { header: 'Monto', key: 'monto', width: ANCHO_MONTO },
+        { header: '', key: 'hueco', width: ANCHO_HUECO },
+        { header: 'Concepto', key: 'concepto2', width: ANCHO_CONCEPTO },
+        { header: 'Monto', key: 'monto2', width: ANCHO_MONTO },
+      ];
+      // El CSV sigue en una sola columna de conceptos (no admite combinación ni
+      // centrado, y dos bloques en paralelo lo volverían ilegible).
+      const columnasCsv: ColumnDef[] = [
         { header: 'Concepto', key: 'concepto' },
         { header: 'Monto', key: 'monto' },
       ];
       // Las cuentas van solo por nombre (con su código está el Balance de
       // Comprobación) y sangradas ~5 espacios para colgar del título del bloque.
-      const cuenta = (c: CuentaSaldo) => `     ${c.name}`;
-      const rows: { concepto: string; monto: number | string }[] = [];
-      // Estilo paralelo a `rows`: títulos y totales en negrita (solo lo aplica el
-      // xlsx; el CSV no admite formato).
-      const estilos: RowStyle[] = [];
-      const push = (concepto: string, monto: number | string, bold = false) => {
-        rows.push({ concepto, monto });
-        estilos.push({ bold });
-      };
+      const SANGRIA = '     ';
+      const cuenta = (c: CuentaSaldo) => `${SANGRIA}${c.name}`;
 
-      // Encabezado del estado: va como bloque combinado y centrado ARRIBA de la
-      // fila de columnas (empresa en grande, estado y período debajo).
-      const corte = d.periodo?.end;
-      const titleRows: TitleRow[] = [];
-      if (meta.companyName) titleRows.push({ text: meta.companyName, size: 22, bold: true });
-      titleRows.push({
-        text: corte
-          ? `Balance General al ${new Date(corte).toLocaleDateString('es-PA')}`
-          : 'Balance General (acumulado, todo el histórico)',
-        bold: true,
-      });
-      if (d.periodo?.anioFiscal) titleRows.push({ text: `Año fiscal ${d.periodo.anioFiscal}` });
+      // Dos bloques en paralelo, como la pantalla: Activo en A-B y Pasivo y
+      // Patrimonio en D-E. Se arman por separado y se juntan fila por fila (el lado
+      // corto se rellena vacío); el aviso de descuadre va debajo de los dos.
+      type Fila = { concepto: string; monto: number | string; bold: boolean };
+      const izquierda: Fila[] = [];
+      const derecha: Fila[] = [];
+      const cola: Fila[] = [];
+      const izq = (concepto: string, monto: number | string = '', bold = false) =>
+        izquierda.push({ concepto, monto, bold });
+      const der = (concepto: string, monto: number | string = '', bold = false) =>
+        derecha.push({ concepto, monto, bold });
 
-      push('Activo', '', true);
-      for (const c of d.activos.detalle) push(cuenta(c), c.saldo);
-      push('Total Activo', d.activos.total, true);
-      push('', '');
+      izq('Activo', '', true);
+      for (const c of d.activos.detalle) izq(cuenta(c), c.saldo);
+      izq('Total Activo', d.activos.total, true);
 
       // Mismos nombres que la pantalla: Pasivo y Patrimonio en un solo bloque, que
       // cierra con el total que debe igualar al Activo.
-      push('Pasivo y Patrimonio', '', true);
-      for (const c of d.pasivos.detalle) push(cuenta(c), c.saldo);
-      push('Total Pasivo', d.pasivos.total, true);
-      push('Patrimonio de los Accionistas', '', true);
-      for (const c of d.capital.detalle) push(cuenta(c), c.saldo);
-      push('Ganancia del periodo', d.capital.gananciaPeriodo);
-      push('Total Patrimonio', d.capital.total, true);
-      push('Total Pasivo y Patrimonio', d.ecuacion.pasivoCapital, true);
+      der('Pasivo y Patrimonio', '', true);
+      for (const c of d.pasivos.detalle) der(cuenta(c), c.saldo);
+      der('Total Pasivo', d.pasivos.total, true);
+      der('Patrimonio de los Accionistas', '', true);
+      for (const c of d.capital.detalle) der(cuenta(c), c.saldo);
+      // Sangrada como las cuentas del bloque (es una línea más del patrimonio, no
+      // un total) — igual que en la pantalla.
+      der(`${SANGRIA}Ganancia del periodo`, d.capital.gananciaPeriodo);
+      der('Total Patrimonio', d.capital.total, true);
+      der('Total Pasivo y Patrimonio', d.ecuacion.pasivoCapital, true);
       // Solo se avisa cuando NO cuadra (igual que la pantalla)
       if (!d.ecuacion.ok) {
-        push('', '');
-        push(`⚠️ EL BALANCE NO CUADRA — diferencia ${d.ecuacion.diferencia}`, '', true);
+        cola.push({
+          concepto: `⚠️ EL BALANCE NO CUADRA — diferencia ${d.ecuacion.diferencia}`,
+          monto: '',
+          bold: true,
+        });
       }
+
+      // Encabezado del estado: tres líneas combinadas A:E y centradas en mayúsculas
+      // cerradas (empresa / BALANCE GENERAL / Al <fecha>), sin la fila azul de
+      // columnas — el detalle arranca tras una línea en blanco de separación.
+      const corte = d.periodo?.end;
+      const titleRows: TitleRow[] = [];
+      // La empresa va en tamaño normal: solo el nombre, en mayúscula cerrada.
+      if (meta.companyName) titleRows.push({ text: meta.companyName.toUpperCase(), bold: true });
+      titleRows.push({ text: 'BALANCE GENERAL' });
+      titleRows.push({ text: `Al ${fechaLarga(corte || today)}` });
+
+      // El xlsx junta los bloques fila por fila; el estilo va por celda porque una
+      // misma fila puede llevar el total de un bloque y la cuenta del otro.
+      const filasXlsx: Record<string, unknown>[] = [];
+      const estilosXlsx: RowStyle[] = [];
+      for (let i = 0; i < Math.max(izquierda.length, derecha.length); i++) {
+        const l = izquierda[i];
+        const r = derecha[i];
+        filasXlsx.push({
+          concepto: l?.concepto ?? '',
+          monto: l?.monto ?? '',
+          hueco: '',
+          concepto2: r?.concepto ?? '',
+          monto2: r?.monto ?? '',
+        });
+        estilosXlsx.push({ boldCells: [!!l?.bold, !!l?.bold, false, !!r?.bold, !!r?.bold] });
+      }
+      for (const f of cola) {
+        filasXlsx.push({ concepto: f.concepto, monto: f.monto, hueco: '' });
+        estilosXlsx.push({ boldCells: [f.bold, f.bold, false, false, false] });
+      }
+
       const buffer = format === 'xlsx'
-        ? await buildXlsx('Balance General', columns, rows, ['monto'], undefined, { rowStyles: estilos, titleRows })
-        // El CSV no admite combinación ni centrado: el encabezado va como filas
-        : Buffer.from(buildCsv(columns, [...titleRows.map((t) => ({ concepto: t.text, monto: '' })), { concepto: '', monto: '' }, ...rows]), 'utf-8');
+        ? await buildXlsx('Balance General', columnasXlsx, filasXlsx, ['monto', 'monto2'], undefined, {
+            rowStyles: estilosXlsx,
+            titleRows: [...titleRows, { text: '', bold: false }], // línea de separación
+            hideHeaderRow: true,
+            borderlessColumns: ['hueco'],
+          })
+        // El CSV no admite combinación ni centrado: el encabezado va como filas y
+        // los bloques uno debajo del otro, como salían antes.
+        : Buffer.from(buildCsv(columnasCsv, [
+            ...titleRows.map((t) => ({ concepto: t.text, monto: '' })),
+            { concepto: '', monto: '' },
+            ...izquierda.map((f) => ({ concepto: f.concepto, monto: f.monto })),
+            { concepto: '', monto: '' },
+            ...derecha.map((f) => ({ concepto: f.concepto, monto: f.monto })),
+            ...cola.map((f) => ({ concepto: f.concepto, monto: f.monto })),
+          ]), 'utf-8');
       // El nombre lleva la fecha del corte («hasta») cuando hay filtro, y la de hoy
       // cuando el estado es de todo el histórico. El corte llega como Date en UTC
       // (23:59:59.999Z del día elegido), así que toISOString da el día correcto.

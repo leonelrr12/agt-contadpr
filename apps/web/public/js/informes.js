@@ -257,7 +257,9 @@ async function loadReportBalanceGeneral() {
     const filaTotal = (etiqueta, valor, color, extra = '') => `<tr style="border-top:2px solid #1a1a2e;background:#f8fafc${extra}"><td style="padding:8px 10px"><strong>${etiqueta}</strong></td><td style="text-align:right;padding:8px 10px"><strong style="color:${color}">${fmt(valor)}</strong></td></tr>`;
 
     const ganancia = Number(d.capital?.gananciaPeriodo || 0);
-    const gananciaHtml = `<tr><td style="${celda}"><em>Ganancia del periodo</em></td><td style="text-align:right;${celda};font-weight:600;color:${ganancia >= 0 ? '#2e7d32' : '#c62828'}">${fmt(ganancia)}</td></tr>`;
+    // Sangrada como las cuentas del bloque (celdaCuenta): es una línea más del
+    // patrimonio, no un total, así que no va pegada al borde.
+    const gananciaHtml = `<tr><td style="${celdaCuenta}"><em>Ganancia del periodo</em></td><td style="text-align:right;${celda};font-weight:600;color:${ganancia >= 0 ? '#2e7d32' : '#c62828'}">${fmt(ganancia)}</td></tr>`;
 
     // El corte es el filtro «hasta»: se muestra tal cual al inicio (el período
     // "desde–hasta" de informesPeriodoInfo no aplica: este estado es acumulado).
