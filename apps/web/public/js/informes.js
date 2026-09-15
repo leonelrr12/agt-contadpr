@@ -250,7 +250,10 @@ async function loadReportBalanceGeneral() {
     const money = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const fmt = n => Number(n || 0) === 0 ? '—' : money(n);
     const celda = 'padding:6px 10px;border-bottom:1px solid #e5e7eb';
-    const items = (arr) => (arr || []).map(c => `<tr><td style="${celda}">${escapeHtml(c.name)}</td><td style="text-align:right;${celda};font-weight:600">${fmt(c.saldo)}</td></tr>`).join('');
+    // Las cuentas cuelgan del título de su bloque: ~3 espacios de sangría (22px) y
+    // sin negrita, para que resalten los títulos y los totales.
+    const celdaCuenta = 'padding:6px 10px 6px 22px;border-bottom:1px solid #e5e7eb';
+    const items = (arr) => (arr || []).map(c => `<tr><td style="${celdaCuenta}">${escapeHtml(c.name)}</td><td style="text-align:right;${celdaCuenta}">${fmt(c.saldo)}</td></tr>`).join('');
     const filaTotal = (etiqueta, valor, color, extra = '') => `<tr style="border-top:2px solid #1a1a2e;background:#f8fafc${extra}"><td style="padding:8px 10px"><strong>${etiqueta}</strong></td><td style="text-align:right;padding:8px 10px"><strong style="color:${color}">${fmt(valor)}</strong></td></tr>`;
 
     const ganancia = Number(d.capital?.gananciaPeriodo || 0);

@@ -8,6 +8,12 @@ interface ColumnDef {
   width?: number;
 }
 
+/** Estilo por fila del xlsx: títulos y totales en negrita (el CSV no admite
+ *  formato, así que allí solo se ve la sangría de espacios). */
+interface RowStyle {
+  bold?: boolean;
+}
+
 /**
  * Genera un archivo Excel (.xlsx) a partir de filas de datos.
  */
@@ -17,6 +23,7 @@ async function buildXlsx(
   rows: Record<string, unknown>[],
   moneyFields: string[] = [],
   footerRow?: Record<string, unknown>,
+  rowStyles?: RowStyle[],
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(sheetName);
@@ -39,9 +46,10 @@ async function buildXlsx(
   headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
   headerRow.height = 22;
 
-  // Filas de datos
-  for (const row of rows) {
-    sheet.addRow(row);
+  // Filas de datos (con su estilo, si el reporte lo pide: títulos y totales)
+  for (let i = 0; i < rows.length; i++) {
+    const r = sheet.addRow(rows[i]);
+    if (rowStyles?.[i]?.bold) r.font = { bold: true };
   }
 
   // Fila de totales (footer)
@@ -183,45 +191,53 @@ export async function exportReport(
         { header: 'Concepto', key: 'concepto' },
         { header: 'Monto', key: 'monto' },
       ];
-      const cuenta = (c: CuentaSaldo) => `  ${c.code} ${c.name}`;
+      // Las cuentas van solo por nombre (con su código está el Balance de
+      // Comprobación) y sangradas ~5 espacios para colgar del título del bloque.
+      const cuenta = (c: CuentaSaldo) => `     ${c.name}`;
       const rows: { concepto: string; monto: number | string }[] = [];
+      // Estilo paralelo a `rows`: títulos y totales en negrita (solo lo aplica el
+      // xlsx; el CSV no admite formato).
+      const estilos: RowStyle[] = [];
+      const push = (concepto: string, monto: number | string, bold = false) => {
+        rows.push({ concepto, monto });
+        estilos.push({ bold });
+      };
+
       // Encabezado del estado: empresa + período (acumulado al corte, no de período).
-      if (meta.companyName) rows.push({ concepto: meta.companyName, monto: '' });
+      if (meta.companyName) push(meta.companyName, '', true);
       const corte = d.periodo?.end;
-      rows.push({
-        concepto: corte
+      push(
+        corte
           ? `Balance General al ${new Date(corte).toLocaleDateString('es-PA')}`
           : 'Balance General (acumulado, todo el histórico)',
-        monto: '',
-      });
-      if (d.periodo?.anioFiscal) rows.push({ concepto: `Año fiscal ${d.periodo.anioFiscal}`, monto: '' });
-      rows.push({ concepto: '', monto: '' });
+        '',
+        true,
+      );
+      if (d.periodo?.anioFiscal) push(`Año fiscal ${d.periodo.anioFiscal}`, '');
+      push('', '');
 
-      rows.push({ concepto: 'Activo', monto: '' });
-      for (const c of d.activos.detalle) rows.push({ concepto: cuenta(c), monto: c.saldo });
-      rows.push({ concepto: 'Total Activo', monto: d.activos.total });
-      rows.push({ concepto: '', monto: '' });
+      push('Activo', '', true);
+      for (const c of d.activos.detalle) push(cuenta(c), c.saldo);
+      push('Total Activo', d.activos.total, true);
+      push('', '');
 
       // Mismos nombres que la pantalla: Pasivo y Patrimonio en un solo bloque, que
       // cierra con el total que debe igualar al Activo.
-      rows.push({ concepto: 'Pasivo y Patrimonio', monto: '' });
-      for (const c of d.pasivos.detalle) rows.push({ concepto: cuenta(c), monto: c.saldo });
-      rows.push({ concepto: '  Total Pasivo', monto: d.pasivos.total });
-      rows.push({ concepto: 'Patrimonio de los Accionistas', monto: '' });
-      for (const c of d.capital.detalle) rows.push({ concepto: cuenta(c), monto: c.saldo });
-      rows.push({ concepto: '  Ganancia del periodo', monto: d.capital.gananciaPeriodo });
-      rows.push({ concepto: '  Total Patrimonio', monto: d.capital.total });
-      rows.push({ concepto: 'Total Pasivo y Patrimonio', monto: d.ecuacion.pasivoCapital });
+      push('Pasivo y Patrimonio', '', true);
+      for (const c of d.pasivos.detalle) push(cuenta(c), c.saldo);
+      push('Total Pasivo', d.pasivos.total, true);
+      push('Patrimonio de los Accionistas', '', true);
+      for (const c of d.capital.detalle) push(cuenta(c), c.saldo);
+      push('Ganancia del periodo', d.capital.gananciaPeriodo);
+      push('Total Patrimonio', d.capital.total, true);
+      push('Total Pasivo y Patrimonio', d.ecuacion.pasivoCapital, true);
       // Solo se avisa cuando NO cuadra (igual que la pantalla)
       if (!d.ecuacion.ok) {
-        rows.push({ concepto: '', monto: '' });
-        rows.push({
-          concepto: `⚠️ EL BALANCE NO CUADRA — diferencia ${d.ecuacion.diferencia}`,
-          monto: '',
-        });
+        push('', '');
+        push(`⚠️ EL BALANCE NO CUADRA — diferencia ${d.ecuacion.diferencia}`, '', true);
       }
       const buffer = format === 'xlsx'
-        ? await buildXlsx('Balance General', columns, rows, ['monto'])
+        ? await buildXlsx('Balance General', columns, rows, ['monto'], undefined, estilos)
         : Buffer.from(buildCsv(columns, rows), 'utf-8');
       return {
         buffer,
