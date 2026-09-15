@@ -197,21 +197,21 @@ export async function exportReport(
       if (d.periodo?.anioFiscal) rows.push({ concepto: `Año fiscal ${d.periodo.anioFiscal}`, monto: '' });
       rows.push({ concepto: '', monto: '' });
 
-      rows.push({ concepto: 'ACTIVO', monto: '' });
+      rows.push({ concepto: 'Activo', monto: '' });
       for (const c of d.activos.detalle) rows.push({ concepto: cuenta(c), monto: c.saldo });
       rows.push({ concepto: 'Total Activo', monto: d.activos.total });
       rows.push({ concepto: '', monto: '' });
 
       // Mismos nombres que la pantalla: Pasivo y Patrimonio en un solo bloque, que
       // cierra con el total que debe igualar al Activo.
-      rows.push({ concepto: 'PASIVO Y PATRIMONIO', monto: '' });
+      rows.push({ concepto: 'Pasivo y Patrimonio', monto: '' });
       for (const c of d.pasivos.detalle) rows.push({ concepto: cuenta(c), monto: c.saldo });
       rows.push({ concepto: '  Total Pasivo', monto: d.pasivos.total });
-      rows.push({ concepto: 'PATRIMONIO DE LOS ACCIONISTAS', monto: '' });
+      rows.push({ concepto: 'Patrimonio de los Accionistas', monto: '' });
       for (const c of d.capital.detalle) rows.push({ concepto: cuenta(c), monto: c.saldo });
       rows.push({ concepto: '  Ganancia del periodo', monto: d.capital.gananciaPeriodo });
       rows.push({ concepto: '  Total Patrimonio', monto: d.capital.total });
-      rows.push({ concepto: 'TOTAL PASIVO Y PATRIMONIO', monto: d.ecuacion.pasivoCapital });
+      rows.push({ concepto: 'Total Pasivo y Patrimonio', monto: d.ecuacion.pasivoCapital });
       // Solo se avisa cuando NO cuadra (igual que la pantalla)
       if (!d.ecuacion.ok) {
         rows.push({ concepto: '', monto: '' });

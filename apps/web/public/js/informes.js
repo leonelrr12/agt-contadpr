@@ -238,6 +238,8 @@ async function loadReportResultados() {
 // Patrimonio", que debe dar igual al Total Activo). El backend entrega el detalle YA
 // totalizado a nivel 3 (1.1.02.01 → 1.1.02) y sin subcuentas, así que no se muestra
 // el código de cuenta. Si el balance no cuadra, se avisa en rojo al final.
+// OJO: nada de <tfoot> para los totales intermedios — el navegador lo mueve al
+// final de la tabla y el "Total Pasivo" terminaba debajo del patrimonio.
 async function loadReportBalanceGeneral() {
   const el = document.getElementById('informes-inline-result');
   try {
@@ -260,7 +262,7 @@ async function loadReportBalanceGeneral() {
 
     const eq = d.ecuacion || {};
     const pasivoPatrimonio = eq.pasivoCapital != null ? eq.pasivoCapital : d.pasivos?.total;
-    const subTitulo = `<tr><td colspan="2" style="padding:12px 10px 6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;font-weight:700;color:#1565c0;text-transform:uppercase;letter-spacing:0.3px">Patrimonio de los Accionistas</td></tr>`;
+    const subTitulo = `<tr><td colspan="2" style="padding:12px 10px 6px 10px;border-bottom:1px solid #e5e7eb;font-weight:700;color:#1565c0">Patrimonio de los Accionistas</td></tr>`;
 
     // Alerta SOLO si descuadra: cuando cuadra no se muestra nada (lo dice el
     // "Total Pasivo y Patrimonio" de la columna derecha, que iguala al Activo).
@@ -275,23 +277,19 @@ async function loadReportBalanceGeneral() {
           <h3 style="font-size:14px;color:#2e7d32;margin:0 0 8px 0">🏦 Activo</h3>
           <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.06)">
             ${items(d.activos?.detalle)}
-            <tfoot>${filaTotal('Total Activo', d.activos?.total, '#2e7d32')}</tfoot>
+            ${filaTotal('Total Activo', d.activos?.total, '#2e7d32')}
           </table>
         </div>
         <div>
           <h3 style="font-size:14px;color:#c62828;margin:0 0 8px 0">📉 Pasivo y Patrimonio</h3>
           <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.06)">
             ${items(d.pasivos?.detalle)}
-            <tfoot>
-              ${filaTotal('Total Pasivo', d.pasivos?.total, '#c62828')}
-            </tfoot>
+            ${filaTotal('Total Pasivo', d.pasivos?.total, '#c62828')}
             ${subTitulo}
             ${items(d.capital?.detalle)}
             ${gananciaHtml}
-            <tfoot>
-              ${filaTotal('Total Patrimonio', d.capital?.total, '#1565c0')}
-              ${filaTotal('Total Pasivo y Patrimonio', pasivoPatrimonio, '#1a1a2e', ';border-top:3px double #1a1a2e')}
-            </tfoot>
+            ${filaTotal('Total Patrimonio', d.capital?.total, '#1565c0')}
+            ${filaTotal('Total Pasivo y Patrimonio', pasivoPatrimonio, '#1a1a2e', ';border-top:3px double #1a1a2e')}
           </table>
         </div>
       </div>
