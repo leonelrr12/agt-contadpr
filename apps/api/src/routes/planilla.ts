@@ -3,6 +3,7 @@ import multer from 'multer';
 import { parsePlanillaFile } from '../services/planilla-parser';
 import type { PlanillaRow } from '../services/planilla-parser';
 import { resolvePayoutAccount, payoutAviso } from '../services/account-resolver';
+import { loadAccountFlags, blockedMessage } from '../services/journal-guard';
 import type { PayoutCache, PayoutResolution } from '../services/account-resolver';
 
 /**
@@ -340,6 +341,8 @@ planillaRouter.post('/execute-all', upload.single('file'), async (req, res) => {
     const dupIndex = await buildPlanillaIndex(req.prisma, companyId);
     // Banco por fila (columna "Banco" → por defecto → 1.1.02.01), una carga por lote
     const payoutCache: PayoutCache = { accounts: null, defaultId: null };
+    // Cuentas bloqueadas: 1 query por lote, reusada empleado a empleado
+    const accountFlags = await loadAccountFlags(req.prisma, companyId);
 
     const results = {
       success: 0,
@@ -400,6 +403,10 @@ planillaRouter.post('/execute-all', upload.single('file'), async (req, res) => {
 
         const prefix = tipo === 'DECIMO' ? 'Décimo III de' : 'Planilla de';
         const description = `${prefix} ${row.employee} — ${quincena}`;
+
+        // Cuenta bloqueada (sueldos, retenciones o banco): se rechaza este empleado
+        const blocked = blockedMessage(accountFlags, lines.map(l => l.accountId));
+        if (blocked) throw new Error(blocked);
 
         const je = await req.prisma.$transaction(async (tx: any) => {
           const created = await tx.journalEntry.create({

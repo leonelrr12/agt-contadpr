@@ -6,6 +6,7 @@ import { getAnioFiscal, anioFiscalRange } from '../lib/fiscal-year';
 import { logAudit } from '../services/audit-log';
 import { syncEntityFromEntry } from '../services/entity-service';
 import { requireQuota, incrementUsage } from '../middleware/quota';
+import { checkNotBlocked } from '../services/journal-guard';
 import {
   createJournalEntrySchema,
   reviewJournalSchema,
@@ -222,6 +223,9 @@ journalRouter.post('/', requireQuota, validate(createJournalEntrySchema), async 
     return;
   }
 
+  const blocked = await checkNotBlocked(req.prisma, req.user!.companyId, lines.map((l: { accountId: string }) => l.accountId));
+  if (blocked) { res.status(400).json({ error: blocked }); return; }
+
   const entry = await req.prisma.journalEntry.create({
     data: {
       date: new Date(date),
@@ -360,6 +364,10 @@ journalRouter.post('/:id/anular', requireRole('admin', 'contador', 'superadmin')
 // PUT /:id — Editar un asiento BORRADOR (solo admin)
 journalRouter.put('/:id', requireRole('admin', 'superadmin'), validate(updateJournalEntrySchema), async (req, res) => {
   const { date, description, lines } = req.body;
+
+  // Editar un borrador con cuenta bloqueada se rechaza (anular sí se permite)
+  const blocked = await checkNotBlocked(req.prisma, req.user!.companyId, lines.map((l: { accountId: string }) => l.accountId));
+  if (blocked) { res.status(400).json({ error: blocked }); return; }
 
   try {
     const result = await req.prisma.$transaction(async (tx: any) => {

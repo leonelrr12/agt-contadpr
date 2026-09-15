@@ -4,6 +4,7 @@ import { parseHonorariosFile } from '../services/honorarios-parser';
 import type { HonorariosRow } from '../services/honorarios-parser';
 import { resolvePayoutAccount, payoutAviso } from '../services/account-resolver';
 import type { PayoutCache, PayoutResolution } from '../services/account-resolver';
+import { checkNotBlocked } from '../services/journal-guard';
 
 /**
  * Carga masiva de HONORARIOS PROFESIONALES — proceso independiente de las
@@ -310,6 +311,11 @@ honorariosRouter.post('/execute-all', upload.single('file'), async (req, res) =>
         if (!payout.account) {
           throw new Error('No hay cuentas de banco (1.1.02.*) en el catálogo: crea una o configura el banco por defecto');
         }
+
+        // Cuenta bloqueada (gasto o banco): se rechaza esta fila.
+        // El modo Honorarios se retira en la Fase E; hasta entonces mantiene el guard.
+        const blocked = await checkNotBlocked(req.prisma, companyId, [cuentas.gasto, payout.account.id]);
+        if (blocked) throw new Error(blocked);
 
         const je = await req.prisma.$transaction(async (tx: any) => {
           const created = await tx.journalEntry.create({

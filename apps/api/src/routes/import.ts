@@ -14,6 +14,7 @@ import {
   loadCompanyAccounts, filterPayoutAccounts, resolveAccount, normalizeNameKey,
 } from '../services/account-resolver';
 import type { CompanyAccount as CobroAccount } from '../services/account-resolver';
+import { loadAccountFlags, blockedMessage, blockedAccounts } from '../services/journal-guard';
 
 export const importRouter = Router();
 
@@ -433,6 +434,8 @@ async function executeImportRows(
   });
   const bancoDefaultId: string | null = company?.bancoDefaultId || null;
   const payoutCache: { accounts: CobroAccount[] | null } = { accounts: null };
+  // Cuentas bloqueadas de la empresa: 1 query por lote, reusada fila a fila
+  const accountFlags = await loadAccountFlags(prisma, companyId);
 
   // CADA FILA se crea en SU PROPIA transacción. Antes el lote completo corría
   // en un solo $transaction con catch por fila: si cualquier query fallaba,
@@ -527,6 +530,13 @@ async function executeImportRows(
         debit: 0,
         credit: c.amount,
       }));
+
+      // Cuentas bloqueadas: rechaza SOLO esta fila (el error va a results.errors)
+      const blocked = blockedMessage(accountFlags, [
+        ...debitLines.map((l: any) => l.accountId),
+        ...creditLines.map((l: any) => l.accountId),
+      ]);
+      if (blocked) throw new Error(blocked);
 
       // Asiento + Transaction: transacción propia de la fila
       const je = await prisma.$transaction(async (tx: any) => {
@@ -740,6 +750,8 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
     // Pagos ya registrados en BD → re-subidas idempotentes. El índice se
     // actualiza con cada pago aplicado (también dedupe dentro del mismo archivo).
     const dupKeys = await buildCobroPaymentsIndex(req.prisma, companyId);
+    // Cuentas bloqueadas: 1 query por lote, reusada fila a fila
+    const accountFlags = await loadAccountFlags(req.prisma, companyId);
 
     const results = {
       success: 0,
@@ -784,6 +796,10 @@ importRouter.post('/cobros/execute-all', requireQuota, upload.single('file'), as
           continue;
         }
         const paymentMethod = cobroPaymentMethod(account);
+
+        // Cuenta bloqueada (banco, retención o CxC): se rechaza solo esta fila
+        const blocked = blockedMessage(accountFlags, [account.id, retAccount?.id, clientsAccount.id]);
+        if (blocked) { results.errors.push({ row: rowNum, error: blocked }); continue; }
 
         // Re-leer la factura fresca dentro de la transacción: entre el preload
         // y esta fila otro proceso pudo registrar un abono (p.ej. PATCH /pay).
@@ -1003,6 +1019,21 @@ importRouter.post('/carga-inicial', requireQuota, upload.single('file'), async (
       }
     }
 
+    // Cuentas bloqueadas: la carga inicial es UN solo asiento, así que se rechaza
+    // completa y se listan las cuentas que la bloquean.
+    const ciIds = results.map(r => r.matchedAccount!.id);
+    const ciBlocked = blockedAccounts(await loadAccountFlags(req.prisma, req.user!.companyId, ciIds), ciIds);
+    if (ciBlocked.length > 0) {
+      res.status(400).json({
+        error: `Cuentas bloqueadas: ${ciBlocked.map(f => `${f.code} — ${f.name}`).join(' · ')}. No admiten asientos: desbloquéalas en Administración → Cuentas o corrige esas filas.`,
+        code: 'ACCOUNT_BLOCKED',
+        blocked: ciBlocked.map(f => ({ code: f.code, name: f.name })),
+        success: 0,
+        total: parsed.rows.length,
+      });
+      return;
+    }
+
     // Crear UN solo JournalEntry con todas las líneas
     const entry = await req.prisma.journalEntry.create({
       data: {
@@ -1100,6 +1131,20 @@ importRouter.post('/carga-inicial/execute', requireQuota, async (req, res) => {
         });
         return;
       }
+    }
+
+    // Cuentas bloqueadas: un solo asiento → se rechaza el lote completo
+    const ciIds = rows.map((r: any) => r.accountId as string);
+    const ciBlocked = blockedAccounts(await loadAccountFlags(req.prisma, req.user!.companyId, ciIds), ciIds);
+    if (ciBlocked.length > 0) {
+      res.status(400).json({
+        error: `Cuentas bloqueadas: ${ciBlocked.map(f => `${f.code} — ${f.name}`).join(' · ')}. No admiten asientos: desbloquéalas en Administración → Cuentas o corrige esas filas.`,
+        code: 'ACCOUNT_BLOCKED',
+        blocked: ciBlocked.map(f => ({ code: f.code, name: f.name })),
+        success: 0,
+        total: rows.length,
+      });
+      return;
     }
 
     // Crear UN solo JournalEntry

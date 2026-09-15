@@ -12,6 +12,11 @@ export const orchestrateRouter = Router();
 function friendlyError(err: any): { status: number; userMessage: string; detail: string; contactSupport: boolean } {
   const msg = err?.message || String(err);
 
+  // Cuenta bloqueada (Account.isBlocked): el motivo es accionable, se muestra tal cual
+  if (err?.code === 'ACCOUNT_BLOCKED') {
+    return { status: 400, userMessage: msg, detail: msg, contactSupport: false };
+  }
+
   // Errores de DeepSeek / LLM
   if (msg.includes('Authentication Fails') || msg.includes('api key') || msg.includes('401')) {
     return {

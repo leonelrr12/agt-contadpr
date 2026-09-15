@@ -1,5 +1,6 @@
 import { ClassificationAgent } from '@agt-contador/agents';
 import { AccountingAgent } from '@agt-contador/agents';
+import { checkNotBlocked } from './journal-guard';
 import type { DialogResult } from '@agt-contador/agents';
 
 export interface SingleProcessResult {
@@ -176,6 +177,14 @@ export async function processSingleTemplate(
         data: { nextRunAt: next, lastRunAt: new Date() },
       });
 
+      // Cuenta bloqueada: no se exime a los recurrentes (el error sale con el
+      // motivo y nextRunAt no avanza, así que se reintenta el próximo ciclo)
+      const blocked = await checkNotBlocked(tx, template.companyId, [
+        ...debitLines.map((l: any) => l.accountId),
+        ...creditLines.map((l: any) => l.accountId),
+      ]);
+      if (blocked) throw new Error(blocked);
+
       const je = await tx.journalEntry.create({
         data: {
           date: new Date(),
@@ -333,6 +342,14 @@ export async function processDueItems(
       }));
 
       const status = template.requireConfirmation ? 'BORRADOR' : 'CONFIRMADO';
+
+      // Cuenta bloqueada: se registra con el templateId y nextRunAt avanza
+      // (si no, el cron reintentaría la misma plantilla en cada ciclo)
+      const blocked = await checkNotBlocked(prisma, template.companyId, [
+        ...debitLines.map((l: any) => l.accountId),
+        ...creditLines.map((l: any) => l.accountId),
+      ]);
+      if (blocked) throw new Error(blocked);
 
       const je = await prisma.journalEntry.create({
         data: {

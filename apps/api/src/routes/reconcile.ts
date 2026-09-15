@@ -6,6 +6,7 @@ import { parseImportFile, type ParsedRow } from '../services/csv-parser';
 import { autoMatch, findUnmatchedBookEntries } from '../services/bank-matcher';
 import { reconcileMatchSchema, reconcileCreateEntrySchema } from '../validation/schemas';
 import { ClassificationAgent, AccountingAgent } from '@agt-contador/agents';
+import { checkNotBlocked } from '../services/journal-guard';
 
 export const reconcileRouter = Router();
 
@@ -227,6 +228,10 @@ reconcileRouter.post('/:id/create-entry', requireQuota, validate(reconcileCreate
   if (!row) { res.status(404).json({ error: 'Fila no encontrada' }); return; }
 
   try {
+    // Cuentas bloqueadas: rechaza el asiento (antes no validaba nada aquí)
+    const blocked = await checkNotBlocked(req.prisma, req.user!.companyId, [debitAccountId, creditAccountId]);
+    if (blocked) { res.status(400).json({ error: blocked }); return; }
+
     const entry = await req.prisma.journalEntry.create({
       data: {
         date: new Date(row.date),

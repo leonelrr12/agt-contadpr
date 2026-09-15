@@ -3,6 +3,7 @@ import PDFDocument from 'pdfkit';
 import { requireRole } from '../middleware/auth';
 import { requireQuota, incrementUsage } from '../middleware/quota';
 import { AccountingAgent } from '@agt-contador/agents';
+import { checkNotBlocked } from '../services/journal-guard';
 
 /**
  * Retenciones de ITBMS SUFRIDAS (crédito fiscal del vendedor).
@@ -283,6 +284,9 @@ retencionesRouter.post('/compensar', requireRole('admin', 'contador', 'superadmi
       throw Object.assign(new Error('No se encontró la cuenta "ITBMS Retenido por Terceros" (alias itbms-retenido-terceros) en el catálogo.'), { status: 400 });
     }
     const desc = `Compensación R52 — retenciones sufridas $${total.toFixed(2)} (Form. 430 renglón 52)`;
+    const blocked = await checkNotBlocked(tx, req.user!.companyId, [porPagarId, retenidoId]);
+    if (blocked) throw Object.assign(new Error(blocked), { status: 400 });
+
     const created = await tx.journalEntry.create({
       data: {
         date: new Date(),

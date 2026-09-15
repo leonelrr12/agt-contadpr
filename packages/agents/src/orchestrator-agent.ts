@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { DialogAgent } from './dialog-agent';
 import { ClassificationAgent, type ClassificationAgentConfig } from './classification-agent';
 import { AccountingAgent } from './accounting-agent';
+import { checkNotBlocked } from './journal-guard';
 import type { DialogResult, DialogContext, PrismaLike } from './types';
 import type { AccountingEntry } from './accounting-agent';
 
@@ -489,6 +490,9 @@ export class OrchestratorAgent {
       const descSuffix = ret > 0 ? ` (efectivo $${efectivo.toFixed(2)} + retención ITBMS $${ret.toFixed(2)})` : '';
       const desc = `Cobro de factura ${invoice.number} — $${aplicado.toFixed(2)}${descSuffix}`.trim();
 
+      const blocked = await checkNotBlocked(tx, this.companyId, lines.map((l: any) => l.accountId));
+      if (blocked) throw Object.assign(new Error(blocked), { status: 400, code: 'ACCOUNT_BLOCKED' });
+
       const je = await tx.journalEntry.create({
         data: {
           date: parseLocalDate(d.date),
@@ -577,6 +581,13 @@ export class OrchestratorAgent {
     if (dialog?.type === 'COBRO_CLIENTE' && dialog.invoiceNumber) {
       return this.confirmarCobroFactura(dialog);
     }
+
+    // Cuentas bloqueadas: no se confirma el asiento del chat con cuentas bloqueadas
+    const blocked = await checkNotBlocked(this.prisma, this.companyId, [
+      ...entry.debit.map((d: any) => d.accountId),
+      ...entry.credit.map((c: any) => c.accountId),
+    ]);
+    if (blocked) throw Object.assign(new Error(blocked), { status: 400, code: 'ACCOUNT_BLOCKED' });
 
     const entryData = await this.prisma.journalEntry.create({
       data: {

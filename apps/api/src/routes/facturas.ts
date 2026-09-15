@@ -11,6 +11,7 @@ import { createFacturaSchema } from '../validation/schemas';
 import { AccountingAgent } from '@agt-contador/agents';
 import { findOrCreateClient } from '../services/counterparty';
 import { retencionCobroInfo, marcarClienteAgente } from '../services/retencion-itbms';
+import { checkNotBlocked } from '../services/journal-guard';
 
 export const facturasRouter = Router();
 
@@ -148,6 +149,9 @@ facturasRouter.post('/', requireRole('admin', 'contador', 'superadmin'), require
       if (itbms > 0) lineas.push({ accountId: itbmsPorPagarId, debit: 0, credit: itbms });
 
       const desc = `Venta: ${client.name} - ${number} - $${total}`;
+      const blocked = await checkNotBlocked(tx, companyId, lineas.map((l: any) => l.accountId));
+      if (blocked) throw Object.assign(new Error(blocked), { status: 400 });
+
       const je = await tx.journalEntry.create({
         data: {
           date: new Date(date ? date + 'T12:00:00' : new Date().toISOString().slice(0, 10) + 'T12:00:00'),
@@ -361,6 +365,9 @@ facturasRouter.patch('/:id/pay', requireRole('admin', 'contador', 'superadmin'),
         ];
         if (ret > 0) lines.push({ accountId: retAccountId!, debit: ret, credit: 0 });
         lines.push({ accountId: clientesId, debit: 0, credit: aplicado });
+        const blocked = await checkNotBlocked(tx, req.user!.companyId, lines.map((l: any) => l.accountId));
+        if (blocked) throw Object.assign(new Error(blocked), { status: 400 });
+
         const je = await tx.journalEntry.create({
           data: {
             date: new Date(),
