@@ -124,6 +124,8 @@ export async function exportReport(
   format: ExportFormat,
   reportType: string,
   data: Record<string, unknown>,
+  // Encabezado del documento exportado (lo resuelve la ruta, que tiene la empresa)
+  meta: { companyName?: string | null } = {},
 ): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
   const today = new Date().toISOString().split('T')[0];
 
@@ -171,7 +173,7 @@ export async function exportReport(
     case 'balance-general': {
       type CuentaSaldo = { code: string; name: string; saldo: number };
       const d = data as {
-        periodo?: { corte: string | null; anioFiscal: number };
+        periodo?: { start: string | null; end: string | null; anioFiscal: number; acumulado?: boolean };
         activos: { detalle: CuentaSaldo[]; total: number };
         pasivos: { detalle: CuentaSaldo[]; total: number };
         capital: { detalle: CuentaSaldo[]; totalCuentas: number; gananciaPeriodo: number; total: number };
@@ -183,32 +185,41 @@ export async function exportReport(
       ];
       const cuenta = (c: CuentaSaldo) => `  ${c.code} ${c.name}`;
       const rows: { concepto: string; monto: number | string }[] = [];
-      // Al ser un estado acumulado, la fecha de corte es parte del encabezado.
+      // Encabezado del estado: empresa + período (acumulado al corte, no de período).
+      if (meta.companyName) rows.push({ concepto: meta.companyName, monto: '' });
+      const corte = d.periodo?.end;
       rows.push({
-        concepto: d.periodo?.corte
-          ? `Balance al ${new Date(d.periodo.corte).toLocaleDateString('es-PA')}`
-          : 'Balance acumulado (todo el histórico)',
+        concepto: corte
+          ? `Balance General al ${new Date(corte).toLocaleDateString('es-PA')}`
+          : 'Balance General (acumulado, todo el histórico)',
         monto: '',
       });
+      if (d.periodo?.anioFiscal) rows.push({ concepto: `Año fiscal ${d.periodo.anioFiscal}`, monto: '' });
       rows.push({ concepto: '', monto: '' });
+
       rows.push({ concepto: 'ACTIVO', monto: '' });
       for (const c of d.activos.detalle) rows.push({ concepto: cuenta(c), monto: c.saldo });
       rows.push({ concepto: 'Total Activo', monto: d.activos.total });
       rows.push({ concepto: '', monto: '' });
-      rows.push({ concepto: 'PASIVO', monto: '' });
+
+      // Mismos nombres que la pantalla: Pasivo y Patrimonio en un solo bloque, que
+      // cierra con el total que debe igualar al Activo.
+      rows.push({ concepto: 'PASIVO Y PATRIMONIO', monto: '' });
       for (const c of d.pasivos.detalle) rows.push({ concepto: cuenta(c), monto: c.saldo });
-      rows.push({ concepto: 'Total Pasivo', monto: d.pasivos.total });
-      rows.push({ concepto: '', monto: '' });
-      rows.push({ concepto: 'CAPITAL', monto: '' });
+      rows.push({ concepto: '  Total Pasivo', monto: d.pasivos.total });
+      rows.push({ concepto: 'PATRIMONIO DE LOS ACCIONISTAS', monto: '' });
       for (const c of d.capital.detalle) rows.push({ concepto: cuenta(c), monto: c.saldo });
       rows.push({ concepto: '  Ganancia del periodo', monto: d.capital.gananciaPeriodo });
-      rows.push({ concepto: 'Total Capital', monto: d.capital.total });
-      rows.push({ concepto: '', monto: '' });
-      rows.push({ concepto: 'TOTAL PASIVO + CAPITAL', monto: d.ecuacion.pasivoCapital });
-      rows.push({
-        concepto: d.ecuacion.ok ? 'Ecuación: BALANCEADA' : `Ecuación: DESBALANCEADA (diferencia ${d.ecuacion.diferencia})`,
-        monto: '',
-      });
+      rows.push({ concepto: '  Total Patrimonio', monto: d.capital.total });
+      rows.push({ concepto: 'TOTAL PASIVO Y PATRIMONIO', monto: d.ecuacion.pasivoCapital });
+      // Solo se avisa cuando NO cuadra (igual que la pantalla)
+      if (!d.ecuacion.ok) {
+        rows.push({ concepto: '', monto: '' });
+        rows.push({
+          concepto: `⚠️ EL BALANCE NO CUADRA — diferencia ${d.ecuacion.diferencia}`,
+          monto: '',
+        });
+      }
       const buffer = format === 'xlsx'
         ? await buildXlsx('Balance General', columns, rows, ['monto'])
         : Buffer.from(buildCsv(columns, rows), 'utf-8');

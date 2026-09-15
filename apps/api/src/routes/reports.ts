@@ -960,7 +960,14 @@ reportsRouter.get('/export/:type', async (req, res) => {
         return;
     }
 
-    const { buffer, contentType, filename } = await exportReport(format, type, data);
+    // Encabezado del documento: nombre de la empresa (el estado lo lleva impreso)
+    const company = await req.prisma.company.findUnique({
+      where: { id: req.user!.companyId },
+      select: { name: true },
+    });
+    const { buffer, contentType, filename } = await exportReport(format, type, data, {
+      companyName: company?.name || null,
+    });
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
