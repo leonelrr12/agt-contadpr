@@ -37,12 +37,28 @@ function showCrearCuenta() {
           <div id="cuenta-parent-info" style="font-size:11px;color:#6b7280;margin-top:2px"></div>
         </div>
       </div>
+      ${cuentaFlagsHTML()}
       <div style="margin-top:10px">
         <button class="btn-primary" onclick="saveCuenta()">💾 Guardar</button>
         <button class="btn-secondary" onclick="cancelCuentaForm()">Cancelar</button>
       </div>
     </div>`;
   form.scrollIntoView({ behavior: 'smooth' });
+}
+
+/** Checkboxes de los flags de cuenta (Anexo DGI / Bloqueo de asientos).
+ *  `cuenta` null = alta (ambos apagados, como nacen en la BD). */
+function cuentaFlagsHTML(cuenta) {
+  return `
+    <div style="margin-top:10px;display:flex;gap:18px;flex-wrap:wrap;align-items:center">
+      <label style="display:flex;gap:6px;align-items:center;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="cuenta-anexo" ${cuenta?.requiresAnexo ? 'checked' : ''}> 📎 Lleva Anexo (DGI)
+      </label>
+      <label style="display:flex;gap:6px;align-items:center;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="cuenta-bloqueada" ${cuenta?.isBlocked ? 'checked' : ''}> ⛔ Bloquear asientos
+      </label>
+      <span style="font-size:11px;color:#6b7280">Anexo: exige RUC/Cédula y Nombre en las cargas. Bloqueada: no admite asientos nuevos.</span>
+    </div>`;
 }
 
 /** Sugiere el padre automáticamente: el código de la nueva cuenta menos su último nivel.
@@ -104,6 +120,7 @@ function editCuenta(id) {
           <option value="false" ${!cuenta.isActive ? 'selected' : ''}>❌ No</option>
         </select></div>
       </div>
+      ${cuentaFlagsHTML(cuenta)}
       <input type="hidden" id="cuenta-id" value="${cuenta.id}">
       <div style="margin-top:10px">
         <button class="btn-primary" onclick="saveCuenta()">💾 Guardar Cambios</button>
@@ -120,6 +137,8 @@ async function saveCuenta() {
   const code = document.getElementById('cuenta-code')?.value?.trim();
   const type = document.getElementById('cuenta-type')?.value;
   const parentId = document.getElementById('cuenta-parent')?.value || null;
+  const requiresAnexo = !!document.getElementById('cuenta-anexo')?.checked;
+  const isBlocked = !!document.getElementById('cuenta-bloqueada')?.checked;
 
   try {
     let res;
@@ -128,7 +147,7 @@ async function saveCuenta() {
       res = await authFetch(`${API_URL}/accounts/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, isActive: active === 'true' }),
+        body: JSON.stringify({ name, isActive: active === 'true', requiresAnexo, isBlocked }),
       });
     } else {
       // Crear
@@ -136,7 +155,7 @@ async function saveCuenta() {
       res = await authFetch(`${API_URL}/accounts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, name, type, parentId }),
+        body: JSON.stringify({ code, name, type, parentId, requiresAnexo, isBlocked }),
       });
     }
     if (!res.ok) { const e = await res.json(); await showAlert(e.error || 'Error'); return; }
@@ -405,9 +424,15 @@ function buildCuentaTree(account, all, depth = 0, admin = false) {
   const actions = admin
     ? `<span class="cuenta-actions"><button onclick="editCuenta('${account.id}')" class="btn-sm" title="Editar">✏️</button></span>`
     : '';
+  // Flags de la cuenta: se ven en todo el plan (explican por qué una cuenta pide RUC/Nombre
+  // en las cargas o por qué no aparece en los selectores de asientos)
+  const badge = (txt, color, bg, title) => `<span title="${title}" style="font-size:10px;font-weight:700;color:${color};background:${bg};padding:1px 6px;border-radius:8px;margin-left:6px;white-space:nowrap">${txt}</span>`;
+  const badges = (account.requiresAnexo ? badge('📎 Anexo', '#0369a1', '#e0f2fe', 'Lleva Anexo: exige RUC/Cédula y Nombre en las cargas') : '')
+    + (account.isBlocked ? badge('⛔ Bloqueada', '#b91c1c', '#fee2e2', 'Bloqueada: no admite asientos nuevos') : '');
   let html = `<div class="cuenta-row" style="padding-left:${depth * 20 + 8}px"${inactiveStyle}>
     <span class="cuenta-code">${account.code}</span>
     <span class="cuenta-name">${account.name}${inactiveLabel}</span>
+    ${badges}
     ${actions}
   </div>`;
   for (const child of children) {
