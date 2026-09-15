@@ -65,12 +65,18 @@ async function showEditEntryModal(entryId) {
 
   if (entry.status !== 'BORRADOR') { await showAlert('Solo se pueden editar asientos en BORRADOR'); return; }
 
-  // Asegurar cuentas cargadas
+  // Asegurar cuentas cargadas (sin las bloqueadas: no admiten asientos)
   if (!cuentasCache || !cuentasCache.length) {
     try {
-      const r = await authFetch(`${API_URL}/accounts`);
+      const r = await authFetch(`${API_URL}/accounts?excludeBlocked=true`);
       cuentasCache = await r.json();
     } catch (e) { /* usar cache vacío */ }
+  }
+  // Las cuentas del asiento que se edita deben seguir disponibles: si alguna se
+  // bloqueó después, se reinyecta para no cambiarla en silencio al guardar
+  // (el backend rechazará el guardado y avisará).
+  for (const l of (entry.lines || [])) {
+    if (l.account && !cuentasCache.some(a => a.id === l.accountId)) cuentasCache.push(l.account);
   }
   const activeAccounts = (cuentasCache || []).filter(a => a.isActive).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
 
@@ -213,12 +219,17 @@ async function showCreateEntryModal(originalEntry, originalEntryId) {
   // CORRECCIÓN (reversión del original + nuevo BORRADOR). Sin argumentos,
   // es el flujo de ASIENTO MANUAL (formulario en blanco → POST /api/journal).
   const isCorrection = !!originalEntry;
-  // Asegurar cuentas cargadas antes de renderizar
+  // Asegurar cuentas cargadas antes de renderizar (sin las bloqueadas)
   if (!cuentasCache || !cuentasCache.length) {
     try {
-      const r = await authFetch(`${API_URL}/accounts`);
+      const r = await authFetch(`${API_URL}/accounts?excludeBlocked=true`);
       cuentasCache = await r.json();
     } catch (e) { /* seguir con cache vacío */ }
+  }
+  // En la corrección se recrea un asiento existente: sus cuentas deben seguir
+  // en la lista aunque se hayan bloqueado después.
+  for (const l of (originalEntry?.lines || [])) {
+    if (l.account && !cuentasCache.some(a => a.id === l.accountId)) cuentasCache.push(l.account);
   }
   const activeAccounts = (cuentasCache || []).filter(a => a.isActive).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
 

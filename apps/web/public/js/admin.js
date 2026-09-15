@@ -196,7 +196,37 @@ async function loadPanelConceptosAdmin() {
   } catch (e) { el.innerHTML = '<div class="empty">Error al cargar conceptos</div>'; }
 }
 
-function showCrearConcepto() {
+let cuentasSeleccionablesCache = null;
+
+/** Cuentas para elegir en los selectores de asientos: excluye las BLOQUEADAS.
+ *  El catálogo (cuentasCache) NO se filtra a propósito: ahí hay que verlas para
+ *  poder desbloquearlas. `extraIds` reinyecta cuentas ya asignadas (p. ej. un
+ *  concepto que apunta a una cuenta bloqueada después) marcadas como tal, para
+ *  no reasignarlas en silencio al guardar. */
+async function getCuentasSeleccionables(extraIds = []) {
+  if (!cuentasSeleccionablesCache) {
+    try {
+      const r = await authFetch(`${API_URL}/accounts?excludeBlocked=true`);
+      cuentasSeleccionablesCache = (await r.json() || []).filter(a => a.isActive);
+    } catch { cuentasSeleccionablesCache = []; }
+  }
+  const lista = [...cuentasSeleccionablesCache];
+  for (const id of extraIds) {
+    if (id && !lista.some(a => a.id === id)) {
+      const c = cuentasCache.find(a => a.id === id);
+      if (c) lista.push({ ...c, _bloqueada: true });
+    }
+  }
+  return lista;
+}
+
+/** <option> de una cuenta, marcando las bloqueadas reinyectadas. */
+function cuentaOptionHtml(a, selectedId) {
+  return `<option value="${a.id}" ${a.id === selectedId ? 'selected' : ''}>${a._bloqueada ? '⛔ ' : ''}${a.code} — ${a.name}${a._bloqueada ? ' (bloqueada)' : ''}</option>`;
+}
+
+async function showCrearConcepto() {
+  const cuentas = await getCuentasSeleccionables();
   const form = document.getElementById('conceptos-admin-form');
   form.classList.remove('hidden');
   form.innerHTML = `
@@ -206,7 +236,7 @@ function showCrearConcepto() {
         <div><label>Nombre del Concepto</label><input type="text" id="concepto-name" placeholder="Ej: Hosting"></div>
         <div><label>Cuenta Contable</label><select id="concepto-account">
           <option value="">— Selecciona —</option>
-          ${cuentasCache.filter(a => a.isActive).map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('')}
+          ${cuentas.map(a => cuentaOptionHtml(a)).join('')}
         </select></div>
       </div>
       <div style="margin-top:10px">
@@ -217,9 +247,10 @@ function showCrearConcepto() {
   form.scrollIntoView({ behavior: 'smooth' });
 }
 
-function editConcepto(id) {
+async function editConcepto(id) {
   const c = conceptosCache.find(c => c.id === id);
   if (!c) return;
+  const cuentas = await getCuentasSeleccionables([c.accountId]);
   const form = document.getElementById('conceptos-admin-form');
   form.classList.remove('hidden');
   form.innerHTML = `
@@ -228,7 +259,7 @@ function editConcepto(id) {
       <div class="form-grid">
         <div><label>Nombre</label><input type="text" id="concepto-name" value="${escapeHtml(c.name)}"></div>
         <div><label>Cuenta Contable</label><select id="concepto-account">
-          ${cuentasCache.filter(a => a.isActive).map(a => `<option value="${a.id}" ${a.id === c.accountId ? 'selected' : ''}>${a.code} — ${a.name}</option>`).join('')}
+          ${cuentas.map(a => cuentaOptionHtml(a, c.accountId)).join('')}
         </select></div>
         <div><label>Activo</label><select id="concepto-active">
           <option value="true" ${c.isActive ? 'selected' : ''}>✅ Sí</option>
@@ -293,7 +324,7 @@ async function loadPanelConfig() {
     if (sel) {
       sel.innerHTML = '<option value="">— Sin definir (usa 1.1.02.01) —</option>';
       try {
-        const ra = await authFetch(`${API_URL}/accounts?search=`); // cuentas de la empresa
+        const ra = await authFetch(`${API_URL}/accounts?search=&excludeBlocked=true`); // cuentas de la empresa (sin bloqueadas)
         const accs = await ra.json();
         const bancos = Array.isArray(accs) ? accs.filter(a => String(a.code || '').startsWith('1.1.02') || (a.aliases || []).includes('banco')) : [];
         bancos.sort((a, b) => String(a.code).localeCompare(String(b.code)));
@@ -352,7 +383,7 @@ async function loadPanelConfigPlanilla() {
     // Todas las cuentas activas ordenadas por código (patrón de selects del repo)
     let cuentas = [];
     try {
-      const ra = await authFetch(`${API_URL}/accounts`);
+      const ra = await authFetch(`${API_URL}/accounts?excludeBlocked=true`);
       cuentas = (await ra.json() || []).filter(a => a.isActive !== false)
         .sort((a, b) => String(a.code).localeCompare(String(b.code), undefined, { numeric: true }));
     } catch { /* sin cuentas */ }

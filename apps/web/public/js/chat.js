@@ -90,7 +90,8 @@ async function selectPaymentMethod(method) {
 async function showClassificationUI(concept) {
   pendingClassification = { concept, input: currentInput };
   try {
-    const res = await authFetch(`${API_URL}/accounts`);
+    // Sin cuentas bloqueadas: no admiten asientos
+    const res = await authFetch(`${API_URL}/accounts?excludeBlocked=true`);
     const accounts = await res.json();
     const pasivos = accounts.filter(a => a.type === 'PASIVO' || a.type === 'GASTO');
 

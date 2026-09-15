@@ -15,7 +15,8 @@ let cargaInicialPickerCallback = null;
 async function loadAllAccountsCargaInicial() {
   if (cargaInicialAccounts.length > 0) return cargaInicialAccounts;
   try {
-    const res = await authFetch(`${API_URL}/accounts`);
+    // Sin cuentas bloqueadas: no admiten asientos (el preview las marcaría igual)
+    const res = await authFetch(`${API_URL}/accounts?excludeBlocked=true`);
     if (res.ok) { cargaInicialAccounts = await res.json(); }
     return cargaInicialAccounts;
   } catch (e) { return []; }
