@@ -122,6 +122,11 @@ authRouter.post('/register', async (req, res) => {
           parentId: null, // se actualiza abajo
           companyId: company.id,
           aliases: acc.aliases || [],
+          // El "Lleva Anexo" de la plantilla SÍ se hereda: se marca una vez en Demo
+          // (p. ej. 6.02.01 Honorarios) y todo cliente nuevo nace con el Anexo puesto.
+          // `isBlocked` NO se copia a propósito: bloquear una cuenta es una decisión
+          // operativa de cada empresa y heredarla le dejaría flujos rotos desde el día 1.
+          requiresAnexo: acc.requiresAnexo,
         },
       });
       accountMap[acc.code] = created.id;
