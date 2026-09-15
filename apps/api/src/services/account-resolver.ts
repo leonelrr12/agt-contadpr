@@ -3,7 +3,7 @@
  * tolerante a typos. La usan:
  * - cobros (cuenta destino del depósito),
  * - import de gastos/compras (columna "Banco/Cuenta" → banco por defecto),
- * - cargas de Planilla/Honorarios (columna "Banco" por fila).
+ * - cargas de Planilla (columna "Banco" por fila).
  */
 
 export interface CompanyAccount {
@@ -156,7 +156,7 @@ export interface PayoutCache {
 }
 
 /**
- * Cadena de pago de una fila (Planilla/Honorarios): banco indicado en la
+ * Cadena de pago de una fila (Planilla): banco indicado en la
  * columna "Banco" (si resuelve en el catálogo) → cuenta de banco por defecto
  * configurada (Company.bancoDefaultId) → respaldo 1.1.02.01. Si el nombre del
  * archivo no resuelve se usa el default y se reporta `unresolvedName`.

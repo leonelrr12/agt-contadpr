@@ -20,7 +20,7 @@ import { clientsRouter } from './routes/clients';
 import { suppliersRouter } from './routes/suppliers';
 import { importRouter } from './routes/import';
 import { planillaRouter } from './routes/planilla';
-import { honorariosRouter } from './routes/honorarios';
+import { honorariosRetiredRouter } from './routes/honorarios-retired';
 import { recurringRouter } from './routes/recurring';
 import { yearCloseRouter } from './routes/year-close';
 import { reconcileRouter } from './routes/reconcile';
@@ -168,7 +168,7 @@ app.use('/api/clients', clientsRouter);
 app.use('/api/suppliers', suppliersRouter);
 app.use('/api/import', importRouter);
 app.use('/api/planilla', planillaRouter);
-app.use('/api/honorarios', honorariosRouter);
+app.use('/api/honorarios', honorariosRetiredRouter);  // modo retirado → 410 con guía
 app.use('/api/recurring', recurringRouter);
 app.use('/api/year-close', yearCloseRouter);
 app.use('/api/reconcile', reconcileRouter);

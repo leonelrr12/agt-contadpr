@@ -332,11 +332,10 @@ async function saveConfig() {
   } catch (e) { await showAlert('Error de conexión'); }
 }
 
-/* ── Administración: Configuración → Cargas (Planilla · Honorarios) ──
- * Cuenta contable por columna de los archivos de Planilla y la cuenta del
- * gasto de Honorarios (Importar → 👷 Planilla / ⚖️ Honorarios). El banco ya
- * no se configura aquí: sale de la columna "Banco" del archivo o de la cuenta
- * de banco por defecto (Configuración). Se guardan en Company vía
+/* ── Administración: Configuración → Cargas (Planilla) ──
+ * Cuenta contable por columna del archivo de Planilla (Importar → 👷 Planilla).
+ * El banco ya no se configura aquí: sale de la columna "Banco" del archivo o de
+ * la cuenta de banco por defecto (Configuración). Se guardan en Company vía
  * PUT /api/config, que valida que cada cuenta exista en la empresa.
  * Formato: [selectId, grupo de la respuesta GET /config, campo de Company] */
 const CARGAS_CONFIG_FIELDS = [
@@ -346,7 +345,6 @@ const CARGAS_CONFIG_FIELDS = [
   ['planilla-ss', 'planilla', 'planillaSSId'],
   ['planilla-se', 'planilla', 'planillaSEId'],
   ['planilla-isr', 'planilla', 'planillaISRId'],
-  ['honorarios-gasto', 'honorarios', 'honorariosGastoId'],
 ];
 
 async function loadPanelConfigPlanilla() {

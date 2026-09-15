@@ -256,9 +256,6 @@
               <label style="padding:6px 12px;border-radius:6px;font-size:12.5px;cursor:pointer;color:#374151" id="import-mode-label-planilla">
                 <input type="radio" name="import-inline-mode" value="planilla" style="display:none"> 👷 Planilla
               </label>
-              <label style="padding:6px 12px;border-radius:6px;font-size:12.5px;cursor:pointer;color:#374151" id="import-mode-label-honorarios">
-                <input type="radio" name="import-inline-mode" value="honorarios" style="display:none"> ⚖️ Honorarios
-              </label>
             </div>
             <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap" id="import-inline-date-label">📅 Fecha:</label>
             <input type="date" id="import-inline-date" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;width:160px">
@@ -386,7 +383,6 @@
           <button class="panel-tab-btn" data-informe="flujo-caja" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">💵 Flujo de Caja</button>
           <button class="panel-tab-btn" data-informe="dashboard" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📈 Dashboard</button>
           <button class="panel-tab-btn" data-informe="proveedores" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🧾 Por Proveedor</button>
-          <button class="panel-tab-btn" data-informe="honorarios" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚖️ Honorarios</button>
           <button class="panel-tab-btn" data-informe="retenciones" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🔖 Retenciones ITBMS</button>
         </div>
         <div id="informes-date-filter" class="hidden" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
@@ -462,7 +458,7 @@
                 </select>
               </div>
               <div style="min-width:100%">
-                <label>Cuenta de banco por defecto (chat/WhatsApp y cargas de Planilla/Honorarios)</label>
+                <label>Cuenta de banco por defecto (chat/WhatsApp y carga de Planilla)</label>
                 <select id="config-banco-default" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit">
                   <option value="">— Sin definir (usa 1.1.02.01) —</option>
                 </select>
@@ -478,7 +474,7 @@
         <!-- Planilla Admin: cuentas contables por columna del archivo de planilla -->
         <div id="planilla-content" class="hidden">
           <div class="admin-form-card">
-            <h4>👷 Cuentas de Cargas (Planilla · Honorarios)</h4>
+            <h4>👷 Cuentas de Planilla</h4>
             <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">Cuenta contable para cada columna del archivo de planilla (carga en Importar → 👷 Planilla). El asiento de cada empleado debita Sueldo, Horas Extras y Décimo III, y acredita SS, SE, ISR y el Neto. El banco del Neto sale de la columna "Banco" del archivo o de la cuenta de banco por defecto (Configuración).</p>
             <div class="form-grid">
               <div>
@@ -504,15 +500,6 @@
               <div>
                 <label>🧾 Impuesto sobre la Renta — ISR (HABER)</label>
                 <select id="planilla-isr" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
-              </div>
-            </div>
-            <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0">
-            <h4>⚖️ Honorarios Profesionales</h4>
-            <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">Cuenta del gasto para la carga de honorarios (Importar → ⚖️ Honorarios). El banco sale de la columna "Banco" del archivo o de la cuenta de banco por defecto (Configuración).</p>
-            <div class="form-grid">
-              <div style="min-width:100%">
-                <label>⚖️ Honorarios Profesionales (DEBE)</label>
-                <select id="honorarios-gasto" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
               </div>
             </div>
             <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
@@ -651,18 +638,17 @@
   <script src="js/core.js?v=78"></script>
   <script src="js/capture.js?v=73"></script>
   <script src="js/capture-qr.js?v=73"></script>
-  <script src="js/chat.js?v=74"></script>
+  <script src="js/chat.js?v=75"></script>
   <script src="js/router.js?v=76"></script>
-  <script src="js/admin.js?v=86"></script>
+  <script src="js/admin.js?v=87"></script>
   <script src="js/init.js?v=73"></script>
   <script src="js/panels-sidebar.js?v=73"></script>
-  <script src="js/import.js?v=85"></script>
+  <script src="js/import.js?v=87"></script>
   <script src="js/planilla.js?v=1"></script>
-  <script src="js/honorarios.js?v=1"></script>
-  <script src="js/carga-inicial.js?v=1"></script>
+  <script src="js/carga-inicial.js?v=2"></script>
   <script src="js/auxiliares-revision.js?v=76"></script>
-  <script src="js/entry-modals.js?v=74"></script>
-  <script src="js/informes.js?v=83"></script>
+  <script src="js/entry-modals.js?v=75"></script>
+  <script src="js/informes.js?v=84"></script>
   <script src="js/tax-calendar.js?v=73"></script>
   <script src="js/salud.js?v=73"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>

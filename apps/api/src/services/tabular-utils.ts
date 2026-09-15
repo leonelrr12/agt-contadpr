@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 
 /**
  * Utilidades compartidas para leer archivos tabulares (CSV/XLSX) de las cargas
- * que NO usan IA (Planilla, Honorarios): lectura tolerante, montos con coma
+ * que NO usan IA (Planilla): lectura tolerante, montos con coma
  * decimal panameña ("400,00") y fechas de Excel sin perder días.
  */
 

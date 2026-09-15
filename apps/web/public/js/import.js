@@ -3,7 +3,7 @@
 let importInlineFile = null;
 let importInlinePreview = null;
 
-/* ── Tipo de importación: transacciones / pagos a facturas / planilla / honorarios ── */
+/* ── Tipo de importación: transacciones / pagos a facturas / planilla ── */
 function importMode() {
   const el = document.querySelector('input[name="import-inline-mode"]:checked');
   return el ? el.value : 'transacciones';
@@ -13,12 +13,11 @@ const IMPORT_MODE_HINTS = {
   transacciones: 'Sube el CSV/Excel con tus transacciones históricas. La IA clasificará cada concepto. En Gastos/Compras, la columna "Estado" (Contado/Crédito) define el pago: "Crédito" carga a Proveedores y exige Nº de factura; Contado/sin estado sale del banco indicado en la columna "Banco/Cuenta" (opcional) o del banco por defecto de Configuración.',
   cobros: 'Pagos/abonos a facturas: columnas Cliente, Fecha de Pago, Cuenta (banco), Factura # y TOTAL. Las filas SIN "Fecha de Pago" y "Cuenta" son facturas aún no pagadas: quedan ⏳ pendientes y se omiten. Puedes re-subir el mismo archivo: los pagos ya aplicados no se duplican (se omiten).',
   planilla: 'Planilla (nómina): columnas QUINCENA, NOMBRE, CEDULA, SUELDO, HORAS EXTRAS, DECIMO, SS, SE, ISR y TOPAL A PAGAR, con "Banco" opcional al final (si no, el banco por defecto de Configuración). Elige el Tipo (Sueldo o Décimo III: son procesos aparte) y configura las cuentas en Administración → Cargas. Un asiento BORRADOR por empleado; re-subir el mismo archivo no duplica.',
-  honorarios: 'Honorarios Profesionales: columnas FECHA, RUC/CÉDULA, NOMBRE, DESCRIPCIÓN/CONCEPTO y MONTO (lo que sale del banco), con "Banco" opcional al final (si no, el banco por defecto de Configuración). Configura la cuenta del gasto en Administración → Cargas. Un asiento BORRADOR por pago; re-subir el mismo archivo no duplica.',
 };
 
 function applyImportModeUI() {
   const mode = importMode();
-  const chipIds = { transacciones: 'import-mode-label-tx', carga: 'import-mode-label-carga', cobros: 'import-mode-label-cobros', planilla: 'import-mode-label-planilla', honorarios: 'import-mode-label-honorarios' };
+  const chipIds = { transacciones: 'import-mode-label-tx', carga: 'import-mode-label-carga', cobros: 'import-mode-label-cobros', planilla: 'import-mode-label-planilla' };
   Object.entries(chipIds).forEach(([m, id]) => {
     const label = document.getElementById(id);
     if (!label) return;
@@ -76,8 +75,6 @@ function loadPanelImport() {
 async function handleImportInlineFile(file) {
   // Modo Planilla: flujo propio (js/planilla.js) — sin IA ni clasificación
   if (importMode() === 'planilla') { importInlineFile = file; return handlePlanillaFile(file); }
-  // Modo Honorarios: flujo propio (js/honorarios.js) — sin IA ni clasificación
-  if (importMode() === 'honorarios') { importInlineFile = file; return handleHonorariosFile(file); }
   importInlineFile = file;
   const mode = importMode();
   const isCobros = mode === 'cobros';
@@ -110,15 +107,6 @@ async function handleImportInlineFile(file) {
       const radio = document.querySelector('input[name="import-inline-mode"][value="cobros"]');
       if (radio) { radio.checked = true; applyImportModeUI(); }
       return handleImportInlineFile(file); // reprocesar en modo cobros
-    }
-    // ¿Archivo de HONORARIOS cargado en modo "Transacciones"? (conceptos que
-    // dicen "honorarios"): en el modo normal la IA lo registra como gasto con
-    // proveedor y se mezclaría con el Informe Por Proveedores. Cambiar SOLO al
-    // chip ⚖️ Honorarios y reprocesar (un clic lo devuelve si no aplica).
-    if (!isCobros && importInlinePreview.detectedHonorariosFile) {
-      const radio = document.querySelector('input[name="import-inline-mode"][value="honorarios"]');
-      if (radio) { radio.checked = true; applyImportModeUI(); }
-      return handleImportInlineFile(file); // reprocesar en modo honorarios
     }
     renderImportInlinePreview();
   } catch (e) { await showAlert('Error de conexión'); resetImportInline(); }
@@ -340,8 +328,6 @@ async function executeImportInline() {
   if (!importInlineFile) return;
   // Carga de Planilla (nómina): ejecución propia en js/planilla.js
   if (importInlinePreview && importInlinePreview.planilla === true) return executePlanillaInline();
-  // Carga de Honorarios: ejecución propia en js/honorarios.js
-  if (importInlinePreview && importInlinePreview.honorarios === true) return executeHonorariosInline();
   const isCobros = importInlinePreview.cobros === true;
   const total = importInlinePreview.totalRows;
   const importDate = document.getElementById('import-inline-date').value;
@@ -452,9 +438,6 @@ function resetImportInline() {
   // Limpiar tarjetas de planilla si existen
   const planillaCards = document.getElementById('import-inline-planilla-cards');
   if (planillaCards) planillaCards.remove();
-  // Limpiar tarjetas de honorarios si existen
-  const honorariosCards = document.getElementById('import-inline-honorarios-cards');
-  if (honorariosCards) honorariosCards.remove();
   // Limpiar aviso de banco no reconocido si existe
   const bankWarn = document.getElementById('import-inline-bank-warn');
   if (bankWarn) bankWarn.remove();
