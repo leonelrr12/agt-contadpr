@@ -87,6 +87,8 @@ model Account {
   companyId String
   isActive  Boolean  @default(true)
   aliases   String[] @default([])  // Alias del motor contable (ej. 'caja', 'ventas')
+  requiresAnexo Boolean @default(false)  // Lleva Anexo: exige RUC/Cédula y Nombre en las cargas
+  isBlocked Boolean @default(false)      // Bloquear asientos: no admite movimientos nuevos
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

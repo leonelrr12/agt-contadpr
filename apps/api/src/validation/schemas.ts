@@ -9,11 +9,15 @@ export const createAccountSchema = z.object({
   name: z.string().min(1, 'Nombre requerido'),
   type: z.enum(['ACTIVO', 'PASIVO', 'PATRIMONIO', 'INGRESO', 'GASTO', 'COSTO']),
   parentId: z.string().nullable().optional(),
+  requiresAnexo: z.boolean().optional(),  // Lleva Anexo DGI
+  isBlocked: z.boolean().optional(),      // Bloquear asientos
 });
 
 export const updateAccountSchema = z.object({
   name: z.string().min(1).optional(),
   isActive: z.boolean().optional(),
+  requiresAnexo: z.boolean().optional(),
+  isBlocked: z.boolean().optional(),
 });
 
 // ── Concepts ──
