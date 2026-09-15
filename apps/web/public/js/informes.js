@@ -232,11 +232,12 @@ async function loadReportResultados() {
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
 
-// Balance General: estado ACUMULADO (a fecha de corte), no de período. Mismo formato
-// que el Estado de Resultados (dos columnas + bloque extra a lo ancho): ACTIVO | PASIVO
-// arriba, CAPITAL debajo con la "Ganancia del periodo" (resultado no cerrado al corte).
-// El backend entrega el detalle YA totalizado a nivel 3 (1.1.02.01 → 1.1.02) y sin
-// subcuentas, así que no se muestra el código de cuenta.
+// Balance General: estado ACUMULADO (a fecha de corte), no de período. Dos columnas
+// como el Estado de Resultados: ACTIVO a la izquierda y PASIVO Y PATRIMONIO a la
+// derecha (el patrimonio va debajo del pasivo, cerrando con "Total Pasivo y
+// Patrimonio", que debe dar igual al Total Activo). El backend entrega el detalle YA
+// totalizado a nivel 3 (1.1.02.01 → 1.1.02) y sin subcuentas, así que no se muestra
+// el código de cuenta. Si el balance no cuadra, se avisa en rojo al final.
 async function loadReportBalanceGeneral() {
   const el = document.getElementById('informes-inline-result');
   try {
@@ -246,43 +247,55 @@ async function loadReportBalanceGeneral() {
     if (!res.ok) { el.innerHTML = '<div class="empty">Error al cargar el reporte</div>'; return; }
     const money = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const fmt = n => Number(n || 0) === 0 ? '—' : money(n);
-    const items = (arr) => (arr || []).map(c => `<tr><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb">${escapeHtml(c.name)}</td><td style="text-align:right;padding:6px 10px;border-bottom:1px solid #e5e7eb;font-weight:600">${fmt(c.saldo)}</td></tr>`).join('');
-    const tabla = (detalle, total, color, etiquetaTotal, extraHtml = '') => `
-      <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.06)">
-        ${items(detalle)}${extraHtml}
-        <tfoot><tr style="border-top:2px solid #1a1a2e;background:#f8fafc"><td style="padding:8px 10px"><strong>${etiquetaTotal}</strong></td><td style="text-align:right;padding:8px 10px"><strong style="color:${color}">${fmt(total)}</strong></td></tr></tfoot>
-      </table>`;
+    const celda = 'padding:6px 10px;border-bottom:1px solid #e5e7eb';
+    const items = (arr) => (arr || []).map(c => `<tr><td style="${celda}">${escapeHtml(c.name)}</td><td style="text-align:right;${celda};font-weight:600">${fmt(c.saldo)}</td></tr>`).join('');
+    const filaTotal = (etiqueta, valor, color, extra = '') => `<tr style="border-top:2px solid #1a1a2e;background:#f8fafc${extra}"><td style="padding:8px 10px"><strong>${etiqueta}</strong></td><td style="text-align:right;padding:8px 10px"><strong style="color:${color}">${fmt(valor)}</strong></td></tr>`;
 
     const ganancia = Number(d.capital?.gananciaPeriodo || 0);
-    const gananciaHtml = `<tr><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb"><em>Ganancia del periodo</em></td><td style="text-align:right;padding:6px 10px;border-bottom:1px solid #e5e7eb;font-weight:600;color:${ganancia >= 0 ? '#2e7d32' : '#c62828'}">${fmt(ganancia)}</td></tr>`;
+    const gananciaHtml = `<tr><td style="${celda}"><em>Ganancia del periodo</em></td><td style="text-align:right;${celda};font-weight:600;color:${ganancia >= 0 ? '#2e7d32' : '#c62828'}">${fmt(ganancia)}</td></tr>`;
 
     const corte = d.periodo?.end ? new Date(d.periodo.end).toLocaleDateString('es-PA') : null;
     const desde = document.getElementById('informes-filter-from')?.value;
     const cab = `<div style="font-size:12px;color:#6b7280;margin-bottom:12px">📅 ${corte ? `Saldo acumulado al ${corte}` : 'Saldo acumulado (todo el histórico)'}${d.periodo?.anioFiscal ? ` · Año fiscal ${d.periodo.anioFiscal}` : ''} · <span title="Cada línea suma las subcuentas de su nivel 3">totalizado por cuenta de nivel 3</span>${desde ? ' · <em>«Desde» no aplica: el balance es acumulado, no de período</em>' : ''}</div>`;
 
     const eq = d.ecuacion || {};
+    const pasivoPatrimonio = eq.pasivoCapital != null ? eq.pasivoCapital : d.pasivos?.total;
+    const subTitulo = `<tr><td colspan="2" style="padding:12px 10px 6px 10px;border-bottom:1px solid #e5e7eb;font-size:12px;font-weight:700;color:#1565c0;text-transform:uppercase;letter-spacing:0.3px">Patrimonio de los Accionistas</td></tr>`;
+
+    // Alerta SOLO si descuadra: cuando cuadra no se muestra nada (lo dice el
+    // "Total Pasivo y Patrimonio" de la columna derecha, que iguala al Activo).
+    const alerta = eq.ok ? '' : `
+      <div style="margin-top:16px;padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;text-align:center;font-size:14px;font-weight:700;color:#b91c1c">
+        ⚠️ El balance NO cuadra: Activo ${money(d.activos?.total)} ≠ Pasivo y Patrimonio ${money(pasivoPatrimonio)} · diferencia ${money(Math.abs(eq.diferencia || 0))}
+      </div>`;
+
     el.innerHTML = informesPeriodoInfo(d) + cab + `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
         <div>
           <h3 style="font-size:14px;color:#2e7d32;margin:0 0 8px 0">🏦 Activo</h3>
-          ${tabla(d.activos?.detalle, d.activos?.total, '#2e7d32', 'Total Activo')}
+          <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.06)">
+            ${items(d.activos?.detalle)}
+            <tfoot>${filaTotal('Total Activo', d.activos?.total, '#2e7d32')}</tfoot>
+          </table>
         </div>
         <div>
-          <h3 style="font-size:14px;color:#c62828;margin:0 0 8px 0">📉 Pasivo</h3>
-          ${tabla(d.pasivos?.detalle, d.pasivos?.total, '#c62828', 'Total Pasivo')}
+          <h3 style="font-size:14px;color:#c62828;margin:0 0 8px 0">📉 Pasivo y Patrimonio</h3>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.06)">
+            ${items(d.pasivos?.detalle)}
+            <tfoot>
+              ${filaTotal('Total Pasivo', d.pasivos?.total, '#c62828')}
+            </tfoot>
+            ${subTitulo}
+            ${items(d.capital?.detalle)}
+            ${gananciaHtml}
+            <tfoot>
+              ${filaTotal('Total Patrimonio', d.capital?.total, '#1565c0')}
+              ${filaTotal('Total Pasivo y Patrimonio', pasivoPatrimonio, '#1a1a2e', ';border-top:3px double #1a1a2e')}
+            </tfoot>
+          </table>
         </div>
       </div>
-      <div style="margin-top:16px">
-        <h3 style="font-size:14px;color:#1565c0;margin:0 0 8px 0">💼 Capital</h3>
-        ${tabla(d.capital?.detalle, d.capital?.total, '#1565c0', 'Total Capital', gananciaHtml)}
-      </div>
-      <div style="margin-top:16px;padding:14px;background:${eq.ok ? '#f0fdf4' : '#fef2f2'};border-radius:8px;text-align:center;font-size:16px;font-weight:700;color:#1a1a2e">
-        ${eq.ok ? '✅ Ecuación balanceada' : `⚠️ Descuadre: <span style="color:#c62828">${money(Math.abs(eq.diferencia || 0))}</span>`}
-        &nbsp;|&nbsp;
-        🏦 Activo: <span style="color:#2e7d32">${money(d.activos?.total)}</span>
-        &nbsp;=&nbsp;
-        📉 Pasivo + 💼 Capital: <span style="color:#1565c0">${money(eq.pasivoCapital)}</span>
-      </div>`;
+      ${alerta}`;
   } catch (e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
 
