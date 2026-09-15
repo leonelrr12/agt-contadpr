@@ -35,6 +35,9 @@ function clickInformeTab(informe) {
   // El botón "Nivel 3" es solo del Balance (conserva su estado al volver)
   const n3btn = document.getElementById('informes-nivel3-btn');
   if (n3btn) n3btn.style.display = informe === 'balance' ? '' : 'none';
+  // Anexos-DGI se pide POR CUENTA: su selector vive en la barra de filtros
+  const anexosSel = document.getElementById('informes-anexos-cuenta');
+  if (anexosSel) anexosSel.style.display = informe === 'proveedores' ? '' : 'none';
   paintNivel3Btn();
   // Mostrar filtro de status solo en Diario
   const statusEl = document.getElementById('informes-filter-status');
@@ -619,28 +622,64 @@ function informesPeriodoInfo(d) {
   return `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">📅 Período mostrado: ${s} — ${e}${af}</div>`;
 }
 
-// ── Reporte por proveedor (facturas DGI — declaración de rentas) ──
+/* ── Anexos-DGI por CUENTA (declaración de rentas) ──
+ * Antes "Por Proveedor": ahora el eje es la cuenta del catálogo, así que se pide
+ * POR CUENTA (sugiere las que llevan el flag 📎 Anexo, pero acepta cualquiera) y
+ * absorbe el retirado informe de Honorarios.
+ * Ojo al elegir: el filtro son las LÍNEAS del asiento que tocan la cuenta, así que
+ * una cuenta de banco lista todo lo que pasó por ella (con su tercero).
+ */
+let _anexosCuentasCargadas = false;
+
+/** Rellena el selector de cuentas: "📎 Con Anexo" (flag) + todas las demás. */
+async function loadAnexosCuentaOptions() {
+  const sel = document.getElementById('informes-anexos-cuenta');
+  if (!sel || _anexosCuentasCargadas) return;
+  try {
+    const res = await authFetch(`${API_URL}/accounts`);
+    const cuentas = (await res.json() || []).filter(a => a.isActive !== false);
+    const conAnexo = cuentas.filter(a => a.requiresAnexo);
+    const resto = cuentas.filter(a => !a.requiresAnexo);
+    const opt = c => `<option value="${c.id}">${escapeHtml(c.code)} — ${escapeHtml(c.name)}</option>`;
+    sel.innerHTML = '<option value="">— Elige una cuenta —</option>'
+      + (conAnexo.length ? `<optgroup label="📎 Con Anexo">${conAnexo.map(opt).join('')}</optgroup>` : '')
+      + `<optgroup label="Todas las cuentas">${resto.map(opt).join('')}</optgroup>`;
+    _anexosCuentasCargadas = true;
+  } catch { /* sin cuentas: queda el placeholder */ }
+}
+
 async function loadReportProveedores() {
   const el = document.getElementById('informes-inline-result');
+  await loadAnexosCuentaOptions();
+  const cuentaId = document.getElementById('informes-anexos-cuenta')?.value || '';
+  if (!cuentaId) {
+    el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Elige una cuenta para ver sus Anexos-DGI.<br><span style="font-size:12px">Las de arriba con 📎 son las que llevan Anexo; también puedes consultar cualquier otra cuenta.</span></div>';
+    return;
+  }
+
   const params = getInformesDateParams();
+  params.set('accountId', cuentaId);
   try {
     const res = await authFetch(`${API_URL}/reports/proveedores?${params.toString()}`);
     if (!res.ok) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar el reporte</div>'; return; }
     const d = await res.json();
+    const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 
-    if (!d.proveedores.length) {
-      el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">No hay facturas con proveedor en el período seleccionado</div>';
+    const cuenta = d.cuenta || {};
+    const cab = `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">📎 Cuenta <strong>${escapeHtml(cuenta.code || '')} — ${escapeHtml(cuenta.name || '')}</strong>`
+      + (cuenta.requiresAnexo ? '' : ' <span style="color:#b45309">(sin el flag "Lleva Anexo")</span>')
+      + `<br>Lista las filas con tercero que tocan esta cuenta${cuenta.requiresAnexo ? '' : ''}; una cuenta de banco incluye todo lo que pasó por ella.</div>`;
+
+    if (!d.terceros || !d.terceros.length) {
+      el.innerHTML = cab + informesPeriodoInfo(d) + '<div style="text-align:center;padding:32px;color:#6b7280">No hay movimientos con tercero en esta cuenta durante el período</div>';
       return;
     }
 
-    const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
     const cards = `
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">
         ${[
-          ['🧾 Proveedores', d.totalProveedores],
-          ['📄 Facturas', d.facturas],
-          ['💰 Subtotal', money(d.subtotal)],
-          ['📊 ITBMS', money(d.itbms)],
+          ['👤 Terceros', d.totalTerceros],
+          ['📄 Movimientos', d.movimientos],
           ['✅ Total', money(d.total)],
         ].map(([label, value]) => `
           <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center">
@@ -649,32 +688,26 @@ async function loadReportProveedores() {
           </div>`).join('')}
       </div>`;
 
-    const rows = d.proveedores.map((p, i) => {
-      const detRows = p.detalle.map(f => [
-        f.invoiceNumber || '—',
-        new Date(f.date).toLocaleDateString('es-PA'),
-        money(f.amount),
-        money(f.itbms),
-        money(f.total),
-      ]);
-      const detFooter = ['Total', '', money(p.subtotal), money(p.itbms), money(p.total)];
-      return {
-        detalleId: `prov-${i}`,
-        detalleHtml: buildInformesTable(['N° Factura', 'Fecha', 'Monto', 'ITBMS', 'Total'], detRows, detFooter),
-        cells: [
-          p.provider,
-          p.ruc || '—',
-          p.facturas,
-          money(p.subtotal),
-          money(p.itbms),
-          money(p.total),
-          `<button onclick="toggleInformesDetalle('prov-${i}', this)" style="padding:4px 10px;font-size:11px;background:#f0f0f0;border:1px solid #d1d5db;border-radius:5px;cursor:pointer">📋 Detalle</button>`,
-        ],
-      };
-    });
-    const footer = ['', '', d.facturas, money(d.subtotal), money(d.itbms), money(d.total), ''];
+    // Una fila por movimiento (mismas columnas que el export); el RUC y el tercero
+    // se escriben una sola vez por grupo y cierran con el subtotal del tercero.
+    const rows = [];
+    for (const t of d.terceros) {
+      t.detalle.forEach((f, i) => {
+        rows.push([
+          i === 0 ? escapeHtml(t.ruc || '—') : '',
+          i === 0 ? `<strong>${escapeHtml(t.tercero)}</strong>` : '',
+          new Date(f.fecha).toLocaleDateString('es-PA'),
+          escapeHtml(f.detalle || '—'),
+          escapeHtml(f.factura || '—'),
+          money(f.monto),
+        ]);
+      });
+      rows.push(['', `<span style="padding-left:24px;color:#6b7280">Subtotal ${escapeHtml(t.tercero)}</span>`, '', '', '', `<strong>${money(t.total)}</strong>`]);
+    }
+    const footer = ['', '', '', '', 'Total', `<strong>${money(d.total)}</strong>`];
 
-    el.innerHTML = informesPeriodoInfo(d) + cards + buildInformesTable(['Proveedor', 'RUC', 'Facturas', 'Subtotal', 'ITBMS', 'Total', ''], rows, footer);
+    el.innerHTML = cab + informesPeriodoInfo(d) + cards
+      + buildInformesTable(['RUC/Cédula', 'Tercero', 'Fecha', 'Detalle', 'Factura', 'Monto'], rows, footer);
   } catch (e) {
     el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar el reporte</div>';
   }

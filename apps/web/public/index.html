@@ -382,7 +382,7 @@
           <button class="panel-tab-btn" data-informe="resultados" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📊 Resultados</button>
           <button class="panel-tab-btn" data-informe="flujo-caja" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">💵 Flujo de Caja</button>
           <button class="panel-tab-btn" data-informe="dashboard" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📈 Dashboard</button>
-          <button class="panel-tab-btn" data-informe="proveedores" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🧾 Por Proveedor</button>
+          <button class="panel-tab-btn" data-informe="proveedores" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚖️ Anexos-DGI</button>
           <button class="panel-tab-btn" data-informe="retenciones" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🔖 Retenciones ITBMS</button>
         </div>
         <div id="informes-date-filter" class="hidden" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
@@ -398,6 +398,9 @@
           </select>
           <button onclick="loadCurrentInformeTab()" style="padding:6px 12px;border:1px solid #1565c0;border-radius:6px;background:#1565c0;color:#fff;cursor:pointer;font-size:12px">🔍 Filtrar</button>
           <button onclick="clearInformesFilters()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;font-size:12px">✕ Limpiar</button>
+          <select id="informes-anexos-cuenta" onchange="loadReportProveedores()" title="Cuenta cuyos movimientos con tercero se listan (las 📎 llevan el flag Anexo)" style="display:none;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;background:#fff;max-width:320px">
+            <option value="">— Elige una cuenta —</option>
+          </select>
           <button id="informes-nivel3-btn" onclick="toggleBalanceNivel3()" title="Resumir el balance por cuenta de nivel 3 (p. ej. 1.1.02), sumando todas sus subcuentas" style="display:none;margin-left:24px;padding:6px 14px;border:1px solid #7dd3fc;border-radius:6px;background:#e0f2fe;color:#0369a1;cursor:pointer;font-size:12px;font-weight:600">📊 Nivel 3</button>
           <span style="flex:1"></span>
           <span id="informes-export-btns"></span>

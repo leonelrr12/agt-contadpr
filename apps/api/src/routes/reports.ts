@@ -135,8 +135,125 @@ async function buildProveedoresReport(prisma: any, companyId: string, startDate?
   };
 }
 
+/**
+ * ANEXOS-DGI: detalle por tercero de una CUENTA del catálogo (Anexo-DGI Fase F).
+ * Sustituye al antiguo informe de Honorarios y convive con Por Proveedores: aquí
+ * el eje es la cuenta (la que el usuario marcó con "Lleva Anexo"), no el proveedor.
+ * - Filas: líneas de asiento que tocan la cuenta (por eso una cuenta de banco
+ *   lista todo lo que la tocó) — se documenta en la UI.
+ * - Las anulaciones no cuentan: journal.ts re-apunta la Transaction al asiento de
+ *   reversión ("ANULACIÓN: …"), que hay que excluir explícitamente.
+ */
+async function buildAnexosDgiReport(
+  prisma: any,
+  companyId: string,
+  opts: {
+    cuenta: { id: string; code: string; name: string; requiresAnexo: boolean };
+    startDate?: string;
+    endDate?: string;
+  },
+) {
+  const { cuenta, startDate, endDate } = opts;
+  const accountId = cuenta.id;
+
+  const where: Record<string, unknown> = {
+    companyId,
+    journalEntry: {
+      is: {
+        status: { notIn: ['RECHAZADO', 'ANULADO'] },
+        isClosing: false,
+        ...(accountId ? { lines: { some: { accountId } } } : {}),
+        // Al anular, journal.ts re-apunta las Transactions al asiento de reversión
+        NOT: { description: { startsWith: 'ANULACIÓN:' } },
+      },
+    },
+  };
+  // Sin filtro de fechas → año fiscal activo (consistente con los demás informes)
+  const anioFiscal = await getAnioFiscal(prisma, companyId);
+  const rango = anioFiscalRange(anioFiscal);
+  const dateFilter = startDate || endDate
+    ? buildDateFilter(startDate, endDate)
+    : { gte: rango.start, lte: rango.end };
+  if (dateFilter) where.date = dateFilter;
+
+  const txs = await prisma.transaction.findMany({
+    where,
+    select: { id: true, date: true, amount: true, metadata: true, journalEntryId: true, type: true },
+    orderBy: { date: 'asc' },
+  });
+
+  // Factura: metadata.invoiceNumber → nº del Invoice/Bill del asiento → metadata.reference
+  const jeIds = [...new Set(txs.map((t: any) => t.journalEntryId).filter(Boolean))];
+  const [invoices, bills] = await Promise.all([
+    jeIds.length > 0 ? prisma.invoice.findMany({ where: { journalEntryId: { in: jeIds } }, select: { journalEntryId: true, number: true } }) : [],
+    jeIds.length > 0 ? prisma.bill.findMany({ where: { journalEntryId: { in: jeIds } }, select: { journalEntryId: true, number: true } }) : [],
+  ]);
+  const auxByJe = new Map<string, string | null>();
+  for (const i of invoices) auxByJe.set(i.journalEntryId, i.number);
+  for (const b of bills) if (!auxByJe.has(b.journalEntryId)) auxByJe.set(b.journalEntryId, b.number);
+
+  const terceros = new Map<string, any>();
+  for (const tx of txs) {
+    let m: any = {};
+    try { m = JSON.parse(tx.metadata || '{}'); } catch {}
+    // Tercero: el proveedor del chat/PDF/import o el nombre de la carga de honorarios
+    const tercero = m.provider || m.nombre || null;
+    if (!tercero) continue;
+    const ruc = m.ruc || null;
+    const factura = m.invoiceNumber || (tx.journalEntryId ? auxByJe.get(tx.journalEntryId) : null) || m.reference || null;
+    const key = `${tercero}|${ruc || ''}`;
+    const t = terceros.get(key) || { tercero, ruc, movimientos: 0, total: 0, detalle: [] };
+    const monto = r2(tx.amount);
+    t.movimientos++;
+    t.total = r2(t.total + monto);
+    t.detalle.push({
+      transactionId: tx.id,
+      fecha: tx.date,
+      detalle: m.concepto || m.description || null,
+      factura,
+      monto,
+    });
+    terceros.set(key, t);
+  }
+
+  const lista = Array.from(terceros.values())
+    .map((t: any) => ({ ...t, detalle: t.detalle.sort((a: any, b: any) => a.fecha - b.fecha) }))
+    .sort((a: any, b: any) => a.tercero.localeCompare(b.tercero));
+
+  const tot = lista.reduce((acc: any, t: any) => ({
+    movimientos: acc.movimientos + t.movimientos,
+    total: r2(acc.total + t.total),
+  }), { movimientos: 0, total: 0 });
+
+  return {
+    reportKind: 'anexos-dgi' as const,   // discrimina la hoja/nombre en export.ts
+    periodo: { start: dateFilter?.gte || null, end: dateFilter?.lte || null, anioFiscal },
+    cuenta,
+    totalTerceros: lista.length,
+    ...tot,
+    terceros: lista,
+  };
+}
+
 reportsRouter.get('/proveedores', async (req, res) => {
-  const { startDate, endDate } = req.query;
+  const { startDate, endDate, accountId } = req.query;
+
+  // Anexos-DGI por cuenta: la cuenta debe ser de la empresa (404 si no)
+  if (accountId) {
+    const cuentaInfo = await req.prisma.account.findFirst({
+      where: { id: String(accountId), companyId: req.user!.companyId },
+      select: { id: true, code: true, name: true, requiresAnexo: true },
+    });
+    if (!cuentaInfo) { res.status(404).json({ error: 'Cuenta no encontrada' }); return; }
+    const report = await buildAnexosDgiReport(req.prisma, req.user!.companyId, {
+      cuenta: cuentaInfo,
+      startDate: startDate as string | undefined,
+      endDate: endDate as string | undefined,
+    });
+    res.json(report);
+    return;
+  }
+
   const report = await buildProveedoresReport(req.prisma, req.user!.companyId, startDate as string | undefined, endDate as string | undefined);
   res.json(report);
 });
@@ -631,7 +748,7 @@ reportsRouter.get('/dashboard', async (req, res) => {
 reportsRouter.get('/export/:type', async (req, res) => {
   const { type } = req.params;
   const format: ExportFormat = (req.query.format as string) === 'csv' ? 'csv' : 'xlsx';
-  const { startDate, endDate, nivel } = req.query;
+  const { startDate, endDate, nivel, accountId } = req.query;
 
   try {
     let data: Record<string, unknown>;
@@ -782,6 +899,20 @@ reportsRouter.get('/export/:type', async (req, res) => {
       }
 
       case 'proveedores': {
+        // Con accountId → Anexos-DGI por cuenta (mismo path y misma pestaña)
+        if (accountId) {
+          const cuentaInfo = await req.prisma.account.findFirst({
+            where: { id: String(accountId), companyId: req.user!.companyId },
+            select: { id: true, code: true, name: true, requiresAnexo: true },
+          });
+          if (!cuentaInfo) { res.status(404).json({ error: 'Cuenta no encontrada' }); return; }
+          data = await buildAnexosDgiReport(req.prisma, req.user!.companyId, {
+            cuenta: cuentaInfo,
+            startDate: startDate as string | undefined,
+            endDate: endDate as string | undefined,
+          });
+          break;
+        }
         data = await buildProveedoresReport(req.prisma, req.user!.companyId, startDate as string | undefined, endDate as string | undefined);
         break;
       }

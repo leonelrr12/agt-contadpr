@@ -354,6 +354,41 @@ export async function exportReport(
 
     case 'proveedores': {
       const d = data as any;
+
+      // Anexos-DGI por cuenta (mismo endpoint; el eje es la cuenta, no el proveedor)
+      if (d.reportKind === 'anexos-dgi') {
+        const cols: ColumnDef[] = [
+          { header: 'RUC/Cédula', key: 'ruc' },
+          { header: 'Tercero', key: 'tercero' },
+          { header: 'Fecha', key: 'date' },
+          { header: 'Detalle', key: 'detalle' },
+          { header: 'Factura', key: 'factura' },
+          { header: 'Monto', key: 'monto' },
+        ];
+        const anexoRows: Record<string, unknown>[] = [];
+        for (const t of d.terceros || []) {
+          for (const f of t.detalle || []) {
+            anexoRows.push({
+              ruc: t.ruc || '—',
+              tercero: t.tercero,
+              date: new Date(f.fecha).toLocaleDateString('es-PA'),
+              detalle: f.detalle || '—',
+              factura: f.factura || '—',
+              monto: f.monto,
+            });
+          }
+        }
+        const anexoFooter = { ruc: '', tercero: '', date: '', detalle: 'Total', factura: '', monto: d.total };
+        const anexoBuf = format === 'xlsx'
+          ? await buildXlsx('Anexos DGI', cols, anexoRows, ['monto'], anexoFooter)
+          : Buffer.from(buildCsv(cols, anexoRows, anexoFooter), 'utf-8');
+        return {
+          buffer: anexoBuf,
+          contentType: format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv',
+          filename: `anexos-dgi-${d.cuenta?.code || 'cuenta'}-${today}.${format}`,
+        };
+      }
+
       const columns: ColumnDef[] = [
         { header: 'Proveedor', key: 'provider' },
         { header: 'RUC', key: 'ruc' },
