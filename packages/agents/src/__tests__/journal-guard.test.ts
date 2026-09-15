@@ -6,9 +6,9 @@ function makePrismaStub() {
     account: {
       findMany: async ({ where }: any) => {
         const all = [
-          { id: 'caja', code: '1.1.01', name: 'Caja', isBlocked: false },
-          { id: 'banco', code: '1.1.02.01', name: 'Banco General', isBlocked: true },
-          { id: 'otra-empresa', code: '1.1.99', name: 'Ajena', isBlocked: true },
+          { id: 'caja', code: '1.1.01', name: 'Caja', isBlocked: false, requiresAnexo: false },
+          { id: 'banco', code: '1.1.02.01', name: 'Banco General', isBlocked: true, requiresAnexo: false },
+          { id: 'otra-empresa', code: '1.1.99', name: 'Ajena', isBlocked: true, requiresAnexo: false },
         ];
         return all.filter(a => a.id !== 'otra-empresa' || where?.companyId !== 'emp-1')
           .filter((a: any) => !where?.id?.in || where.id.in.includes(a.id));
@@ -25,7 +25,7 @@ describe('journal-guard', () => {
   });
 
   it('blockedMessage: null cuando ninguna cuenta está bloqueada', () => {
-    const flags = new Map([['caja', { code: '1.1.01', name: 'Caja', isBlocked: false }]]);
+    const flags = new Map([['caja', { code: '1.1.01', name: 'Caja', isBlocked: false, requiresAnexo: false }]]);
     expect(blockedMessage(flags, ['caja', null, undefined])).toBeNull();
   });
 

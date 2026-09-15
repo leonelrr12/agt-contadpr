@@ -14,7 +14,7 @@
  *  basta con que sepa consultar cuentas. */
 type Db = {
   account: {
-    findMany: (args: any) => Promise<Array<{ id: string; code: string; name: string; isBlocked: boolean }>>;
+    findMany: (args: any) => Promise<Array<{ id: string; code: string; name: string; isBlocked: boolean; requiresAnexo: boolean }>>;
   };
 };
 
@@ -22,6 +22,7 @@ export interface AccountFlags {
   code: string;
   name: string;
   isBlocked: boolean;
+  requiresAnexo: boolean;
 }
 
 /** Carga los flags de las cuentas de la empresa. 1 sola query: los flujos por lote
@@ -33,9 +34,11 @@ export async function loadAccountFlags(
 ): Promise<Map<string, AccountFlags>> {
   const accounts = await client.account.findMany({
     where: { companyId, ...(ids ? { id: { in: ids } } : {}) },
-    select: { id: true, code: true, name: true, isBlocked: true },
+    select: { id: true, code: true, name: true, isBlocked: true, requiresAnexo: true },
   });
-  return new Map(accounts.map(a => [a.id, { code: a.code, name: a.name, isBlocked: a.isBlocked }]));
+  return new Map(accounts.map(a => [a.id, {
+    code: a.code, name: a.name, isBlocked: a.isBlocked, requiresAnexo: a.requiresAnexo,
+  }]));
 }
 
 /** Versión pura (sin BD) para los bucles: devuelve el primer mensaje de error, o null.

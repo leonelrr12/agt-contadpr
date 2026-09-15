@@ -82,3 +82,32 @@ describe('ClassificationAgent', () => {
     expect(result.accountId).toBe('');
   });
 });
+
+// classifyAll (clasificación en lote del import) debe dar EXACTAMENTE lo mismo
+// que classify(): el preview y la ejecución comparten motor (Anexo-DGI Fase D).
+describe('ClassificationAgent.classifyAll (lote)', () => {
+  it('produce el mismo resultado que classify() fila a fila', async () => {
+    const agent = new ClassificationAgent({ prisma: makePrismaStub(), companyId: 'demo-company' });
+    const casos: Array<{ concept: string; type?: string }> = [
+      { concept: 'Combustible', type: 'GASTO' },
+      { concept: 'Factura de electricidad ENSA julio', type: 'GASTO' },
+      { concept: 'gasolina terpel', type: 'GASTO' },
+      { concept: 'concepto que no existe', type: 'GASTO' },
+      { concept: 'algo raro', type: 'INGRESO' },
+      { concept: 'zzz', type: 'VENTA' },
+    ];
+
+    const prefetched = await agent.loadConcepts();
+    const lote = await agent.classifyAll(casos, prefetched);
+    const individual = [];
+    for (const c of casos) individual.push(await agent.classify(c.concept, c.type));
+
+    expect(lote).toEqual(individual);
+  });
+
+  it('carga los conceptos por su cuenta si no se los pasan', async () => {
+    const agent = new ClassificationAgent({ prisma: makePrismaStub(), companyId: 'demo-company' });
+    const [r] = await agent.classifyAll([{ concept: 'Combustible', type: 'GASTO' }]);
+    expect(r.accountId).toBe('acct-combustible');
+  });
+});

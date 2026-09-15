@@ -139,22 +139,20 @@ function renderImportInlinePreview() {
   if (!importInlinePreview) return;
   // Preview de Planilla (nómina): render propio en js/planilla.js
   if (importInlinePreview.planilla === true) return renderPlanillaPreview();
-  // Preview de Honorarios: render propio en js/honorarios.js
-  if (importInlinePreview.honorarios === true) return renderHonorariosPreview();
   const isCobros = importInlinePreview.cobros === true;
   // Limpiar aviso de filas fuera de la muestra de un render previo
   const prevWarn = document.getElementById('import-inline-warn');
   if (prevWarn) prevWarn.remove();
+  // Limpiar aviso de cuentas bloqueadas de un render previo
+  const prevBlocked = document.getElementById('import-inline-blocked');
+  if (prevBlocked) prevBlocked.remove();
   // Limpiar tarjetas extra de cobros de un render previo
   const prevCobrosCards = document.getElementById('import-inline-cobros-cards');
   if (prevCobrosCards) prevCobrosCards.remove();
   // Limpiar tarjetas de planilla de un render previo
   const prevPlanillaCards = document.getElementById('import-inline-planilla-cards');
   if (prevPlanillaCards) prevPlanillaCards.remove();
-  // Limpiar tarjetas de honorarios de un render previo
-  const prevHonorariosCards = document.getElementById('import-inline-honorarios-cards');
-  if (prevHonorariosCards) prevHonorariosCards.remove();
-  // Limpiar aviso de banco no reconocido (planilla/honorarios)
+  // Limpiar aviso de banco no reconocido (planilla)
   const prevBankWarn = document.getElementById('import-inline-bank-warn');
   if (prevBankWarn) prevBankWarn.remove();
 
@@ -180,12 +178,15 @@ function renderImportInlinePreview() {
   if (isCobros && importInlinePreview.cobrosPreview) {
     renderImportCobrosPreview();
   } else {
-    const { totalRows, previewRows, invalidRows = [] } = importInlinePreview;
+    const { totalRows, previewRows, invalidRows = [], blockedRows = [] } = importInlinePreview;
     // El server valida TODAS las filas del archivo (invalidRows), no solo las
     // 20 visibles: los contadores reflejan el archivo completo.
+    // Las filas con cuenta bloqueada tampoco se cargarán: cuentan como problema.
+    const blockedByRow = new Map(blockedRows.map(b => [b.row, b]));
+    const problemRows = new Set([...invalidRows.map(x => x.row), ...blockedByRow.keys()]);
     document.getElementById('import-inline-total').textContent = totalRows;
-    document.getElementById('import-inline-ok').textContent = Math.max(0, totalRows - invalidRows.length);
-    document.getElementById('import-inline-err').textContent = invalidRows.length;
+    document.getElementById('import-inline-ok').textContent = Math.max(0, totalRows - problemRows.size);
+    document.getElementById('import-inline-err').textContent = problemRows.size;
 
     // Aviso si hay incompletas más allá de la muestra de 20
     const beyond = invalidRows.filter(x => x.row > 20);
@@ -197,13 +198,24 @@ function renderImportInlinePreview() {
       document.getElementById('import-inline-summary').after(warn);
     }
 
+    // Aviso de cuentas bloqueadas: esas filas se rechazan al importar
+    if (blockedRows.length > 0) {
+      const warnBlocked = document.createElement('div');
+      warnBlocked.id = 'import-inline-blocked';
+      warnBlocked.style.cssText = 'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px';
+      const cuentas = [...new Set(blockedRows.map(b => `${b.code} — ${b.name}`))].join(' · ');
+      warnBlocked.innerHTML = `⛔ <strong>${blockedRows.length} fila(s) usan cuentas bloqueadas</strong> (#${blockedRows.map(b => b.row).join(', #')}): ${escapeHtml(cuentas)}. No admiten asientos nuevos: desbloquéalas en Administración → Cuentas o cambia la cuenta de esas filas.`;
+      document.getElementById('import-inline-summary').after(warnBlocked);
+    }
+
     const thead = document.getElementById('import-inline-thead');
     thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Pago</th><th>Ref</th><th>RUC</th><th>Concepto</th><th>Cuenta</th><th>Conf</th><th></th></tr>';
     let html = '';
     previewRows.forEach((r, i) => {
       const conf = r.classification;
       const faltantes = r.missing || [];
-      const rowCls = faltantes.length ? ' style="background:#fef2f2"' : '';
+      const bloqueada = blockedByRow.get(i + 1);
+      const rowCls = (faltantes.length || bloqueada) ? ' style="background:#fef2f2"' : '';
       // Monto mostrado = neto + ITBMS (lo que realmente se paga)
       let montoHtml = '—';
       if (r.amount) {
@@ -226,7 +238,7 @@ function renderImportInlinePreview() {
         <td>${escapeHtml(r.concept||'')}</td>
         <td>${conf?escapeHtml(conf.concept):'—'}</td>
         <td>${conf?Math.round(conf.confidence*100)+'%':'—'}</td>
-        <td>${faltantes.length ? `<span style="color:#dc2626;font-size:11px">Falta: ${faltantes.join(', ')}</span>` : ''}</td></tr>`;
+        <td>${bloqueada ? `<span style="color:#dc2626;font-size:11px;font-weight:600" title="La cuenta no admite asientos: se rechazará esta fila al importar">⛔ Bloqueada</span>` : ''}${faltantes.length ? `<span style="color:#dc2626;font-size:11px"> Falta: ${faltantes.join(', ')}</span>` : ''}</td></tr>`;
     });
     document.getElementById('import-inline-tbody').innerHTML = html;
   }

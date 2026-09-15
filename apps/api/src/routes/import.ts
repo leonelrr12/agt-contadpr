@@ -15,6 +15,7 @@ import {
 } from '../services/account-resolver';
 import type { CompanyAccount as CobroAccount } from '../services/account-resolver';
 import { loadAccountFlags, blockedMessage, blockedAccounts } from '../services/journal-guard';
+import { missingAnexoFields } from '../services/anexo-rules';
 
 export const importRouter = Router();
 
@@ -136,35 +137,42 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
     const defaultDate = (req.body.importDate as string) || null;
     const allRows = buildImportRows(parsed.rows, defaultDate, parsed.detectedMapping);
 
-    // Validación estricta sobre TODAS las filas (no solo la muestra de 20):
-    // las incompletas se cuentan y se reportan aunque no se muestren en el preview.
-    const invalidRows: { row: number; missing: string[] }[] = [];
-    allRows.forEach((r, i) => {
-      const missing = missingImportFields(r);
-      if (missing.length > 0) invalidRows.push({ row: i + 1, missing });
-    });
-
-    // Clasificar las primeras 20 filas para el preview
+    // Clasificación de TODO el archivo de una sola pasada (1 query de conceptos,
+    // 1 de flags): la validación de Anexo depende de la cuenta clasificada de cada
+    // fila, así que no basta con clasificar la muestra de 20.
     const classifier = new ClassificationAgent({
       prisma: req.prisma,
       companyId: req.user!.companyId,
+    });
+    const concepts = await classifier.loadConcepts();
+    const classifications = await classifier.classifyAll(
+      allRows.map(r => ({ concept: rowConceptForClassify(r), type: r.type || 'GASTO' })),
+      concepts,
+    );
+    const flags = await loadAccountFlags(req.prisma, req.user!.companyId);
+
+    // Validación estricta sobre TODAS las filas (no solo la muestra de 20):
+    // las incompletas se cuentan y se reportan aunque no se muestren en el preview.
+    const invalidRows: { row: number; missing: string[] }[] = [];
+    const blockedRows: { row: number; code: string; name: string }[] = [];
+    allRows.forEach((r, i) => {
+      const cuenta = flags.get(classifications[i]?.accountId || '');
+      const missing = missingRowFields(r, cuenta);
+      if (missing.length > 0) invalidRows.push({ row: i + 1, missing });
+      if (cuenta?.isBlocked) blockedRows.push({ row: i + 1, code: cuenta.code, name: cuenta.name });
     });
 
     const previewRows = [];
     const conceptColName = parsed.detectedMapping.conceptCol;
     for (let i = 0; i < Math.min(allRows.length, 20); i++) {
       const row = allRows[i];
-      // Si hay columna Concepto explícita, tomar el valor crudo (sin fallback a descripción)
-      // Si no hay columna, dejar null — la clasificación BD se muestra en columna "Cuenta"
+      // Si hay columna Concepto explícita, se muestra el valor crudo en la columna
+      // "Concepto"; si no, null (la cuenta clasificada va en la columna "Cuenta").
       const rawConcept = conceptColName ? (parsed.rows[i]._raw[conceptColName]?.trim() || null) : null;
-      const conceptForClassify = rawConcept || row.description || '';
-      let classification = null;
-      if (conceptForClassify) {
-        classification = await classifier.classify(conceptForClassify, row.type || 'GASTO');
-      }
+      const classification = rowConceptForClassify(row) ? classifications[i] : null;
       previewRows.push({
         ...row,
-        missing: missingImportFields(row),
+        missing: missingRowFields(row, flags.get(classification?.accountId || '')),
         concept: rawConcept,
         classification: classification ? {
           concept: classification.concept,
@@ -180,8 +188,8 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
       previewRows,
       totalRows: parsed.totalRows,
       invalidRows,
+      blockedRows,
       detectedCobrosFile: isCobrosFileHeaders(parsed.headers) || isCobrosFileRows(allRows),
-      detectedHonorariosFile: isHonorariosFileRows(allRows),
     });
   } catch (error: any) {
     console.error('[Import] Preview error:', error);
@@ -269,25 +277,30 @@ function cleanImportError(err: any): string {
 }
 
 /**
- * Validación estricta del import normal (la carga inicial usa su propio
- * endpoint): TODAS las filas deben traer los datos completos.
+ * Validación base del import normal (la carga inicial usa su propio endpoint):
+ * TODAS las filas deben traer fecha, concepto/detalle y monto.
  * Única fuente de verdad — la usa el preview (sobre el archivo completo)
  * y la ejecución.
- * Gastos/Compras al contado no exigen Nº de factura; el crédito (columna
- * Estado = "Crédito" o método CREDITO) sí: queda debiendo al proveedor.
+ * RUC/Cédula, Nombre y Nº de factura NO son universales: los exige la cuenta
+ * cuando lleva Anexo (ver services/anexo-rules.ts).
  */
 function missingImportFields(row: ImportRow): string[] {
   const missing: string[] = [];
   if (!row.date) missing.push('fecha');
   if (!(row.concept || row.description || '').trim()) missing.push('concepto');
   if (!row.amount || row.amount <= 0) missing.push('monto');
-  if (!row.ruc) missing.push('RUC');
-  const typeNorm = (row.type || '').toUpperCase();
-  const esGastoCompra = typeNorm === 'GASTO' || typeNorm === 'COMPRA';
-  if (!row.reference && (!esGastoCompra || row.paymentMethod === 'CREDITO')) {
-    missing.push(esGastoCompra ? 'Nº de factura (obligatorio en crédito)' : 'Nº de factura');
-  }
   return missing;
+}
+
+/** Texto que se clasifica para una fila: MISMA fuente en preview y ejecución
+ *  (si divergen, el preview muestra una cuenta y el asiento cae en otra). */
+function rowConceptForClassify(row: ImportRow): string {
+  return ((row.concept || row.description || '') as string).trim();
+}
+
+/** Validación completa de una fila: base + lo que exija su cuenta con Anexo. */
+function missingRowFields(row: ImportRow, cuenta: { requiresAnexo: boolean } | null | undefined): string[] {
+  return [...missingImportFields(row), ...missingAnexoFields(row, cuenta)];
 }
 
 /**
@@ -318,24 +331,6 @@ function isCobrosFileRows(rows: { concept?: string; description: string }[]): bo
   const signal = rows.filter(isCobrosConcept).length;
   // Archivos de 1-2 filas: todas deben decir cobro (evita falso positivo
   // en lotes mixtos pequeños); con más filas, mayoría estricta.
-  if (rows.length < 3) return signal === rows.length;
-  return signal > rows.length / 2;
-}
-
-/**
- * Detección de archivo de HONORARIOS PROFESIONALES cargado en el modo normal
- * (Transacciones): allí la IA lo registra como GASTO con proveedor y los pagos
- * quedarían mezclados en el Informe Por Proveedores en vez de su informe.
- * Señal de contenido: la mayoría de las filas dicen "honorario(s)" en el
- * concepto o la descripción → el chip ⚖️ Honorarios se activa solo.
- */
-function isHonorariosConcept(row: { concept?: string; description: string }): boolean {
-  return /honorario/i.test(`${row.concept || ''} ${row.description || ''}`);
-}
-
-function isHonorariosFileRows(rows: { concept?: string; description: string }[]): boolean {
-  if (rows.length === 0) return false;
-  const signal = rows.filter(isHonorariosConcept).length;
   if (rows.length < 3) return signal === rows.length;
   return signal > rows.length / 2;
 }
@@ -436,6 +431,12 @@ async function executeImportRows(
   const payoutCache: { accounts: CobroAccount[] | null } = { accounts: null };
   // Cuentas bloqueadas de la empresa: 1 query por lote, reusada fila a fila
   const accountFlags = await loadAccountFlags(prisma, companyId);
+  // Clasificación en lote (1 query de conceptos) alineada por índice con `rows`:
+  // el mismo motor que el preview, para que la cuenta mostrada sea la que se usa.
+  const classifications = await classifier.classifyAll(
+    rows.map(r => ({ concept: rowConceptForClassify(r) || 'Gastos Varios', type: r.type })),
+    await classifier.loadConcepts(),
+  );
 
   // CADA FILA se crea en SU PROPIA transacción. Antes el lote completo corría
   // en un solo $transaction con catch por fila: si cualquier query fallaba,
@@ -463,15 +464,21 @@ async function executeImportRows(
       let classConfidence = 0.9;
 
       if (!accountId) {
-        const concept = row.concept || row.description || 'Gastos Varios';
-        const classResult = await classifier.classify(concept, row.type);
-        if (!classResult.accountId || classResult.confidence < 0.3) {
+        const concept = rowConceptForClassify(row) || 'Gastos Varios';
+        const classResult = classifications[i];
+        if (!classResult?.accountId || classResult.confidence < 0.3) {
           throw new Error(`No se pudo clasificar el concepto "${concept}"`);
         }
         accountId = classResult.accountId;
         // Usar el concepto normalizado de la BD (ej. "Ventas" en vez de "Venta de Calzado")
         classifiedConcept = classResult.concept;
         classConfidence = classResult.confidence;
+      }
+
+      // Cuenta con Anexo: exige RUC/Cédula, Nombre y (en crédito) Nº de factura
+      const missingAnexo = missingAnexoFields(row, accountFlags.get(accountId));
+      if (missingAnexo.length > 0) {
+        throw new Error(`Faltan datos obligatorios (cuenta con Anexo): ${missingAnexo.join(', ')}`);
       }
 
       const dialog = {
@@ -566,6 +573,8 @@ async function executeImportRows(
               const m: Record<string, any> = {};
               if (row.provider) m.provider = row.provider;
               if (row.reference) m.reference = row.reference;
+              // El informe Anexos-DGI lee invoiceNumber (referencia de la factura)
+              if (row.reference) m.invoiceNumber = row.reference;
               if (row.ruc) m.ruc = row.ruc;
               if (row.itbms) m.itbms = row.itbms;
               return JSON.stringify(m);

@@ -316,35 +316,67 @@ export class ClassificationAgent {
     });
   }
 
-  async classify(conceptName: string, transactionType?: string): Promise<ClassificationResult> {
-    const allConcepts = await this.prisma.concept.findMany({
+  /** Conceptos activos de la empresa (1 query). Los flujos por lote la llaman
+   *  UNA vez y reúsan el resultado fila a fila con classifyAll(). */
+  async loadConcepts(): Promise<any[]> {
+    return this.prisma.concept.findMany({
       where: { companyId: this.companyId, isActive: true },
       include: { account: true },
     });
+  }
 
-    if (allConcepts.length === 0) {
-      // Sin conceptos en BD, usar cuenta genérica por tipo
-      const accounts = await this.loadAccounts();
-      const typeToGeneric: Record<string, string> = {
-        INGRESO: 'Otros Ingresos',
-        GASTO: 'Gastos Varios',
-        COMPRA: 'Compra de mercancía',
-        VENTA: 'Ventas',
-        PAGO_PROVEEDOR: 'Proveedores',
-        COBRO_CLIENTE: 'Clientes',
-        PRESTAMO: 'Préstamos Bancarios LP',
-      };
-      const genericName = typeToGeneric[transactionType || ''] || 'Gastos Varios';
-      const genericAccount = accounts.find((a: any) => a.name === genericName);
-      return {
-        concept: conceptName,
-        accountId: genericAccount?.id || '',
-        confidence: genericAccount ? 0.5 : 0,
-      };
+  /** Cuenta genérica por tipo de transacción (último recurso del clasificador). */
+  private genericByType(accounts: any[], conceptName: string, transactionType?: string): ClassificationResult {
+    const typeToGeneric: Record<string, string> = {
+      INGRESO: 'Otros Ingresos',
+      GASTO: 'Gastos Varios',
+      COMPRA: 'Compra de mercancía',
+      VENTA: 'Ventas',
+      PAGO_PROVEEDOR: 'Proveedores',
+      COBRO_CLIENTE: 'Clientes',
+      PRESTAMO: 'Préstamos Bancarios LP',
+    };
+    const genericName = typeToGeneric[transactionType || ''] || 'Gastos Varios';
+    const genericAccount = accounts.find((a: any) => a.name === genericName);
+    return {
+      concept: conceptName,
+      accountId: genericAccount?.id || '',
+      confidence: genericAccount ? 0.5 : 0,
+    };
+  }
+
+  /** Clasificación por lotes sin N queries: recibe los conceptos ya cargados
+   *  (loadConcepts) y devuelve el mismo resultado que classify() para cada ítem.
+   *  Las cuentas genéricas se cargan una sola vez, y solo si alguna fila cae al
+   *  fallback por tipo. */
+  async classifyAll(
+    items: Array<{ concept: string; type?: string }>,
+    prefetched?: any[],
+  ): Promise<ClassificationResult[]> {
+    const allConcepts = prefetched ?? (await this.loadConcepts());
+    let accounts: any[] | null = null;
+    const out: ClassificationResult[] = [];
+    for (const item of items) {
+      const match = this.matchConcept(allConcepts, item.concept);
+      if (match) { out.push(match); continue; }
+      if (!accounts) accounts = await this.loadAccounts();
+      out.push(this.genericByType(accounts, item.concept, item.type));
     }
+    return out;
+  }
 
-    // Construir índice de nombres de concepto para búsqueda rápida
-    const conceptNames = new Set(allConcepts.map((c: any) => c.name.toLowerCase()));
+  async classify(conceptName: string, transactionType?: string): Promise<ClassificationResult> {
+    const allConcepts = await this.loadConcepts();
+    const match = this.matchConcept(allConcepts, conceptName);
+    if (match) return match;
+    // Sin match (o sin conceptos en BD): cuenta genérica por tipo
+    return this.genericByType(await this.loadAccounts(), conceptName, transactionType);
+  }
+
+  /** Pasos 1-4 del clasificador, sin BD. Devuelve null cuando no hay match y
+   *  toca caer a la cuenta genérica por tipo. */
+  private matchConcept(allConcepts: any[], conceptName: string): ClassificationResult | null {
+    if (allConcepts.length === 0) return null;
 
     const lowerName = conceptName.toLowerCase().trim();
 
@@ -441,33 +473,8 @@ export class ClassificationAgent {
       }
     }
 
-    // 5. Fallback a cuenta genérica por tipo de transacción
-    const accounts = await this.loadAccounts();
-    const typeToGeneric: Record<string, string> = {
-      INGRESO: 'Otros Ingresos',
-      GASTO: 'Gastos Varios',
-      COMPRA: 'Compra de mercancía',
-      VENTA: 'Ventas',
-      PAGO_PROVEEDOR: 'Proveedores',
-      COBRO_CLIENTE: 'Clientes',
-      PRESTAMO: 'Préstamos Bancarios LP',
-    };
-    const genericName = typeToGeneric[transactionType || ''] || 'Gastos Varios';
-    const genericAccount = accounts.find((a: any) => a.name === genericName);
-
-    if (genericAccount) {
-      return {
-        concept: conceptName,
-        accountId: genericAccount.id,
-        confidence: 0.5,
-      };
-    }
-
-    return {
-      concept: conceptName,
-      accountId: '',
-      confidence: 0,
-    };
+    // 5. Sin match: lo resuelve el llamador con la cuenta genérica por tipo
+    return null;
   }
 
   async learn(conceptName: string, accountId: string): Promise<void> {
