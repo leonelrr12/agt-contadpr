@@ -1,3 +1,29 @@
+/* Caché de cuentas para los selectores de asiento. Es propia de este archivo a
+ * propósito: la global `cuentasCache` la llena admin.js con el catálogo SIN
+ * filtrar (hay que ver las bloqueadas para poder desbloquearlas), así que
+ * reutilizarla dejaba cuentas bloqueadas en estos combos. */
+let entryCuentasCache = null;
+
+/** Cuentas que admiten asientos (sin bloqueadas), con las cuentas ya usadas por
+ *  `extraEntries` reinyectadas para no cambiarlas en silencio al guardar.
+ *  Se pide en CADA apertura del modal: entre una y otra el usuario pudo bloquear
+ *  una cuenta en Administración y no debe seguir ofreciéndose. Si la petición
+ *  falla se usa la última lista buena (mejor que un combo vacío). */
+async function getEntryAccounts(extraEntries = []) {
+  try {
+    const r = await authFetch(`${API_URL}/accounts?excludeBlocked=true`);
+    const json = await r.json();
+    if (Array.isArray(json)) entryCuentasCache = json;
+  } catch (e) { /* se usa la última lista buena */ }
+  const lista = [...(entryCuentasCache || [])];
+  for (const e of extraEntries) {
+    for (const l of (e?.lines || [])) {
+      if (l.account && !lista.some(a => a.id === l.accountId)) lista.push(l.account);
+    }
+  }
+  return lista.filter(a => a.isActive).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+}
+
 // entry-modals.js (11/14) — modales de edición/corrección de asientos
 /* ── Maquinaria compartida de líneas editables (edit/create de asientos) ── */
 // Expone en window: <ns>Lines, <ns>UpdateLine, <ns>RemoveLine, <ns>AddLine, <ns>UpdateBalance
@@ -65,20 +91,10 @@ async function showEditEntryModal(entryId) {
 
   if (entry.status !== 'BORRADOR') { await showAlert('Solo se pueden editar asientos en BORRADOR'); return; }
 
-  // Asegurar cuentas cargadas (sin las bloqueadas: no admiten asientos)
-  if (!cuentasCache || !cuentasCache.length) {
-    try {
-      const r = await authFetch(`${API_URL}/accounts?excludeBlocked=true`);
-      cuentasCache = await r.json();
-    } catch (e) { /* usar cache vacío */ }
-  }
-  // Las cuentas del asiento que se edita deben seguir disponibles: si alguna se
-  // bloqueó después, se reinyecta para no cambiarla en silencio al guardar
-  // (el backend rechazará el guardado y avisará).
-  for (const l of (entry.lines || [])) {
-    if (l.account && !cuentasCache.some(a => a.id === l.accountId)) cuentasCache.push(l.account);
-  }
-  const activeAccounts = (cuentasCache || []).filter(a => a.isActive).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+  // Cuentas que admiten asientos; las del propio asiento se reinyectan aunque
+  // se hayan bloqueado después (el backend rechazará el guardado y lo dirá, pero
+  // no se cambia la cuenta en silencio).
+  const activeAccounts = await getEntryAccounts([entry]);
 
   const dateStr = entry.date ? new Date(entry.date).toISOString().split('T')[0] : '';
 
@@ -219,19 +235,9 @@ async function showCreateEntryModal(originalEntry, originalEntryId) {
   // CORRECCIÓN (reversión del original + nuevo BORRADOR). Sin argumentos,
   // es el flujo de ASIENTO MANUAL (formulario en blanco → POST /api/journal).
   const isCorrection = !!originalEntry;
-  // Asegurar cuentas cargadas antes de renderizar (sin las bloqueadas)
-  if (!cuentasCache || !cuentasCache.length) {
-    try {
-      const r = await authFetch(`${API_URL}/accounts?excludeBlocked=true`);
-      cuentasCache = await r.json();
-    } catch (e) { /* seguir con cache vacío */ }
-  }
-  // En la corrección se recrea un asiento existente: sus cuentas deben seguir
-  // en la lista aunque se hayan bloqueado después.
-  for (const l of (originalEntry?.lines || [])) {
-    if (l.account && !cuentasCache.some(a => a.id === l.accountId)) cuentasCache.push(l.account);
-  }
-  const activeAccounts = (cuentasCache || []).filter(a => a.isActive).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+  // Cuentas que admiten asientos antes de renderizar. En la corrección, las del
+  // asiento original se reinyectan aunque se hayan bloqueado después.
+  const activeAccounts = await getEntryAccounts([originalEntry]);
 
   const today = new Date().toISOString().split('T')[0];
   const desc = isCorrection ? `CORRECCIÓN: ${originalEntry.description || 'Sin descripción'}` : '';

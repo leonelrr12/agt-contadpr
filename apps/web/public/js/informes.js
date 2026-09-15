@@ -232,9 +232,11 @@ async function loadReportResultados() {
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
 
-// Balance General: estado ACUMULADO (a fecha de corte), no de período. El backend
-// entrega el detalle ya clasificado y la "Ganancia del periodo" (resultado no cerrado
-// al corte), que se pinta como línea dentro de Capital.
+// Balance General: estado ACUMULADO (a fecha de corte), no de período. Mismo formato
+// que el Estado de Resultados (dos columnas + bloque extra a lo ancho): ACTIVO | PASIVO
+// arriba, CAPITAL debajo con la "Ganancia del periodo" (resultado no cerrado al corte).
+// El backend entrega el detalle YA totalizado a nivel 3 (1.1.02.01 → 1.1.02) y sin
+// subcuentas, así que no se muestra el código de cuenta.
 async function loadReportBalanceGeneral() {
   const el = document.getElementById('informes-inline-result');
   try {
@@ -242,31 +244,46 @@ async function loadReportBalanceGeneral() {
     const res = await authFetch(`${API_URL}/reports/balance-general?${params}`);
     const d = await res.json();
     if (!res.ok) { el.innerHTML = '<div class="empty">Error al cargar el reporte</div>'; return; }
-    const fmt = n => Number(n||0)===0 ? '—' : '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-    const filas = arr => (arr||[]).map(c => [escapeHtml(c.code), escapeHtml(c.name), `<span style="font-weight:600">${fmt(c.saldo)}</span>`]);
-    const bloque = (titulo, color, detalle, total, extra) => `
-      <div style="margin-bottom:16px">
-        <h3 style="font-size:14px;color:${color};margin:0 0 8px 0">${titulo}</h3>
-        ${buildInformesTable(['Código','Cuenta','Saldo'], [...filas(detalle), ...(extra||[])],
-          ['', '<span style="padding-left:24px">Total</span>', `<span style="color:${color}">${fmt(total)}</span>`])}
-      </div>`;
+    const money = n => '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmt = n => Number(n || 0) === 0 ? '—' : money(n);
+    const items = (arr) => (arr || []).map(c => `<tr><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb">${escapeHtml(c.name)}</td><td style="text-align:right;padding:6px 10px;border-bottom:1px solid #e5e7eb;font-weight:600">${fmt(c.saldo)}</td></tr>`).join('');
+    const tabla = (detalle, total, color, etiquetaTotal, extraHtml = '') => `
+      <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.06)">
+        ${items(detalle)}${extraHtml}
+        <tfoot><tr style="border-top:2px solid #1a1a2e;background:#f8fafc"><td style="padding:8px 10px"><strong>${etiquetaTotal}</strong></td><td style="text-align:right;padding:8px 10px"><strong style="color:${color}">${fmt(total)}</strong></td></tr></tfoot>
+      </table>`;
+
     const ganancia = Number(d.capital?.gananciaPeriodo || 0);
-    const gananciaFila = ['', '<em>Ganancia del periodo</em>',
-      `<span style="font-weight:600;color:${ganancia>=0?'#2e7d32':'#c62828'}">${fmt(ganancia)}</span>`];
+    const gananciaHtml = `<tr><td style="padding:6px 10px;border-bottom:1px solid #e5e7eb"><em>Ganancia del periodo</em></td><td style="text-align:right;padding:6px 10px;border-bottom:1px solid #e5e7eb;font-weight:600;color:${ganancia >= 0 ? '#2e7d32' : '#c62828'}">${fmt(ganancia)}</td></tr>`;
+
     const corte = d.periodo?.end ? new Date(d.periodo.end).toLocaleDateString('es-PA') : null;
     const desde = document.getElementById('informes-filter-from')?.value;
-    const cab = `<div style="font-size:12px;color:#6b7280;margin-bottom:12px">📅 ${corte ? `Saldo acumulado al ${corte}` : 'Saldo acumulado (todo el histórico)'}${d.periodo?.anioFiscal ? ` · Año fiscal ${d.periodo.anioFiscal}` : ''}${desde ? ' · <em>«Desde» no aplica: el balance es acumulado, no de período</em>' : ''}</div>`;
+    const cab = `<div style="font-size:12px;color:#6b7280;margin-bottom:12px">📅 ${corte ? `Saldo acumulado al ${corte}` : 'Saldo acumulado (todo el histórico)'}${d.periodo?.anioFiscal ? ` · Año fiscal ${d.periodo.anioFiscal}` : ''} · <span title="Cada línea suma las subcuentas de su nivel 3">totalizado por cuenta de nivel 3</span>${desde ? ' · <em>«Desde» no aplica: el balance es acumulado, no de período</em>' : ''}</div>`;
+
     const eq = d.ecuacion || {};
-    const eqCard = `<div style="padding:14px;background:${eq.ok?'#f0fdf4':'#fef2f2'};border-radius:8px;text-align:center;font-size:15px;font-weight:700;color:#1a1a2e">
-        ${eq.ok ? '✅ Ecuación balanceada' : `⚠️ Descuadre: <span style="color:#c62828">${fmt(Math.abs(eq.diferencia||0))}</span>`}
-        &nbsp;|&nbsp; Total Pasivo + Capital: <span style="color:#1565c0">${fmt(eq.pasivoCapital)}</span>
+    el.innerHTML = informesPeriodoInfo(d) + cab + `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <h3 style="font-size:14px;color:#2e7d32;margin:0 0 8px 0">🏦 Activo</h3>
+          ${tabla(d.activos?.detalle, d.activos?.total, '#2e7d32', 'Total Activo')}
+        </div>
+        <div>
+          <h3 style="font-size:14px;color:#c62828;margin:0 0 8px 0">📉 Pasivo</h3>
+          ${tabla(d.pasivos?.detalle, d.pasivos?.total, '#c62828', 'Total Pasivo')}
+        </div>
+      </div>
+      <div style="margin-top:16px">
+        <h3 style="font-size:14px;color:#1565c0;margin:0 0 8px 0">💼 Capital</h3>
+        ${tabla(d.capital?.detalle, d.capital?.total, '#1565c0', 'Total Capital', gananciaHtml)}
+      </div>
+      <div style="margin-top:16px;padding:14px;background:${eq.ok ? '#f0fdf4' : '#fef2f2'};border-radius:8px;text-align:center;font-size:16px;font-weight:700;color:#1a1a2e">
+        ${eq.ok ? '✅ Ecuación balanceada' : `⚠️ Descuadre: <span style="color:#c62828">${money(Math.abs(eq.diferencia || 0))}</span>`}
+        &nbsp;|&nbsp;
+        🏦 Activo: <span style="color:#2e7d32">${money(d.activos?.total)}</span>
+        &nbsp;=&nbsp;
+        📉 Pasivo + 💼 Capital: <span style="color:#1565c0">${money(eq.pasivoCapital)}</span>
       </div>`;
-    el.innerHTML = cab
-      + bloque('ACTIVO', '#2e7d32', d.activos?.detalle, d.activos?.total)
-      + bloque('PASIVO', '#c62828', d.pasivos?.detalle, d.pasivos?.total)
-      + bloque('CAPITAL', '#1565c0', d.capital?.detalle, d.capital?.total, [gananciaFila])
-      + eqCard;
-  } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
+  } catch (e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
 
 // Flujo de Caja: movimientos de efectivo con saldo corrido. Las cuentas incluidas las

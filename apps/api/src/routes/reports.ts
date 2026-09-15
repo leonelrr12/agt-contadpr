@@ -350,6 +350,29 @@ reportsRouter.get('/balance-comprobacion', async (req, res) => {
  * Única fuente de cálculo: la usan el GET /balance-general y el export (antes cada
  * uno recalculaba con signos distintos y los números no coincidían).
  */
+/**
+ * Totaliza el detalle del balance a nivel 3 ("1.1.02.01" → "1.1.02"), con el
+ * nombre del padre del catálogo. El Balance General se presenta SIEMPRE así:
+ * por cuentas de nivel 3, no por subcuenta.
+ * No filtra los grupos que quedan en cero: sus miembros ya venían con saldo.
+ */
+function rollupSaldoNivel3(
+  items: { code: string; name: string; saldo: number }[],
+  namesByCode: Map<string, string>,
+) {
+  const grupos = new Map<string, { code: string; name: string; saldo: number }>();
+  for (const c of items) {
+    const segs = String(c.code || '').split('.').filter(Boolean);
+    if (!segs.length) continue;
+    const key = segs.slice(0, 3).join('.');
+    const g = grupos.get(key) || { code: key, name: namesByCode.get(key) || '', saldo: 0 };
+    g.saldo = r2(g.saldo + c.saldo);
+    if (!g.name) g.name = namesByCode.get(key) || (segs.length <= 3 ? c.name : key);
+    grupos.set(key, g);
+  }
+  return [...grupos.values()].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+}
+
 async function buildBalanceGeneral(prisma: any, companyId: string, endDate?: string) {
   // `|| await` cubre una fecha inválida o un query param repetido (?a=1&a=2 → array)
   const anioFiscal = (endDate && Number(String(endDate).slice(0, 4))) || (await getAnioFiscal(prisma, companyId));
@@ -422,11 +445,22 @@ async function buildBalanceGeneral(prisma: any, companyId: string, endDate?: str
   const porCodigo = (a: any, b: any) => a.code.localeCompare(b.code, undefined, { numeric: true });
   activos.sort(porCodigo); pasivos.sort(porCodigo); capital.sort(porCodigo);
 
+  // Presentación a nivel 3 (nombres del padre desde el catálogo completo: el padre
+  // puede no tener movimientos propios y por eso no está en `accounts`).
+  const catalogo = await prisma.account.findMany({
+    where: { companyId },
+    select: { code: true, name: true },
+  });
+  const namesByCode = new Map<string, string>(catalogo.map((a: any) => [a.code, a.name]));
+  const activosN3 = rollupSaldoNivel3(activos, namesByCode);
+  const pasivosN3 = rollupSaldoNivel3(pasivos, namesByCode);
+  const capitalN3 = rollupSaldoNivel3(capital, namesByCode);
+
   // Los totales suman las filas ya redondeadas para que la columna cuadre a la vista;
   // el descuadre se mide aparte sobre los acumuladores crudos.
-  const totalActivos = r2(activos.reduce((s, a) => s + a.saldo, 0));
-  const totalPasivos = r2(pasivos.reduce((s, a) => s + a.saldo, 0));
-  const totalCuentas = r2(capital.reduce((s, a) => s + a.saldo, 0));
+  const totalActivos = r2(activosN3.reduce((s, a) => s + a.saldo, 0));
+  const totalPasivos = r2(pasivosN3.reduce((s, a) => s + a.saldo, 0));
+  const totalCuentas = r2(capitalN3.reduce((s, a) => s + a.saldo, 0));
   const totalCapital = r2(totalCuentas + gananciaPeriodo);
   const pasivoCapital = r2(totalPasivos + totalCapital);
   // Comprobación real (antes se forzaba el patrimonio a Activos − Pasivos, así que
@@ -436,9 +470,10 @@ async function buildBalanceGeneral(prisma: any, companyId: string, endDate?: str
 
   return {
     periodo: { start: null, end: corte?.lte ?? null, anioFiscal, acumulado: true },
-    activos: { detalle: activos, total: totalActivos },
-    pasivos: { detalle: pasivos, total: totalPasivos },
-    capital: { detalle: capital, totalCuentas, gananciaPeriodo, total: totalCapital },
+    nivel: 3,   // el detalle viene totalizado a nivel 3
+    activos: { detalle: activosN3, total: totalActivos },
+    pasivos: { detalle: pasivosN3, total: totalPasivos },
+    capital: { detalle: capitalN3, totalCuentas, gananciaPeriodo, total: totalCapital },
     ecuacion: { ok: diferencia === 0, pasivoCapital, diferencia },
   };
 }

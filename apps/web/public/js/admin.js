@@ -202,15 +202,16 @@ let cuentasSeleccionablesCache = null;
  *  El catálogo (cuentasCache) NO se filtra a propósito: ahí hay que verlas para
  *  poder desbloquearlas. `extraIds` reinyecta cuentas ya asignadas (p. ej. un
  *  concepto que apunta a una cuenta bloqueada después) marcadas como tal, para
- *  no reasignarlas en silencio al guardar. */
+ *  no reasignarlas en silencio al guardar.
+ *  Se pide en cada apertura del formulario: bloquear una cuenta en el catálogo
+ *  y volver al formulario debe reflejarse. Si falla, usa la última lista buena. */
 async function getCuentasSeleccionables(extraIds = []) {
-  if (!cuentasSeleccionablesCache) {
-    try {
-      const r = await authFetch(`${API_URL}/accounts?excludeBlocked=true`);
-      cuentasSeleccionablesCache = (await r.json() || []).filter(a => a.isActive);
-    } catch { cuentasSeleccionablesCache = []; }
-  }
-  const lista = [...cuentasSeleccionablesCache];
+  try {
+    const r = await authFetch(`${API_URL}/accounts?excludeBlocked=true`);
+    const json = await r.json();
+    if (Array.isArray(json)) cuentasSeleccionablesCache = json.filter(a => a.isActive);
+  } catch { /* se usa la última lista buena */ }
+  const lista = [...(cuentasSeleccionablesCache || [])];
   for (const id of extraIds) {
     if (id && !lista.some(a => a.id === id)) {
       const c = cuentasCache.find(a => a.id === id);
