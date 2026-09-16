@@ -56,6 +56,9 @@ function loadPanelRevision() {
   loadRevisionList();
 }
 
+/** Último resultado de /journal/pendientes: fuente del buscador (filtrar no vuelve a pedir datos). */
+let revisionEntries = [];
+
 async function loadRevisionList() {
   const el = document.getElementById('revision-inline-list');
   // Al refrescar con la lista ya visible no se vacía (evita el parpadeo);
@@ -66,52 +69,90 @@ async function loadRevisionList() {
   try {
     const res = await authFetch(`${API_URL}/journal/pendientes`);
     const d = await res.json();
-    if (!d || !d.length) {
-      el.innerHTML = '<div style="text-align:center;padding:48px;color:#059669;font-size:15px">✅ No hay asientos pendientes de revisión</div>';
-      updateRevisionCount(0);
-      return;
-    }
-    let html = '';
-    for (const e of d) {
-      const date = new Date(e.date).toLocaleDateString('es-PA');
-      let lineasHtml = '';
-      if (e.lines && e.lines.length) {
-        lineasHtml = '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px"><thead><tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280">Cuenta</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280">Débito</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280">Crédito</th></tr></thead><tbody>';
-        for (const l of e.lines) {
-          lineasHtml += `<tr>
-            <td style="padding:4px 8px;border-bottom:1px solid #f0f0f0">${escapeHtml(l.account?.code||'')} — ${escapeHtml(l.account?.name||'')}</td>
-            <td style="text-align:right;padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#2e7d32;font-weight:600">${l.debit ? '$'+l.debit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
-            <td style="text-align:right;padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#c62828;font-weight:600">${l.credit ? '$'+l.credit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
-          </tr>`;
-        }
-        lineasHtml += '</tbody></table>';
-      }
-      html += `<div id="rev-entry-${e.id}" style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:10px">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px">
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:700;font-size:14px">${escapeHtml(e.description||'Sin descripción')}${e.provider ? ` — <span style="font-size:11px;color:#6b7280;font-weight:400">${escapeHtml(e.provider)}</span>` : ''}</div>
-            <div style="font-size:12px;color:#6b7280;margin-top:4px">📅 ${date} · 👤 ${escapeHtml(e.createdBy?.name||'—')} · ${e.lines?.length||0} líneas</div>
-            ${lineasHtml}
-          </div>
-          <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
-            ${getUser()?.role === 'admin' || getUser()?.role === 'superadmin' ? `<button onclick="showEditEntryModal('${e.id}')" style="padding:6px 14px;font-size:12px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✏️ Editar</button>` : ''}
-            <button onclick="reviewApprove('${e.id}')" style="padding:6px 14px;font-size:12px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✅ Aprobar</button>
-            <button onclick="reviewReject('${e.id}')" style="padding:6px 14px;font-size:12px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">❌ Rechazar</button>
-          </div>
-        </div>
-      </div>`;
-    }
-    el.innerHTML = html;
-    updateRevisionCount(d.length);
+    revisionEntries = Array.isArray(d) ? d : [];
+    renderRevisionList();
   } catch (e) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar</div>'; }
 }
 
-/** Subtítulo con el número de asientos pendientes (feedback de cuántos quedan). */
-function updateRevisionCount(n) {
+/** Normaliza para buscar sin distinguir mayúsculas ni tildes ("viatico" → "viático"). */
+function normalizeSearch(s) {
+  return String(s ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+}
+
+/** ¿El asiento casa con el buscador? Todas las palabras deben aparecer en la
+ *  descripción, el proveedor o alguna de sus cuentas (código o nombre), así
+ *  "planilla agosto" exige ambas y "viatico" encuentra "Viático". */
+function entryMatches(e, terms) {
+  if (!terms.length) return true;
+  const hay = normalizeSearch([
+    e.description,
+    e.provider,
+    ...(e.lines || []).flatMap(l => [l.account?.code, l.account?.name]),
+  ].join(' '));
+  return terms.every(t => hay.includes(t));
+}
+
+/** Pinta la lista ya cargada aplicando el filtro del buscador (sin volver a pedir datos). */
+function renderRevisionList() {
+  const el = document.getElementById('revision-inline-list');
+  if (!el) return;
+  const raw = document.getElementById('revision-search')?.value.trim() || '';
+  const terms = normalizeSearch(raw).split(/\s+/).filter(Boolean);
+  const shown = revisionEntries.filter(e => entryMatches(e, terms));
+
+  if (!revisionEntries.length) {
+    el.innerHTML = '<div style="text-align:center;padding:48px;color:#059669;font-size:15px">✅ No hay asientos pendientes de revisión</div>';
+    updateRevisionCount(0, 0);
+    return;
+  }
+  if (!shown.length) {
+    el.innerHTML = `<div style="text-align:center;padding:48px;color:#6b7280;font-size:14px">🔍 Sin coincidencias para «${escapeHtml(raw)}»<br><span style="font-size:12px">Prueba con otra palabra o borra el buscador</span></div>`;
+    updateRevisionCount(0, revisionEntries.length);
+    return;
+  }
+  el.innerHTML = shown.map(revisionEntryCard).join('');
+  updateRevisionCount(shown.length, revisionEntries.length);
+}
+
+/** Tarjeta de un asiento pendiente. */
+function revisionEntryCard(e) {
+  const date = new Date(e.date).toLocaleDateString('es-PA');
+  let lineasHtml = '';
+  if (e.lines && e.lines.length) {
+    lineasHtml = '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px"><thead><tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280">Cuenta</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280">Débito</th><th style="text-align:right;padding:4px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280">Crédito</th></tr></thead><tbody>';
+    for (const l of e.lines) {
+      lineasHtml += `<tr>
+        <td style="padding:4px 8px;border-bottom:1px solid #f0f0f0">${escapeHtml(l.account?.code||'')} — ${escapeHtml(l.account?.name||'')}</td>
+        <td style="text-align:right;padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#2e7d32;font-weight:600">${l.debit ? '$'+l.debit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
+        <td style="text-align:right;padding:4px 8px;border-bottom:1px solid #f0f0f0;color:#c62828;font-weight:600">${l.credit ? '$'+l.credit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
+      </tr>`;
+    }
+    lineasHtml += '</tbody></table>';
+  }
+  return `<div id="rev-entry-${e.id}" style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:10px">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:14px">${escapeHtml(e.description||'Sin descripción')}${e.provider ? ` — <span style="font-size:11px;color:#6b7280;font-weight:400">${escapeHtml(e.provider)}</span>` : ''}</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:4px">📅 ${date} · 👤 ${escapeHtml(e.createdBy?.name||'—')} · ${e.lines?.length||0} líneas</div>
+        ${lineasHtml}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+        ${getUser()?.role === 'admin' || getUser()?.role === 'superadmin' ? `<button onclick="showEditEntryModal('${e.id}')" style="padding:6px 14px;font-size:12px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✏️ Editar</button>` : ''}
+        <button onclick="reviewApprove('${e.id}')" style="padding:6px 14px;font-size:12px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✅ Aprobar</button>
+        <button onclick="reviewReject('${e.id}')" style="padding:6px 14px;font-size:12px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">❌ Rechazar</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/** Subtítulo con el número de asientos (feedback de cuántos quedan). */
+function updateRevisionCount(shown, total) {
   const sub = document.getElementById('revision-subtitle');
-  if (sub) sub.textContent = n > 0
-    ? `${n} asiento(s) pendiente(s) de revisión por el contador`
-    : 'Asientos pendientes de revisión por el contador';
+  if (!sub) return;
+  if (!total) { sub.textContent = 'Asientos pendientes de revisión por el contador'; return; }
+  sub.textContent = shown === total
+    ? `${total} asiento(s) pendiente(s) de revisión por el contador`
+    : `${shown} de ${total} asiento(s) coinciden con el filtro`;
 }
 
 /**
@@ -120,8 +161,10 @@ function updateRevisionCount(n) {
  * el mensaje de "no hay pendientes". (El botón 🔄 Actualizar trae nuevas.)
  */
 function removeRevisionEntry(id) {
+  // Sale también del cache: si no, al escribir en el buscador reaparecería.
+  revisionEntries = revisionEntries.filter(e => e.id !== id);
   const card = document.getElementById(`rev-entry-${id}`);
-  if (!card) return;
+  if (!card) { renderRevisionList(); return; }
   card.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
   card.style.opacity = '0';
   card.style.transform = 'translateX(16px)';
@@ -129,10 +172,10 @@ function removeRevisionEntry(id) {
     card.remove();
     const el = document.getElementById('revision-inline-list');
     const restantes = el.querySelectorAll('[id^="rev-entry-"]').length;
-    if (restantes === 0) {
-      el.innerHTML = '<div style="text-align:center;padding:48px;color:#059669;font-size:15px">✅ No hay asientos pendientes de revisión</div>';
-    }
-    updateRevisionCount(restantes);
+    // Sin tarjetas en pantalla se repinta el estado vacío: sin pendientes, o
+    // sin coincidencias si el filtro dejó fuera a los que quedan.
+    if (restantes === 0) renderRevisionList();
+    else updateRevisionCount(restantes, revisionEntries.length);
   }, 250);
 }
 

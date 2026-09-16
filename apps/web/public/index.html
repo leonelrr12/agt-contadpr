@@ -366,7 +366,10 @@
             <input type="checkbox" id="revision-oneclick" style="cursor:pointer"> ⚡ Aprobar con 1-click
           </label>
         </div>
-        <p id="revision-subtitle" style="margin:0 0 20px 0;color:#6b7280;font-size:13px">Asientos pendientes de revisión por el contador</p>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+          <p id="revision-subtitle" style="margin:0;color:#6b7280;font-size:13px">Asientos pendientes de revisión por el contador</p>
+          <input type="search" id="revision-search" oninput="renderRevisionList()" placeholder="🔍 Filtrar por descripción, proveedor o cuenta..." style="padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12.5px;flex:0 1 320px;min-width:220px">
+        </div>
         <div id="revision-inline-list">
           <div style="text-align:center;padding:32px;color:#6b7280">Cargando...</div>
         </div>
@@ -647,7 +650,7 @@
   <script src="js/import.js?v=88"></script>
   <script src="js/planilla.js?v=2"></script>
   <script src="js/carga-inicial.js?v=2"></script>
-  <script src="js/auxiliares-revision.js?v=77"></script>
+  <script src="js/auxiliares-revision.js?v=78"></script>
   <script src="js/entry-modals.js?v=76"></script>
   <script src="js/informes.js?v=91"></script>
   <script src="js/tax-calendar.js?v=73"></script>
