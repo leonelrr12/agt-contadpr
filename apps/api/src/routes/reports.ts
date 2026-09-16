@@ -895,7 +895,18 @@ reportsRouter.get('/export/:type', async (req, res) => {
               break;
           }
         }
+        // Período para el encabezado del archivo (empresa / ESTADO DE RESULTADOS /
+        // período): el del filtro cuando el usuario lo puso —el «desde» cae al inicio
+        // del ejercicio si solo filtró el «hasta»— y si no el ejercicio en curso,
+        // igual que el GET y la pantalla.
+        const rangoFiltro = dateFilter as { gte?: Date; lte?: Date } | undefined;
+        const conFiltro = !!(startDate || endDate);
         data = {
+          periodo: {
+            start: (conFiltro && rangoFiltro?.gte) || rango.start,
+            end: (conFiltro && rangoFiltro?.lte) || rango.end,
+            anioFiscal,
+          },
           ingresos: { detalle: ingresos, total: totalIngresos },
           costos: { detalle: costos, total: totalCostos },
           gananciaBruta: totalIngresos - totalCostos,
