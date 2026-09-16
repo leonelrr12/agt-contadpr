@@ -401,11 +401,21 @@ planillaRouter.post('/execute-all', upload.single('file'), async (req, res) => {
         if (lines.length < 2 || Math.abs(totalDebit - totalCredit) > PLANILLA_EPS) {
           throw new Error(`Asiento no balanceado (débito $${totalDebit.toFixed(2)} ≠ crédito $${totalCredit.toFixed(2)})`);
         }
-        // Residuo de redondeo (≤ 1 céntimo): se absorbe en la línea de mayor
-        // monto del DEBE — el neto al banco y las retenciones van exactos.
-        if (Math.abs(totalDebit - totalCredit) > 0.001) {
-          const mayorDebe = lines.filter(l => l.debit > 0).sort((a, b) => b.debit - a.debit)[0];
-          if (mayorDebe) mayorDebe.debit = r2(mayorDebe.debit + (totalCredit - totalDebit));
+        // Residuo de redondeo (≤ 1 céntimo): lo absorbe SS por Pagar. El Sueldo,
+        // las demás percepciones y el neto al banco van EXACTOS como en el
+        // archivo (el SS de la hoja suele salir con un redondeo distinto: 38.03
+        // vs 38.02). Sin retenciones donde absorberlo se rechaza la fila, antes
+        // que alterar en silencio un monto del archivo.
+        const residuo = r2(totalDebit - totalCredit);
+        if (Math.abs(residuo) > 0.001) {
+          // SS por Pagar primero; si la fila no lo trae, SE y luego ISR.
+          const target = [cuentas.ss, cuentas.se, cuentas.isr]
+            .map(id => lines.find(l => l.accountId === id && l.credit + residuo > 0))
+            .find(Boolean);
+          if (!target) {
+            throw new Error(`La fila no cuadra por $${Math.abs(residuo).toFixed(2)} y no tiene SS/SE/ISR donde absorberlo: revisa los montos del archivo`);
+          }
+          target.credit = r2(target.credit + residuo);
         }
 
         const prefix = tipo === 'DECIMO' ? 'Décimo III de' : 'Planilla de';
@@ -440,6 +450,9 @@ planillaRouter.post('/execute-all', upload.single('file'), async (req, res) => {
               journalEntryId: created.id,
               // Sin "provider" a propósito: la planilla no es una compra a
               // proveedor y no debe aparecer en el Informe Por Proveedores.
+              // Los montos van tal cual el archivo (aunque el asiento haya
+              // ajustado SS por 1 céntimo): con ellos se calcula la clave de
+              // dedupe, y debe seguir casando con la del archivo re-subido.
               metadata: JSON.stringify({
                 source: 'planilla',
                 tipo,
