@@ -213,14 +213,14 @@ export class OrchestratorAgent {
       classification.concept.toLowerCase() !== dialog.concept.toLowerCase()
       ? ` (${classification.concept})` : '';
     const summaryParts = [
-      `**${typeLabels[dialog.type] || dialog.type}**: ${dialog.concept}${classifiedLabel} por **$${dialog.amount}**${dialog.itbmsAmount ? ` (+ ITBMS $${dialog.itbmsAmount})` : ''}`,
+      `**${typeLabels[dialog.type] || dialog.type}**: ${dialog.concept}${classifiedLabel} por **$${dialog.amount.toFixed(2)}**${dialog.itbmsAmount ? ` (+ ITBMS $${dialog.itbmsAmount.toFixed(2)})` : ''}`,
     ];
     if (dialog.provider) summaryParts.push(`Proveedor: **${dialog.provider}**`);
     if (dialog.paymentMethod) summaryParts.push(`Pago con: **${dialog.paymentMethod}**`);
     summaryParts.push('');
     summaryParts.push('**Asiento contable:**');
-    for (const d of entry.debit) summaryParts.push(`  Débito: ${d.name} — $${d.amount}`);
-    for (const c of entry.credit) summaryParts.push(`  Crédito: ${c.name} — $${c.amount}`);
+    for (const d of entry.debit) summaryParts.push(`  Débito: ${d.name} — $${d.amount.toFixed(2)}`);
+    for (const c of entry.credit) summaryParts.push(`  Crédito: ${c.name} — $${c.amount.toFixed(2)}`);
 
     return {
       plan,
@@ -432,8 +432,8 @@ export class OrchestratorAgent {
       lines.push(`🔖 Retención ITBMS: **$${ret.toFixed(2)}** (crédito fiscal${autoMarcar ? ' — el cliente quedará marcado como agente de retención' : ''})`);
     }
     lines.push('', '**Asiento contable:**');
-    for (const d of entry.debit) lines.push(`  Débito: ${d.name} — $${d.amount}`);
-    for (const c of entry.credit) lines.push(`  Crédito: ${c.name} — $${c.amount}`);
+    for (const d of entry.debit) lines.push(`  Débito: ${d.name} — $${d.amount.toFixed(2)}`);
+    for (const c of entry.credit) lines.push(`  Crédito: ${c.name} — $${c.amount.toFixed(2)}`);
     lines.push('', '¿Confirmas? Responde **OK** o cancela con **XX**.');
 
     plan.entry = entry;

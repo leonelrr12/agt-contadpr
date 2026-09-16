@@ -399,7 +399,7 @@ planillaRouter.post('/execute-all', upload.single('file'), async (req, res) => {
         const totalDebit = r2(lines.reduce((s, l) => s + l.debit, 0));
         const totalCredit = r2(lines.reduce((s, l) => s + l.credit, 0));
         if (lines.length < 2 || Math.abs(totalDebit - totalCredit) > PLANILLA_EPS) {
-          throw new Error(`Asiento no balanceado (débito $${totalDebit} ≠ crédito $${totalCredit})`);
+          throw new Error(`Asiento no balanceado (débito $${totalDebit.toFixed(2)} ≠ crédito $${totalCredit.toFixed(2)})`);
         }
         // Residuo de redondeo (≤ 1 céntimo): se absorbe en la línea de mayor
         // monto del DEBE — el neto al banco y las retenciones van exactos.

@@ -171,14 +171,14 @@ export async function processWhatsAppPDF(
     if (pdfData.provider) baseParts.push(`🏢 *Proveedor*: ${pdfData.provider}`);
     if (pdfData.ruc) baseParts.push(`🔢 *RUC*: ${pdfData.ruc}`);
     if (pdfData.invoiceNumber) baseParts.push(`📋 *Factura #*: ${pdfData.invoiceNumber}`);
-    if (pdfData.total) baseParts.push(`💰 *Total*: $${pdfData.total}`);
-    if (pdfData.itbms) baseParts.push(`📊 *ITBMS*: $${pdfData.itbms}`);
+    if (pdfData.total) baseParts.push(`💰 *Total*: $${Number(pdfData.total).toFixed(2)}`);
+    if (pdfData.itbms) baseParts.push(`📊 *ITBMS*: $${Number(pdfData.itbms).toFixed(2)}`);
     if (pdfData.date) baseParts.push(`📅 *Fecha*: ${pdfData.date}`);
 
     // Input sintético: solo proveedor y monto (items van en ocrContext para clasificar)
     const parts: string[] = ['compré'];
     if (pdfData.provider) parts.push(`en ${pdfData.provider}`);
-    if (pdfData.total) parts.push(`$${pdfData.total}`);
+    if (pdfData.total) parts.push(`$${Number(pdfData.total).toFixed(2)}`);
     const syntheticInput = parts.join(' ');
 
     const ocrContext: Record<string, any> = {};
@@ -318,7 +318,7 @@ export async function processWhatsAppMessage(
 
     let reprocessText = getOriginalInput(chatId);
     if (!reprocessText) {
-      reprocessText = `compré ${ctx.concept || 'producto'} $${ctx.amount || 0} ${paymentReply}`;
+      reprocessText = `compré ${ctx.concept || 'producto'} $${Number(ctx.amount || 0).toFixed(2)} ${paymentReply}`;
     }
     return await processWithOrchestrator(prisma, chatId, link, reprocessText, { messages: [], extractedData: ctx });
   }
@@ -680,7 +680,7 @@ async function advanceAfterCategory(prisma: any, chatId: string, link: any, waSe
   }
 
   // Todo completo: re-ejecutar orquestador con contexto completo para obtener confirmación
-  const reprocessText = getOriginalInput(chatId) || `compré ${ctx.concept} $${ctx.amount || 0} ${ctx.paymentMethod}`;
+  const reprocessText = getOriginalInput(chatId) || `compré ${ctx.concept} $${Number(ctx.amount || 0).toFixed(2)} ${ctx.paymentMethod}`;
   const { OrchestratorAgent: OA3 } = await import('@agt-contador/agents');
   const o3 = new OA3({
     prisma, companyId: link.companyId,
@@ -700,7 +700,7 @@ async function advanceAfterCategory(prisma: any, chatId: string, link: any, waSe
   if (missing.includes('concept_category')) {
     // El concepto ya fue seleccionado — forzar confirmación
     setPendingResult(chatId, result3.result);
-    return result3.prompt || `✅ *${ctx.concept}* — $${ctx.amount}\n\n✏️ Escribe *OK* para guardar, o *XX* para descartar.`;
+    return result3.prompt || `✅ *${ctx.concept}* — $${Number(ctx.amount).toFixed(2)}\n\n✏️ Escribe *OK* para guardar, o *XX* para descartar.`;
   }
 
   if (result3.prompt) return result3.prompt;

@@ -165,10 +165,10 @@ async function finalizeCapture(prefix, data) {
 
   const conceptLabel = (dialogContext.concept && dialogContext.concept !== 'Gastos Varios') ? dialogContext.concept : 'productos';
   let message = f.provider ? `Compré ${conceptLabel} en ${f.provider}` : `Compré ${conceptLabel}`;
-  if (f.total) message += ` por $${f.total}`;
+  if (f.total) message += ` por $${Number(f.total).toFixed(2)}`;
   if (f.ruc) message += ` RUC ${f.ruc}`;
   if (f.invoiceNumber) message += `, factura ${f.invoiceNumber}`;
-  if (hasItbms && f.subtotal) message += ` (subtotal $${f.subtotal}, ITBMS $${f.itbms})`;
+  if (hasItbms && f.subtotal) message += ` (subtotal $${Number(f.subtotal).toFixed(2)}, ITBMS $${Number(f.itbms).toFixed(2)})`;
 
   document.getElementById(`${prefix}-result`).classList.add('hidden');
   document.getElementById(`${prefix}-upload`).classList.add('hidden');

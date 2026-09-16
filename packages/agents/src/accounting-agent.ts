@@ -55,7 +55,7 @@ export class AccountingAgent {
     const entry: AccountingEntry = {
       debit: [],
       credit: [],
-      description: `${dialog.concept || dialog.description} — $${dialog.amount}`,
+      description: `${dialog.concept || dialog.description} — $${dialog.amount.toFixed(2)}`,
     };
     const itbmsRate = dialog.itbmsRate ?? getItbmsRate();
     const useItbms = dialog.itbmsRate !== undefined || (process.env.ITBMS_ENABLED === 'true');
@@ -77,7 +77,7 @@ export class AccountingAgent {
         entry.debit.push({ accountId: classification.accountId, name: classification.concept, amount: netAmount });
         if (hasItbms) {
           entry.debit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: dialog.itbmsAmount! });
-          entry.description = `${dialog.concept || dialog.description} — $${dialog.amount} + ITBMS $${dialog.itbmsAmount}`;
+          entry.description = `${dialog.concept || dialog.description} — $${dialog.amount.toFixed(2)} + ITBMS $${dialog.itbmsAmount!.toFixed(2)}`;
         }
         if (dialog.paymentMethod === 'TARJETA_CREDITO') {
           entry.credit.push({ accountId: 'tarjeta-credito', name: 'Tarjetas de Crédito', amount: totalAmount });
@@ -102,7 +102,7 @@ export class AccountingAgent {
         entry.credit.push({ accountId: classification.accountId, name: classification.concept, amount: dialog.amount });
         if (itbmsAmount > 0) {
           entry.credit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: itbmsAmount });
-          entry.description = `${dialog.type}: ${dialog.concept || dialog.description} - $${dialog.amount} + ITBMS $${itbmsAmount}`;
+          entry.description = `${dialog.type}: ${dialog.concept || dialog.description} - $${dialog.amount.toFixed(2)} + ITBMS $${itbmsAmount.toFixed(2)}`;
         }
         break;
       }
@@ -112,7 +112,7 @@ export class AccountingAgent {
           // Declara: ITBMS separado como crédito fiscal
           entry.debit.push({ accountId: 'inventario-mercancia', name: 'Inventario de Mercancía', amount: netAmount });
           entry.debit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: itbmsAmount });
-          entry.description = `${dialog.type}: ${dialog.concept || dialog.description} - $${netAmount} + ITBMS $${itbmsAmount}`;
+          entry.description = `${dialog.type}: ${dialog.concept || dialog.description} - $${netAmount.toFixed(2)} + ITBMS $${itbmsAmount.toFixed(2)}`;
         } else {
           // No declara: ITBMS como parte del costo
           entry.debit.push({ accountId: 'inventario-mercancia', name: 'Inventario de Mercancía', amount: r2(netAmount + itbmsAmount) });
@@ -153,7 +153,7 @@ export class AccountingAgent {
       case 'PAGO_ITBMS': {
         entry.debit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: dialog.amount });
         entry.credit.push({ accountId: 'banco-general', name: 'Bancos', amount: dialog.amount });
-        entry.description = `Pago de ITBMS a DGI - $${dialog.amount}`;
+        entry.description = `Pago de ITBMS a DGI - $${dialog.amount.toFixed(2)}`;
         break;
       }
     }

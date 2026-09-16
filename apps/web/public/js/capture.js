@@ -191,7 +191,7 @@ async function sendOCRResult() {
   const conceptLabel = (dialogContext.concept && dialogContext.concept !== 'Gastos Varios') ? dialogContext.concept : 'productos';
   if (provider) parts.push(`Compré ${conceptLabel} en ${provider}`);
   else parts.push(`Compré ${conceptLabel}`);
-  if (total) parts.push(`por $${total}`);
+  if (total) parts.push(`por $${Number(total).toFixed(2)}`);
 
   const text = parts.join(' ');
 

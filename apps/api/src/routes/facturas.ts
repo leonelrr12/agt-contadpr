@@ -148,7 +148,7 @@ facturasRouter.post('/', requireRole('admin', 'contador', 'superadmin'), require
       lineas.push({ accountId: ventasId, debit: 0, credit: subtotal });
       if (itbms > 0) lineas.push({ accountId: itbmsPorPagarId, debit: 0, credit: itbms });
 
-      const desc = `Venta: ${client.name} - ${number} - $${total}`;
+      const desc = `Venta: ${client.name} - ${number} - $${Number(total).toFixed(2)}`;
       const blocked = await checkNotBlocked(tx, companyId, lineas.map((l: any) => l.accountId));
       if (blocked) throw Object.assign(new Error(blocked), { status: 400 });
 

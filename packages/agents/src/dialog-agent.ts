@@ -403,7 +403,7 @@ export class DialogAgent {
       ruc: (prev as any)?.ruc || (extracted as any).ruc || null,
       invoiceNumber: (prev as any)?.invoiceNumber || (extracted as any).invoiceNumber || null,
       suggestedResponse: missingFields.length === 0
-        ? `He entendido: ${type === 'VENTA' ? 'Venta' : type === 'GASTO' ? 'Gasto' : type} de ${concept} por $${amount}${paymentMethod ? ` pagado con ${paymentMethod}` : ''}${itbms ? ` (ITBMS ${(itbmsRate! * 100).toFixed(0)}% incluido)` : ''}. ¿Confirmas?`
+        ? `He entendido: ${type === 'VENTA' ? 'Venta' : type === 'GASTO' ? 'Gasto' : type} de ${concept} por $${amount.toFixed(2)}${paymentMethod ? ` pagado con ${paymentMethod}` : ''}${itbms ? ` (ITBMS ${(itbmsRate! * 100).toFixed(0)}% incluido)` : ''}. ¿Confirmas?`
         : `Necesito más información: ${missingFields.join(', ')}`,
     };
   }

@@ -291,7 +291,7 @@ function handleLocalProcessing(input) {
   let response = `📋 He entendido lo siguiente:\n\n` +
     `• Tipo: **${type}**\n` +
     `• Concepto: **${concept || '—'}**\n` +
-    `• Monto: **${amount ? '$' + amount : '—'}**\n` +
+    `• Monto: **${amount ? '$' + Number(amount).toFixed(2) : '—'}**\n` +
     `• Pago: **${paymentMethod || '—'}**\n`;
 
   if (missingFields.length > 0) {
@@ -406,12 +406,12 @@ function showConfirmationModal(data) {
         ? `${dialog.concept} (${classified})`
         : dialog.concept;
     html += `• Concepto: ${conceptDisplay}<br>`;
-    html += `• Monto: $${dialog.amount}<br>`;
+    html += `• Monto: $${Number(dialog.amount).toFixed(2)}<br>`;
     if (dialog.paymentMethod) html += `• Pago: ${dialog.paymentMethod}<br>`;
     if (dialog.invoiceNumber) html += `• 🧾 Factura Nº: ${dialog.invoiceNumber}<br>`;
     if (dialog.clienteFactura) html += `• Cliente: ${dialog.clienteFactura}<br>`;
     if (dialog.retencionItbms > 0) {
-      html += `• 🔖 Retención ITBMS: $${dialog.retencionItbms} (crédito fiscal${dialog.autoMarcarAgente ? ' — el cliente quedará marcado como agente' : ''})<br>`;
+      html += `• 🔖 Retención ITBMS: $${Number(dialog.retencionItbms).toFixed(2)} (crédito fiscal${dialog.autoMarcarAgente ? ' — el cliente quedará marcado como agente' : ''})<br>`;
     }
     html += `• 📅 Fecha: ${formatDateForDisplay(dialog.date)}<br>`;
   }
@@ -424,13 +424,13 @@ function showConfirmationModal(data) {
           <th style="text-align:left;padding:6px 10px;border-bottom:1px solid #eee;background:#f9f9f9">Crédito</th></tr>`;
     for (const d of entry.debit) {
       html += `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee">${d.name}</td>
-                  <td style="padding:6px 10px;border-bottom:1px solid #eee;color:#2e7d32">$${d.amount}</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #eee;color:#2e7d32">$${Number(d.amount).toFixed(2)}</td>
                   <td style="padding:6px 10px;border-bottom:1px solid #eee"></td></tr>`;
     }
     for (const c of entry.credit) {
       html += `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee">${c.name}</td>
                   <td style="padding:6px 10px;border-bottom:1px solid #eee"></td>
-                  <td style="padding:6px 10px;border-bottom:1px solid #eee;color:#c62828">$${c.amount}</td></tr>`;
+                  <td style="padding:6px 10px;border-bottom:1px solid #eee;color:#c62828">$${Number(c.amount).toFixed(2)}</td></tr>`;
     }
     html += `</table>`;
   }
