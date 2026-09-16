@@ -14,6 +14,7 @@ import {
  * Reglas: "-"/"—"/vacío = 0; coma decimal panameña ("400,00"); Décimo e ISR
  * pueden venir en cero; la cédula puede venir vacía; la fecha (QUINCENA) es
  * por fila (admite 30/6/26, 30/06/2026, YYYY-MM-DD o celda de fecha de Excel).
+ * Columna opcional VACACIONES: se debita (suma al bruto), como Sueldo y Extras.
  */
 
 export interface PlanillaRow {
@@ -23,6 +24,8 @@ export interface PlanillaRow {
   salario: number;
   horasExtras: number;
   decimo: number;
+  /** Columna "Vacaciones" opcional: se debita (suma al bruto) */
+  vacaciones: number;
   ss: number;
   se: number;
   isr: number;
@@ -47,6 +50,7 @@ interface PlanillaColumns {
   salario: string | null;
   horasExtras: string | null;
   decimo: string | null;
+  vacaciones: string | null;
   ss: string | null;
   se: string | null;
   isr: string | null;
@@ -60,6 +64,7 @@ const CEDULA_PATTERNS = [/c[eé]dula/i, /identificaci[óo]n/i, /^ci\b/i, /docume
 const SUELDO_PATTERNS = [/sueldo/i, /salario/i];
 const EXTRAS_PATTERNS = [/horas?\s*extras?/i, /^extras?/i];
 const DECIMO_PATTERNS = [/d[eé]cimo/i];
+const VACACIONES_PATTERNS = [/vacacion/i];
 const SS_PATTERNS = [/^ss\b/i, /seguro\s*social/i, /^c\.?s\.?s\b/i];
 const SE_PATTERNS = [/^se\b/i, /seguro\s*educativo/i];
 const ISR_PATTERNS = [/^isr\b/i, /impuesto\s*sobre\s*la\s*renta/i, /^renta\b/i];
@@ -74,6 +79,7 @@ function matchHeader(header: string, patterns: RegExp[]): boolean {
 /** ¿El encabezado corresponde a una columna monetaria? (reparo de coma decimal) */
 function isMoneyHeader(h: string): boolean {
   return matchHeader(h, SUELDO_PATTERNS) || matchHeader(h, EXTRAS_PATTERNS) || matchHeader(h, DECIMO_PATTERNS)
+    || matchHeader(h, VACACIONES_PATTERNS)
     || matchHeader(h, SS_PATTERNS) || matchHeader(h, SE_PATTERNS) || matchHeader(h, ISR_PATTERNS)
     || matchHeader(h, NETO_PATTERNS);
 }
@@ -93,7 +99,7 @@ export async function parsePlanillaFile(
   // SS antes que SE, TOPAL/TOTAL antes que NETO).
   const cols: PlanillaColumns = {
     quincena: null, employee: null, cedula: null, salario: null, horasExtras: null,
-    decimo: null, ss: null, se: null, isr: null, neto: null, banco: null,
+    decimo: null, vacaciones: null, ss: null, se: null, isr: null, neto: null, banco: null,
   };
 
   for (const h of headers) {
@@ -104,6 +110,7 @@ export async function parsePlanillaFile(
     if (!cols.salario && matchHeader(h, SUELDO_PATTERNS)) { cols.salario = h; continue; }
     if (!cols.horasExtras && matchHeader(h, EXTRAS_PATTERNS)) { cols.horasExtras = h; continue; }
     if (!cols.decimo && matchHeader(h, DECIMO_PATTERNS)) { cols.decimo = h; continue; }
+    if (!cols.vacaciones && matchHeader(h, VACACIONES_PATTERNS)) { cols.vacaciones = h; continue; }
     if (!cols.ss && matchHeader(h, SS_PATTERNS)) { cols.ss = h; continue; }
     if (!cols.se && matchHeader(h, SE_PATTERNS)) { cols.se = h; continue; }
     if (!cols.isr && matchHeader(h, ISR_PATTERNS)) { cols.isr = h; continue; }
@@ -125,7 +132,7 @@ export async function parsePlanillaFile(
 
   const vacia = (parseError: string | null = null): PlanillaRow => ({
     quincena: null, employee: null, cedula: null,
-    salario: 0, horasExtras: 0, decimo: 0, ss: 0, se: 0, isr: 0, neto: 0,
+    salario: 0, horasExtras: 0, decimo: 0, vacaciones: 0, ss: 0, se: 0, isr: 0, neto: 0,
     bankName: null,
     parseError,
   });
@@ -156,6 +163,7 @@ export async function parsePlanillaFile(
       salario: parseMonto(get(cols.salario)),
       horasExtras: parseMonto(get(cols.horasExtras)),
       decimo: parseMonto(get(cols.decimo)),
+      vacaciones: parseMonto(get(cols.vacaciones)),
       ss: parseMonto(get(cols.ss)),
       se: parseMonto(get(cols.se)),
       isr: parseMonto(get(cols.isr)),
@@ -168,7 +176,8 @@ export async function parsePlanillaFile(
   // Filas en blanco (sin nombre ni montos) se descartan; las filas con error
   // de estructura se conservan para reportarlas en el preview.
   const filtered = rows.filter(r =>
-    r.parseError || r.employee || r.salario || r.horasExtras || r.decimo || r.ss || r.se || r.isr || r.neto,
+    r.parseError || r.employee || r.salario || r.horasExtras || r.decimo || r.vacaciones
+    || r.ss || r.se || r.isr || r.neto,
   );
 
   return { headers, rows: filtered, totalRows: filtered.length, detectedColumns: cols };

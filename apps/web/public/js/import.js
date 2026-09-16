@@ -12,7 +12,7 @@ function importMode() {
 const IMPORT_MODE_HINTS = {
   transacciones: 'Sube el CSV/Excel con tus transacciones históricas. La IA clasificará cada concepto. En Gastos/Compras, la columna "Estado" (Contado/Crédito) define el pago: "Crédito" carga a Proveedores y exige Nº de factura; Contado/sin estado sale del banco indicado en la columna "Banco/Cuenta" (opcional) o del banco por defecto de Configuración.',
   cobros: 'Pagos/abonos a facturas: columnas Cliente, Fecha de Pago, Cuenta (banco), Factura # y TOTAL. Las filas SIN "Fecha de Pago" y "Cuenta" son facturas aún no pagadas: quedan ⏳ pendientes y se omiten. Puedes re-subir el mismo archivo: los pagos ya aplicados no se duplican (se omiten).',
-  planilla: 'Planilla (nómina): columnas QUINCENA, NOMBRE, CEDULA, SUELDO, HORAS EXTRAS, DECIMO, SS, SE, ISR y TOPAL A PAGAR, con "Banco" opcional al final (si no, el banco por defecto de Configuración). Elige el Tipo (Sueldo o Décimo III: son procesos aparte) y configura las cuentas en Administración → Cargas. Un asiento BORRADOR por empleado; re-subir el mismo archivo no duplica.',
+  planilla: 'Planilla (nómina): columnas QUINCENA, NOMBRE, CEDULA, SUELDO, HORAS EXTRAS, DECIMO, SS, SE, ISR y TOPAL A PAGAR, con "VACACIONES" y "Banco" opcionales (sin banco se usa el banco por defecto de Configuración). Elige el Tipo (Sueldo o Décimo III: son procesos aparte) y configura las cuentas en Administración → ⚙️ Configuración (Cuentas de Planilla). Un asiento BORRADOR por empleado; re-subir el mismo archivo no duplica.',
 };
 
 function applyImportModeUI() {

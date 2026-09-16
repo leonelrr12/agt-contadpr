@@ -32,6 +32,7 @@ model Company {
   planillaSueldoId      String?
   planillaHorasExtrasId String?
   planillaDecimoId      String?
+  planillaVacacionesId  String?
   planillaSSId          String?
   planillaSEId          String?
   planillaISRId         String?

@@ -364,16 +364,19 @@ async function saveConfig() {
   } catch (e) { await showAlert('Error de conexión'); }
 }
 
-/* ── Administración: Configuración → Cargas (Planilla) ──
- * Cuenta contable por columna del archivo de Planilla (Importar → 👷 Planilla).
- * El banco ya no se configura aquí: sale de la columna "Banco" del archivo o de
- * la cuenta de banco por defecto (Configuración). Se guardan en Company vía
- * PUT /api/config, que valida que cada cuenta exista en la empresa.
+/* ── Administración: Configuración → Cuentas de Planilla ──
+ * Tarjeta propia dentro de la pestaña Configuración, con su guardar
+ * independiente del de la empresa. Cuenta contable por columna del archivo de
+ * Planilla (Importar → 👷 Planilla). El banco ya no se configura aquí: sale de
+ * la columna "Banco" del archivo o de la cuenta de banco por defecto
+ * (Configuración). Se guardan en Company vía PUT /api/config, que valida que
+ * cada cuenta exista en la empresa.
  * Formato: [selectId, grupo de la respuesta GET /config, campo de Company] */
 const CARGAS_CONFIG_FIELDS = [
   ['planilla-sueldo', 'planilla', 'planillaSueldoId'],
   ['planilla-horas-extras', 'planilla', 'planillaHorasExtrasId'],
   ['planilla-decimo', 'planilla', 'planillaDecimoId'],
+  ['planilla-vacaciones', 'planilla', 'planillaVacacionesId'],
   ['planilla-ss', 'planilla', 'planillaSSId'],
   ['planilla-se', 'planilla', 'planillaSEId'],
   ['planilla-isr', 'planilla', 'planillaISRId'],

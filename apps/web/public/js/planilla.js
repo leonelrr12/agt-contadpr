@@ -90,7 +90,7 @@ function renderPlanillaPreview() {
     const warn = document.createElement('div');
     warn.id = 'import-inline-warn';
     warn.style.cssText = 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px';
-    warn.innerHTML = '⚠️ Hay cuentas de planilla sin configurar. Defínelas en <strong>Administración → 👷 Planilla</strong> y vuelve a cargar el archivo.';
+    warn.innerHTML = '⚠️ Hay cuentas de planilla sin configurar. Defínelas en <strong>Administración → ⚙️ Configuración (Cuentas de Planilla)</strong> y vuelve a cargar el archivo.';
     document.getElementById('import-inline-summary').after(warn);
   } else {
     // Aviso de errores más allá de la muestra de 20 (patrón del import normal)
@@ -133,7 +133,7 @@ function renderPlanillaPreview() {
   );
 
   const thead = document.getElementById('import-inline-thead');
-  thead.innerHTML = '<tr><th>#</th><th>Quincena</th><th>Nombre</th><th>Cédula</th><th>Sueldo</th><th>Extras</th><th>Décimo</th><th>SS</th><th>SE</th><th>ISR</th><th>Neto</th><th>Banco</th><th>Estado</th></tr>';
+  thead.innerHTML = '<tr><th>#</th><th>Quincena</th><th>Nombre</th><th>Cédula</th><th>Sueldo</th><th>Extras</th><th>Décimo</th><th>Vacac.</th><th>SS</th><th>SE</th><th>ISR</th><th>Neto</th><th>Banco</th><th>Estado</th></tr>';
 
   let html = '';
   for (const r of pp.rows) {
@@ -158,6 +158,7 @@ function renderPlanillaPreview() {
       <td>${r.row}</td><td>${r.quincenaFinal || '—'}</td><td>${escapeHtml(r.employee || '')}</td>
       <td>${escapeHtml(r.cedula || '')}</td>
       <td>${planillaFmt(r.salario)}</td><td>${planillaFmt(r.horasExtras)}</td><td>${planillaFmt(r.decimo)}</td>
+      <td>${planillaFmt(r.vacaciones)}</td>
       <td>${planillaFmt(r.ss)}</td><td>${planillaFmt(r.se)}</td><td>${planillaFmt(r.isr)}</td><td>${planillaFmt(r.neto)}</td>
       <td style="font-size:11px">${bancoHtml}</td>
       <td>${estadoHtml}</td></tr>`;
@@ -174,7 +175,7 @@ async function executePlanillaInline() {
     return;
   }
 
-  let msg = `¿Cargar la planilla (${planillaTipoLabel()}) de ${pp.ok} empleado(s)?\n\nSe creará un asiento BORRADOR por empleado (Sueldo/Extras/Décimo al Debe; SS, SE, ISR y Neto al Haber).`;
+  let msg = `¿Cargar la planilla (${planillaTipoLabel()}) de ${pp.ok} empleado(s)?\n\nSe creará un asiento BORRADOR por empleado (Sueldo/Extras/Décimo/Vacaciones al Debe; SS, SE, ISR y Neto al Haber).`;
   if (pp.omitted > 0) {
     msg += `\n\n↩️ ${pp.omitted} fila(s) ya cargada(s) se omitirán — re-subir el archivo no duplica.`;
   }

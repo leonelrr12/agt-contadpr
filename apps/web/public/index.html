@@ -415,7 +415,6 @@
           <button class="panel-tab-btn active" data-panel="cuentas-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#1a1a2e;border-bottom:2px solid #1565c0;margin-bottom:-2px">🏦 Cuentas</button>
           <button class="panel-tab-btn" data-panel="conceptos-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📝 Conceptos</button>
           <button class="panel-tab-btn" data-panel="config" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚙️ Configuración</button>
-          <button class="panel-tab-btn" data-panel="planilla" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">👷 Cargas</button>
           <button class="panel-tab-btn" data-panel="carga-inicial" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📋 Carga Inicial</button>
           <button class="panel-tab-btn" data-panel="cierres-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🗓 Cierres</button>
           <button class="panel-tab-btn" data-panel="usuarios-admin" id="tab-usuarios-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">👥 Usuarios</button>
@@ -470,12 +469,10 @@
               <span id="config-saved-msg" style="display:none;color:#059669;font-size:13px;font-weight:600">✅ Guardado</span>
             </div>
           </div>
-        </div>
-        <!-- Planilla Admin: cuentas contables por columna del archivo de planilla -->
-        <div id="planilla-content" class="hidden">
+          <!-- Cuentas de Planilla (nómina): tarjeta independiente, con su propio botón de guardar -->
           <div class="admin-form-card">
             <h4>👷 Cuentas de Planilla</h4>
-            <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">Cuenta contable para cada columna del archivo de planilla (carga en Importar → 👷 Planilla). El asiento de cada empleado debita Sueldo, Horas Extras y Décimo III, y acredita SS, SE, ISR y el Neto. El banco del Neto sale de la columna "Banco" del archivo o de la cuenta de banco por defecto (Configuración).</p>
+            <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">Cuenta contable para cada columna del archivo de planilla (carga en Importar → 👷 Planilla). El asiento de cada empleado debita Sueldo, Horas Extras, Décimo III y Vacaciones, y acredita SS, SE, ISR y el Neto. El banco del Neto sale de la columna "Banco" del archivo o de la cuenta de banco por defecto (Configuración).</p>
             <div class="form-grid">
               <div>
                 <label>📋 Sueldo (DEBE)</label>
@@ -488,6 +485,10 @@
               <div>
                 <label>🎁 Décimo III (DEBE)</label>
                 <select id="planilla-decimo" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
+              </div>
+              <div>
+                <label>🌴 Vacaciones (DEBE)</label>
+                <select id="planilla-vacaciones" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
               </div>
               <div>
                 <label>🏥 Seguro Social — SS (HABER)</label>
@@ -503,7 +504,7 @@
               </div>
             </div>
             <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
-              <button class="btn-primary" onclick="saveConfigPlanilla()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar Cargas</button>
+              <button class="btn-primary" onclick="saveConfigPlanilla()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar Cuentas de Planilla</button>
               <span id="planilla-saved-msg" style="display:none;color:#059669;font-size:13px;font-weight:600">✅ Guardado</span>
             </div>
           </div>
@@ -639,12 +640,12 @@
   <script src="js/capture.js?v=73"></script>
   <script src="js/capture-qr.js?v=73"></script>
   <script src="js/chat.js?v=75"></script>
-  <script src="js/router.js?v=76"></script>
-  <script src="js/admin.js?v=88"></script>
+  <script src="js/router.js?v=77"></script>
+  <script src="js/admin.js?v=89"></script>
   <script src="js/init.js?v=73"></script>
   <script src="js/panels-sidebar.js?v=73"></script>
-  <script src="js/import.js?v=87"></script>
-  <script src="js/planilla.js?v=1"></script>
+  <script src="js/import.js?v=88"></script>
+  <script src="js/planilla.js?v=2"></script>
   <script src="js/carga-inicial.js?v=2"></script>
   <script src="js/auxiliares-revision.js?v=77"></script>
   <script src="js/entry-modals.js?v=76"></script>

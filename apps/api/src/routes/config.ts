@@ -10,6 +10,7 @@ const PLANILLA_FIELDS: { field: string; label: string }[] = [
   { field: 'planillaSueldoId', label: 'Sueldo' },
   { field: 'planillaHorasExtrasId', label: 'Horas Extras' },
   { field: 'planillaDecimoId', label: 'Décimo III' },
+  { field: 'planillaVacacionesId', label: 'Vacaciones' },
   { field: 'planillaSSId', label: 'Seguro Social (SS)' },
   { field: 'planillaSEId', label: 'Seguro Educativo (SE)' },
   { field: 'planillaISRId', label: 'ISR' },

@@ -13,8 +13,8 @@ import type { PayoutCache, PayoutResolution } from '../services/account-resolver
  * en Administración → Configuración → Planilla y guarda la información en
  * metadata para informes futuros por empleado.
  *
- * Asiento por fila: SUELDO/HORAS EXTRAS/DÉCIMO al DEBE; SS/SE/ISR y el NETO
- * (TOPAL A PAGAR) al HABER. Cuadre: bruto = deducciones + neto (±0.01).
+ * Asiento por fila: SUELDO/HORAS EXTRAS/DÉCIMO/VACACIONES al DEBE; SS/SE/ISR y
+ * el NETO (TOPAL A PAGAR) al HABER. Cuadre: bruto = deducciones + neto (±0.01).
  */
 
 export const planillaRouter = Router();
@@ -67,6 +67,7 @@ interface PlanillaAccountIds {
   sueldo: string | null;
   horasExtras: string | null;
   decimo: string | null;
+  vacaciones: string | null;
   ss: string | null;
   se: string | null;
   isr: string | null;
@@ -79,6 +80,7 @@ async function loadPlanillaAccounts(prisma: any, companyId: string): Promise<Pla
       planillaSueldoId: true,
       planillaHorasExtrasId: true,
       planillaDecimoId: true,
+      planillaVacacionesId: true,
       planillaSSId: true,
       planillaSEId: true,
       planillaISRId: true,
@@ -88,6 +90,7 @@ async function loadPlanillaAccounts(prisma: any, companyId: string): Promise<Pla
     sueldo: c?.planillaSueldoId || null,
     horasExtras: c?.planillaHorasExtrasId || null,
     decimo: c?.planillaDecimoId || null,
+    vacaciones: c?.planillaVacacionesId || null,
     ss: c?.planillaSSId || null,
     se: c?.planillaSEId || null,
     isr: c?.planillaISRId || null,
@@ -109,12 +112,12 @@ function validatePlanillaRow(
   if (row.parseError) return row.parseError;
   if (!row.employee) return 'Falta el nombre del empleado';
 
-  const bruto = r2(row.salario + row.horasExtras + row.decimo);
+  const bruto = r2(row.salario + row.horasExtras + row.decimo + row.vacaciones);
   const deducciones = r2(row.ss + row.se + row.isr);
   if (bruto <= 0 && deducciones <= 0 && row.neto <= 0) return 'La fila no tiene montos';
   if (row.neto < 0) return 'El Neto a pagar no puede ser negativo';
   if (Math.abs(bruto - (deducciones + row.neto)) > PLANILLA_EPS) {
-    return `No cuadra: Sueldo+Extras+Décimo ($${bruto.toFixed(2)}) ≠ SS+SE+ISR ($${deducciones.toFixed(2)}) + Neto ($${row.neto.toFixed(2)})`;
+    return `No cuadra: Sueldo+Extras+Décimo+Vacaciones ($${bruto.toFixed(2)}) ≠ SS+SE+ISR ($${deducciones.toFixed(2)}) + Neto ($${row.neto.toFixed(2)})`;
   }
   if (tipo === 'SUELDO' && row.decimo > 0) {
     return 'El Décimo III se paga en su propio proceso (selecciona Tipo: Décimo III)';
@@ -127,6 +130,7 @@ function validatePlanillaRow(
   if (row.salario > 0 && !cuentas.sueldo) faltantes.push('Sueldo');
   if (row.horasExtras > 0 && !cuentas.horasExtras) faltantes.push('Horas Extras');
   if (row.decimo > 0 && !cuentas.decimo) faltantes.push('Décimo III');
+  if (row.vacaciones > 0 && !cuentas.vacaciones) faltantes.push('Vacaciones');
   if (row.ss > 0 && !cuentas.ss) faltantes.push('SS');
   if (row.se > 0 && !cuentas.se) faltantes.push('SE');
   if (row.isr > 0 && !cuentas.isr) faltantes.push('ISR');
@@ -144,6 +148,7 @@ function planillaDupKey(tipo: TipoPlanilla, row: PlanillaRow, quincena: string):
     (row.employee || '').trim().toLowerCase(),
     (row.cedula || '').trim().toLowerCase(),
     cents(row.neto),
+    cents(row.vacaciones),
     cents(r2(row.ss + row.se + row.isr)),
   ].join('|');
 }
@@ -174,6 +179,7 @@ async function buildPlanillaIndex(prisma: any, companyId: string): Promise<Set<s
         String(m.employee || '').trim().toLowerCase(),
         String(m.cedula || '').trim().toLowerCase(),
         cents(m.neto),
+        cents(m.vacaciones),
         cents((Number(m.ss) || 0) + (Number(m.se) || 0) + (Number(m.isr) || 0)),
       ].join('|'));
     } catch { /* metadata inválida: se ignora */ }
@@ -368,16 +374,17 @@ planillaRouter.post('/execute-all', upload.single('file'), async (req, res) => {
         }
 
         const date = toLocalDate(quincena);
-        const bruto = r2(row.salario + row.horasExtras + row.decimo);
+        const bruto = r2(row.salario + row.horasExtras + row.decimo + row.vacaciones);
 
-        // Líneas del asiento: DEBE gastos (sueldo/extras/décimo), HABER
-        // retenciones (SS/SE/ISR) y neto al banco — solo columnas con monto.
-        // El banco sale de la columna "Banco" de la fila o del banco por
+        // Líneas del asiento: DEBE gastos (sueldo/extras/décimo/vacaciones),
+        // HABER retenciones (SS/SE/ISR) y neto al banco — solo columnas con
+        // monto. El banco sale de la columna "Banco" de la fila o del banco por
         // defecto (respaldo 1.1.02.01).
         const lines: { accountId: string; debit: number; credit: number }[] = [];
         if (row.salario > 0) lines.push({ accountId: cuentas.sueldo!, debit: row.salario, credit: 0 });
         if (row.horasExtras > 0) lines.push({ accountId: cuentas.horasExtras!, debit: row.horasExtras, credit: 0 });
         if (row.decimo > 0) lines.push({ accountId: cuentas.decimo!, debit: row.decimo, credit: 0 });
+        if (row.vacaciones > 0) lines.push({ accountId: cuentas.vacaciones!, debit: row.vacaciones, credit: 0 });
         if (row.ss > 0) lines.push({ accountId: cuentas.ss!, debit: 0, credit: row.ss });
         if (row.se > 0) lines.push({ accountId: cuentas.se!, debit: 0, credit: row.se });
         if (row.isr > 0) lines.push({ accountId: cuentas.isr!, debit: 0, credit: row.isr });
@@ -442,6 +449,7 @@ planillaRouter.post('/execute-all', upload.single('file'), async (req, res) => {
                 salario: row.salario,
                 horasExtras: row.horasExtras,
                 decimo: row.decimo,
+                vacaciones: row.vacaciones,
                 ss: row.ss,
                 se: row.se,
                 isr: row.isr,
