@@ -62,6 +62,17 @@ export function calculateNextRun(
 }
 
 /**
+ * Descripción del asiento generado por un recurrente: primero la descripción
+ * de la plantilla (la que escribe el usuario) y detrás el texto del agente
+ * —concepto, monto e ITBMS cuando aplica—. Si la plantilla no tiene concepto,
+ * el agente ya usa su descripción: no se repite.
+ */
+export function buildEntryDescription(templateDescription: string, generated: string): string {
+  const prefix = generated.includes(templateDescription) ? '' : `${templateDescription} — `;
+  return `[Recurrente] ${prefix}${generated}`;
+}
+
+/**
  * Procesa UN solo template de forma atómica — sin riesgo de duplicados.
  * Actualiza nextRunAt DENTRO de la transacción para evitar race conditions.
  */
@@ -188,7 +199,7 @@ export async function processSingleTemplate(
       const je = await tx.journalEntry.create({
         data: {
           date: new Date(),
-          description: `[Recurrente] ${entry.description}`,
+          description: buildEntryDescription(template.description, entry.description),
           status,
           companyId: template.companyId,
           createdById: template.createdById,
@@ -354,7 +365,7 @@ export async function processDueItems(
       const je = await prisma.journalEntry.create({
         data: {
           date: new Date(),
-          description: `[Recurrente] ${entry.description}`,
+          description: buildEntryDescription(template.description, entry.description),
           status,
           companyId: template.companyId,
           createdById: template.createdById,
