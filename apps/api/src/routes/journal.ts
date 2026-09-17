@@ -223,6 +223,12 @@ journalRouter.post('/', requireQuota, validate(createJournalEntrySchema), async 
     return;
   }
 
+  // 0 = 0 cuadra pero no es un asiento (p. ej. una copia guardada sin montos)
+  if (Math.round(totalDebit * 100) === 0) {
+    res.status(400).json({ error: 'El asiento no puede quedar en cero: asigna montos a las líneas' });
+    return;
+  }
+
   const blocked = await checkNotBlocked(req.prisma, req.user!.companyId, lines.map((l: { accountId: string }) => l.accountId));
   if (blocked) { res.status(400).json({ error: blocked }); return; }
 
@@ -390,6 +396,14 @@ journalRouter.put('/:id', requireRole('admin', 'superadmin'), validate(updateJou
       if (Math.abs(totalDebit - totalCredit) > 0.01) {
         throw Object.assign(
           new Error(`Asiento no balanceado. Débito: ${totalDebit.toFixed(2)}, Crédito: ${totalCredit.toFixed(2)}, Diferencia: ${Math.abs(totalDebit - totalCredit).toFixed(2)}`),
+          { status: 400 },
+        );
+      }
+
+      // 0 = 0 cuadra pero no es un asiento
+      if (Math.round(totalDebit * 100) === 0) {
+        throw Object.assign(
+          new Error('El asiento no puede quedar en cero: asigna montos a las líneas'),
           { status: 400 },
         );
       }

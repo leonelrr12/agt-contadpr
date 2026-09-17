@@ -52,10 +52,16 @@ function setupEntryLines({ tbody, balanceEl, saveBtn, activeAccounts, namespace,
     const totalCredit = lines.reduce((s, l) => s + (l.credit || 0), 0);
     const diff = Math.abs(totalDebit - totalCredit);
     const balanced = Math.round(diff * 100) === 0;
-    balanceEl.textContent = `Débito: $${totalDebit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · Crédito: $${totalCredit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · Diferencia: $${diff.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-    balanceEl.style.background = balanced ? '#ecfdf5' : '#fef2f2';
-    balanceEl.style.color = balanced ? '#059669' : '#dc2626';
-    saveBtn.disabled = !balanced;
+    // 0 = 0 cuadra pero no es un asiento: sin montos no se guarda (el backend
+    // también lo rechaza). Es el caso de la copia abierta sin llenar.
+    const enCero = Math.round((totalDebit + totalCredit) * 100) === 0;
+    const ok = balanced && !enCero;
+    balanceEl.textContent = enCero
+      ? 'Asigna montos a las líneas: un asiento no puede quedar en cero'
+      : `Débito: $${totalDebit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · Crédito: $${totalCredit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · Diferencia: $${diff.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+    balanceEl.style.background = ok ? '#ecfdf5' : '#fef2f2';
+    balanceEl.style.color = ok ? '#059669' : '#dc2626';
+    saveBtn.disabled = !ok;
   }
 
   window[namespace + 'Lines'] = lines;
