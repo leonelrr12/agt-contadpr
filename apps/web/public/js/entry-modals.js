@@ -59,8 +59,10 @@ function setupEntryLines({ tbody, balanceEl, saveBtn, activeAccounts, namespace,
     balanceEl.textContent = enCero
       ? 'Asigna montos a las líneas: un asiento no puede quedar en cero'
       : `Débito: $${totalDebit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · Crédito: $${totalCredit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · Diferencia: $${diff.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-    balanceEl.style.background = ok ? '#ecfdf5' : '#fef2f2';
-    balanceEl.style.color = ok ? '#059669' : '#dc2626';
+    // El cero no es un error sino el punto de partida (una copia abre así):
+    // ámbar. El rojo queda para lo que de verdad no cuadra.
+    balanceEl.style.background = enCero ? '#fffbeb' : ok ? '#ecfdf5' : '#fef2f2';
+    balanceEl.style.color = enCero ? '#92400e' : ok ? '#059669' : '#dc2626';
     saveBtn.disabled = !ok;
   }
 
