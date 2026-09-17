@@ -225,28 +225,40 @@ async function corregirEntry(entryId) {
     const originalEntry = await getRes.json();
 
     // Abrir modal — el anulado + creación ocurren al guardar
-    showCreateEntryModal(originalEntry, entryId);
+    showCreateEntryModal(originalEntry, entryId, 'correction');
 
   } catch (e) { await showAlert('Error de conexión'); }
 }
 
-async function showCreateEntryModal(originalEntry, originalEntryId) {
-  // originalEntry/originalEntryId opcionales: si se pasan es el flujo de
-  // CORRECCIÓN (reversión del original + nuevo BORRADOR). Sin argumentos,
-  // es el flujo de ASIENTO MANUAL (formulario en blanco → POST /api/journal).
-  const isCorrection = !!originalEntry;
-  // Cuentas que admiten asientos antes de renderizar. En la corrección, las del
-  // asiento original se reinyectan aunque se hayan bloqueado después.
+async function showCreateEntryModal(originalEntry, originalEntryId, mode) {
+  // originalEntry/originalEntryId + mode='correction': flujo de CORRECCIÓN
+  // (reversión del original + nuevo BORRADOR). mode='copy': COPIA del asiento
+  // —misma descripción y cuentas, montos en cero—. Sin argumentos: ASIENTO
+  // MANUAL (formulario en blanco → POST /api/journal).
+  const isCorrection = mode === 'correction';
+  const isCopy = mode === 'copy';
+  // Cuentas que admiten asientos antes de renderizar. En la corrección y en la
+  // copia, las del asiento original se reinyectan aunque se hayan bloqueado después.
   const activeAccounts = await getEntryAccounts([originalEntry]);
 
   const today = new Date().toISOString().split('T')[0];
-  const desc = isCorrection ? `CORRECCIÓN: ${originalEntry.description || 'Sin descripción'}` : '';
+  const desc = isCorrection
+    ? `CORRECCIÓN: ${originalEntry.description || 'Sin descripción'}`
+    : isCopy ? originalEntry.description || '' : '';
   const modalTitle = isCorrection ? '✏️ Corregir Asiento' : '📝 Asiento Manual';
   const modalSubtitle = isCorrection
     ? 'El asiento original fue anulado. Crea la versión corregida como BORRADOR.'
-    : 'Crea un asiento contable manual. Quedará en BORRADOR para revisión y aprobación.';
+    : isCopy
+      ? 'Copia del asiento: mismas cuentas y descripción, con la fecha de hoy y los montos en cero.'
+      : 'Crea un asiento contable manual. Quedará en BORRADOR para revisión y aprobación.';
   const saveLabel = isCorrection ? 'Guardar como BORRADOR' : 'Guardar asiento';
   const savingLabel = isCorrection ? 'Creando reversión...' : 'Guardando...';
+  // La corrección conserva los montos del original; la copia los deja en cero.
+  const initialLines = !isCorrection && !isCopy ? [] : (originalEntry.lines || []).map(l => ({
+    accountId: l.accountId,
+    debit: isCopy ? 0 : l.debit || 0,
+    credit: isCopy ? 0 : l.credit || 0,
+  }));
 
   const overlay = document.createElement('div'); overlay.className = 'app-dialog-overlay';
   overlay.id = 'create-entry-overlay';
@@ -299,11 +311,7 @@ async function showCreateEntryModal(originalEntry, originalEntryId) {
     saveBtn,
     activeAccounts,
     namespace: 'createEntry',
-    initialLines: isCorrection ? (originalEntry.lines || []).map(l => ({
-      accountId: l.accountId,
-      debit: l.debit || 0,
-      credit: l.credit || 0,
-    })) : [],
+    initialLines,
   });
 
   // Bloquear la pantalla mientras el modal esté abierto: solo se cierra

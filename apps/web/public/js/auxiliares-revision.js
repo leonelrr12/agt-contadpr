@@ -137,7 +137,8 @@ function revisionEntryCard(e) {
         ${lineasHtml}
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
-        ${getUser()?.role === 'admin' || getUser()?.role === 'superadmin' ? `<button onclick="showEditEntryModal('${e.id}')" style="padding:6px 14px;font-size:12px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✏️ Editar</button>` : ''}
+        ${getUser()?.role === 'admin' || getUser()?.role === 'superadmin' ? `<button onclick="showEditEntryModal('${e.id}')" style="padding:6px 14px;font-size:12px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✏️ Editar</button>
+        <button onclick="reviewCopy('${e.id}')" style="padding:6px 14px;font-size:12px;background:#475569;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">📋 Copiar</button>` : ''}
         <button onclick="reviewApprove('${e.id}')" style="padding:6px 14px;font-size:12px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✅ Aprobar</button>
         <button onclick="reviewReject('${e.id}')" style="padding:6px 14px;font-size:12px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">❌ Rechazar</button>
       </div>
@@ -195,6 +196,17 @@ async function reviewApprove(id) {
       const e = await res.json().catch(() => ({}));
       await showAlert(e.error || 'No se pudo aprobar el asiento');
     }
+  } catch (e) { await showAlert('Error de conexión'); }
+}
+
+/** Copia el asiento: abre el modal de Asiento Manual con la fecha de hoy, la
+ *  misma descripción y las cuentas del original en cero. No se crea nada hasta
+ *  guardar en el modal; si se cancela, no queda rastro. */
+async function reviewCopy(id) {
+  try {
+    const res = await authFetch(`${API_URL}/journal/${id}`);
+    if (!res.ok) { await showAlert('No se pudo cargar el asiento'); return; }
+    showCreateEntryModal(await res.json(), undefined, 'copy');
   } catch (e) { await showAlert('Error de conexión'); }
 }
 
