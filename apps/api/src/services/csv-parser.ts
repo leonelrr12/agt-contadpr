@@ -144,24 +144,72 @@ function parseAmount(raw: string): number | null {
   return isNaN(num) ? null : num;
 }
 
+/** Palabras de venta explícitas: bloquean el verbo de pago ("Venta de
+ *  servicios" es un ingreso aunque empiece con verbo de salida). "servicios"
+ *  NO está aquí a propósito: sola no dice la dirección del dinero. */
+const SENAL_VENTA = /\bventas?\b|\bfactur[ée]s?\b|\bingresos?\b|\bcobros?\b|\bcobranzas?\b|\bclientes?\b/i;
+
+/** Verbo de PAGO/COMPRA al inicio del texto: el dinero SALE. */
+const VERBO_SALIDA = /^(pagos?|paga|pagad[oa]s?|pagamos|pagu[eé]|compras?|compr[eé])\b/i;
+
+/** Mercancía/inventario: el gasto es una compra (cuenta 5.x, no 6.x). */
+const MERCADERIA = /\binventarios?\b|\bmercanc[ií]as?\b|\bmercader[ií]as?\b/i;
+
 /**
- * Deduce el tipo (GASTO/COMPRA/VENTA/…) SOLO del texto del movimiento
- * (descripción + concepto). El resto de celdas —proveedor, RUC, fechas,
- * montos— NO define el tipo: "Ferretería La Ventaja" no es una venta.
- * Las señales usan límites de palabra para no tropezar con nombres propios
- * que CONTIENEN la palabra clave ("La Ventaja" ⊃ "venta").
+ * Deduce el tipo (GASTO/COMPRA/VENTA/…) de UN texto. Devuelve null cuando el
+ * texto no trae ninguna señal (decide quien llama).
+ *
+ * El orden es la regla: la DIRECCIÓN del dinero manda sobre las palabras
+ * clave. "Paga Servicios profesionales" es un gasto (el verbo dice que el
+ * dinero sale), aunque "servicios" sola se lea como venta; y "Cobro de la
+ * factura 9999" entra dinero y baja CxC, no es una venta nueva. El resto de
+ * celdas —proveedor, RUC, fechas, montos— NO define el tipo: "Ferretería La
+ * Ventaja" no es una venta. Las señales usan límites de palabra para no
+ * tropezar con nombres propios que CONTIENEN la clave ("La Ventaja" ⊃ "venta").
+ */
+function detectTypeFrom(texto: string): string | null {
+  if (!texto) return null;
+
+  // 1. Dinero que ENTRA por un cobro → baja CxC. "Recibo pago de factura 9999",
+  //    "Cobro de la factura 123", "Abono de cliente Juan", "Me pagaron".
+  //    "recibo/recibí" solo cuenta si habla de dinero: "Recibí mercancía" no cobra.
+  if (
+    /\b(cobros?|cobranzas?|cobr[ée])\b[^,;]{0,25}\b(factura|clientes?|ventas?)\b/i.test(texto) ||
+    /\brecib(?:o|í|imos|e)\b[^,;]{0,25}\b(pago|abono|efectivo|transferencia|dep[oó]sito|factura)\b/i.test(texto) ||
+    /\b(me|nos)\s+pagaron\b/i.test(texto) ||
+    /\babonos?\b[^,;]{0,25}\b(clientes?|factura)\b/i.test(texto)
+  ) return 'COBRO_CLIENTE';
+
+  // 2. Pago a un proveedor identificado: reduce CxP, no es un gasto nuevo
+  if (/pago\s+proveedor|abon[ée]\s+a/i.test(texto)) return 'PAGO_PROVEEDOR';
+
+  // 3. Préstamo/financiamiento describe la OPERACIÓN, no la dirección: va antes
+  //    que el verbo de pago ("Pago de préstamo" sigue siendo PRESTAMO).
+  if (/\bpr[eé]stamos?\b|\bfinanciamientos?\b/i.test(texto)) return 'PRESTAMO';
+
+  // 4. Verbo de pago/compra al inicio → el dinero sale (gasto o compra)
+  if (VERBO_SALIDA.test(texto) && !SENAL_VENTA.test(texto)) {
+    return MERCADERIA.test(texto) ? 'COMPRA' : 'GASTO';
+  }
+
+  // 5. Palabras clave
+  if (SENAL_VENTA.test(texto) || /\bservicios?\b/i.test(texto)) return 'VENTA';
+  if (/\bcompras?\b|\bgastos?\b|\bcombustibles?\b|\balquileres?\b|\bhonorarios?\b/i.test(texto)) return 'GASTO';
+  if (MERCADERIA.test(texto)) return 'COMPRA';
+
+  return null;
+}
+
+/**
+ * Deduce el tipo de una fila. Manda el CONCEPTO (la columna propia del
+ * archivo: "Honorarios" gana sobre un detalle que diga "Paga Servicios
+ * profesionales"); el Detalle es el respaldo — sin columna Concepto el parser
+ * ya copia ahí el Detalle. Sin ninguna señal: GASTO (default histórico).
  */
 function detectType(row: ParsedRow): string {
-  const texto = `${row.description || ''} ${row.concept || ''}`.toLowerCase();
-
-  if (/\bventas?\b|\bfactur[ée]s?\b|\bingresos?\b|\bservicios?\b|\bcobros?\b|\bcobranzas?\b|\bclientes?\b/i.test(texto)) return 'VENTA';
-  if (/\bcompras?\b|\bgastos?\b|\bcombustibles?\b|\balquileres?\b|\bhonorarios?\b/i.test(texto)) return 'GASTO';
-  if (/\binventarios?\b|\bmercanc[ií]as?\b|\bmercader[ií]as?\b/i.test(texto)) return 'COMPRA';
-  if (/\bpr[eé]stamos?\b|\bfinanciamientos?\b/i.test(texto)) return 'PRESTAMO';
-  if (/pago\s+proveedor|abon[ée]\s+a/i.test(texto)) return 'PAGO_PROVEEDOR';
-  if (/cobro\s+cliente|abono\s+cliente/i.test(texto)) return 'COBRO_CLIENTE';
-
-  return 'GASTO'; // default
+  const concepto = (row.concept || '').trim();
+  const detalle = (row.description || '').trim();
+  return detectTypeFrom(concepto) ?? detectTypeFrom(detalle) ?? 'GASTO';
 }
 
 function detectPaymentMethod(row: ParsedRow): string | null {

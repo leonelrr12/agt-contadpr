@@ -520,6 +520,21 @@ async function executeImportRows(
             }
           }
         }
+      } else if (typeNorm === 'COBRO_CLIENTE' && pagoSaleDelBanco(row.paymentMethod ?? null)) {
+        // Cobro recibido: el dinero ENTRA a la cuenta del archivo (columna
+        // "Banco/Cuenta") o al banco por defecto. El agente lo manda a Caja
+        // por defecto; solo el efectivo se queda ahí.
+        const payout = await resolveImportPayoutAccount(
+          prisma, companyId, row.bankName || null, bancoDefaultId, payoutCache,
+        );
+        if (payout) {
+          for (const l of entry.debit) {
+            if (l.accountId === 'caja') {
+              l.accountId = payout.id;
+              l.name = payout.name;
+            }
+          }
+        }
       }
 
       const validation = accountant.validateEntry(entry);

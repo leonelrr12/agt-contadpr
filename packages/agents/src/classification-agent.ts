@@ -295,6 +295,31 @@ export const KEYWORD_MAP: Record<string, string[]> = {
   depreciacion: ['Depreciaciones', 'Depreciación'],
 };
 
+// Dirección del movimiento ↔ tipo de cuenta. Un gasto no se clasifica a una
+// cuenta de INGRESO ni una venta a una de GASTO/COSTO; ACTIVO/PASIVO/
+// PATRIMONIO valen para las dos direcciones (equipo, préstamo, aporte).
+const TIPOS_GASTO = new Set(['GASTO', 'COMPRA', 'PAGO_PROVEEDOR', 'PAGO_ITBMS']);
+const TIPOS_INGRESO = new Set(['VENTA', 'INGRESO', 'COBRO_CLIENTE']);
+const CUENTAS_INGRESO = new Set(['INGRESO']);
+const CUENTAS_GASTO = new Set(['GASTO', 'COSTO']);
+
+/**
+ * Cuenta genérica de cada tipo: nombre con que la busca el clasificador y el
+ * alias del motor contable (Account.aliases) como respaldo, para empresas que
+ * nombran la cuenta de otra forma (su CxC es "Cuenta por Cobrar Clientes", no
+ * "Clientes"). COMPRA apunta al alias porque el asiento de compra debita
+ * inventario-mercancia, no la cuenta de costo.
+ */
+const ALIAS_GENERICA: Record<string, { nombre: string; alias?: string }> = {
+  INGRESO: { nombre: 'Otros Ingresos' },
+  GASTO: { nombre: 'Gastos Varios', alias: 'gasto' },
+  COMPRA: { nombre: 'Compra de mercancía', alias: 'inventario-mercancia' },
+  VENTA: { nombre: 'Ventas', alias: 'ventas' },
+  PAGO_PROVEEDOR: { nombre: 'Proveedores', alias: 'proveedores' },
+  COBRO_CLIENTE: { nombre: 'Clientes', alias: 'clientes' },
+  PRESTAMO: { nombre: 'Préstamos Bancarios LP', alias: 'prestamos-lp' },
+};
+
 export interface ClassificationAgentConfig {
   prisma: PrismaLike;
   companyId: string;
@@ -327,17 +352,14 @@ export class ClassificationAgent {
 
   /** Cuenta genérica por tipo de transacción (último recurso del clasificador). */
   private genericByType(accounts: any[], conceptName: string, transactionType?: string): ClassificationResult {
-    const typeToGeneric: Record<string, string> = {
-      INGRESO: 'Otros Ingresos',
-      GASTO: 'Gastos Varios',
-      COMPRA: 'Compra de mercancía',
-      VENTA: 'Ventas',
-      PAGO_PROVEEDOR: 'Proveedores',
-      COBRO_CLIENTE: 'Clientes',
-      PRESTAMO: 'Préstamos Bancarios LP',
-    };
-    const genericName = typeToGeneric[transactionType || ''] || 'Gastos Varios';
-    const genericAccount = accounts.find((a: any) => a.name === genericName);
+    const tipo = transactionType || '';
+    const genericName = ALIAS_GENERICA[tipo]?.nombre || 'Gastos Varios';
+    // Por nombre y, si la empresa nombra la cuenta de otra forma ("Cuenta por
+    // Cobrar Clientes"), por el alias del motor contable.
+    const alias = ALIAS_GENERICA[tipo]?.alias;
+    const genericAccount =
+      accounts.find((a: any) => a.name === genericName) ||
+      (alias ? accounts.find((a: any) => (a.aliases || []).includes(alias)) : undefined);
     return {
       concept: conceptName,
       accountId: genericAccount?.id || '',
@@ -357,7 +379,7 @@ export class ClassificationAgent {
     let accounts: any[] | null = null;
     const out: ClassificationResult[] = [];
     for (const item of items) {
-      const match = this.matchConcept(allConcepts, item.concept);
+      const match = this.matchConcept(allConcepts, item.concept, item.type);
       if (match) { out.push(match); continue; }
       if (!accounts) accounts = await this.loadAccounts();
       out.push(this.genericByType(accounts, item.concept, item.type));
@@ -367,21 +389,43 @@ export class ClassificationAgent {
 
   async classify(conceptName: string, transactionType?: string): Promise<ClassificationResult> {
     const allConcepts = await this.loadConcepts();
-    const match = this.matchConcept(allConcepts, conceptName);
+    const match = this.matchConcept(allConcepts, conceptName, transactionType);
     if (match) return match;
     // Sin match (o sin conceptos en BD): cuenta genérica por tipo
     return this.genericByType(await this.loadAccounts(), conceptName, transactionType);
   }
 
+  /**
+   * Cuentas que contradicen la dirección del movimiento: un gasto/compra no
+   * puede caer en una cuenta de INGRESO (el concepto "Servicios" de la 4.01.02
+   * capturaba "Paga Servicios profesionales" y el asiento DEBITABA una cuenta
+   * de ventas) ni una venta en una de GASTO/COSTO. Activo, Pasivo y Patrimonio
+   * quedan libres: comprar un equipo o recibir un préstamo son válidos en las
+   * dos direcciones. Una cuenta sin tipo no se descarta.
+   */
+  private conceptosCompatibles(allConcepts: any[], transactionType?: string): any[] {
+    const tipo = (transactionType || '').toUpperCase();
+    const esGasto = TIPOS_GASTO.has(tipo);
+    const esIngreso = TIPOS_INGRESO.has(tipo);
+    if (!esGasto && !esIngreso) return allConcepts;
+    const excluidas = esGasto ? CUENTAS_INGRESO : CUENTAS_GASTO;
+    return allConcepts.filter((c: any) => {
+      const tipoCuenta = (c?.account?.type || '').toUpperCase();
+      return !tipoCuenta || !excluidas.has(tipoCuenta);
+    });
+  }
+
   /** Pasos 1-4 del clasificador, sin BD. Devuelve null cuando no hay match y
    *  toca caer a la cuenta genérica por tipo. */
-  private matchConcept(allConcepts: any[], conceptName: string): ClassificationResult | null {
+  private matchConcept(allConcepts: any[], conceptName: string, transactionType?: string): ClassificationResult | null {
     if (allConcepts.length === 0) return null;
 
     const lowerName = conceptName.toLowerCase().trim();
+    // Solo conceptos cuya cuenta no contradiga la dirección del movimiento
+    const candidatos = this.conceptosCompatibles(allConcepts, transactionType);
 
     // 1. Match exacto (case-insensitive)
-    const exactMatch = allConcepts.find((c: any) => c.name.toLowerCase() === lowerName);
+    const exactMatch = candidatos.find((c: any) => c.name.toLowerCase() === lowerName);
     if (exactMatch) {
       return {
         concept: exactMatch.name,
@@ -392,7 +436,7 @@ export class ClassificationAgent {
 
     // 2. Concepto de BD como substring en el texto de entrada
     //    Ej: input="Factura de electricidad ENSA julio" → matchea concepto "Electricidad"
-    const substringMatch = allConcepts
+    const substringMatch = candidatos
       .filter((c: any) => lowerName.includes(c.name.toLowerCase()))
       .sort((a: any, b: any) => b.name.length - a.name.length)[0];
     if (substringMatch) {
@@ -416,7 +460,7 @@ export class ClassificationAgent {
 
     if (inputWords.length > 0) {
       // 3a. Buscar conceptos que contengan alguna de las palabras del input
-      const wordMatches = allConcepts
+      const wordMatches = candidatos
         .map((c: any) => {
           const conceptLower = c.name.toLowerCase();
           const matchedWords = inputWords.filter(w => new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(conceptLower));
@@ -443,7 +487,7 @@ export class ClassificationAgent {
         const candidates = KEYWORD_MAP[word];
         if (candidates) {
           for (const candidateName of candidates) {
-            const concept = allConcepts.find((c: any) => c.name.toLowerCase() === candidateName.toLowerCase());
+            const concept = candidatos.find((c: any) => c.name.toLowerCase() === candidateName.toLowerCase());
             if (concept) {
               return {
                 concept: concept.name,
@@ -460,7 +504,7 @@ export class ClassificationAgent {
     //    Si es una descripción larga (>20 chars), es poco probable que el prefijo sea útil
     if (lowerName.length <= 20) {
       const prefix = conceptName.substring(0, 4).toLowerCase();
-      const partialMatch = allConcepts
+      const partialMatch = candidatos
         .filter((c: any) => c.name.toLowerCase().includes(prefix))
         .sort((a: any, b: any) => b.confidence - a.confidence)[0];
 
