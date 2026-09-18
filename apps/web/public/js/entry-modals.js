@@ -507,6 +507,11 @@ async function showEntryDrawer(entryId, accountId) {
     </tr>`;
   }).join('');
 
+  // Concepto con que se clasificó el movimiento: la descripción del asiento
+  // trae el detalle original (lo que decía el archivo), así que el concepto
+  // clasificado se muestra aquí, debajo del origen.
+  const concepto = entry.transactions?.[0]?.concept || null;
+
   const auditoria = [
     entry.createdBy?.name ? `👤 Creado por ${escapeHtml(entry.createdBy.name)}${entry.createdAt ? ` · ${new Date(entry.createdAt).toLocaleDateString('es-PA')}` : ''}` : null,
     entry.reviewedBy?.name ? `🔍 Revisado por ${escapeHtml(entry.reviewedBy.name)}${entry.reviewedAt ? ` · ${new Date(entry.reviewedAt).toLocaleDateString('es-PA')}` : ''}` : null,
@@ -518,6 +523,7 @@ async function showEntryDrawer(entryId, accountId) {
     ${o ? `<div style="margin-top:8px">
       <span style="display:inline-flex;align-items:center;gap:5px;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:3px 10px;font-size:11.5px;font-weight:600">${o.icon || '🏷'} ${escapeHtml(o.label || 'Origen')}</span>
       ${o.detail ? `<div style="font-size:11.5px;color:#6b7280;margin-top:4px">${escapeHtml(o.detail)}</div>` : ''}
+      ${concepto ? `<div style="font-size:11.5px;color:#6b7280;margin-top:4px">Concepto: <strong style="color:#374151">${escapeHtml(concepto)}</strong></div>` : ''}
       ${o.link && o.link.type === 'invoice' && typeof downloadFacturaPdf === 'function'
         ? `<button onclick="downloadFacturaPdf('${o.link.id}')" style="margin-top:6px;padding:5px 12px;font-size:11.5px;background:#fff;color:#1565c0;border:1px solid #1565c0;border-radius:6px;cursor:pointer">📄 Ver PDF de la factura</button>`
         : ''}

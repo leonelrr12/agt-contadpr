@@ -209,6 +209,10 @@ journalRouter.get('/:id', async (req, res) => {
       lines: { include: { account: true } },
       createdBy: { select: { name: true } },
       reviewedBy: { select: { name: true } },
+      // Concepto con que se clasificó el movimiento: la descripción del asiento
+      // lleva el detalle original, así que el visor muestra aquí a qué concepto
+      // (cuenta) fue. `take: 1` porque un asiento tiene a lo sumo una.
+      transactions: { select: { type: true, concept: true }, take: 1 },
     },
   });
   if (!entry) { res.status(404).json({ error: 'Journal entry not found' }); return; }

@@ -116,6 +116,19 @@ describe('AccountingAgent', () => {
       const entry = agent.generateEntry(creditDialog, classification);
       expect(entry.credit[0].accountId).toBe('proveedores');
     });
+
+    // El asiento se describe con el Detalle del movimiento (lo que decía el
+    // archivo importado); la clasificación se ve en la cuenta de cada línea.
+    it('describe el asiento con el detalle, no con el concepto clasificado', () => {
+      const entry = agent.generateEntry(dialog, classification);
+      expect(entry.description).toBe('Compré combustible por $40 con efectivo — $40.00');
+    });
+
+    it('cae al concepto cuando el movimiento no trae detalle', () => {
+      const sinDetalle = { ...dialog, description: '' };
+      const entry = agent.generateEntry(sinDetalle, classification);
+      expect(entry.description).toBe('Combustible — $40.00');
+    });
   });
 
   describe('generateEntry - VENTA', () => {
