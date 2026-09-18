@@ -7,6 +7,7 @@ import { autoMatch, findUnmatchedBookEntries } from '../services/bank-matcher';
 import { reconcileMatchSchema, reconcileCreateEntrySchema } from '../validation/schemas';
 import { ClassificationAgent, AccountingAgent } from '@agt-contador/agents';
 import { checkNotBlocked } from '../services/journal-guard';
+import { parseLocalDate } from '../lib/dates';
 
 export const reconcileRouter = Router();
 
@@ -76,7 +77,7 @@ reconcileRouter.post('/upload', upload.single('file'), async (req, res) => {
           create: parsed.rows
             .filter(r => r.date)
             .map(r => ({
-              date: new Date(r.date!),
+              date: parseLocalDate(r.date!),
               description: r.description || 'Sin descripción',
               reference: r.reference || null,
               debit: r.debit || 0,
@@ -234,7 +235,8 @@ reconcileRouter.post('/:id/create-entry', requireQuota, validate(reconcileCreate
 
     const entry = await req.prisma.journalEntry.create({
       data: {
-        date: new Date(row.date),
+        // Hereda la fecha de la fila del extracto (ya viene a mediodía local)
+        date: row.date,
         description: description || row.description,
         status: 'BORRADOR',
         companyId: req.user!.companyId,

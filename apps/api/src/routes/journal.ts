@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { validate } from '../middleware/validate';
 import { requireRole } from '../middleware/auth';
 import { buildDateFilter } from '../lib/date-filter';
+import { parseLocalDate } from '../lib/dates';
 import { getAnioFiscal, anioFiscalRange } from '../lib/fiscal-year';
 import { logAudit } from '../services/audit-log';
 import { syncEntityFromEntry } from '../services/entity-service';
@@ -234,7 +235,7 @@ journalRouter.post('/', requireQuota, validate(createJournalEntrySchema), async 
 
   const entry = await req.prisma.journalEntry.create({
     data: {
-      date: new Date(date),
+      date: parseLocalDate(date),
       description,
       companyId: req.user!.companyId,
       createdById: req.user!.userId,
@@ -414,7 +415,7 @@ journalRouter.put('/:id', requireRole('admin', 'superadmin'), validate(updateJou
       const updated = await tx.journalEntry.update({
         where: { id: entry.id },
         data: {
-          date: new Date(date + 'T12:00:00'),
+          date: parseLocalDate(date),
           description,
           lines: {
             create: lines.map((l: any) => ({
