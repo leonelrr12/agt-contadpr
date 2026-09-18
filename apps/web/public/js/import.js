@@ -81,7 +81,7 @@ function loadPanelImport() {
   };
 }
 
-async function handleImportInlineFile(file) {
+async function handleImportInlineFile(file, verTodas = false) {
   // Modo Planilla: flujo propio (js/planilla.js) — sin IA ni clasificación
   if (importMode() === 'planilla') { importInlineFile = file; return handlePlanillaFile(file); }
   importInlineFile = file;
@@ -102,7 +102,9 @@ async function handleImportInlineFile(file) {
     if (d) formData.append('importDate', d);
   }
   try {
-    const res = await authFetch(`${API_URL}/import/preview`, { method: 'POST', body: formData });
+    // `limit=all`: el preview devuelve el archivo entero (por defecto, 20 filas)
+    const url = verTodas ? `${API_URL}/import/preview?limit=all` : `${API_URL}/import/preview`;
+    const res = await authFetch(url, { method: 'POST', body: formData });
     if (!res.ok) { const e = await res.json(); await showAlert(e.error || 'Error'); resetImportInline(); return; }
     importInlinePreview = await res.json();
     document.getElementById('import-inline-loading').classList.add('hidden');
@@ -152,6 +154,11 @@ function renderImportInlinePreview() {
   // Limpiar aviso de banco no reconocido (planilla)
   const prevBankWarn = document.getElementById('import-inline-bank-warn');
   if (prevBankWarn) prevBankWarn.remove();
+  // Limpiar de un render previo: botón "ver todas" y aviso de filas ya cargadas
+  const prevSeeAll = document.getElementById('import-inline-seeall');
+  if (prevSeeAll) prevSeeAll.remove();
+  const prevOmitted = document.getElementById('import-inline-omitted');
+  if (prevOmitted) prevOmitted.remove();
 
   document.getElementById('import-inline-summary').classList.remove('hidden');
   document.getElementById('import-inline-preview').classList.remove('hidden');
@@ -180,9 +187,14 @@ function renderImportInlinePreview() {
     // 20 visibles: los contadores reflejan el archivo completo.
     // Las filas con cuenta bloqueada tampoco se cargarán: cuentan como problema.
     const blockedByRow = new Map(blockedRows.map(b => [b.row, b]));
-    const problemRows = new Set([...invalidRows.map(x => x.row), ...blockedByRow.keys()]);
+    // Filas ya cargadas antes (re-subida del mismo archivo): se omiten sin
+    // asiento ni cuota, así que no cuentan como problema ni como listas.
+    const omittedRows = new Set(importInlinePreview.omittedRows || []);
+    const problemRows = new Set(
+      [...invalidRows.map(x => x.row), ...blockedByRow.keys()].filter(n => !omittedRows.has(n)),
+    );
     document.getElementById('import-inline-total').textContent = totalRows;
-    document.getElementById('import-inline-ok').textContent = Math.max(0, totalRows - problemRows.size);
+    document.getElementById('import-inline-ok').textContent = Math.max(0, totalRows - problemRows.size - omittedRows.size);
     document.getElementById('import-inline-err').textContent = problemRows.size;
 
     // Aviso si hay incompletas más allá de la muestra de 20
@@ -205,6 +217,25 @@ function renderImportInlinePreview() {
       document.getElementById('import-inline-summary').after(warnBlocked);
     }
 
+    // Aviso de filas ya cargadas (idempotencia): re-subir el archivo no duplica
+    if (omittedRows.size > 0) {
+      const warnOmitted = document.createElement('div');
+      warnOmitted.id = 'import-inline-omitted';
+      warnOmitted.style.cssText = 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px';
+      const lista = [...omittedRows].slice(0, 20).join(', #');
+      warnOmitted.innerHTML = `↩️ <strong>${omittedRows.size} fila(s) ya están cargadas</strong> (#${lista}${omittedRows.size > 20 ? ', …' : ''}) y se van a omitir: re-subir el mismo archivo no duplica asientos ni consume movimientos.`;
+      document.getElementById('import-inline-summary').after(warnOmitted);
+    }
+
+    // Muestra de 20: botón para ver el archivo completo antes de cargar
+    if (totalRows > previewRows.length) {
+      const seeAll = document.createElement('div');
+      seeAll.id = 'import-inline-seeall';
+      seeAll.style.cssText = 'margin-bottom:10px';
+      seeAll.innerHTML = `<button onclick="handleImportInlineFile(importInlineFile, true)" style="padding:6px 12px;font-size:12px;border:1px solid #1565c0;border-radius:6px;background:#fff;color:#1565c0;cursor:pointer">👁 Ver las ${totalRows} filas del archivo (se muestran ${previewRows.length})</button>`;
+      document.getElementById('import-inline-preview').before(seeAll);
+    }
+
     const thead = document.getElementById('import-inline-thead');
     thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Pago</th><th>Ref</th><th>RUC</th><th>Concepto</th><th>Cuenta</th><th>Conf</th><th></th></tr>';
     let html = '';
@@ -212,7 +243,10 @@ function renderImportInlinePreview() {
       const conf = r.classification;
       const faltantes = r.missing || [];
       const bloqueada = blockedByRow.get(i + 1);
-      const rowCls = (faltantes.length || bloqueada) ? ' style="background:#fef2f2"' : '';
+      const omitida = omittedRows.has(i + 1);
+      const rowCls = omitida
+        ? ' style="background:#f8fafc;color:#94a3b8"'
+        : ((faltantes.length || bloqueada) ? ' style="background:#fef2f2"' : '');
       // Monto mostrado = neto + ITBMS (lo que realmente se paga)
       let montoHtml = '—';
       if (r.amount) {
@@ -235,7 +269,9 @@ function renderImportInlinePreview() {
         <td>${escapeHtml(r.concept||'')}</td>
         <td>${conf?escapeHtml(conf.concept):'—'}</td>
         <td>${conf?Math.round(conf.confidence*100)+'%':'—'}</td>
-        <td>${bloqueada ? `<span style="color:#dc2626;font-size:11px;font-weight:600" title="La cuenta no admite asientos: se rechazará esta fila al importar">⛔ Bloqueada</span>` : ''}${faltantes.length ? `<span style="color:#dc2626;font-size:11px"> Falta: ${faltantes.join(', ')}</span>` : ''}</td></tr>`;
+        <td>${omitida
+          ? '<span style="color:#b45309;font-size:11px;font-weight:600" title="Ya está en el sistema con los mismos datos: se omite al importar">↩️ Ya cargada</span>'
+          : `${bloqueada ? `<span style="color:#dc2626;font-size:11px;font-weight:600" title="La cuenta no admite asientos: se rechazará esta fila al importar">⛔ Bloqueada</span>` : ''}${faltantes.length ? `<span style="color:#dc2626;font-size:11px"> Falta: ${faltantes.join(', ')}</span>` : ''}`}</td></tr>`;
     });
     document.getElementById('import-inline-tbody').innerHTML = html;
   }
@@ -418,6 +454,9 @@ async function executeImportInline() {
     const result = await res.json();
     if (res.ok) {
       let msg = `✅ Importación completada: ${result.success} de ${result.total} exitosas.`;
+      if (result.omitted) {
+        msg += `\n\n↩️ ${result.omitted} fila(s) ya estaban cargadas y se omitieron — re-subir el mismo archivo no duplica asientos.`;
+      }
       if (result.errors && result.errors.length) {
         msg += `\n\n❌ ${result.errors.length} fila(s) rechazadas:\n` +
           result.errors.slice(0, 6).map(e => `• Fila ${e.row}: ${e.error}`).join('\n') +
@@ -444,6 +483,11 @@ function resetImportInline() {
   // Limpiar tarjetas extra de cobros si existen
   const cobrosCards = document.getElementById('import-inline-cobros-cards');
   if (cobrosCards) cobrosCards.remove();
+  // Limpiar el botón "ver todas" y el aviso de filas ya cargadas
+  const seeAll = document.getElementById('import-inline-seeall');
+  if (seeAll) seeAll.remove();
+  const omittedWarn = document.getElementById('import-inline-omitted');
+  if (omittedWarn) omittedWarn.remove();
   // Limpiar tarjetas de planilla si existen
   const planillaCards = document.getElementById('import-inline-planilla-cards');
   if (planillaCards) planillaCards.remove();

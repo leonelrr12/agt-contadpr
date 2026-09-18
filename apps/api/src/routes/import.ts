@@ -162,9 +162,18 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
       if (cuenta?.isBlocked) blockedRows.push({ row: i + 1, code: cuenta.code, name: cuenta.name });
     });
 
+    // Filas ya importadas antes (mismo archivo re-subido): se marcan omitidas.
+    const importIndex = await buildImportIndex(req.prisma, req.user!.companyId);
+    const omitidas = marcarOmitidas(allRows, importIndex);
+
     const previewRows = [];
     const conceptColName = parsed.detectedMapping.conceptCol;
-    for (let i = 0; i < Math.min(allRows.length, 20); i++) {
+    // Muestra: 20 filas por defecto; `?limit=all` para ver el archivo completo.
+    const limitParam = String(req.query.limit || '').toLowerCase();
+    const maxFilas = limitParam === 'all' || limitParam === 'todas'
+      ? allRows.length
+      : Math.min(allRows.length, Math.max(1, Number(limitParam) || 20));
+    for (let i = 0; i < maxFilas; i++) {
       const row = allRows[i];
       // Si hay columna Concepto explícita, se muestra el valor crudo en la columna
       // "Concepto"; si no, null (la cuenta clasificada va en la columna "Cuenta").
@@ -174,6 +183,7 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
         ...row,
         missing: missingRowFields(row, flags.get(classification?.accountId || '')),
         concept: rawConcept,
+        omitida: omitidas[i],
         classification: classification ? {
           concept: classification.concept,
           accountId: classification.accountId,
@@ -189,6 +199,8 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
       totalRows: parsed.totalRows,
       invalidRows,
       blockedRows,
+      omitted: omitidas.filter(Boolean).length,
+      omittedRows: omitidas.map((o, i) => (o ? i + 1 : 0)).filter(Boolean),
       detectedCobrosFile: isCobrosFileHeaders(parsed.headers) || isCobrosFileRows(allRows),
     });
   } catch (error: any) {
@@ -303,6 +315,71 @@ function missingRowFields(row: ImportRow, cuenta: { requiresAnexo: boolean } | n
   return [...missingImportFields(row), ...missingAnexoFields(row, cuenta)];
 }
 
+// ── Idempotencia (re-subir el mismo archivo no duplica) ──
+
+/**
+ * Clave de dedupe de una fila: lo que la identifica (fecha, montos, textos,
+ * tipo, RUC y referencia). Se guarda en `Transaction.metadata.rowKey` y se
+ * reconstruye desde la BD, igual que Planilla y Cobros.
+ */
+function txRowKey(row: ImportRow): string {
+  const cents = (n: number | null | undefined) => Math.round((Number(n) || 0) * 100);
+  const norm = (s: string | null | undefined) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return [
+    row.date || '',
+    cents(row.amount),
+    cents(row.itbms),
+    norm(row.description),
+    norm(row.concept),
+    norm(row.type),
+    norm(row.ruc),
+    norm(row.reference),
+  ].join('|');
+}
+
+/**
+ * Filas ya importadas (clave → cuántas veces están en BD). Los asientos
+ * ANULADOS no cuentan: tras anular, la misma fila se puede volver a cargar.
+ */
+async function buildImportIndex(prisma: any, companyId: string): Promise<Map<string, number>> {
+  const txs = await prisma.transaction.findMany({
+    where: {
+      companyId,
+      metadata: { contains: '"source":"import-masivo"' },
+      journalEntry: { is: { NOT: { description: { startsWith: 'ANULACIÓN:' } } } },
+    },
+    select: { metadata: true },
+  });
+  const index = new Map<string, number>();
+  for (const t of txs) {
+    try {
+      const m = JSON.parse(t.metadata || '{}');
+      if (m.source !== 'import-masivo' || !m.rowKey) continue;
+      index.set(m.rowKey, (index.get(m.rowKey) || 0) + 1);
+    } catch { /* metadata inválida: se ignora */ }
+  }
+  return index;
+}
+
+/**
+ * Marca qué filas ya estaban importadas, consumiendo el conteo: dos filas
+ * idénticas DENTRO del mismo archivo se cargan las dos (si en BD no hay
+ * ninguna), pero re-subir el archivo omite las que ya entraron. Mismo
+ * resultado en el preview y en la ejecución — si divergen, el preview
+ * prometería algo que la carga no hace.
+ */
+function marcarOmitidas(rows: ImportRow[], index: Map<string, number>): boolean[] {
+  return rows.map(r => {
+    const key = txRowKey(r);
+    const quedan = index.get(key) || 0;
+    if (quedan > 0) {
+      index.set(key, quedan - 1);
+      return true;
+    }
+    return false;
+  });
+}
+
 /**
  * Detección de archivo de PAGOS A FACTURAS (el import NORMAL no mapea
  * "Fecha de Pago" ni la cuenta/banco del archivo: usa la "Fecha" genérica y
@@ -414,12 +491,17 @@ async function executeImportRows(
   userId: string,
   incrementUsageFn: (req: any) => Promise<void>,
   req: any,
-): Promise<{ success: number; errors: { row: number; error: string }[]; entryIds: string[] }> {
+): Promise<{ success: number; omitted: number; errors: { row: number; error: string }[]; entryIds: string[] }> {
   const classifier = new ClassificationAgent({ prisma, companyId });
   const accountant = new AccountingAgent(prisma, companyId);
   await accountant.init();
 
-  const results = { success: 0, errors: [] as { row: number; error: string }[], entryIds: [] as string[] };
+  const results = { success: 0, omitted: 0, errors: [] as { row: number; error: string }[], entryIds: [] as string[] };
+
+  // Idempotencia: filas que ya están en BD (mismo archivo re-subido) se omiten
+  // sin crear asiento ni consumir cuota. El MISMO criterio que el preview.
+  const importIndex = await buildImportIndex(prisma, companyId);
+  const omitidas = marcarOmitidas(rows, importIndex);
 
   // Banco por defecto de la empresa (una consulta por lote; el catálogo de
   // bancos se carga solo si alguna fila lo pide en el archivo)
@@ -446,6 +528,12 @@ async function executeImportRows(
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const rowNum = i + 1;
+
+    // Ya importada en una carga anterior: se omite (no es error).
+    if (omitidas[i]) {
+      results.omitted++;
+      continue;
+    }
 
     try {
       const missing = missingImportFields(row);
@@ -594,6 +682,8 @@ async function executeImportRows(
               if (row.reference) m.reference = row.reference;
               // El informe Anexos-DGI lee invoiceNumber (referencia de la factura)
               if (row.reference) m.invoiceNumber = row.reference;
+              // Clave de dedupe: re-subir el mismo archivo no vuelve a cargar la fila
+              m.rowKey = txRowKey(row);
               if (row.ruc) m.ruc = row.ruc;
               if (row.itbms) m.itbms = row.itbms;
               return JSON.stringify(m);
@@ -643,6 +733,7 @@ importRouter.post('/execute', requireQuota, validate(importExecuteSchema), async
 
     res.json({
       success: results.success,
+      omitted: results.omitted,
       errors: results.errors,
       total: rows.length,
       entryIds: results.entryIds.slice(0, 5),
@@ -703,6 +794,7 @@ importRouter.post('/execute-all', requireQuota, upload.single('file'), async (re
 
     res.json({
       success: results.success,
+      omitted: results.omitted,
       errors: results.errors,
       total: rows.length,
       entryIds: results.entryIds.slice(0, 5),
