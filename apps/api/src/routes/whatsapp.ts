@@ -48,10 +48,11 @@ async function handleWebhook(req: any, res: any): Promise<void> {
 
   const from = body.from;       // "50761234567"
   const chatId = body.chatId;   // "170527415103566@lid" — para enviar mensajes
-  // Las respuestas van al JID clásICO número@c.us: verificado el 2026-08-21
-  // con sesión re-enlazada — el @lid (170527415103566@s.whatsapp.net) NO
-  // entrega; el clásico (50766733759@s.whatsapp.net) SÍ. El bot convierte
-  // @c.us → @s.whatsapp.net.
+  // Las respuestas salen como JID clásico número@c.us; el gateway
+  // (whatsapp-ai-bot) extrae el número y resuelve el LID del contacto, que es
+  // a donde WhatsApp entrega hoy. El mapeo LID↔número vive ALLÁ, no aquí: forzar
+  // el clásico del lado del gateway fue el bug del 18-09 (los envíos se perdían
+  // en silencio y el mensaje quedaba en "waiting" en el remitente).
   const replyChatId = from ? `${from}@c.us` : chatId;
   const sessionKey = from;      // número de teléfono — consistente como key de sesión
   // Compatible con OpenWA (body.body) y whatsapp-ai-bot (body.message)
