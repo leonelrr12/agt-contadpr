@@ -1171,6 +1171,8 @@ body {
   .summary-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
   .summary-grid .card { padding: 12px; }
   .summary-grid .card .value { font-size: 20px; }
+  /* El drawer del asiento ocupa todo el ancho en móvil */
+  .entry-drawer { max-width: 100%; }
   #panel-recurring-content,
   #panel-conciliacion-content,
   #panel-import-content,
@@ -1181,3 +1183,27 @@ body {
     padding-right: 32px !important;
   }
 }
+
+/* ── Visor "Asiento original": drawer lateral del auxiliar de cuenta ──
+ * Se abre al clickear un movimiento: entra desde la derecha y no bloquea el
+ * scroll de la tabla, para poder saltar de un movimiento a otro sin cerrarlo. */
+.entry-drawer-overlay {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.32);
+  z-index: 9999; animation: fadeIn 0.15s ease;
+}
+.entry-drawer {
+  position: absolute; top: 0; right: 0; height: 100%; width: 100%; max-width: 560px;
+  background: #fff; display: flex; flex-direction: column;
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.18);
+  animation: drawerIn 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes drawerIn { from { transform: translateX(28px); opacity: 0.4; } to { transform: translateX(0); opacity: 1; } }
+.entry-drawer-head { padding: 16px 18px 12px; border-bottom: 1px solid #e5e7eb; flex-shrink: 0; background: #fff; }
+.entry-drawer-body { padding: 16px 18px 28px; overflow: auto; flex: 1; }
+
+/* Fila del auxiliar: clickeable, y resaltada mientras su asiento está abierto.
+ * La barra azul va solo en la primera celda (en todas se vería como un escalón). */
+.aux-row { transition: background 0.12s ease; }
+.aux-row:hover td { background: #f1f5f9; }
+.aux-row-active td { background: #e0f2fe !important; }
+.aux-row-active td:first-child { box-shadow: inset 3px 0 0 #1565c0; }

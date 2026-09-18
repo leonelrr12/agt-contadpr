@@ -419,3 +419,133 @@ async function showCreateEntryModal(originalEntry, originalEntryId, mode) {
   };
 }
 
+/* ── Visor: Asiento original (drawer lateral) ──
+ * Abre el asiento COMPLETO que generó un movimiento del auxiliar de cuenta, sin
+ * salir de la tabla: el panel entra desde la derecha, la fila de origen queda
+ * resaltada y se puede saltar de un movimiento a otro sin cerrar nada.
+ * `accountId` (opcional) es la cuenta que se estaba consultando: su línea se
+ * destaca para ver de un golpe con qué contrapartida se armó el asiento. */
+let _entryDrawerKeyHandler = null;
+
+function closeEntryDrawer() {
+  const overlay = document.getElementById('entry-drawer-overlay');
+  if (overlay) overlay.remove();
+  if (_entryDrawerKeyHandler) {
+    document.removeEventListener('keydown', _entryDrawerKeyHandler);
+    _entryDrawerKeyHandler = null;
+  }
+  document.querySelectorAll('.aux-row-active').forEach(tr => tr.classList.remove('aux-row-active'));
+}
+
+async function showEntryDrawer(entryId, accountId) {
+  // Un solo drawer: abrir otro movimiento reemplaza el contenido (sin apilar).
+  const previo = document.getElementById('entry-drawer-overlay');
+  if (previo) previo.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'entry-drawer-overlay';
+  overlay.id = 'entry-drawer-overlay';
+  overlay.innerHTML = `<aside class="entry-drawer" role="dialog" aria-label="Asiento original">
+    <div class="entry-drawer-head">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div style="font-weight:700;font-size:15px">📄 Asiento original</div>
+        <button id="entry-drawer-close" title="Cerrar (Esc)" style="border:none;background:#f1f5f9;color:#374151;border-radius:6px;width:28px;height:28px;font-size:14px;cursor:pointer;flex-shrink:0">✕</button>
+      </div>
+      <div id="entry-drawer-sub" style="font-size:12px;color:#6b7280;margin-top:2px">Cargando...</div>
+    </div>
+    <div class="entry-drawer-body" id="entry-drawer-body">
+      <div style="padding:24px;text-align:center;color:#6b7280;font-size:13px">Cargando asiento...</div>
+    </div>
+  </aside>`;
+  document.body.appendChild(overlay);
+
+  // Cierre: ✕, click en el fondo o Esc. El drawer NO bloquea el scroll de la
+  // tabla de atrás: es un visor, no un formulario con datos sin guardar.
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeEntryDrawer(); });
+  overlay.querySelector('#entry-drawer-close').onclick = closeEntryDrawer;
+  _entryDrawerKeyHandler = e => { if (e.key === 'Escape') closeEntryDrawer(); };
+  document.addEventListener('keydown', _entryDrawerKeyHandler);
+
+  const body = overlay.querySelector('#entry-drawer-body');
+  const sub = overlay.querySelector('#entry-drawer-sub');
+
+  let entry;
+  try {
+    const res = await authFetch(`${API_URL}/journal/${entryId}`);
+    if (!res || !res.ok) { body.innerHTML = '<div style="padding:24px;color:#991b1b;font-size:13px">No se pudo cargar el asiento</div>'; sub.textContent = 'Error'; return; }
+    entry = await res.json();
+  } catch (e) {
+    body.innerHTML = '<div style="padding:24px;color:#991b1b;font-size:13px">Error de conexión</div>';
+    sub.textContent = 'Error';
+    return;
+  }
+  // El drawer pudo cerrarse mientras cargaba
+  if (!document.getElementById('entry-drawer-overlay')) return;
+
+  const fmt = n => `$${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const money = n => (Number(n) ? fmt(n) : '—');
+  const fecha = entry.date ? new Date(entry.date).toLocaleDateString('es-PA') : '—';
+  const o = entry.origin;
+  const lineas = entry.lines || [];
+  const totalDeb = lineas.reduce((s, l) => s + (Number(l.debit) || 0), 0);
+  const totalCred = lineas.reduce((s, l) => s + (Number(l.credit) || 0), 0);
+  const cuadra = Math.abs(totalDeb - totalCred) < 0.01 && totalDeb > 0;
+
+  sub.innerHTML = `📅 ${fecha} · ${statusTag(entry.status, entry.reviewNotes)}`;
+
+  // Línea de la cuenta consultada: fondo azul claro + borde izquierdo
+  const filas = lineas.map(l => {
+    const esLaCuenta = accountId && l.accountId === accountId;
+    const fondo = esLaCuenta ? 'background:#eff6ff;box-shadow:inset 3px 0 0 #1565c0' : '';
+    return `<tr style="${fondo}">
+      <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;font-size:12.5px">
+        <span style="color:#6b7280">${escapeHtml(l.account?.code || '')}</span> ${escapeHtml(l.account?.name || '')}
+        ${esLaCuenta ? '<span style="font-size:10px;color:#1565c0;font-weight:700;margin-left:4px">◀ ESTA CUENTA</span>' : ''}
+      </td>
+      <td style="text-align:right;padding:8px 12px;border-bottom:1px solid #f0f0f0;font-size:12.5px;color:#2e7d32;font-weight:600;white-space:nowrap">${money(l.debit)}</td>
+      <td style="text-align:right;padding:8px 12px;border-bottom:1px solid #f0f0f0;font-size:12.5px;color:#c62828;font-weight:600;white-space:nowrap">${money(l.credit)}</td>
+    </tr>`;
+  }).join('');
+
+  const auditoria = [
+    entry.createdBy?.name ? `👤 Creado por ${escapeHtml(entry.createdBy.name)}${entry.createdAt ? ` · ${new Date(entry.createdAt).toLocaleDateString('es-PA')}` : ''}` : null,
+    entry.reviewedBy?.name ? `🔍 Revisado por ${escapeHtml(entry.reviewedBy.name)}${entry.reviewedAt ? ` · ${new Date(entry.reviewedAt).toLocaleDateString('es-PA')}` : ''}` : null,
+    entry.reviewNotes ? `📝 Notas de revisión: ${escapeHtml(entry.reviewNotes)}` : null,
+  ].filter(Boolean);
+
+  body.innerHTML = `
+    <div style="font-weight:700;font-size:15px;line-height:1.35">${escapeHtml(entry.description || 'Sin descripción')}</div>
+    ${o ? `<div style="margin-top:8px">
+      <span style="display:inline-flex;align-items:center;gap:5px;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:3px 10px;font-size:11.5px;font-weight:600">${o.icon || '🏷'} ${escapeHtml(o.label || 'Origen')}</span>
+      ${o.detail ? `<div style="font-size:11.5px;color:#6b7280;margin-top:4px">${escapeHtml(o.detail)}</div>` : ''}
+      ${o.link && o.link.type === 'invoice' && typeof downloadFacturaPdf === 'function'
+        ? `<button onclick="downloadFacturaPdf('${o.link.id}')" style="margin-top:6px;padding:5px 12px;font-size:11.5px;background:#fff;color:#1565c0;border:1px solid #1565c0;border-radius:6px;cursor:pointer">📄 Ver PDF de la factura</button>`
+        : ''}
+    </div>` : ''}
+
+    <table style="width:100%;border-collapse:collapse;margin-top:14px">
+      <thead><tr>
+        <th style="text-align:left;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-size:10.5px;color:#6b7280;text-transform:uppercase">Cuenta</th>
+        <th style="text-align:right;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-size:10.5px;color:#6b7280;text-transform:uppercase">Débito</th>
+        <th style="text-align:right;padding:6px 12px;border-bottom:2px solid #e5e7eb;font-size:10.5px;color:#6b7280;text-transform:uppercase">Crédito</th>
+      </tr></thead>
+      <tbody>${filas || '<tr><td colspan="3" style="padding:12px;color:#6b7280;font-size:12.5px">El asiento no tiene líneas</td></tr>'}</tbody>
+      <tfoot><tr style="border-top:2px solid #1a1a2e;font-weight:700">
+        <td style="padding:8px 12px;font-size:12px">Totales ${cuadra
+          ? '<span style="color:#059669;font-weight:600">✓ cuadra</span>'
+          : '<span style="color:#b45309;font-weight:600">⚠ descuadre</span>'}</td>
+        <td style="text-align:right;padding:8px 12px;font-size:12.5px;color:#2e7d32;white-space:nowrap">${fmt(totalDeb)}</td>
+        <td style="text-align:right;padding:8px 12px;font-size:12.5px;color:#c62828;white-space:nowrap">${fmt(totalCred)}</td>
+      </tr></tfoot>
+    </table>
+
+    ${auditoria.length ? `<div style="margin-top:14px;padding-top:12px;border-top:1px solid #f0f0f0;font-size:11.5px;color:#6b7280;line-height:1.8">${auditoria.join('<br>')}</div>` : ''}
+    <div style="margin-top:12px;font-size:10.5px;color:#9ca3af">Asiento ${escapeHtml(entry.id.slice(0, 10))}…</div>
+  `;
+
+  // Resaltar la fila del auxiliar que abrió este drawer
+  document.querySelectorAll('.aux-row-active').forEach(tr => tr.classList.remove('aux-row-active'));
+  const fila = document.querySelector(`[data-entry-id="${entryId}"]`);
+  if (fila) fila.classList.add('aux-row-active');
+}
+

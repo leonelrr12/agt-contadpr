@@ -485,9 +485,22 @@ async function loadAuxiliarData() {
     const d = await res.json();
     if (!d.detail || !d.detail.length) { el.innerHTML = '<div style="text-align:center;padding:24px;color:#6b7280">Sin movimientos</div>'; return; }
     const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-    el.innerHTML = `<div style="margin-bottom:8px;font-weight:600">${d.account.code} — ${d.account.name}</div>` +
-      buildInformesTable(['Fecha','Detalle','Débito','Crédito','Saldo'],
-        d.detail.map(e => [new Date(e.date).toLocaleDateString('es-PA'), escapeHtml(e.description||''), `<span style="color:#2e7d32">${fmt(e.debit||0)}</span>`, `<span style="color:#c62828">${fmt(e.credit||0)}</span>`, `<strong>${fmt(e.balance||0)}</strong>`]));
+    // Cada línea es clickeable: abre el asiento ORIGINAL completo (drawer).
+    // `e.id` es el asiento, no la línea — así se ve también la contrapartida.
+    el.innerHTML = `<div style="margin-bottom:6px;font-weight:600">${d.account.code} — ${d.account.name}</div>` +
+      '<div style="font-size:11.5px;color:#6b7280;margin-bottom:8px">🔍 Click en un movimiento para ver el asiento original que lo generó</div>' +
+      buildInformesTable(['Fecha','Detalle','Débito','Crédito','Saldo',''],
+        d.detail.map(e => ({
+          rowAttrs: `class="aux-row" data-entry-id="${e.id}" style="cursor:pointer" title="Ver el asiento original" onclick="showEntryDrawer('${e.id}', '${id}')"`,
+          cells: [
+            new Date(e.date).toLocaleDateString('es-PA'),
+            escapeHtml(e.description||''),
+            `<span style="color:#2e7d32">${fmt(e.debit||0)}</span>`,
+            `<span style="color:#c62828">${fmt(e.credit||0)}</span>`,
+            `<strong>${fmt(e.balance||0)}</strong>`,
+            '<span style="color:#1565c0">🔍</span>',
+          ],
+        })));
   } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; }
 }
 async function loadAuxCxC(el) {
@@ -614,6 +627,8 @@ function exportInforme(type, format) {
  *   la fila la muestra/oculta con toggleInformesDetalle). Uniforme en
  *   Proveedores, CxC y CxP: el detalle nunca aparece al final del
  *   listado ni dentro de una celda.
+ * - y opcionalmente `rowAttrs`: atributos para el <tr> (clases, data-*, onclick).
+ *   Lo usa el auxiliar de cuenta para abrir el asiento original de cada línea.
  */
 function buildInformesTable(headers, rows, footer) {
   let h = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>';
@@ -621,7 +636,7 @@ function buildInformesTable(headers, rows, footer) {
   h += '</tr></thead><tbody>';
   for (const row of rows) {
     const cells = Array.isArray(row) ? row : (row.cells || []);
-    h += '<tr>';
+    h += `<tr${!Array.isArray(row) && row.rowAttrs ? ' ' + row.rowAttrs : ''}>`;
     for (const td of cells) h += `<td style="padding:8px 10px;border-bottom:1px solid #e5e7eb">${td}</td>`;
     h += '</tr>';
     if (!Array.isArray(row) && row.detalleId) {

@@ -6,6 +6,7 @@ import { parseLocalDate } from '../lib/dates';
 import { getAnioFiscal, anioFiscalRange } from '../lib/fiscal-year';
 import { logAudit } from '../services/audit-log';
 import { syncEntityFromEntry } from '../services/entity-service';
+import { resolveEntryOrigin } from '../services/entry-origin';
 import { requireQuota, incrementUsage } from '../middleware/quota';
 import { checkNotBlocked } from '../services/journal-guard';
 import {
@@ -211,7 +212,10 @@ journalRouter.get('/:id', async (req, res) => {
     },
   });
   if (!entry) { res.status(404).json({ error: 'Journal entry not found' }); return; }
-  res.json(entry);
+  // `origin`: de dónde salió el asiento (factura, cobro, importación, manual…).
+  // Lo consume el visor "Asiento original" del auxiliar de cuenta.
+  const origin = await resolveEntryOrigin(req.prisma, req.user!.companyId, entry);
+  res.json({ ...entry, origin });
 });
 
 journalRouter.post('/', requireQuota, validate(createJournalEntrySchema), async (req, res) => {
