@@ -63,9 +63,6 @@ document.addEventListener('DOMContentLoaded', () => {
   addMessage('¡Buenos días! Soy tu agente contable. ¿Qué deseas registrar hoy?', 'assistant');
   addMessage('Puedes escribir algo como:\n• "Compré combustible por $40 con tarjeta"\n• "Vendí $250 en efectivo"\n• "Pagué la electricidad"\n• "Compra de mercancía por $100 con ITBMS a Distribuidora XYZ, crédito"\n• "Vendí $200 en efectivo con ITBMS"\n• "Pago de ITBMS por $150"', 'assistant');
 
-  // Cargar cuentas para el selector del Auxiliar
-  loadAuxiliarAccounts();
-
   // ── Inicializar date picker persistente ──
   const datePicker = document.getElementById('capture-date-picker');
   if (datePicker) {
