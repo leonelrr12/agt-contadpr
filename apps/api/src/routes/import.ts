@@ -201,6 +201,11 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
       blockedRows,
       omitted: omitidas.filter(Boolean).length,
       omittedRows: omitidas.map((o, i) => (o ? i + 1 : 0)).filter(Boolean),
+      // Totales del ARCHIVO completo (no solo de la muestra) para comparar
+      // contra la planilla del usuario antes de cargar, y cuánto de eso ya
+      // está cargado (filas omitidas por idempotencia).
+      totals: totalesDe(allRows),
+      totalsOmitted: totalesDe(allRows.filter((_r, i) => omitidas[i])),
       detectedCobrosFile: isCobrosFileHeaders(parsed.headers) || isCobrosFileRows(allRows),
     });
   } catch (error: any) {
@@ -313,6 +318,63 @@ function rowConceptForClassify(row: ImportRow): string {
 /** Validación completa de una fila: base + lo que exija su cuenta con Anexo. */
 function missingRowFields(row: ImportRow, cuenta: { requiresAnexo: boolean } | null | undefined): string[] {
   return [...missingImportFields(row), ...missingAnexoFields(row, cuenta)];
+}
+
+// ── Totales del lote (para cuadrar contra los asientos) ──
+
+export interface LoteTotales {
+  rows: number;
+  /** Monto de la columna del archivo (neto, sin ITBMS) */
+  monto: number;
+  /** ITBMS que traía la columna del archivo (0 si no hay columna) */
+  itbms: number;
+  /** monto + itbms = lo que el archivo dice que se carga */
+  total: number;
+}
+
+/**
+ * Suma un conjunto de filas EN CENTAVOS: los `amount`/`itbms` son Float y sumar
+ * los valores crudos arrastra ruido binario al texto (ver memoria del repo).
+ * Lo que devuelve es lo que dice el ARCHIVO, no lo que se contabiliza: en
+ * ventas/compras sin columna de ITBMS el sistema calcula el 7% y el asiento
+ * sale mayor que la columna (el cuadre lo muestra aparte).
+ */
+function totalesDe(rows: ImportRow[]): LoteTotales {
+  const cents = (n: number | null | undefined) => Math.round((Number(n) || 0) * 100);
+  let monto = 0;
+  let itbms = 0;
+  for (const r of rows) {
+    monto += cents(r.amount);
+    itbms += cents(r.itbms);
+  }
+  return {
+    rows: rows.length,
+    monto: monto / 100,
+    itbms: itbms / 100,
+    total: (monto + itbms) / 100,
+  };
+}
+
+/**
+ * Cuadre de un lote: cuántas filas entraron, cuánto suman en el libro y qué
+ * quedó fuera. `cuadra` es true solo si cada fila terminó creada, rechazada u
+ * omitida Y lo que hay en el libro es lo que los asientos debían postear.
+ */
+export interface CuadreLote {
+  filas: { archivo: number; creadas: number; rechazadas: number; omitidas: number };
+  montos: {
+    /** Lo que dice el archivo (columnas monto + ITBMS) */
+    archivoMonto: number;
+    archivoItbms: number;
+    archivoTotal: number;
+    /** Débitos realmente grabados en el libro para los asientos del lote */
+    contabilizado: number;
+    rechazado: number;
+    omitido: number;
+  };
+  cuadra: boolean;
+  /** Sobrante tras descontar rechazadas y omitidas: el ITBMS calculado por el sistema */
+  diferenciaExplicada: number;
 }
 
 // ── Idempotencia (re-subir el mismo archivo no duplica) ──
@@ -491,7 +553,13 @@ async function executeImportRows(
   userId: string,
   incrementUsageFn: (req: any) => Promise<void>,
   req: any,
-): Promise<{ success: number; omitted: number; errors: { row: number; error: string }[]; entryIds: string[] }> {
+): Promise<{
+  success: number;
+  omitted: number;
+  errors: { row: number; error: string }[];
+  entryIds: string[];
+  cuadre: CuadreLote;
+}> {
   const classifier = new ClassificationAgent({ prisma, companyId });
   const accountant = new AccountingAgent(prisma, companyId);
   await accountant.init();
@@ -502,6 +570,15 @@ async function executeImportRows(
   // sin crear asiento ni consumir cuota. El MISMO criterio que el preview.
   const importIndex = await buildImportIndex(prisma, companyId);
   const omitidas = marcarOmitidas(rows, importIndex);
+
+  // Cuadre del lote, en centavos: lo que el archivo dice, lo que se contabilizó
+  // de verdad (sumado de las líneas en BD, no de lo que creemos haber creado),
+  // y lo que quedó fuera (rechazado / omitido) con su motivo.
+  const cents = (n: number) => Math.round(n * 100);
+  let esperadoCents = 0;      // suma de los débitos de los asientos creados
+  let rechazadoCents = 0;     // filas que no entraron por error
+  let omitidoCents = 0;       // filas que ya estaban cargadas
+  const archivo = totalesDe(rows);
 
   // Banco por defecto de la empresa (una consulta por lote; el catálogo de
   // bancos se carga solo si alguna fila lo pide en el archivo)
@@ -532,6 +609,7 @@ async function executeImportRows(
     // Ya importada en una carga anterior: se omite (no es error).
     if (omitidas[i]) {
       results.omitted++;
+      omitidoCents += cents(row.amount || 0) + cents(row.itbms || 0);
       continue;
     }
 
@@ -630,6 +708,8 @@ async function executeImportRows(
       if (!validation.valid) {
         throw new Error(validation.error || 'Asiento no balanceado');
       }
+      // Lo que este asiento debería postear (débitos = créditos tras validar)
+      esperadoCents += cents(entry.debit.reduce((s: number, d: any) => s + d.amount, 0));
 
       const debitLines = entry.debit.map((d: any) => ({
         accountId: accountant.resolveAlias(d.accountId),
@@ -709,6 +789,7 @@ async function executeImportRows(
       results.success++;
     } catch (err: any) {
       results.errors.push({ row: rowNum, error: cleanImportError(err) });
+      rechazadoCents += cents(row.amount || 0) + cents(row.itbms || 0);
     }
   }
 
@@ -716,7 +797,43 @@ async function executeImportRows(
     try { await incrementUsageFn(req); } catch { /* quota exhausted */ }
   }
 
-  return results;
+  // Cuadre real: se suman las líneas EN BD de los asientos creados. No se
+  // confía en la suma que traíamos en memoria — si un asiento entró con menos
+  // líneas de las previstas, acá se ve la diferencia.
+  const sumaLibro = results.entryIds.length
+    ? await prisma.journalLine.aggregate({
+        where: { journalEntryId: { in: results.entryIds } },
+        _sum: { debit: true },
+      })
+    : null;
+  const contabilizadoCents = cents(Number(sumaLibro?._sum?.debit) || 0);
+
+  const cuadre: CuadreLote = {
+    filas: {
+      archivo: rows.length,
+      creadas: results.success,
+      rechazadas: results.errors.length,
+      omitidas: results.omitted,
+    },
+    montos: {
+      archivoMonto: archivo.monto,
+      archivoItbms: archivo.itbms,
+      archivoTotal: archivo.total,
+      contabilizado: contabilizadoCents / 100,
+      rechazado: rechazadoCents / 100,
+      omitido: omitidoCents / 100,
+    },
+    // Cuadra si cada fila terminó creada, rechazada u omitida, y si lo que hay
+    // en el libro es exactamente lo que los asientos debían postear.
+    cuadra: results.success + results.errors.length + results.omitted === rows.length
+      && contabilizadoCents === esperadoCents,
+    // Diferencia entre lo que dice el archivo y lo contabilizado, DESPUÉS de
+    // descontar lo rechazado y lo omitido: lo que sobra es el ITBMS que el
+    // sistema calcula en ventas/compras sin columna de impuesto.
+    diferenciaExplicada: (contabilizadoCents - cents(archivo.total) + rechazadoCents + omitidoCents) / 100,
+  };
+
+  return { ...results, cuadre };
 }
 
 /**
@@ -738,6 +855,7 @@ importRouter.post('/execute', requireQuota, validate(importExecuteSchema), async
       errors: results.errors,
       total: rows.length,
       entryIds: results.entryIds.slice(0, 5),
+      cuadre: results.cuadre,
     });
   } catch (error: any) {
     console.error('[Import] Execute error:', error);
@@ -799,6 +917,7 @@ importRouter.post('/execute-all', requireQuota, upload.single('file'), async (re
       errors: results.errors,
       total: rows.length,
       entryIds: results.entryIds.slice(0, 5),
+      cuadre: results.cuadre,
     });
   } catch (error: any) {
     console.error('[Import] Execute-all error:', error);

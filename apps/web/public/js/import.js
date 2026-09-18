@@ -123,6 +123,12 @@ async function handleImportInlineFile(file, verTodas = false) {
   } catch (e) { await showAlert('Error de conexión'); resetImportInline(); }
 }
 
+/** Monto en formato $1,234.56 (los totales del lote se muestran siempre igual). */
+function moneyLote(n) {
+  return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+
 /** Etiqueta legible del método de pago derivado del Estado (columna "Pago"). */
 function importPagoLabel(pm) {
   if (pm === 'CREDITO') return ['Crédito', '#b45309'];
@@ -159,6 +165,8 @@ function renderImportInlinePreview() {
   if (prevSeeAll) prevSeeAll.remove();
   const prevOmitted = document.getElementById('import-inline-omitted');
   if (prevOmitted) prevOmitted.remove();
+  const prevTotals = document.getElementById('import-inline-totals');
+  if (prevTotals) prevTotals.remove();
 
   document.getElementById('import-inline-summary').classList.remove('hidden');
   document.getElementById('import-inline-preview').classList.remove('hidden');
@@ -215,6 +223,23 @@ function renderImportInlinePreview() {
       const cuentas = [...new Set(blockedRows.map(b => `${b.code} — ${b.name}`))].join(' · ');
       warnBlocked.innerHTML = `⛔ <strong>${blockedRows.length} fila(s) usan cuentas bloqueadas</strong> (#${blockedRows.map(b => b.row).join(', #')}): ${escapeHtml(cuentas)}. No admiten asientos nuevos: desbloquéalas en Administración → Cuentas o cambia la cuenta de esas filas.`;
       document.getElementById('import-inline-summary').after(warnBlocked);
+    }
+
+    // Totales del ARCHIVO completo (no solo de la muestra): para comparar
+    // contra la planilla del usuario antes de cargar.
+    const tot = importInlinePreview.totals;
+    if (tot) {
+      const yaCargado = importInlinePreview.totalsOmitted;
+      const totDiv = document.createElement('div');
+      totDiv.id = 'import-inline-totals';
+      totDiv.style.cssText = 'background:#f0f9ff;border:1px solid #bae6fd;color:#075985;border-radius:8px;padding:8px 12px;font-size:12.5px;margin-bottom:12px';
+      totDiv.innerHTML = `💰 <strong>Total del archivo: ${moneyLote(tot.total)}</strong>`
+        + (tot.itbms ? ` <span style="color:#0369a1">(monto ${moneyLote(tot.monto)} + ITBMS ${moneyLote(tot.itbms)})</span>` : '')
+        + ` · ${tot.rows} fila(s)`
+        + (yaCargado && yaCargado.rows
+          ? `<br>↩️ Ya cargado antes: ${moneyLote(yaCargado.total)} (${yaCargado.rows} fila(s)) → quedaría por cargar <strong>${moneyLote(tot.total - yaCargado.total)}</strong>`
+          : '');
+      document.getElementById('import-inline-summary').after(totDiv);
     }
 
     // Aviso de filas ya cargadas (idempotencia): re-subir el archivo no duplica
@@ -454,6 +479,22 @@ async function executeImportInline() {
     const result = await res.json();
     if (res.ok) {
       let msg = `✅ Importación completada: ${result.success} de ${result.total} exitosas.`;
+      // Cuadre del lote: lo que dice el archivo vs lo que quedó en el libro
+      // (sumado de las líneas en BD), y qué quedó fuera.
+      const c = result.cuadre;
+      if (c) {
+        msg += `\n\n💰 Archivo: ${moneyLote(c.montos.archivoTotal)} · En el libro: ${moneyLote(c.montos.contabilizado)}`;
+        if (c.filas.rechazadas || c.filas.omitidas) {
+          msg += `\n   Fuera del lote: ${c.filas.rechazadas} rechazada(s) (${moneyLote(c.montos.rechazado)})`
+            + ` · ${c.filas.omitidas} omitida(s) (${moneyLote(c.montos.omitido)})`;
+        }
+        if (Math.abs(c.diferenciaExplicada) >= 0.005) {
+          msg += `\n   (${moneyLote(c.diferenciaExplicada)} de ITBMS que el sistema calcula en ventas/compras, más redondeo de centavos)`;
+        }
+        msg += c.cuadra
+          ? `\n✅ Cuadra: ${c.filas.creadas} asiento(s) = ${moneyLote(c.montos.contabilizado)} en el libro.`
+          : `\n⚠️ NO cuadra: avisa antes de seguir cargando (el libro no refleja el lote completo).`;
+      }
       if (result.omitted) {
         msg += `\n\n↩️ ${result.omitted} fila(s) ya estaban cargadas y se omitieron — re-subir el mismo archivo no duplica asientos.`;
       }
@@ -488,6 +529,8 @@ function resetImportInline() {
   if (seeAll) seeAll.remove();
   const omittedWarn = document.getElementById('import-inline-omitted');
   if (omittedWarn) omittedWarn.remove();
+  const totalsBox = document.getElementById('import-inline-totals');
+  if (totalsBox) totalsBox.remove();
   // Limpiar tarjetas de planilla si existen
   const planillaCards = document.getElementById('import-inline-planilla-cards');
   if (planillaCards) planillaCards.remove();
