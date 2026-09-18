@@ -571,6 +571,10 @@ async function executeImportRows(
             journalEntryId: created.id,
             metadata: (() => {
               const m: Record<string, any> = {};
+              // Marca el origen: el visor "Asiento original" del auxiliar distingue
+              // así una carga masiva del asistente IA (que no deja `source`).
+              // Los asientos importados antes de este cambio quedan sin marca.
+              m.source = 'import-masivo';
               if (row.provider) m.provider = row.provider;
               if (row.reference) m.reference = row.reference;
               // El informe Anexos-DGI lee invoiceNumber (referencia de la factura)

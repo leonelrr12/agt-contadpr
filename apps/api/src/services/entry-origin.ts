@@ -35,6 +35,12 @@ const SOURCE_ORIGINS: Record<string, EntryOrigin> = {
     label: 'Importación de cobros',
     detail: 'Archivo maestro de cobros',
   },
+  'import-masivo': {
+    kind: 'IMPORTACION',
+    icon: '📥',
+    label: 'Importación masiva',
+    detail: 'Carga de archivo (CSV/Excel)',
+  },
   'compensacion-r52': {
     kind: 'COMPENSACION',
     icon: '🔖',
@@ -43,6 +49,9 @@ const SOURCE_ORIGINS: Record<string, EntryOrigin> = {
   },
   planilla: { kind: 'PLANILLA', icon: '🧮', label: 'Planilla', detail: 'Carga de planilla' },
   'factura-pdf': { kind: 'FACTURA', icon: '🧾', label: 'Factura emitida', detail: 'Módulo Facturas PDF' },
+  // `source` que manda la captura al asistente (dialog.source → metadata.source)
+  ocr: { kind: 'CAPTURA', icon: '📷', label: 'Foto de factura (OCR)', detail: 'Capturada con la cámara' },
+  pdf: { kind: 'CAPTURA', icon: '📎', label: 'PDF de factura', detail: 'Subida como archivo' },
   'chat-cobro': {
     kind: 'COBRO',
     icon: '💰',
@@ -91,6 +100,16 @@ export async function resolveEntryOrigin(
   }
   if (desc.startsWith('REVERSIÓN') || desc.includes('[ref:')) {
     return { kind: 'CORRECCION', icon: '✏️', label: 'Corrección', detail: 'Reversión del asiento original' };
+  }
+  // Asiento de apertura: descripción fija y sin Transaction (mismo criterio que
+  // GET /import/carga-inicial/existe, que lo busca por ese texto).
+  if (desc.startsWith('Carga Inicial')) {
+    return {
+      kind: 'CARGA_INICIAL',
+      icon: '🧮',
+      label: 'Carga Inicial',
+      detail: 'Asiento de apertura (Administración)',
+    };
   }
 
   // 2. Documento que lo generó (FK directa)
@@ -183,8 +202,9 @@ export async function resolveEntryOrigin(
   const mapped = meta.source ? SOURCE_ORIGINS[meta.source] : undefined;
   if (mapped) return { ...mapped, detail: [mapped.detail, provider].filter(Boolean).join(' · ') };
 
-  // El importador masivo y el asistente IA escriben la misma Transaction (sin
-  // `source`), así que no se puede afirmar cuál de los dos fue.
+  // Sin `source`: el asistente IA escribiendo a mano en el chat (la captura por
+  // foto/PDF sí lo manda) y los asientos importados ANTES del 18-09-2026, que
+  // quedaron sin marca. No se puede afirmar cuál de los dos fue.
   return {
     kind: 'AUTOMATICO',
     icon: '📥',
