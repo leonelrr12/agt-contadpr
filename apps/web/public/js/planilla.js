@@ -4,6 +4,9 @@
 // la zona de arrastre y la tabla (#import-inline-*) del panel Importar.
 // Depende de: import.js (importInlinePreview, resetImportInline), core.js.
 
+/** Etiqueta de cada Tipo (espejo de TIPO_LABEL en routes/planilla.ts). */
+const PLANILLA_TIPO_LABELS = { SUELDO: 'Sueldo + Horas Extras', DECIMO: 'Décimo III' };
+
 /** Tipo de planilla elegido (Sueldo o Décimo III: son procesos aparte). */
 function planillaTipoSeleccionado() {
   const sel = document.getElementById('import-inline-planilla-tipo');
@@ -113,6 +116,19 @@ function renderPlanillaPreview() {
     warn.innerHTML = `🏦 ${bankAvisos.length} fila(s) con banco no reconocido en el archivo: se usará la cuenta por defecto (columna <strong>Banco</strong>). Ej.: ${escapeHtml(bankAvisos[0].bankAviso)}`;
     document.getElementById('import-inline-summary').after(warn);
   }
+
+  // Sello del Tipo con el que se validó ESTE preview. Sale de la respuesta del
+  // server y no del combo: si el combo ya cambió, lo que hay en pantalla sigue
+  // siendo el preview anterior, y eso es justo lo que hay que poder ver.
+  const prevSello = document.getElementById('import-inline-planilla-tipo-validado');
+  if (prevSello) prevSello.remove();
+  const tipoValidado = PLANILLA_TIPO_LABELS[importInlinePreview.tipo] || importInlinePreview.tipo || '—';
+  const sello = document.createElement('div');
+  sello.id = 'import-inline-planilla-tipo-validado';
+  sello.style.cssText = 'display:inline-block;background:#f5f3ff;color:#5b21b6;border:1px solid #ddd6fe;border-radius:8px;padding:6px 12px;font-size:12px;margin-bottom:12px';
+  sello.innerHTML = `👷 Validado como: <strong>${escapeHtml(tipoValidado)}</strong>`;
+  const previewEl = document.getElementById('import-inline-preview');
+  previewEl.parentNode.insertBefore(sello, previewEl);
 
   // Tarjetas extra: neto a pagar, retenciones y omitidas
   const rowsOk = pp.rows.filter(r => r.status === 'ok');

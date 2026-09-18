@@ -55,6 +55,15 @@ function loadPanelImport() {
       if (importInlineFile) handleImportInlineFile(importInlineFile);
     };
   });
+  // Cambiar el Tipo de planilla (Sueldo / Décimo III): re-procesar el archivo,
+  // igual que los chips. Sin esto, el mensaje "selecciona Tipo: Décimo III"
+  // dejaba el preview viejo en pantalla y el botón de cargar deshabilitado.
+  const tipoSel = document.getElementById('import-inline-planilla-tipo');
+  if (tipoSel) {
+    tipoSel.onchange = () => {
+      if (importInlineFile && importMode() === 'planilla') handlePlanillaFile(importInlineFile);
+    };
+  }
   applyImportModeUI();
   // Drag & drop + file input
   const zone = document.getElementById('import-inline-zone');
@@ -438,6 +447,9 @@ function resetImportInline() {
   // Limpiar tarjetas de planilla si existen
   const planillaCards = document.getElementById('import-inline-planilla-cards');
   if (planillaCards) planillaCards.remove();
+  // Limpiar el sello de Tipo validado (planilla) si existe
+  const planillaSello = document.getElementById('import-inline-planilla-tipo-validado');
+  if (planillaSello) planillaSello.remove();
   // Limpiar aviso de banco no reconocido si existe
   const bankWarn = document.getElementById('import-inline-bank-warn');
   if (bankWarn) bankWarn.remove();
