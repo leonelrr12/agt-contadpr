@@ -26,7 +26,13 @@ describe('parseImportFile — tipo detectado del Detalle', () => {
     ['Pago de alquiler', 'GASTO'],
     ['Compra de mercancía', 'COMPRA'],
     ['Pago proveedor Ferretería La Ventaja', 'PAGO_PROVEEDOR'],
-    ['Pago de préstamo', 'PRESTAMO'],
+    // Préstamo: la cuota SALE (baja el pasivo); el desembolso es el que entra
+    ['Pago de préstamo', 'PAGO_PRESTAMO'],
+    ['Cuota del préstamo bancario', 'PAGO_PRESTAMO'],
+    ['Préstamo recibido Banco Nacional', 'PRESTAMO'],
+    // Un banco que cobra comisión es un gasto, no un cobro nuestro
+    ['Cobro de comisión bancaria', 'GASTO'],
+    ['Comisión por transferencia', 'GASTO'],
     ['Ferretería La Ventaja', 'GASTO'],
     // Dinero que entra: cobro de una venta a crédito (baja CxC, no es venta nueva)
     ['Recibo pago de factura No. 9999', 'COBRO_CLIENTE'],

@@ -298,7 +298,7 @@ export const KEYWORD_MAP: Record<string, string[]> = {
 // Dirección del movimiento ↔ tipo de cuenta. Un gasto no se clasifica a una
 // cuenta de INGRESO ni una venta a una de GASTO/COSTO; ACTIVO/PASIVO/
 // PATRIMONIO valen para las dos direcciones (equipo, préstamo, aporte).
-const TIPOS_GASTO = new Set(['GASTO', 'COMPRA', 'PAGO_PROVEEDOR', 'PAGO_ITBMS']);
+const TIPOS_GASTO = new Set(['GASTO', 'COMPRA', 'PAGO_PROVEEDOR', 'PAGO_PRESTAMO', 'PAGO_ITBMS']);
 const TIPOS_INGRESO = new Set(['VENTA', 'INGRESO', 'COBRO_CLIENTE']);
 const CUENTAS_INGRESO = new Set(['INGRESO']);
 const CUENTAS_GASTO = new Set(['GASTO', 'COSTO']);
@@ -318,6 +318,7 @@ const ALIAS_GENERICA: Record<string, { nombre: string; alias?: string }> = {
   PAGO_PROVEEDOR: { nombre: 'Proveedores', alias: 'proveedores' },
   COBRO_CLIENTE: { nombre: 'Clientes', alias: 'clientes' },
   PRESTAMO: { nombre: 'Préstamos Bancarios LP', alias: 'prestamos-lp' },
+  PAGO_PRESTAMO: { nombre: 'Préstamos Bancarios LP', alias: 'prestamos-lp' },
 };
 
 export interface ClassificationAgentConfig {

@@ -15,7 +15,7 @@ export interface LLMExtraction {
 
 const EXTRACTION_SYSTEM_PROMPT = (today: string) => `Eres un extractor de datos contables. Hoy es ${today}. Analiza el texto del usuario y extrae la información estructurada de la transacción.
 
-Tipos de transacción válidos: INGRESO, GASTO, COMPRA, VENTA, PAGO_PROVEEDOR, COBRO_CLIENTE, PRESTAMO
+Tipos de transacción válidos: INGRESO, GASTO, COMPRA, VENTA, PAGO_PROVEEDOR, COBRO_CLIENTE, PRESTAMO, PAGO_PRESTAMO
 
 Métodos de pago válidos (opcional): EFECTIVO, TARJETA_CREDITO, TARJETA_DEBITO, TRANSFERENCIA, CHEQUE, BANCO, CREDITO
 - "tarjeta de crédito", "tarjeta", "tc" → TARJETA_CREDITO
@@ -28,7 +28,8 @@ Reglas:
   - Si menciona "cobro", "cobre", "me pagaron", "recibi pago", "abono" CON nombre de persona/empresa → type: COBRO_CLIENTE
 - Si menciona "pago a proveedor", "pagué a", "pague a", "aboné a" CON nombre de empresa → type: PAGO_PROVEEDOR
 - Si menciona "compra de mercancía", "inventario" → type: COMPRA
-- Si menciona "préstamo", "prestamo", "prstamo" → type: PRESTAMO
+- Si menciona "préstamo", "prestamo", "prstamo" → type: PRESTAMO (el préstamo ENTRA)
+  - Si es la CUOTA o el PAGO del préstamo ("pagué la cuota del préstamo", "pago de préstamo", "abono al préstamo") → type: PAGO_PRESTAMO (el dinero SALE y baja el pasivo)
   - Si menciona "ingreso", "deposito", "abono bancario", "recibi" SIN nombre de persona/empresa → type: INGRESO
 
 	IMPORTANTE — Cómo distinguir GASTO vs PAGO_PROVEEDOR:

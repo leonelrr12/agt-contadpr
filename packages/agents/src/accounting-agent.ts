@@ -154,6 +154,17 @@ export class AccountingAgent {
         entry.credit.push({ accountId: 'prestamos-lp', name: 'Préstamos Bancarios LP', amount: dialog.amount });
         break;
       }
+      case 'PAGO_PRESTAMO': {
+        // Cuota del préstamo: el dinero SALE y baja el pasivo (el espejo de
+        // PRESTAMO, que es cuando el préstamo entra).
+        entry.debit.push({ accountId: 'prestamos-lp', name: 'Préstamos Bancarios LP', amount: dialog.amount });
+        if (dialog.paymentMethod === 'EFECTIVO') {
+          entry.credit.push({ accountId: 'caja', name: 'Caja', amount: dialog.amount });
+        } else {
+          entry.credit.push({ accountId: 'banco-general', name: 'Bancos', amount: dialog.amount });
+        }
+        break;
+      }
       case 'PAGO_ITBMS': {
         entry.debit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: dialog.amount });
         entry.credit.push({ accountId: 'banco-general', name: 'Bancos', amount: dialog.amount });

@@ -4,7 +4,7 @@ export interface DialogContext {
 }
 
 export interface DialogResult {
-  type: 'INGRESO' | 'GASTO' | 'COMPRA' | 'VENTA' | 'PAGO_PROVEEDOR' | 'COBRO_CLIENTE' | 'PRESTAMO' | 'PAGO_ITBMS';
+  type: 'INGRESO' | 'GASTO' | 'COMPRA' | 'VENTA' | 'PAGO_PROVEEDOR' | 'COBRO_CLIENTE' | 'PRESTAMO' | 'PAGO_PRESTAMO' | 'PAGO_ITBMS';
   amount: number;
   currency: string;
   description: string;

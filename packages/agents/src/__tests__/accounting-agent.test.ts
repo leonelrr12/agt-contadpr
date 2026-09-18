@@ -350,6 +350,44 @@ describe('AccountingAgent', () => {
     });
   });
 
+  // Espejo de PRESTAMO: la cuota baja el pasivo en vez de registrar que el
+  // préstamo entró (antes "pago de préstamo" debitaba Caja).
+  describe('generateEntry - PAGO_PRESTAMO', () => {
+    const agent = new AccountingAgent(makePrismaStub(), 'demo-company');
+
+    const dialog: DialogResult = {
+      type: 'PAGO_PRESTAMO',
+      amount: 320.5,
+      currency: 'USD',
+      description: 'Cuota del préstamo Banco Nacional',
+      concept: 'Préstamos Bancarios LP',
+      provider: null,
+      paymentMethod: 'TRANSFERENCIA',
+      date: '2026-07-10',
+      confidence: 0.95,
+      missingFields: [],
+      suggestedResponse: '',
+    };
+
+    const classification: ClassificationResult = {
+      concept: 'Préstamos Bancarios LP',
+      accountId: 'prestamos-id',
+      confidence: 0.9,
+    };
+
+    it('debita el pasivo y acredita el banco', () => {
+      const entry = agent.generateEntry(dialog, classification);
+      expect(entry.debit).toEqual([{ accountId: 'prestamos-lp', name: 'Préstamos Bancarios LP', amount: 320.5 }]);
+      expect(entry.credit).toEqual([{ accountId: 'banco-general', name: 'Bancos', amount: 320.5 }]);
+      expect(agent.validateEntry(entry).valid).toBe(true);
+    });
+
+    it('sale de Caja si la cuota se pagó en efectivo', () => {
+      const entry = agent.generateEntry({ ...dialog, paymentMethod: 'EFECTIVO' }, classification);
+      expect(entry.credit[0].accountId).toBe('caja');
+    });
+  });
+
   describe('resolveAlias', () => {
     it('resolves known aliases after init', async () => {
       const agent = new AccountingAgent(makePrismaStub(), 'demo-company');

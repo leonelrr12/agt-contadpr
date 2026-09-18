@@ -608,19 +608,20 @@ async function executeImportRows(
             }
           }
         }
-      } else if (typeNorm === 'COBRO_CLIENTE' && pagoSaleDelBanco(row.paymentMethod ?? null)) {
+      } else if (typeNorm === 'COBRO_CLIENTE' && row.paymentMethod !== 'EFECTIVO') {
         // Cobro recibido: el dinero ENTRA a la cuenta del archivo (columna
-        // "Banco/Cuenta") o al banco por defecto. El agente lo manda a Caja
-        // por defecto; solo el efectivo se queda ahí.
+        // "Banco/Cuenta") o al banco por defecto. El agente lo manda a Caja por
+        // defecto — y sin banco en el archivo ni banco por defecto configurado,
+        // la cuenta bancaria genérica: un cobro no es dinero en caja.
         const payout = await resolveImportPayoutAccount(
           prisma, companyId, row.bankName || null, bancoDefaultId, payoutCache,
         );
-        if (payout) {
-          for (const l of entry.debit) {
-            if (l.accountId === 'caja') {
-              l.accountId = payout.id;
-              l.name = payout.name;
-            }
+        const destino = payout?.id || 'banco-general';
+        const nombre = payout?.name || 'Bancos';
+        for (const l of entry.debit) {
+          if (l.accountId === 'caja') {
+            l.accountId = destino;
+            l.name = nombre;
           }
         }
       }

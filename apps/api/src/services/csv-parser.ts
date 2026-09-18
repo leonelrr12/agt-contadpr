@@ -146,8 +146,13 @@ function parseAmount(raw: string): number | null {
 
 /** Palabras de venta explícitas: bloquean el verbo de pago ("Venta de
  *  servicios" es un ingreso aunque empiece con verbo de salida). "servicios"
- *  NO está aquí a propósito: sola no dice la dirección del dinero. */
-const SENAL_VENTA = /\bventas?\b|\bfactur[ée]s?\b|\bingresos?\b|\bcobros?\b|\bcobranzas?\b|\bclientes?\b/i;
+ *  NO está aquí a propósito: sola no dice la dirección del dinero, y "cobro"
+ *  tampoco (un banco cobra comisiones: eso es un gasto). */
+const SENAL_VENTA = /\bventas?\b|\bfactur[ée]s?\b|\bingresos?\b|\bclientes?\b/i;
+
+/** Cuota/pago de un préstamo: el dinero SALE y baja el pasivo (≠ PRESTAMO,
+ *  que es cuando el préstamo entra). */
+const PAGO_PRESTAMO_RE = /\b(pago|paga|pagad[oa]s?|pagamos|pagu[eé]|abono|abon[ée]|cuotas?)\b[^,;]{0,25}\bpr[eé]stamos?\b/i;
 
 /** Verbo de PAGO/COMPRA al inicio del texto: el dinero SALE. */
 const VERBO_SALIDA = /^(pagos?|paga|pagad[oa]s?|pagamos|pagu[eé]|compras?|compr[eé])\b/i;
@@ -183,8 +188,9 @@ function detectTypeFrom(texto: string): string | null {
   // 2. Pago a un proveedor identificado: reduce CxP, no es un gasto nuevo
   if (/pago\s+proveedor|abon[ée]\s+a/i.test(texto)) return 'PAGO_PROVEEDOR';
 
-  // 3. Préstamo/financiamiento describe la OPERACIÓN, no la dirección: va antes
-  //    que el verbo de pago ("Pago de préstamo" sigue siendo PRESTAMO).
+  // 3. Préstamo: la cuota SALE (baja el pasivo) y el desembolso ENTRA. Se
+  //    resuelve antes que el verbo de pago ("Pago de préstamo" ≠ gasto nuevo).
+  if (PAGO_PRESTAMO_RE.test(texto)) return 'PAGO_PRESTAMO';
   if (/\bpr[eé]stamos?\b|\bfinanciamientos?\b/i.test(texto)) return 'PRESTAMO';
 
   // 4. Verbo de pago/compra al inicio → el dinero sale (gasto o compra)
@@ -194,7 +200,7 @@ function detectTypeFrom(texto: string): string | null {
 
   // 5. Palabras clave
   if (SENAL_VENTA.test(texto) || /\bservicios?\b/i.test(texto)) return 'VENTA';
-  if (/\bcompras?\b|\bgastos?\b|\bcombustibles?\b|\balquileres?\b|\bhonorarios?\b/i.test(texto)) return 'GASTO';
+  if (/\bcompras?\b|\bgastos?\b|\bcombustibles?\b|\balquileres?\b|\bhonorarios?\b|\bcomisiones?\b/i.test(texto)) return 'GASTO';
   if (MERCADERIA.test(texto)) return 'COMPRA';
 
   return null;

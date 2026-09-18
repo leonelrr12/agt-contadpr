@@ -23,6 +23,8 @@ const TYPE_LABELS: Record<string, string> = {
   INGRESO: 'Ingreso',
   VENTA: 'Venta',
   COBRO_CLIENTE: 'Cobro de cliente',
+  PRESTAMO: 'Préstamo recibido',
+  PAGO_PRESTAMO: 'Pago de préstamo',
   PAGO_ITBMS: 'Pago de ITBMS',
   PLANILLA: 'Planilla',
 };
