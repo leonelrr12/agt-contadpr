@@ -249,7 +249,7 @@ async function showCreateEntryModal(originalEntry, originalEntryId, mode) {
   // copia, las del asiento original se reinyectan aunque se hayan bloqueado después.
   const activeAccounts = await getEntryAccounts([originalEntry]);
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayLocalStr();
   const desc = isCorrection
     ? `CORRECCIÓN: ${originalEntry.description || 'Sin descripción'}`
     : isCopy ? originalEntry.description || '' : '';
@@ -356,7 +356,7 @@ async function showCreateEntryModal(originalEntry, originalEntryId, mode) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            date: new Date().toISOString().split('T')[0],
+            date: todayLocalStr(),
             description: `REVERSIÓN [ref:${originalEntryId.slice(0,12)}]: ${originalEntry.description || 'Asiento original'}`,
             lines: revLines,
           }),

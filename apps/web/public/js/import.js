@@ -47,7 +47,7 @@ function loadPanelImport() {
   document.getElementById('panel-import-content').classList.remove('hidden');
   // Inicializar fecha por defecto
   const dateInput = document.getElementById('import-inline-date');
-  if (!dateInput.value) dateInput.value = new Date().toISOString().split('T')[0];
+  if (!dateInput.value) dateInput.value = todayLocalStr();
   // Cambiar el tipo de importación: re-procesar archivo si ya hay uno
   document.querySelectorAll('input[name="import-inline-mode"]').forEach(r => {
     r.onchange = () => {

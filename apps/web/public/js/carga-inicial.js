@@ -110,7 +110,7 @@ function closeAccountPickerCargaInicial() {
 /** Al abrir la pestaña: fecha por defecto, dropzone y aviso de "ya existe". */
 async function loadPanelCargaInicial() {
   const dateInput = document.getElementById('carga-inicial-date');
-  if (dateInput && !dateInput.value) dateInput.value = new Date().toISOString().split('T')[0];
+  if (dateInput && !dateInput.value) dateInput.value = todayLocalStr();
   loadAllAccountsCargaInicial();
 
   const zone = document.getElementById('carga-inicial-zone');

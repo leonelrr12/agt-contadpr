@@ -151,10 +151,14 @@ let dialogContext = null;
 let ocrData = null;
 let ocrAbortController = null;
 
+/** Fecha 'YYYY-MM-DD' en hora LOCAL. No usar toISOString(): es UTC y de noche
+ *  (después de las 19:00 en Panamá) devuelve el día siguiente. */
+function todayLocalStr(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 // ── Capture Date (persistente entre registros) ──
-// Usar fecha local sin pasar por toISOString (que usa UTC) para evitar cambio de día
-const _now = new Date();
-let captureDate = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
+let captureDate = todayLocalStr();
 let dateBannerShown = false;
 
 function formatDateForDisplay(isoDate) {
