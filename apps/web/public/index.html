@@ -259,6 +259,10 @@
             </div>
             <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap" id="import-inline-date-label">📅 Fecha:</label>
             <input type="date" id="import-inline-date" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;width:160px">
+            <label id="import-inline-itbms-wrap" style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#374151;cursor:pointer" title="Apagada: el asiento dice exactamente el monto del archivo. Encendida: en ventas y compras sin columna de ITBMS se calcula el 7% y el asiento sale mayor.">
+              <input type="checkbox" id="import-inline-calcular-itbms" style="width:15px;height:15px;cursor:pointer">
+              Calcular ITBMS 7% en ventas/compras sin columna
+            </label>
             <span id="import-inline-planilla-tipo-wrap" style="display:none;align-items:center;gap:6px">
               <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap">Tipo:</label>
               <select id="import-inline-planilla-tipo" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit">
@@ -647,7 +651,7 @@
   <script src="js/admin.js?v=89"></script>
   <script src="js/init.js?v=74"></script>
   <script src="js/panels-sidebar.js?v=74"></script>
-  <script src="js/import.js?v=92"></script>
+  <script src="js/import.js?v=93"></script>
   <script src="js/planilla.js?v=3"></script>
   <script src="js/carga-inicial.js?v=3"></script>
   <script src="js/auxiliares-revision.js?v=79"></script>

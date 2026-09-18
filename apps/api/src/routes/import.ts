@@ -553,6 +553,8 @@ async function executeImportRows(
   userId: string,
   incrementUsageFn: (req: any) => Promise<void>,
   req: any,
+  /** Casilla "Calcular ITBMS": ver el dialog de más abajo. Apagada por defecto. */
+  calcularItbms = false,
 ): Promise<{
   success: number;
   omitted: number;
@@ -659,6 +661,11 @@ async function executeImportRows(
         missingFields: [] as string[],
         itbms: !!row.itbms,
         itbmsAmount: row.itbms && row.itbms > 0 ? row.itbms : undefined,
+        // ITBMS de ventas/compras SIN columna en el archivo: por defecto el
+        // asiento dice EXACTAMENTE el monto del archivo (tasa 0 = el agente no
+        // inventa el 7%, decisión del dueño 18-09). Con la casilla "Calcular
+        // ITBMS" activada se deja la tasa de la empresa y el agente lo calcula.
+        itbmsRate: calcularItbms ? undefined : 0,
         provider: row.provider || null,
         reference: row.reference || null,
         ruc: row.ruc || null,
@@ -847,6 +854,8 @@ importRouter.post('/execute', requireQuota, validate(importExecuteSchema), async
     const results = await executeImportRows(
       rows, req.prisma, req.user!.companyId, req.user!.userId,
       incrementUsage, req,
+      // Casilla del import: apagada, el asiento dice el monto del archivo
+      req.body?.calcularItbms === 'true',
     );
 
     res.json({
@@ -909,6 +918,8 @@ importRouter.post('/execute-all', requireQuota, upload.single('file'), async (re
     const results = await executeImportRows(
       rows, req.prisma, req.user!.companyId, req.user!.userId,
       incrementUsage, req,
+      // Casilla del import: apagada, el asiento dice el monto del archivo
+      req.body?.calcularItbms === 'true',
     );
 
     res.json({

@@ -39,6 +39,11 @@ function applyImportModeUI() {
   // la fecha global se mantiene como respaldo si el archivo no trae QUINCENA.
   const tipoWrap = document.getElementById('import-inline-planilla-tipo-wrap');
   if (tipoWrap) tipoWrap.style.display = (mode === 'planilla') ? 'inline-flex' : 'none';
+  // La casilla de calcular ITBMS solo aplica al import normal de transacciones
+  // (cobros y planilla tienen sus propias reglas): apagada, el asiento dice
+  // exactamente el monto del archivo.
+  const itbmsWrap = document.getElementById('import-inline-itbms-wrap');
+  if (itbmsWrap) itbmsWrap.style.display = (mode === 'transacciones') ? 'flex' : 'none';
 }
 
 function loadPanelImport() {
@@ -100,6 +105,9 @@ async function handleImportInlineFile(file, verTodas = false) {
     // Misma fecha global que usa /execute-all: la preview valida la fecha igual que la ejecución
     const d = document.getElementById('import-inline-date').value;
     if (d) formData.append('importDate', d);
+    // Misma casilla que /execute-all: apagada (default) el asiento dice el
+    // monto del archivo; encendida, se calcula el 7% en ventas/compras sin columna
+    if (calcularItbmsOn()) formData.append('calcularItbms', 'true');
   }
   try {
     // `limit=all`: el preview devuelve el archivo entero (por defecto, 20 filas)
@@ -128,6 +136,10 @@ function moneyLote(n) {
   return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** ¿Está activada la casilla de calcular ITBMS? (apagada = el asiento dice el archivo) */
+function calcularItbmsOn() {
+  return !!document.getElementById('import-inline-calcular-itbms')?.checked;
+}
 
 /** Etiqueta legible del método de pago derivado del Estado (columna "Pago"). */
 function importPagoLabel(pm) {
@@ -238,6 +250,9 @@ function renderImportInlinePreview() {
         + ` · ${tot.rows} fila(s)`
         + (yaCargado && yaCargado.rows
           ? `<br>↩️ Ya cargado antes: ${moneyLote(yaCargado.total)} (${yaCargado.rows} fila(s)) → quedaría por cargar <strong>${moneyLote(tot.total - yaCargado.total)}</strong>`
+          : '')
+        + (calcularItbmsOn()
+          ? '<br>☑️ Se sumará el 7% de ITBMS en las ventas y compras sin columna: los asientos saldrán mayores que este total.'
           : '');
       document.getElementById('import-inline-summary').after(totDiv);
     }
@@ -472,6 +487,7 @@ async function executeImportInline() {
   const formData = new FormData();
   formData.append('file', importInlineFile);
   formData.append('importDate', importDate);
+  if (calcularItbmsOn()) formData.append('calcularItbms', 'true');
 
   try {
     const res = await authFetch(`${API_URL}/import/execute-all`, { method: 'POST', body: formData });
