@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { buildDateFilter } from '../lib/date-filter';
 import { getAnioFiscal, anioFiscalRange } from '../lib/fiscal-year';
 import { exportReport } from '../services/export';
+import { buildBudgetComparison } from '../services/budget-comparison';
 import type { ExportFormat } from '../services/export';
 
 export const reportsRouter = Router();
@@ -921,6 +922,19 @@ reportsRouter.get('/export/:type', async (req, res) => {
         break;
       }
 
+      case 'presupuesto':
+      case 'presupuesto-comparativa': {
+        // Mismo cálculo que la pantalla (services/budget-comparison.ts)
+        const anioRaw = Number(req.query.year);
+        const mesRaw = Number(req.query.mes);
+        data = await buildBudgetComparison(req.prisma, req.user!.companyId, {
+          year: Number.isInteger(anioRaw) && anioRaw >= 2000 ? anioRaw : undefined,
+          mes: Number.isInteger(mesRaw) && mesRaw >= 1 && mesRaw <= 12 ? mesRaw : null,
+          tipos: req.query.tipos === 'todas' ? 'todas' : 'resultado',
+        });
+        break;
+      }
+
       case 'diario': {
         const where: Record<string, unknown> = { companyId: req.user!.companyId, isClosing: false };
         const statusParam = req.query.status as string;
@@ -966,7 +980,7 @@ reportsRouter.get('/export/:type', async (req, res) => {
       default:
         res.status(400).json({
           error: 'Tipo de reporte no soportado',
-          tipos: ['balance-comprobacion', 'balance-general', 'estado-resultados', 'flujo-caja', 'diario', 'proveedores'],
+          tipos: ['balance-comprobacion', 'balance-general', 'estado-resultados', 'flujo-caja', 'diario', 'proveedores', 'presupuesto', 'presupuesto-comparativa'],
         });
         return;
     }

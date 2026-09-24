@@ -53,6 +53,7 @@ model Company {
   bankStatements     BankStatement[]
   whatsappLinks      WhatsAppLink[]
   taxObligations     TaxObligation[]
+  budgets            Budget[]
 }
 
 model User {
@@ -97,6 +98,7 @@ model Account {
   journalLines JournalLine[]
   rulesFrom    AccountingRuleEntry[]
   bankStatements BankStatement[]
+  budgets      Budget[]
 
   @@unique([code, companyId])
 }
@@ -644,4 +646,28 @@ model TaxObligation {
   @@index([dueDate])
   @@index([status])
   @@map("tax_obligation")
+}
+
+// Presupuesto por cuenta HOJA y mes. Un registro por empresa + cuenta + año + mes.
+// El monto se guarda SIEMPRE POSITIVO y en la DIRECCIÓN NATURAL de la cuenta
+// (INGRESO/PASIVO/PATRIMONIO acreditan; ACTIVO/GASTO/COSTO debitan) para que la
+// grilla se lea como el negocio y la variación (real − presupuesto) tenga signo.
+// El anual NO se guarda: es la suma de los 12 meses.
+model Budget {
+  id        String   @id @default(cuid())
+  companyId String
+  accountId String
+  year      Int
+  month     Int      // 1..12
+  amount    Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@unique([companyId, accountId, year, month])
+  @@index([companyId, year])
+  @@index([accountId])
+  @@map("budget")
 }

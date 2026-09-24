@@ -29,8 +29,8 @@ function clickInformeTab(informe) {
   if (active) { active.classList.add('active'); active.style.color = '#1a1a2e'; active.style.borderBottomColor = '#1565c0'; }
   _currentInformeTab = informe;
   // Mostrar filtro de fecha solo para reportes que lo soportan
-  const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', 'balance-general': 'balance-general', resultados: 'estado-resultados', 'flujo-caja': 'flujo-caja', dashboard: null, auxiliares: null, revision: null, retenciones: null };
-  const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'balance-general' || informe === 'resultados' || informe === 'flujo-caja' || informe === 'dashboard' || informe === 'retenciones');
+  const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', 'balance-general': 'balance-general', resultados: 'estado-resultados', 'flujo-caja': 'flujo-caja', dashboard: null, auxiliares: null, revision: null, presupuestos: 'presupuesto-comparativa' };
+  const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'balance-general' || informe === 'resultados' || informe === 'flujo-caja' || informe === 'dashboard');
   document.getElementById('informes-date-filter').classList.toggle('hidden', !showFilter);
   // El botón "Nivel 3" es solo del Balance (conserva su estado al volver)
   const n3btn = document.getElementById('informes-nivel3-btn');
@@ -41,7 +41,7 @@ function clickInformeTab(informe) {
   if (statusEl) statusEl.style.display = informe === 'diario' ? '' : 'none';
   setInformesExportBar(exportTypes[informe] || null);
   showInformesLoading();
-  const loaders = { diario: loadReportDiario, balance: loadReportBalance, 'balance-general': loadReportBalanceGeneral, resultados: loadReportResultados, 'flujo-caja': loadReportFlujoCaja, dashboard: loadReportDashboard, retenciones: loadRetencionesItbms };
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, 'balance-general': loadReportBalanceGeneral, resultados: loadReportResultados, 'flujo-caja': loadReportFlujoCaja, dashboard: loadReportDashboard, presupuestos: loadReportPresupuestos };
   if (loaders[informe]) loaders[informe]();
 }
 
@@ -595,7 +595,9 @@ function getInformesDateParams() {
   return params;
 }
 function loadCurrentInformeTab() {
-  const loaders = { diario: loadReportDiario, balance: loadReportBalance, 'balance-general': loadReportBalanceGeneral, resultados: loadReportResultados, 'flujo-caja': loadReportFlujoCaja, dashboard: loadReportDashboard, retenciones: loadRetencionesItbms };
+  // OJO: este mapa está duplicado a propósito con el de clickInformeTab — si se
+  // añade una pestaña hay que tocar LOS DOS, o "Filtrar" repinta el informe anterior.
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, 'balance-general': loadReportBalanceGeneral, resultados: loadReportResultados, 'flujo-caja': loadReportFlujoCaja, dashboard: loadReportDashboard, presupuestos: loadReportPresupuestos };
   if (loaders[_currentInformeTab]) loaders[_currentInformeTab]();
 }
 
@@ -616,6 +618,13 @@ function exportInforme(type, format) {
   params.set('token', token);
   // El archivo exportado respeta el modo 📊 Nivel 3 del Balance cuando está activo
   if (type === 'balance-comprobacion' && _balanceNivel3) params.set('nivel', '3');
+  // Presupuesto: el año (y el mes, si la comparativa no es acumulada) salen de la
+  // pantalla, no del rango de fechas — esa pestaña no usa el filtro de informes.
+  if (type === 'presupuesto' || type === 'presupuesto-comparativa') {
+    if (_pptoYear) params.set('year', _pptoYear);
+    params.set('tipos', _pptoTipos);
+    if (type === 'presupuesto-comparativa' && _pptoMes !== 'acum') params.set('mes', _pptoMes);
+  }
   window.open(`${API_URL}/reports/export/${type}?${params.toString()}`, '_blank');
 }
 
@@ -819,21 +828,33 @@ function renderAnexosDgi(d, el) {
 
 let _retencionesRows = [];
 
-async function loadRetencionesItbms() {
-  const el = document.getElementById('informes-inline-result');
-  const from = document.getElementById('informes-filter-from')?.value || '';
-  const to = document.getElementById('informes-filter-to')?.value || '';
+async function loadRetencionesItbms(el) {
+  // Vive en el panel Auxiliares (pestaña 🔖 Retenciones ITBMS): el contenedor llega
+  // desde clickAuxTab y los refrescos internos caen en #aux-sidebar-content. El
+  // filtro de fechas es propio — antes lo leía del panel de Informes, que ya no
+  // es su vecino.
+  el = el || document.getElementById('aux-sidebar-content') || document.getElementById('informes-inline-result');
+  const from = document.getElementById('ret-from')?.value || '';
+  const to = document.getElementById('ret-to')?.value || '';
   const q = new URLSearchParams();
   if (from) q.set('desde', from);
   if (to) q.set('hasta', to);
+  // El filtro se re-pinta con cada render para conservar lo elegido
+  const filtro = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <input type="date" id="ret-from" value="${from}" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px">
+      <span style="font-size:12px;color:#6b7280">a</span>
+      <input type="date" id="ret-to" value="${to}" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px">
+      <button onclick="loadRetencionesItbms()" style="padding:6px 12px;border:1px solid #1565c0;border-radius:6px;background:#1565c0;color:#fff;cursor:pointer;font-size:12px">🔍 Filtrar</button>
+      <button onclick="limpiarFiltroRetenciones()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;font-size:12px">✕ Limpiar</button>
+    </div>`;
   try {
     const res = await authFetch(`${API_URL}/retenciones-itbms?${q.toString()}`);
-    if (!res.ok) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar</div>'; return; }
+    if (!res.ok) { el.innerHTML = filtro + '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar</div>'; return; }
     const rows = await res.json();
     _retencionesRows = rows;
     const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     if (!rows.length) {
-      el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Sin retenciones de ITBMS en el período seleccionado.<br><span style="font-size:12px">Las retenciones se registran automáticamente al cobrar a un cliente agente con retención.</span></div>';
+      el.innerHTML = filtro + '<div style="text-align:center;padding:32px;color:#6b7280">Sin retenciones de ITBMS en el período seleccionado.<br><span style="font-size:12px">Las retenciones se registran automáticamente al cobrar a un cliente agente con retención.</span></div>';
       return;
     }
     const total = rows.reduce((s, r) => s + (r.montoRetencion || 0), 0);
@@ -890,8 +911,16 @@ async function loadRetencionesItbms() {
       rowsHtml,
       Array(11).fill('').map((_, i) => i === 7 ? `<strong>${money(totalRow)}</strong>` : (i === 0 ? 'TOTAL' : ''))
     );
-    el.innerHTML = cards + toolbar + table;
-  } catch (e) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#dc2626">Error al cargar</div>'; }
+    el.innerHTML = filtro + cards + toolbar + table;
+  } catch (e) { el.innerHTML = filtro + '<div style="text-align:center;padding:32px;color:#dc2626">Error al cargar</div>'; }
+}
+
+function limpiarFiltroRetenciones() {
+  const f = document.getElementById('ret-from');
+  const t = document.getElementById('ret-to');
+  if (f) f.value = '';
+  if (t) t.value = '';
+  loadRetencionesItbms();
 }
 
 async function retencionRecibir(id) {
@@ -903,7 +932,7 @@ async function retencionRecibir(id) {
     body: JSON.stringify({ estado: 'RECIBIDA', numeroCertificado: cert, fechaCertificado: fecha }),
   });
   const d = await res.json();
-  if (res.ok) { await showAlert('✅ Retención marcada como recibida (certificado registrado).'); loadCurrentInformeTab(); }
+  if (res.ok) { await showAlert('✅ Retención marcada como recibida (certificado registrado).'); loadRetencionesItbms(); }
   else await showAlert(`❌ ${d.error || 'Error'}`);
 }
 async function retencionAplicar(id) {
@@ -913,7 +942,7 @@ async function retencionAplicar(id) {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado: 'APLICADA' }),
   });
   const d = await res.json();
-  if (res.ok) { await showAlert('✅ Retención aplicada como crédito fiscal.'); loadCurrentInformeTab(); }
+  if (res.ok) { await showAlert('✅ Retención aplicada como crédito fiscal.'); loadRetencionesItbms(); }
   else await showAlert(`❌ ${d.error || 'Error'}`);
 }
 async function retencionAnular(id) {
@@ -923,12 +952,12 @@ async function retencionAnular(id) {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado: 'ANULADA' }),
   });
   const d = await res.json();
-  if (res.ok) { await showAlert('Retención anulada.'); loadCurrentInformeTab(); }
+  if (res.ok) { await showAlert('Retención anulada.'); loadRetencionesItbms(); }
   else await showAlert(`❌ ${d.error || 'Error'}`);
 }
 function exportarRetencionesCsv() {
-  const from = document.getElementById('informes-filter-from')?.value || '';
-  const to = document.getElementById('informes-filter-to')?.value || '';
+  const from = document.getElementById('ret-from')?.value || '';
+  const to = document.getElementById('ret-to')?.value || '';
   const q = new URLSearchParams({ token: getToken() });
   if (from) q.set('desde', from);
   if (to) q.set('hasta', to);
@@ -936,8 +965,8 @@ function exportarRetencionesCsv() {
 }
 
 function exportarRetencionesPdf() {
-  const from = document.getElementById('informes-filter-from')?.value || '';
-  const to = document.getElementById('informes-filter-to')?.value || '';
+  const from = document.getElementById('ret-from')?.value || '';
+  const to = document.getElementById('ret-to')?.value || '';
   const q = new URLSearchParams({ token: getToken() });
   if (from) q.set('desde', from);
   if (to) q.set('hasta', to);
@@ -993,7 +1022,7 @@ async function confirmarCompensarR52(btn) {
   if (!res.ok) { await showAlert(`❌ ${d.error || 'Error'}`); btn.disabled = false; return; }
   overlay.remove();
   await showAlert(`✅ Compensación creada: asiento BORRADOR #${d.journalEntryId.slice(0, 8)} por $${Number(d.total).toFixed(2)}. ${d.aplicadas} retención(es) marcadas como APLICADA.`);
-  loadCurrentInformeTab();
+  loadRetencionesItbms();
 }
 
 /* ── Ficha del cliente: perfil de agente de retención ITBMS ── */

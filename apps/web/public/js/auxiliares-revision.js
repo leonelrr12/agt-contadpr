@@ -30,6 +30,7 @@ function clickAuxTab(tab) {
   else if (tab === 'cxc') loadAuxCxC(sub);
   else if (tab === 'cxp') loadAuxCxP(sub);
   else if (tab === 'anexos') loadAuxAnexos(sub);
+  else if (tab === 'retenciones') loadRetencionesItbms(sub);
 }
 
 /* ── Panel: Revisión (sidebar) ── */

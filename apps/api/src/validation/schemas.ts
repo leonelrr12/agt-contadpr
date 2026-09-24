@@ -184,6 +184,22 @@ export const toggleRecurringSchema = z.object({
   isActive: z.boolean(),
 });
 
+// ── Presupuestos ──
+// El monto va SIEMPRE positivo (dirección natural de la cuenta); un 0 borra la celda.
+export const saveBudgetsSchema = z.object({
+  year: z.number().int().min(2000).max(2100),
+  items: z
+    .array(
+      z.object({
+        accountId: z.string().min(1),
+        month: z.number().int().min(1, 'Mes inválido').max(12, 'Mes inválido'),
+        amount: z.number().min(0, 'El monto no puede ser negativo').max(1e12),
+      }),
+    )
+    .min(1, 'Se requiere al menos una celda')
+    .max(5000, 'Demasiadas celdas en un guardado'),
+});
+
 // ── Reconcile ──
 export const reconcileMatchSchema = z.object({
   rowId: z.string().min(1),

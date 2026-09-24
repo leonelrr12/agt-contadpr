@@ -645,6 +645,149 @@ export async function exportReport(
       };
     }
 
+    case 'presupuesto':
+    case 'presupuesto-comparativa': {
+      // Ambos salen del MISMO cálculo (services/budget-comparison.ts): la
+      // comparativa trae las filas ya calificadas y la matriz los 12 meses.
+      const d = data as unknown as {
+        year: number;
+        mes: number | null;
+        tipos: 'resultado' | 'todas';
+        periodo: { desde: string; hasta: string };
+        filas: {
+          accountId: string;
+          code: string;
+          name: string;
+          type: string;
+          esHoja: boolean;
+          categoriaKey: string;
+          categoriaName: string;
+          budget: number;
+          real: number;
+          variacion: number;
+          variacionPct: number | null;
+          semaforo: string;
+        }[];
+        categorias: {
+          categoriaKey: string;
+          categoriaName: string;
+          budget: number;
+          real: number;
+          variacion: number;
+          variacionPct: number | null;
+          semaforo: string;
+        }[];
+        matriz: { accountId: string; budget: number[]; real: number[] }[];
+        totales: Record<
+          string,
+          { budget: number; real: number; variacion?: number; variacionPct?: number | null; semaforo?: string }
+        >;
+      };
+
+      const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+      const SEMAFORO: Record<string, string> = {
+        verde: 'En línea',
+        ambar: 'Desviación',
+        rojo: 'Alerta',
+        neutro: '—',
+        futuro: 'Sin transcurrir',
+      };
+      const porId = new Map(d.filas.map((f) => [f.accountId, f]));
+      const periodoTexto = `Enero–${MESES[Number(d.periodo.hasta.slice(5, 7)) - 1]} ${d.year}`;
+
+      let columns: ColumnDef[];
+      let rows: Record<string, unknown>[];
+      let rowStyles: RowStyle[] = [];
+      let footerRow: Record<string, unknown>;
+      let moneyFields: string[];
+      let title = '';
+
+      if (reportType === 'presupuesto') {
+        // Matriz de captura: una fila por cuenta con los 12 meses presupuestados
+        title = 'PRESUPUESTO';
+        columns = [
+          { header: 'Código', key: 'code' },
+          { header: 'Cuenta', key: 'name' },
+          { header: 'Categoría', key: 'categoria' },
+          ...MESES.map((m) => ({ header: m, key: m })),
+          { header: 'Total', key: 'total' },
+        ];
+        rows = d.matriz.map((m) => {
+          const f = porId.get(m.accountId);
+          const row: Record<string, unknown> = {
+            code: f?.code || '',
+            name: f?.name || '',
+            categoria: f?.categoriaName || '',
+            total: Math.round(m.budget.reduce((s, n) => s + n, 0) * 100) / 100,
+          };
+          MESES.forEach((mes, i) => { row[mes] = m.budget[i] || ''; });
+          return row;
+        });
+        moneyFields = [...MESES, 'total'];
+        const totalMes = MESES.map((_, i) => Math.round(d.matriz.reduce((s, m) => s + (m.budget[i] || 0), 0) * 100) / 100);
+        footerRow = {
+          code: '', name: 'Total', categoria: '',
+          ...Object.fromEntries(MESES.map((mes, i) => [mes, totalMes[i]])),
+          total: Math.round(totalMes.reduce((s, n) => s + n, 0) * 100) / 100,
+        };
+      } else {
+        title = 'PRESUPUESTO vs REAL';
+        columns = [
+          { header: 'Código', key: 'code' },
+          { header: 'Cuenta', key: 'name' },
+          { header: 'Categoría', key: 'categoria' },
+          { header: 'Presupuesto', key: 'budget' },
+          { header: 'Real', key: 'real' },
+          { header: 'Variación', key: 'variacion' },
+          { header: 'Var %', key: 'variacionPct' },
+          { header: 'Desviación', key: 'semaforo' },
+        ];
+        rows = [];
+        rowStyles = [];
+        const push = (row: Record<string, unknown>, bold = false) => { rows.push(row); rowStyles.push({ bold }); };
+        const fila = (f: any, esCategoria = false) => ({
+          code: esCategoria ? f.categoriaKey : f.code,
+          name: f.name || f.categoriaName,
+          categoria: esCategoria ? f.categoriaName : '',
+          budget: f.budget,
+          real: f.real,
+          variacion: f.variacion,
+          variacionPct: f.variacionPct === null ? '—' : `${f.variacionPct.toFixed(1)}%`,
+          semaforo: SEMAFORO[f.semaforo] || f.semaforo,
+        });
+        for (const cat of d.categorias) {
+          push(fila(cat, true), true);
+          for (const f of d.filas.filter((x) => x.categoriaKey === cat.categoriaKey)) push(fila(f));
+        }
+        moneyFields = ['budget', 'real', 'variacion'];
+        const t = d.totales.utilidadNeta || d.totales.general;
+        footerRow = {
+          code: '', name: d.tipos === 'resultado' ? 'UTILIDAD NETA' : 'TOTAL', categoria: '',
+          budget: t?.budget ?? 0,
+          real: t?.real ?? 0,
+          variacion: t?.variacion ?? 0,
+          variacionPct: t?.variacionPct === null || t?.variacionPct === undefined ? '—' : `${t.variacionPct.toFixed(1)}%`,
+          semaforo: SEMAFORO[t?.semaforo as string] || '',
+        };
+      }
+
+      const titleRows: TitleRow[] = [];
+      if (meta.companyName) titleRows.push({ text: meta.companyName.toUpperCase(), bold: true });
+      titleRows.push({ text: title });
+      titleRows.push({ text: periodoTexto });
+      if (d.tipos === 'todas') titleRows.push({ text: 'Incluye cuentas de balance' });
+
+      const buffer = format === 'xlsx'
+        ? await buildXlsx(title, columns, rows, moneyFields, footerRow, { rowStyles, titleRows })
+        : Buffer.from(buildCsv(columns, rows, footerRow), 'utf-8');
+      return {
+        buffer,
+        contentType: format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv',
+        // El período manda en el nombre: el año (y el mes, si no es acumulado)
+        filename: `${reportType}-${d.year}${d.mes ? '-' + String(d.mes).padStart(2, '0') : ''}.${format}`,
+      };
+    }
+
     default:
       throw new Error(`Tipo de reporte no soportado: ${reportType}`);
   }

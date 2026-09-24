@@ -153,11 +153,11 @@ Convertir una venta registrada en factura profesional:
 - [ ] Recordatorios de pago de cuotas obrero-patronales (CSS)
 - [ ] Acumulados para décimo tercer mes y liquidaciones
 
-#### 12. Presupuestos y Proyecciones ❌ Pendiente
-- [ ] Presupuesto mensual/anual por cuenta o categoría
-- [ ] Comparativa real vs presupuestado con variaciones
-- [ ] Proyección de flujo de caja a 3/6/12 meses
-- [ ] Alertas de desviación significativa
+#### 12. Presupuestos y Proyecciones 🟡 PARCIAL (2026-09-24)
+- [x] Presupuesto mensual por cuenta hoja (tabla `budget`, migración 0017) — pestaña 💰 Presupuesto en Informes, con rollup por cuenta padre
+- [x] Comparativa real vs presupuestado con variaciones, semáforo, gráficos y export xlsx/csv
+- [ ] Proyección de flujo de caja a 3/6/12 meses (hoy `salud.ts` proyecta 3 meses con el efectivo de `1.1.01` hardcodeado: **arreglar eso primero**, en prod esa cuenta está vacía)
+- [ ] Alertas de desviación significativa (las reglas del semáforo ya existen en `services/budget-comparison.ts`)
 
 #### 13. Módulo de Inventario ❌ Pendiente
 - [ ] Control de existencias con costo promedio
