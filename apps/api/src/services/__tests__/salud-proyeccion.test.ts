@@ -62,13 +62,13 @@ function prismaStub(opts: { templates?: any[]; obligaciones?: any[] } = {}) {
 
 const correr = (
   opts: Parameters<typeof prismaStub>[0],
-  extra: { caja?: number; meses?: HorizonteMeses } = {},
+  extra: { caja?: number; meses?: HorizonteMeses; now?: Date } = {},
 ) =>
   computeProyeccion(
     prismaStub(opts) as never,
     COMPANY,
     { caja: extra.caja ?? 1000, codigosCaja: CODJOS_CAJA, meses: extra.meses },
-    NOW,
+    extra.now ?? NOW,
   );
 
 describe('computeProyeccion — horizonte', () => {
@@ -77,6 +77,21 @@ describe('computeProyeccion — horizonte', () => {
     const opts = { templates: [plantilla()], obligaciones: [obligacion()] };
     const a12 = await correr(opts, { meses: 12 });
     const a3 = await correr(opts, { meses: 3 });
+    expect(a12.slice(0, 3)).toEqual(a3);
+  });
+
+  it('el invariante también aguanta con el mes recién empezado', async () => {
+    // Con `now` a día 1, los vencimientos fiscales estimados caen más lejos de la
+    // ventana de 90 días que con `now` a fin de mes. Es el caso en que una
+    // estimación podría entrar en la proyección a 12 y no en la de 3, y romper el
+    // recorte del caché.
+    const opts = {
+      templates: [plantilla()],
+      obligaciones: [obligacion({ period: '2026-11', dueDate: new Date(2026, 11, 15, 0, 0, 0) })],
+    };
+    const primero = new Date(2026, 8, 1, 12, 0, 0);
+    const a12 = await correr(opts, { meses: 12, now: primero });
+    const a3 = await correr(opts, { meses: 3, now: primero });
     expect(a12.slice(0, 3)).toEqual(a3);
   });
 
@@ -159,23 +174,53 @@ describe('computeProyeccion — obligaciones fiscales', () => {
     expect(out[1].fiscalEstimado).toBe(false);
   });
 
-  it('los meses que el calendario no cubre se estiman con el último monto conocido', async () => {
+  it('la línea fiscal es continua: todo mes sin obligación registrada se estima', async () => {
     const out = await correr(
       { obligaciones: [obligacion()] }, // el ancla: ITBMS del 15, monto 700
       { meses: 12 },
     );
-    // El primer mes estimado es el que cobra el período del índice 3 (diciembre),
-    // que vence el 15 de enero — o sea, el bucket de enero.
-    const estimados = out.filter((p) => p.fiscalEstimado);
-    expect(estimados.length).toBeGreaterThan(0);
-    expect(out[0].fiscalEstimado).toBe(false);
-    expect(out[3].fiscalEstimado).toBe(false); // dic: solo caería si se estimara el período de noviembre
-    expect(out[4].month).toBe('2027-01');
-    expect(out[4].fiscal).toBe(700);
-    expect(out[4].fiscalEstimado).toBe(true);
+    // Octubre cobra la obligación real; de noviembre en adelante todo es estimación.
+    expect(out[1]).toMatchObject({ month: '2026-10', fiscal: 700, fiscalEstimado: false });
+    for (let i = 2; i < 12; i++) {
+      expect(out[i]).toMatchObject({ fiscal: 700, fiscalEstimado: true });
+    }
+    // Septiembre no tiene nada: el período de agosto (que vencería el 15 de
+    // septiembre) no se rellena, porque su vencimiento ya pasó.
+    expect(out[0]).toMatchObject({ fiscal: 0, fiscalEstimado: false });
   });
 
-  it('una obligación sin monto no se extrapola: no se inventan cifras', async () => {
+  it('rellena también los huecos ANTERIORES a la última obligación conocida', async () => {
+    // El calendario va atrasado: la única fila es la de diciembre. Octubre y
+    // noviembre no tienen nada cargado, y dejarlos en cero escondería el pago.
+    const out = await correr(
+      { obligaciones: [obligacion({ period: '2026-11', dueDate: new Date(2026, 11, 15, 0, 0, 0) })] },
+      { meses: 12 },
+    );
+    expect(out[1]).toMatchObject({ month: '2026-10', fiscal: 700, fiscalEstimado: true });
+    expect(out[2]).toMatchObject({ month: '2026-11', fiscal: 700, fiscalEstimado: true });
+    expect(out[3]).toMatchObject({ month: '2026-12', fiscal: 700, fiscalEstimado: false }); // la real
+    expect(out[4]).toMatchObject({ month: '2027-01', fiscal: 700, fiscalEstimado: true });
+  });
+
+  it('una fila creada pero valorada en CERO se estima: no es un dato, es un hueco con fecha', async () => {
+    // El caso real de producción: el generador crea la fila del período en cuanto
+    // entra, y `estimateITBMS` la deja en 0 mientras no haya movimiento en 2.1.05.
+    // Tratarla como dato hacía que octubre, noviembre y diciembre salieran en cero.
+    const out = await correr(
+      {
+        obligaciones: [
+          obligacion({ period: '2026-08', dueDate: new Date(2026, 8, 15, 0, 0, 0), estimatedAmount: 380.57, status: 'OVERDUE' }),
+          obligacion({ period: '2026-09', dueDate: new Date(2026, 9, 15, 0, 0, 0), estimatedAmount: 0 }),
+        ],
+      },
+      { meses: 12 },
+    );
+    expect(out[0]).toMatchObject({ month: '2026-09', fiscal: 380.57, fiscalEstimado: false }); // la valorada
+    expect(out[1]).toMatchObject({ month: '2026-10', fiscal: 380.57, fiscalEstimado: true }); // la del cero
+    expect(out[2]).toMatchObject({ month: '2026-11', fiscal: 380.57, fiscalEstimado: true }); // sin fila
+  });
+
+  it('una obligación sin NINGÚN monto conocido no se extrapola: no se inventan cifras', async () => {
     const out = await correr(
       {
         obligaciones: [

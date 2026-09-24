@@ -197,13 +197,18 @@ export interface ObligacionProyectada {
 /**
  * Obligaciones fiscales que entran en una proyección de caja: las reales que ya
  * están en BD dentro del horizonte, más las estimadas de los meses que el
- * calendario todavía no cubre.
+ * calendario no cubre.
  *
- * `generateUpcomingObligations` solo mantiene MESES_GENERADOS meses en BD, así que
- * proyectar a 6 o 12 sin esto mostraría cero impuestos en la mitad de la línea de
- * tiempo — y el saldo saldría optimista. Se extrapola SIN escribir en BD: la
- * cadencia es determinista (día 15 el ITBMS, día 5 el CSS, ambos del mes siguiente
- * al período), y el monto es el último conocido del tipo.
+ * La línea es CONTINUA: todo mes del horizonte que no tenga una obligación
+ * VALORADA recibe una estimación, no solo los que quedan más allá de los
+ * MESES_GENERADOS que el generador mantiene. Importa por dos motivos que se dan
+ * juntos en producción: hay meses sin fila ninguna, y hay meses con fila pero en
+ * cero (`estimateITBMS` las crea en 0 hasta que hay movimiento en 2.1.05). Dejar
+ * cualquiera de los dos en cero no es prudente: es esconder un pago que va a
+ * ocurrir, y hace que el saldo proyectado salga optimista.
+ *
+ * Se extrapola SIN escribir en BD: la cadencia es determinista (el día sale de la
+ * última ocurrencia conocida) y el monto es el último conocido del tipo.
  *
  * No se extiende el generador a 12 meses a propósito: `estimateITBMS` calcula el
  * saldo de 2.1.05 hasta el fin del período, y para un período futuro ese saldo es
@@ -211,7 +216,7 @@ export interface ObligacionProyectada {
  * PENDING la BD de producción.
  *
  * Un tipo sin ningún monto conocido no se extrapola: hoy CSS, ISR y Aviso se crean
- * sin monto, e inventarles una cifra sería peor que dejarlos en cero.
+ * sin monto, y ponerles una cifra sería peor que dejarlos en cero.
  */
 export async function obligacionesProyectadas(
   prisma: any,
@@ -221,22 +226,12 @@ export async function obligacionesProyectadas(
   const fin = new Date(opts.now.getTime() + 30 * opts.meses * 86400000);
 
   const filas: any[] = await prisma.taxObligation.findMany({ where: { companyId } });
-
-  // Reales: las pendientes que vencen dentro del horizonte. Una COMPLETED ya se pagó.
-  const reales: ObligacionProyectada[] = filas
-    .filter(o => ['PENDING', 'OVERDUE'].includes(o.status) && new Date(o.dueDate) <= fin)
-    .map(o => ({
-      type: o.type,
-      period: o.period,
-      dueDate: new Date(o.dueDate),
-      amount: o.estimatedAmount ?? o.actualAmount ?? 0,
-      estimado: false,
-    }));
+  const montoDe = (o: any) => o.actualAmount ?? o.estimatedAmount ?? 0;
 
   // Ancla por tipo: la ocurrencia más reciente CON monto. Da el importe y el día.
   const anclas = new Map<string, { amount: number; dia: number; dueDate: Date }>();
   for (const o of filas) {
-    const monto = o.actualAmount ?? o.estimatedAmount ?? 0;
+    const monto = montoDe(o);
     if (monto <= 0 || !(o.type in VENCIMIENTO_MENSUAL)) continue;
     const fecha = new Date(o.dueDate);
     const previa = anclas.get(o.type);
@@ -245,21 +240,52 @@ export async function obligacionesProyectadas(
     }
   }
 
-  const yaEsta = new Set(reales.map(o => `${o.type}|${o.period}`));
-  const estimadas: ObligacionProyectada[] = [];
-  for (let i = MESES_GENERADOS; i < opts.meses; i++) {
+  // Filas vivas dentro del horizonte (una COMPLETED ya se pagó), por tipo|período.
+  const vivas = new Map<string, { type: string; period: string; dueDate: Date; monto: number }>();
+  for (const o of filas) {
+    if (!['PENDING', 'OVERDUE'].includes(o.status)) continue;
+    const due = new Date(o.dueDate);
+    if (due > fin) continue;
+    vivas.set(`${o.type}|${o.period}`, { type: o.type, period: o.period, dueDate: due, monto: montoDe(o) });
+  }
+
+  const result: ObligacionProyectada[] = [];
+
+  // 1) Las filas valoradas son dato, y valen por sí mismas.
+  for (const v of vivas.values()) {
+    if (v.monto > 0) result.push({ type: v.type, period: v.period, dueDate: v.dueDate, amount: v.monto, estimado: false });
+  }
+
+  const estimar = (type: string, period: string, dueDate: Date) => {
+    const ancla = anclas.get(type);
+    if (!ancla) return; // sin un monto conocido no se inventa una cifra
+    result.push({ type, period, dueDate, amount: ancla.amount, estimado: true });
+  };
+
+  // 2) Filas creadas pero SIN valorar. El generador las crea en cuanto entra el
+  //    período, y `estimateITBMS` las deja en 0 si todavía no hay movimiento en
+  //    2.1.05 — o sea que una fila en cero no es información, es un hueco con
+  //    fecha. Se estiman con el último monto conocido, conservando su vencimiento.
+  for (const v of vivas.values()) {
+    if (v.monto === 0) estimar(v.type, v.period, v.dueDate);
+  }
+
+  // 3) Períodos sin ninguna fila. Se recorre desde el mes en curso: todos vencen el
+  //    mes siguiente, así que ninguno cae en el pasado. Los anteriores no se
+  //    rellenan a propósito — su vencimiento ya pasó y no consta que se pagaran.
+  for (let i = 0; i < opts.meses; i++) {
     const m = new Date(opts.now.getFullYear(), opts.now.getMonth() + i, 1);
     const period = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`;
     for (const [type, ancla] of anclas) {
-      if (yaEsta.has(`${type}|${period}`)) continue;
+      if (vivas.has(`${type}|${period}`)) continue;
       const ultimoDia = new Date(m.getFullYear(), m.getMonth() + 2, 0).getDate();
       const dueDate = new Date(m.getFullYear(), m.getMonth() + 1, Math.min(ancla.dia, ultimoDia));
       if (dueDate > fin) continue;
-      estimadas.push({ type, period, dueDate, amount: ancla.amount, estimado: true });
+      estimar(type, period, dueDate);
     }
   }
 
-  return [...reales, ...estimadas];
+  return result;
 }
 
 /**

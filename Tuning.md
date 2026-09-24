@@ -159,7 +159,7 @@ Convertir una venta registrada en factura profesional:
 - [x] Proyección de flujo de caja a 3/6/12 meses — selector en el panel 🩺 Salud (`GET /api/salud?meses=`). El efectivo de partida es caja + bancos (+ alias) vía `lib/cuentas-efectivo.ts`, el mismo criterio del flujo de caja: antes solo miraba `1.1.01`, que en prod está vacía
 - [x] Alertas de desviación significativa sobre el presupuesto, en el panel 🩺 junto al resto (reusan el semáforo de `services/budget-comparison.ts`)
 
-**Pendiente afinable:** el calendario fiscal solo mantiene 3 meses de obligaciones en BD (`tax-calendar.ts`), así que la proyección estima los meses 4-12 repitiendo el último monto conocido del impuesto y los marca con `*`. Los meses 1-3 no se tocan para no alterar la vista por defecto, lo que puede dejar un hueco visible si el calendario está atrasado.
+**Sobre los impuestos:** el calendario fiscal solo mantiene 3 meses de obligaciones en BD (`tax-calendar.ts`) y las crea **sin valorar** (`estimateITBMS` las deja en 0 hasta que haya movimiento en 2.1.05). La proyección rellena **cualquier** mes del horizonte que no tenga una obligación *valorada*, repitiendo el último monto conocido del impuesto, y lo marca con `*`. La línea queda continua aunque el calendario vaya atrasado. No se rellenan períodos cuyo vencimiento ya pasó (no consta que se hayan pagado) ni tipos de impuesto sin ningún monto histórico del que tirar: en ese caso el mes queda en cero y la proyección subestima las salidas.
 
 #### 13. Módulo de Inventario ❌ Pendiente
 - [ ] Control de existencias con costo promedio
