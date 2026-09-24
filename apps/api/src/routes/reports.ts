@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { buildDateFilter } from '../lib/date-filter';
+import { cuentasEfectivo } from '../lib/cuentas-efectivo';
 import { getAnioFiscal, anioFiscalRange } from '../lib/fiscal-year';
 import { exportReport } from '../services/export';
 import { buildBudgetComparison } from '../services/budget-comparison';
@@ -553,34 +554,6 @@ reportsRouter.get('/estado-resultados', async (req, res) => {
     utilidadNeta: totalIngresos - totalCostos - totalGastos,
   });
 });
-
-/**
- * Cuentas de efectivo de la empresa: el rango clásico del catálogo (Caja 1.1.01,
- * Bancos 1.1.02) o cualquiera marcada con alias de efectivo — mismo criterio que
- * ya usa admin.js para el selector de bancos. Los descendientes entran por prefijo
- * de código, así que marcar el padre alcanza para arrastrar sus subcuentas.
- */
-async function cuentasEfectivo(prisma: any, companyId: string) {
-  const CASH_CODES = ['1.1.01', '1.1.02'];
-  const esAliasEfectivo = (a: string) => {
-    const s = String(a || '').trim().toLowerCase();
-    return s === 'caja' || s === 'banco' || s === 'efectivo' || s.startsWith('banco-');
-  };
-
-  const accs = await prisma.account.findMany({
-    where: { companyId, type: 'ACTIVO' },
-    select: { code: true, name: true, aliases: true },
-    orderBy: { code: 'asc' },
-  });
-  const esRaiz = (a: any) =>
-    CASH_CODES.some(c => a.code === c || String(a.code).startsWith(`${c}.`)) ||
-    (a.aliases || []).some(esAliasEfectivo);
-
-  const raices = accs.filter(esRaiz);
-  return accs
-    .filter((a: any) => raices.some((r: any) => a.code === r.code || String(a.code).startsWith(`${r.code}.`)))
-    .map((a: any) => ({ code: a.code, name: a.name }));
-}
 
 /**
  * Flujo de efectivo con saldo corrido (libro de caja: no clasifica

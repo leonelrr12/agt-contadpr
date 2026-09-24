@@ -76,6 +76,21 @@ function evaluar(tipo: string, budget: number, real: number, futuro: boolean): B
 
 const sumar = (arr: number[], hasta: number) => r2(arr.slice(0, hasta).reduce((s, n) => s + (Number(n) || 0), 0));
 
+/**
+ * Mes hasta el que comparar cuando se quiere real vs presupuesto "a la fecha":
+ * el mes en curso del año, 12 si el año ya terminó y 0 si todavía no empieza.
+ *
+ * Quien compare sin pasar `mes` a buildBudgetComparison está midiendo el real
+ * acumulado de enero a hoy contra el presupuesto de los DOCE meses — en septiembre
+ * eso marca rojo a cualquier empresa que no vaya justa al plan anual.
+ */
+export function mesDeComparacion(year: number, hoy: Date = new Date()): number {
+  return year === hoy.getFullYear() ? hoy.getMonth() + 1 : year < hoy.getFullYear() ? 12 : 0;
+}
+
+/** Forma del resultado, para los consumidores que solo lo leen (p. ej. las alertas de salud.ts). */
+export type BudgetComparison = Awaited<ReturnType<typeof buildBudgetComparison>>;
+
 export async function buildBudgetComparison(prisma: any, companyId: string, opts: BudgetComparisonOptions = {}) {
   const anioFiscal = await getAnioFiscal(prisma, companyId);
   const year = opts.year && opts.year >= 2000 ? opts.year : anioFiscal;
@@ -84,7 +99,7 @@ export async function buildBudgetComparison(prisma: any, companyId: string, opts
   const hastaMes = mes ?? 12; // el período siempre arranca en enero
 
   const hoy = new Date();
-  const mesActual = year === hoy.getFullYear() ? hoy.getMonth() + 1 : year < hoy.getFullYear() ? 12 : 0;
+  const mesActual = mesDeComparacion(year, hoy);
   // Un año entero en el futuro no tiene nada que comparar; un año en curso sí,
   // aunque el período elegido llegue hasta diciembre (los meses sin real salen en 0).
   const anioFuturo = mesActual === 0;
