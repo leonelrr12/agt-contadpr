@@ -1,6 +1,14 @@
 // salud.js (14/14) — panel de salud financiera con IA (ratios, proyección y narrativa)
 
 let _saludCharts = [];
+// Horizonte pedido (3|6|12). Vive en el módulo para que sobreviva a salir del panel
+// y volver: `loadPanelSalud` re-renderiza todo el contenido.
+let _saludMeses = 3;
+const SALUD_HORIZONTES = [3, 6, 12];
+// Series de la proyección: azul/naranja en vez del verde/rojo del resto del panel,
+// que es el par que peor se distingue con daltonismo.
+const SALUD_COLOR_ENTRADAS = '#2a78d6';
+const SALUD_COLOR_SALIDAS = '#eb6834';
 
 function loadPanelSalud(refresh = false) {
   document.getElementById('chat-messages').classList.add('hidden');
@@ -15,15 +23,19 @@ async function loadSaludData(refresh = false) {
   _saludCharts.forEach(c => c.destroy());
   _saludCharts = [];
   try {
-    const res = await authFetch(`${API_URL}/salud${refresh ? '?refresh=1' : ''}`);
+    const qs = new URLSearchParams({ meses: String(_saludMeses) });
+    if (refresh) qs.set('refresh', '1');
+    const res = await authFetch(`${API_URL}/salud?${qs}`);
     if (!res.ok) { el.innerHTML = saludErrorState(); return; }
     const d = await res.json();
     if (d.sinDatos) {
       el.innerHTML = '<div style="text-align:center;padding:48px 24px;color:#6b7280">Aún no hay movimientos contables recientes para analizar. Registra tus primeros asientos y vuelve a este panel.</div>';
       return;
     }
-    el.innerHTML = saludScore(d) + saludKpis(d) + saludAlertas(d) + saludIA(d) + saludChartBox() + saludProyeccion(d) + saludNota(d);
+    el.innerHTML = saludScore(d) + saludKpis(d) + saludAlertas(d) + saludIA(d) + saludChartBox()
+      + saludProyeccion(d) + saludProyeccionChartBox(d) + saludNota(d);
     renderSaludChart(d);
+    renderSaludProyeccionChart(d);
   } catch (e) {
     el.innerHTML = saludErrorState();
   }
@@ -49,7 +61,7 @@ function saludKpis(d) {
     ${card('ROE (año)', pct(r.roe), r.roe == null ? '' : (r.roe >= 5 ? 'dash-card-pos' : 'dash-card-neg'))}
     ${card('Días de Cobro', dias(r.dso))}
     ${card('Días de Pago', dias(r.dpo))}
-    ${card('Caja Actual', fmtSalud(d.caja?.saldoActual))}
+    ${card('Efectivo (Caja + Bancos)', fmtSalud(d.caja?.saldoActual))}
   </div>`;
 }
 
@@ -150,16 +162,32 @@ async function renderSaludChart(d) {
   }));
 }
 
+/** Cambia el horizonte de la proyección y recarga el panel. */
+function saludSetMeses(v) {
+  _saludMeses = Number(v) || 3;
+  loadSaludData(false);
+}
+
 function saludProyeccion(d) {
   if (!d.proyeccion || !d.proyeccion.length) return '';
+  // El backend confirma el horizonte; si responde uno viejo, manda el largo del array.
+  const meses = d.horizonte || d.proyeccion.length;
+  const opciones = SALUD_HORIZONTES
+    .map(h => `<option value="${h}" ${h === meses ? 'selected' : ''}>${h} meses</option>`).join('');
+  const hayEstimados = d.proyeccion.some(p => p.fiscalEstimado);
+
   const rows = d.proyeccion.map(p => `
     <tr style="border-bottom:1px solid #f0f0f0;${p.saldoFinal < 0 ? 'background:#fef2f2' : ''}">
-      <td style="padding:8px 12px;text-transform:capitalize">${escapeHtml(p.label)}</td>
+      <td style="padding:8px 12px;text-transform:capitalize">${escapeHtml(p.label)}${p.fiscalEstimado ? ' <span title="La obligación fiscal de este mes es una estimación: el calendario todavía no la tiene registrada." style="color:#9ca3af">*</span>' : ''}</td>
       <td style="padding:8px 12px;text-align:right;color:#2e7d32">${fmtSalud(p.entradas)}</td>
       <td style="padding:8px 12px;text-align:right;color:#c62828">${fmtSalud(p.salidas)}</td>
       <td style="padding:8px 12px;text-align:right;font-weight:700;color:${p.saldoFinal >= 0 ? '#065f46' : '#991b1b'}">${fmtSalud(p.saldoFinal)}</td>
     </tr>`).join('');
-  return `<h3 style="font-size:14px;color:#1a1a2e;margin:20px 0 8px 0">🔮 Proyección de Caja (3 meses)</h3>
+
+  return `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:20px 0 8px 0">
+      <h3 style="font-size:14px;color:#1a1a2e;margin:0">🔮 Proyección de Caja (${meses} meses)</h3>
+      <select onchange="saludSetMeses(this.value)" style="padding:6px 10px;border:1px solid #d0d5dd;border-radius:6px;font-size:12px;background:#fff">${opciones}</select>
+    </div>
     <div style="overflow-x:auto;margin-bottom:8px">
       <table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border-radius:8px">
         <thead><tr style="border-bottom:2px solid #e5e7eb">
@@ -171,7 +199,72 @@ function saludProyeccion(d) {
         <tbody>${rows}</tbody>
       </table>
     </div>
-    <div style="font-size:11px;color:#6b7280">Entradas y salidas estimadas: transacciones recurrentes activas + obligaciones fiscales próximas.</div>`;
+    <div style="font-size:11px;color:#6b7280">Entradas y salidas estimadas: transacciones recurrentes activas + obligaciones fiscales próximas. Los meses futuros se cortan a 30 días, así que el último puede quedar incompleto.${hayEstimados ? ' <strong>*</strong> El ITBMS/CSS de ese mes se estima con el último monto conocido — el calendario fiscal solo mantiene 3 meses registrados.' : ''}</div>`;
+}
+
+/** Los gráficos solo aparecen con horizontes largos: a 3 meses la tabla se lee de sobra. */
+function saludProyeccionChartBox(d) {
+  if (!d.proyeccion || d.proyeccion.length <= 3) return '';
+  return `<div class="dash-grid">
+    <div class="dash-chart-card"><h4>Entradas vs Salidas proyectadas</h4><canvas id="chart-salud-proy-flujo"></canvas></div>
+    <div class="dash-chart-card"><h4>Saldo final proyectado</h4><canvas id="chart-salud-proy-saldo"></canvas></div>
+  </div>`;
+}
+
+async function renderSaludProyeccionChart(d) {
+  if (!d.proyeccion || d.proyeccion.length <= 3) return;
+  if (typeof Chart === 'undefined') {
+    const ok = await ensureChartJs();
+    if (!ok) return;
+  }
+  const labels = d.proyeccion.map(p => {
+    const [y, mo] = p.month.split('-');
+    return new Date(parseInt(y), parseInt(mo) - 1).toLocaleDateString('es-PA', { month: 'short', year: 'numeric' });
+  });
+  // Dos gráficos de un solo eje a propósito: entradas mensuales y saldo acumulado
+  // difieren en magnitud, y compartir un eje secundario haría mentir los cruces.
+  const flujo = document.getElementById('chart-salud-proy-flujo');
+  if (flujo) {
+    _saludCharts.push(new Chart(flujo, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Entradas', data: d.proyeccion.map(p => p.entradas), backgroundColor: SALUD_COLOR_ENTRADAS, borderRadius: 4 },
+          { label: 'Salidas', data: d.proyeccion.map(p => p.salidas), backgroundColor: SALUD_COLOR_SALIDAS, borderRadius: 4 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } } },
+        scales: { y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.06)' } }, x: { grid: { display: false } } },
+      },
+    }));
+  }
+  const saldo = document.getElementById('chart-salud-proy-saldo');
+  if (saldo) {
+    _saludCharts.push(new Chart(saldo, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Saldo final',
+          data: d.proyeccion.map(p => p.saldoFinal),
+          borderColor: '#1a1a2e',
+          backgroundColor: 'rgba(26,26,46,0.06)',
+          fill: true, tension: 0.25, pointRadius: 3,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } }, // el título de la tarjeta ya nombra la serie
+        scales: {
+          y: { grid: { color: 'rgba(0,0,0,0.06)' } },
+          x: { grid: { display: false } },
+        },
+      },
+    }));
+  }
 }
 
 function saludNota(d) {
