@@ -153,11 +153,13 @@ Convertir una venta registrada en factura profesional:
 - [ ] Recordatorios de pago de cuotas obrero-patronales (CSS)
 - [ ] Acumulados para décimo tercer mes y liquidaciones
 
-#### 12. Presupuestos y Proyecciones 🟡 PARCIAL (2026-09-24)
+#### 12. Presupuestos y Proyecciones ✅ Implementado (2026-09-24)
 - [x] Presupuesto mensual por cuenta hoja (tabla `budget`, migración 0017) — pestaña 💰 Presupuesto en Informes, con rollup por cuenta padre
 - [x] Comparativa real vs presupuestado con variaciones, semáforo, gráficos y export xlsx/csv
-- [ ] Proyección de flujo de caja a 3/6/12 meses (hoy `salud.ts` proyecta 3 meses con el efectivo de `1.1.01` hardcodeado: **arreglar eso primero**, en prod esa cuenta está vacía)
-- [ ] Alertas de desviación significativa (las reglas del semáforo ya existen en `services/budget-comparison.ts`)
+- [x] Proyección de flujo de caja a 3/6/12 meses — selector en el panel 🩺 Salud (`GET /api/salud?meses=`). El efectivo de partida es caja + bancos (+ alias) vía `lib/cuentas-efectivo.ts`, el mismo criterio del flujo de caja: antes solo miraba `1.1.01`, que en prod está vacía
+- [x] Alertas de desviación significativa sobre el presupuesto, en el panel 🩺 junto al resto (reusan el semáforo de `services/budget-comparison.ts`)
+
+**Pendiente afinable:** el calendario fiscal solo mantiene 3 meses de obligaciones en BD (`tax-calendar.ts`), así que la proyección estima los meses 4-12 repitiendo el último monto conocido del impuesto y los marca con `*`. Los meses 1-3 no se tocan para no alterar la vista por defecto, lo que puede dejar un hueco visible si el calendario está atrasado.
 
 #### 13. Módulo de Inventario ❌ Pendiente
 - [ ] Control de existencias con costo promedio
