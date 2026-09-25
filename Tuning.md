@@ -161,8 +161,10 @@ Trabajo ya pagado que hoy no rinde nada:
 
 Ninguno tiene modelo en el schema todavía.
 
-- **§13 Inventario** — existencias con costo promedio, entradas/salidas automáticas desde asientos,
-  alertas de stock mínimo, valoración. *Siguiente en la fila.*
+- **§13 Inventario** — existencias con costo promedio, entradas/salidas alimentadas por compras y ventas,
+  alertas de stock mínimo, valoración. *Siguiente en la fila.* **Diseño completo, directivas y estado de
+  construcción en [`INVENTARIO.md`](INVENTARIO.md)** — acá solo va el avance, para que los dos documentos no
+  se separen.
 - **§10 Centro de Costos / Proyectos** — etiquetar transacciones por proyecto, sucursal o departamento;
   rentabilidad segmentada; cruce con presupuesto. El más transversal: toca informes, presupuesto y facturas.
 - **§14 Agente Multi-Empresa para Despachos** — vista unificada de todos los clientes del despacho,
