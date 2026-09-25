@@ -56,7 +56,12 @@ function render() {
   };
   el.innerHTML = '<div class="loading">Cargando…</div>';
   (vistas[_invTab] || vistaExistencias)()
-    .then((html) => { el.innerHTML = html; })
+    .then((html) => {
+      el.innerHTML = html;
+      // La vista previa del asiento se pinta al abrir: antes solo aparecía al tocar
+      // un campo, así que quien cargaba los valores y guardaba no la veía nunca.
+      if (_invTab === 'entradas') previsualizar();
+    })
     .catch((err) => { el.innerHTML = `<div class="aviso">No se pudo cargar: ${esc(err.message)}</div>`; });
 }
 
@@ -134,8 +139,8 @@ function formularioProducto() {
       <div><label>Nombre *</label><input id="np-nombre" placeholder="Ej: Cemento gris 50kg"></div>
       <div><label>Código (opcional)</label><input id="np-sku" placeholder="SKU interno"></div>
       <div><label>Unidad</label><input id="np-unidad" value="UND" maxlength="10"></div>
-      <div><label>Precio de venta (sin ITBMS)</label><input id="np-precio" type="number" step="0.01" min="0" placeholder="Opcional"></div>
-      <div><label>Stock mínimo (alerta)</label><input id="np-minimo" type="number" step="0.001" min="0" value="0"></div>
+      <div><label>Precio de venta (sin ITBMS)</label><input id="np-precio" type="number" step="0.01" min="0" placeholder="Opcional" onfocus="this.select()" style="text-align:right"></div>
+      <div><label>Stock mínimo (alerta)</label><input id="np-minimo" type="number" step="0.001" min="0" value="0" onfocus="this.select()" style="text-align:right"></div>
     </div>
     <div style="margin-top:12px"><button class="btn btn-primary" onclick="crearProducto()">Crear producto</button></div>
     <div class="nota">La existencia se carga con una <strong>entrada de mercancía</strong>, no acá: así queda el movimiento que la respalda.</div>
@@ -191,7 +196,7 @@ async function vistaEntradas() {
       </select></div>
       <div><label>Proveedor (obligatorio si es a crédito)</label><input id="en-proveedor" placeholder="Nombre del proveedor"></div>
       <div><label>N° de factura del proveedor</label><input id="en-referencia" placeholder="Opcional"></div>
-      <div><label>ITBMS de la compra</label><input id="en-itbms" type="number" step="0.01" min="0" value="0"></div>
+      <div><label>ITBMS de la compra</label><input id="en-itbms" type="number" step="0.01" min="0" value="0" onfocus="this.select()" style="text-align:right"></div>
       <div><label>&nbsp;</label><button class="btn btn-secondary" style="width:100%" onclick="previsualizar()">Ver el asiento</button></div>
     </div>
     <div id="en-preview"></div>
@@ -200,15 +205,34 @@ async function vistaEntradas() {
   </div>`;
 }
 
+/**
+ * Normaliza el estado de las líneas para que COINCIDA con lo que muestra el combo.
+ *
+ * Un `<select>` sin `selected` explícito muestra la primera opción, pero el estado
+ * seguía con `productId: ''`. Con un solo producto nadie toca el combo —no hay nada
+ * que elegir— así que el `onchange` nunca se disparaba y "Registrar entrada" no
+ * encontraba ninguna línea válida: el usuario veía el producto elegido en pantalla y
+ * el sistema no registraba nada. Con dos o más productos el bug se escondía porque
+ * elegir el segundo sí dispara el evento.
+ */
+function normalizarLineas(lineas) {
+  const ids = new Set(_invProductos.map((p) => p.id));
+  const primero = _invProductos[0]?.id || '';
+  for (const l of lineas) {
+    if (!ids.has(l.productId)) l.productId = primero;
+  }
+}
+
 function lineasHtml() {
   if (!_invLineas.length) _invLineas = [{ productId: '', cantidad: 1, costoUnitario: 0 }];
+  normalizarLineas(_invLineas);
   const opciones = (sel) => _invProductos.map((p) =>
     `<option value="${esc(p.id)}" ${p.id === sel ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('');
   return _invLineas.map((l, i) => `
     <div class="linea-row">
       <div><label>Producto</label><select onchange="_invLineas[${i}].productId=this.value;previsualizar()">${opciones(l.productId)}</select></div>
-      <div><label>Cantidad</label><input type="number" step="0.001" min="0" value="${l.cantidad}" oninput="_invLineas[${i}].cantidad=Number(this.value);previsualizar()"></div>
-      <div><label>Costo unitario</label><input type="number" step="0.01" min="0" value="${l.costoUnitario}" oninput="_invLineas[${i}].costoUnitario=Number(this.value);previsualizar()"></div>
+      <div><label>Cantidad</label><input type="number" step="0.001" min="0" value="${l.cantidad}" onfocus="this.select()" oninput="_invLineas[${i}].cantidad=Number(this.value);previsualizar()" style="text-align:right"></div>
+      <div><label>Costo unitario</label><input type="number" step="0.01" min="0" value="${l.costoUnitario}" onfocus="this.select()" oninput="_invLineas[${i}].costoUnitario=Number(this.value);previsualizar()" style="text-align:right"></div>
       <div>${_invLineas.length > 1 ? `<button class="btn btn-secondary btn-sm" onclick="quitarLinea(${i})">✕</button>` : ''}</div>
     </div>`).join('');
 }
@@ -305,6 +329,7 @@ async function guardarEntrada() {
 async function vistaSalidas() {
   await recargar();
   if (!_invSalidas.length) _invSalidas = [{ productId: '', cantidad: 1 }];
+  normalizarLineas(_invSalidas);
   const opciones = (sel) => _invProductos.map((p) =>
     `<option value="${esc(p.id)}" ${p.id === sel ? 'selected' : ''}>${esc(p.nombre)} (${num(p.stockActual)})</option>`).join('');
 
@@ -315,7 +340,7 @@ async function vistaSalidas() {
     <div id="inv-salidas">${_invSalidas.map((l, i) => `
       <div class="linea-row">
         <div><label>Producto</label><select onchange="_invSalidas[${i}].productId=this.value">${opciones(l.productId)}</select></div>
-        <div><label>Cantidad</label><input type="number" step="0.001" min="0" value="${l.cantidad}" oninput="_invSalidas[${i}].cantidad=Number(this.value)"></div>
+        <div><label>Cantidad</label><input type="number" step="0.001" min="0" value="${l.cantidad}" onfocus="this.select()" oninput="_invSalidas[${i}].cantidad=Number(this.value)" style="text-align:right"></div>
         <div></div>
         <div>${_invSalidas.length > 1 ? `<button class="btn btn-secondary btn-sm" onclick="_invSalidas.splice(${i},1);render()">✕</button>` : ''}</div>
       </div>`).join('')}</div>
@@ -348,7 +373,7 @@ function tomaFisicaHtml() {
       <td class="num">${num(p.stockActual)} ${esc(p.unidad)}</td>
       <td style="width:130px">
         <input type="number" step="0.001" min="0" value="${p.stockActual}"
-               data-contado="${esc(p.id)}" style="width:100%;padding:5px;border:1px solid #d0d5dd;border-radius:6px;text-align:right">
+               data-contado="${esc(p.id)}" onfocus="this.select()" style="width:100%;padding:5px;border:1px solid #d0d5dd;border-radius:6px;text-align:right">
       </td>
     </tr>`).join('');
 
