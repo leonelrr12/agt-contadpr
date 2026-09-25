@@ -52,7 +52,7 @@ Estas son las decisiones del dueño. **Si alguna cambia, se cambia acá y en el 
 El **kardex** es la lista de movimientos de un producto, en **orden de registro** (no de fecha de
 documento). Es un registro: **no se borra ni se edita**. Corregir un movimiento se hace con el **movimiento
 inverso** (`revierteAId`), que devuelve las cantidades por aritmética y no obliga a ningún reporte a filtrar
-nada.
+nada. El inverso repone **al costo original** del movimiento que anula — ver §3.2.
 
 Las dos decisiones que sostienen todo lo demás:
 
@@ -81,8 +81,14 @@ hora del sistema — por eso se puede probar entera.
 | **Costo cero** | Si había stock, baja el promedio (correcto: es una compra más barata). Sin stock, la salida posterior vale 0 y se avisa. |
 | **Ajuste positivo** | Con costo explícito, o hereda el promedio. **Sin stock se exige costo**: no se inventa. |
 | **Ajuste negativo** | Al promedio; puede vaciar el stock (mismo barrido). |
-| **Entrada que cubre un faltante** | Genera **dos movimientos**: la entrada y una `REGULARIZACION` por las unidades que estaban en negativo, al costo de la compra que las cubre. Sin esto, el valor de lo vendido sin costo se queda en el activo para siempre y el promedio sale inflado. |
+| **Entrada que cubre un faltante** | Genera **dos movimientos**: la entrada y una `REGULARIZACION` que revalúa las unidades que habían salido sin costo, al costo de la compra que las cubre. Sin esto, el valor de lo vendido sin costo se queda en el activo y las unidades que quedan absorben su costo: comprar 5 a $10 con el stock en −2 daría un promedio de $16,67 en vez de $10. |
+| **Reverso** | Repone al **costo original** del movimiento que anula, no al promedio vigente. Al promedio no devolvería el valor anterior — el promedio se mezcló con otros movimientos — y el kardex quedaría corrido para siempre. |
 | **Redondeo** | `r2` en todo monto de asiento. El costo unitario y el promedio se guardan con precisión completa. `toFixed(2)` **solo** al mostrar texto. |
+
+> **La regularización mueve valor, no cantidad.** Las unidades que regulariza ya salieron: su
+> cantidad ya estaba descontada. Es la única fila del kardex con `cantidad = 0`, y existe porque el
+> problema era de valuación, no de existencias. Restarle también la cantidad dejaría el kardex en 1
+> donde físicamente hay 3.
 
 **Invariante que los tests fijan:** el saldo final en valor es igual a la suma firmada de los montos
 posteados, y el de cantidad a la suma firmada de las cantidades, en cualquier secuencia.
@@ -204,13 +210,17 @@ en los renglones de factura.
 
 | Fase | Contenido | Estado |
 |---|---|---|
-| 1 | Modelos + migración `0018` + motor de costo puro | ⬜ Pendiente |
+| 1 | Modelos + migración `0018` + motor de costo puro | ✅ **Hecho** (25-09) — 19 tests |
 | 2 | API y asientos (productos, entradas, salidas, kardex, valoración) | ⬜ Pendiente |
 | 3 | Página `inventario.html` + enlace desde el SPA | ⬜ Pendiente |
 | 4 | La venta descuenta stock (`InvoiceItem.productId`) | ⬜ Pendiente |
 | 5 | La compra deja de entrar por importación y chat | ⬜ Pendiente |
 | 6 | Cuadre y alertas | ⬜ Pendiente |
 | 7 | Ajustes, anulación y toma física | ⬜ Pendiente |
+
+La Fase 1 dejó en la base las tablas `inventory_product` e `inventory_movement`, `invoice_item.productId`
+y las cuentas de inventario por empresa. Nada las usa todavía: son aditivas y no cambian ningún
+comportamiento existente.
 
 Las fases 1 a 3 son aditivas y se despliegan sin tocar ningún flujo existente. La **fase 5 es el único
 cambio de comportamiento sobre datos vivos** y va al final, cuando el módulo ya es la alternativa.

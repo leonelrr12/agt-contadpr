@@ -37,6 +37,10 @@ model Company {
   planillaSEId          String?
   planillaISRId         String?
   planillaBancoId       String?
+  // Inventario: cuentas por defecto del kardex. Un producto puede sobreescribirlas;
+  // si no, se resuelven por alias y por código (1.1.04.01 / 5.01.01).
+  inventarioCuentaId    String?
+  inventarioCostoId     String?
   createdAt    DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -54,6 +58,8 @@ model Company {
   whatsappLinks      WhatsAppLink[]
   taxObligations     TaxObligation[]
   budgets            Budget[]
+  inventoryProducts  InventoryProduct[]
+  inventoryMovements InventoryMovement[]
 }
 
 model User {
@@ -444,11 +450,16 @@ model InvoiceItem {
   cantidad    Int      @default(1)
   precio      Float    // precio unitario sin ITBMS
   itbms       Float    @default(0) // ITBMS de la línea (cantidad*precio*tasa)
+  // Producto del kardex. Opcional a propósito: las facturas de servicios y las
+  // históricas quedan sin producto y sin línea de costo en el asiento.
+  productId   String?
   createdAt   DateTime @default(now())
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice Invoice           @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product InventoryProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([invoiceId])
+  @@index([productId])
   @@map("invoice_item")
 }
 
@@ -670,4 +681,108 @@ model Budget {
   @@index([companyId, year])
   @@index([accountId])
   @@map("budget")
+}
+
+// ── Inventario ──────────────────────────────────────────────────────────────
+// Kardex de mercancía de REVENTA. La materia prima y los insumos NO van acá: son
+// gasto (ver INVENTARIO.md §2). El módulo es independiente pero alimenta la
+// contabilidad: cada movimiento tiene su asiento en BORRADOR.
+//
+// `stockActual` y `costoPromedio` son el estado VIGENTE, materializado para no
+// recalcular el kardex entero en cada listado. La fuente de verdad histórica es
+// InventoryMovement, y el estado tiene que ser siempre reconstruible desde ahí.
+
+/// Producto de reventa con kardex.
+model InventoryProduct {
+  id          String   @id @default(cuid())
+  companyId   String
+  sku         String?  // código interno del negocio; opcional (en PG los NULL conviven en el unique)
+  nombre      String
+  descripcion String?
+  unidad      String   @default("UND") // UND, LB, MT, CAJA…
+  stockMinimo Float    @default(0)     // umbral de la alerta de reposición; 0 = sin alerta
+  /// Saldo corrido vigente. Puede ser NEGATIVO si se vendió sin stock cargado;
+  /// el módulo lo marca para regularizar en vez de bloquear la venta.
+  stockActual   Float  @default(0)
+  /// Costo promedio ponderado vigente. Se DERIVA del kardex (saldoValor / saldoCantidad);
+  /// puede quedar fraccionario, es un número de gestión y se redondea al mostrarlo.
+  costoPromedio Float  @default(0)
+  // Sobreescritura de las cuentas de la empresa para este producto.
+  cuentaInventarioId String?
+  cuentaCostoId      String?
+  // Los productos NO se borran: se desactivan (el histórico del kardex los referencia).
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company      Company             @relation(fields: [companyId], references: [id])
+  movements    InventoryMovement[]
+  invoiceItems InvoiceItem[]
+
+  @@unique([companyId, nombre])
+  @@unique([companyId, sku])
+  @@index([companyId, isActive])
+  @@map("inventory_product")
+}
+
+/// Un movimiento del kardex: una fila por línea de documento.
+///
+/// El kardex NO se borra ni se edita — se corrige con el movimiento inverso
+/// (`estado = ANULADO` + `revierteAId`), que devuelve las cantidades por aritmética
+/// y no obliga a ningún reporte a filtrar nada.
+///
+/// `saldoValor` es la suma FIRMADA de los `costoTotal` que fueron al asiento, NO
+/// `cantidad × promedio`. Esa es la decisión que hace que el kardex y el mayor
+/// cuadren al centavo por construcción.
+model InventoryMovement {
+  id        String   @id @default(cuid())
+  companyId String
+  productId String
+  /// Fecha del DOCUMENTO, a mediodía local (lib/dates.ts).
+  fecha     DateTime
+  tipo      String   // ENTRADA | SALIDA | AJUSTE_POSITIVO | AJUSTE_NEGATIVO
+  origen    String   // COMPRA | VENTA | AJUSTE | APERTURA | REGULARIZACION | ANULACION
+  /// SIEMPRE positiva: el signo lo da `tipo`. Así el kardex se lee en columnas
+  /// Entradas/Salidas y ningún reporte tiene que mirar el signo. Vale 0 SOLO en la
+  /// fila de regularización, que corrige valor sin mover unidades.
+  cantidad      Float
+  /// Costo de ESTE movimiento: en una compra el de la compra; en una salida el
+  /// promedio vigente, salvo en un REVERSO, que repone al costo original del
+  /// movimiento que anula (al promedio no devolvería el valor anterior).
+  /// Precisión completa: el redondeo va en `costoTotal`.
+  costoUnitario Float
+  /// r2(cantidad × costoUnitario) — ES el monto que va al asiento, siempre POSITIVO.
+  /// En la regularización es r2(unidades del faltante × costo de la compra).
+  costoTotal    Float
+  /// Saldo corrido DESPUÉS de este movimiento, en orden de REGISTRO (createdAt),
+  /// no de fecha de documento: una factura retroactiva no puede reescribir los
+  /// promedios de los movimientos posteriores.
+  saldoCantidad      Float
+  saldoValor         Float
+  saldoCostoPromedio Float
+  journalEntryId String? // asiento que lo refleja (BORRADOR hasta que el contador apruebe)
+  invoiceId      String? // trazabilidad factura → kardex (origen VENTA)
+  supplierId     String? // compra a crédito o al contado
+  referencia     String? // Nº de factura del proveedor, motivo del ajuste…
+  notas          String?
+  /// Idempotencia: "venta:<invoiceId>:<productId>", "compra:<uuid>". Re-subir el
+  /// mismo documento o un doble clic no duplica stock.
+  dedupeKey      String?
+  estado         String  @default("ACTIVO") // ACTIVO | ANULADO
+  revierteAId    String? // si este movimiento es un reverso, cuál anula
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company Company          @relation(fields: [companyId], references: [id])
+  product InventoryProduct @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, dedupeKey])
+  @@index([companyId, productId, createdAt]) // el kardex de un producto (orden de registro)
+  @@index([companyId, productId, fecha])     // valoración y reportes por fecha de documento
+  @@index([companyId, fecha])                // libro de movimientos del período
+  @@index([journalEntryId])                  // del asiento al movimiento (origen + cuadre)
+  @@index([invoiceId])
+  @@index([supplierId])
+  @@map("inventory_movement")
 }
