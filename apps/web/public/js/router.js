@@ -88,7 +88,7 @@ document.querySelectorAll('#panel-tabs-admin button').forEach(btn => {
     // Cargar datos (Configuración: cada tarjeta carga y guarda por su cuenta)
     if (btn.dataset.panel === 'cuentas-admin') loadPanelCuentasAdmin();
     if (btn.dataset.panel === 'conceptos-admin') loadPanelConceptosAdmin();
-    if (btn.dataset.panel === 'config') { loadPanelConfig(); loadPanelConfigPlanilla(); }
+    if (btn.dataset.panel === 'config') { loadPanelConfig(); }
     if (btn.dataset.panel === 'carga-inicial') loadPanelCargaInicial();
     if (btn.dataset.panel === 'cierres-admin') loadPanelCierresAdmin();
     if (btn.dataset.panel === 'usuarios-admin') loadPanelUsuariosAdmin();

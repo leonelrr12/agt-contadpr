@@ -36,7 +36,15 @@ if [ "$CONFIRM" != "SI" ]; then echo "Cancelado."; exit 0; fi
 #   recurring_template.lastEntryId → JournalEntry
 #   JournalLine/Transaction/bank_statement_row → JournalEntry
 #   payment_record → subscription
+#   payroll_item → payroll_run y → employee (el item va primero)
+#   payroll_item.journalEntryId → JournalEntry (no es FK, pero el orden hijos→padres sí importa)
 RUN_SQL=$(cat << ENDSQL
+-- Planilla: el ítem referencia la corrida y el empleado, así que va primero
+DELETE FROM payroll_item WHERE "companyId" = '${COMPANY_ID}';
+DELETE FROM payroll_run WHERE "companyId" = '${COMPANY_ID}';
+DELETE FROM payroll_settings WHERE "companyId" = '${COMPANY_ID}';
+DELETE FROM employee WHERE "companyId" = '${COMPANY_ID}';
+
 -- Inventario: el kardex primero (FK al producto), después el catálogo
 DELETE FROM inventory_movement WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM invoice_item WHERE "productId" IN (SELECT id FROM inventory_product WHERE "companyId" = '${COMPANY_ID}');

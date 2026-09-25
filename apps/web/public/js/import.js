@@ -3,7 +3,7 @@
 let importInlineFile = null;
 let importInlinePreview = null;
 
-/* ── Tipo de importación: transacciones / pagos a facturas / planilla ── */
+/* ── Tipo de importación: transacciones / pagos a facturas ── */
 function importMode() {
   const el = document.querySelector('input[name="import-inline-mode"]:checked');
   return el ? el.value : 'transacciones';
@@ -12,12 +12,11 @@ function importMode() {
 const IMPORT_MODE_HINTS = {
   transacciones: 'Sube el CSV/Excel con tus transacciones históricas. La IA clasificará cada concepto. En Gastos/Compras, la columna "Estado" (Contado/Crédito) define el pago: "Crédito" carga a Proveedores y exige Nº de factura; Contado/sin estado sale del banco indicado en la columna "Banco/Cuenta" (opcional) o del banco por defecto de Configuración.',
   cobros: 'Pagos/abonos a facturas: columnas Cliente, Fecha de Pago, Cuenta (banco), Factura # y TOTAL. Las filas SIN "Fecha de Pago" y "Cuenta" son facturas aún no pagadas: quedan ⏳ pendientes y se omiten. Puedes re-subir el mismo archivo: los pagos ya aplicados no se duplican (se omiten).',
-  planilla: 'Planilla (nómina): columnas QUINCENA, NOMBRE, CEDULA, SUELDO, HORAS EXTRAS, DECIMO, SS, SE, ISR y TOPAL A PAGAR, con "VACACIONES" y "Banco" opcionales (sin banco se usa el banco por defecto de Configuración). Elige el Tipo (Sueldo o Décimo III: son procesos aparte) y configura las cuentas en Administración → ⚙️ Configuración (Cuentas de Planilla). Un asiento BORRADOR por empleado; re-subir el mismo archivo no duplica.',
 };
 
 function applyImportModeUI() {
   const mode = importMode();
-  const chipIds = { transacciones: 'import-mode-label-tx', carga: 'import-mode-label-carga', cobros: 'import-mode-label-cobros', planilla: 'import-mode-label-planilla' };
+  const chipIds = { transacciones: 'import-mode-label-tx', carga: 'import-mode-label-carga', cobros: 'import-mode-label-cobros' };
   Object.entries(chipIds).forEach(([m, id]) => {
     const label = document.getElementById(id);
     if (!label) return;
@@ -35,12 +34,8 @@ function applyImportModeUI() {
   const dateInput = document.getElementById('import-inline-date');
   if (dateLabel) dateLabel.style.display = isCobros ? 'none' : 'inline';
   if (dateInput) dateInput.style.display = isCobros ? 'none' : 'inline-block';
-  // El selector de tipo (Sueldo / Décimo III) solo existe en modo Planilla;
-  // la fecha global se mantiene como respaldo si el archivo no trae QUINCENA.
-  const tipoWrap = document.getElementById('import-inline-planilla-tipo-wrap');
-  if (tipoWrap) tipoWrap.style.display = (mode === 'planilla') ? 'inline-flex' : 'none';
   // La casilla de calcular ITBMS solo aplica al import normal de transacciones
-  // (cobros y planilla tienen sus propias reglas): apagada, el asiento dice
+  // (los cobros tienen sus propias reglas): apagada, el asiento dice
   // exactamente el monto del archivo.
   const itbmsWrap = document.getElementById('import-inline-itbms-wrap');
   if (itbmsWrap) itbmsWrap.style.display = (mode === 'transacciones') ? 'flex' : 'none';
@@ -60,15 +55,6 @@ function loadPanelImport() {
       if (importInlineFile) handleImportInlineFile(importInlineFile);
     };
   });
-  // Cambiar el Tipo de planilla (Sueldo / Décimo III): re-procesar el archivo,
-  // igual que los chips. Sin esto, el mensaje "selecciona Tipo: Décimo III"
-  // dejaba el preview viejo en pantalla y el botón de cargar deshabilitado.
-  const tipoSel = document.getElementById('import-inline-planilla-tipo');
-  if (tipoSel) {
-    tipoSel.onchange = () => {
-      if (importInlineFile && importMode() === 'planilla') handlePlanillaFile(importInlineFile);
-    };
-  }
   applyImportModeUI();
   // Drag & drop + file input
   const zone = document.getElementById('import-inline-zone');
@@ -87,8 +73,6 @@ function loadPanelImport() {
 }
 
 async function handleImportInlineFile(file, verTodas = false) {
-  // Modo Planilla: flujo propio (js/planilla.js) — sin IA ni clasificación
-  if (importMode() === 'planilla') { importInlineFile = file; return handlePlanillaFile(file); }
   importInlineFile = file;
   const mode = importMode();
   const isCobros = mode === 'cobros';
@@ -154,8 +138,6 @@ function importPagoLabel(pm) {
 
 function renderImportInlinePreview() {
   if (!importInlinePreview) return;
-  // Preview de Planilla (nómina): render propio en js/planilla.js
-  if (importInlinePreview.planilla === true) return renderPlanillaPreview();
   const isCobros = importInlinePreview.cobros === true;
   // Limpiar aviso de filas fuera de la muestra de un render previo
   const prevWarn = document.getElementById('import-inline-warn');
@@ -166,12 +148,6 @@ function renderImportInlinePreview() {
   // Limpiar tarjetas extra de cobros de un render previo
   const prevCobrosCards = document.getElementById('import-inline-cobros-cards');
   if (prevCobrosCards) prevCobrosCards.remove();
-  // Limpiar tarjetas de planilla de un render previo
-  const prevPlanillaCards = document.getElementById('import-inline-planilla-cards');
-  if (prevPlanillaCards) prevPlanillaCards.remove();
-  // Limpiar aviso de banco no reconocido (planilla)
-  const prevBankWarn = document.getElementById('import-inline-bank-warn');
-  if (prevBankWarn) prevBankWarn.remove();
   // Limpiar de un render previo: botón "ver todas" y aviso de filas ya cargadas
   const prevSeeAll = document.getElementById('import-inline-seeall');
   if (prevSeeAll) prevSeeAll.remove();
@@ -417,8 +393,6 @@ function renderImportCobrosPreview() {
 
 async function executeImportInline() {
   if (!importInlineFile) return;
-  // Carga de Planilla (nómina): ejecución propia en js/planilla.js
-  if (importInlinePreview && importInlinePreview.planilla === true) return executePlanillaInline();
   const isCobros = importInlinePreview.cobros === true;
   const total = importInlinePreview.totalRows;
   const importDate = document.getElementById('import-inline-date').value;
@@ -553,12 +527,6 @@ function resetImportInline() {
   if (omittedWarn) omittedWarn.remove();
   const totalsBox = document.getElementById('import-inline-totals');
   if (totalsBox) totalsBox.remove();
-  // Limpiar tarjetas de planilla si existen
-  const planillaCards = document.getElementById('import-inline-planilla-cards');
-  if (planillaCards) planillaCards.remove();
-  // Limpiar el sello de Tipo validado (planilla) si existe
-  const planillaSello = document.getElementById('import-inline-planilla-tipo-validado');
-  if (planillaSello) planillaSello.remove();
   // Limpiar aviso de banco no reconocido si existe
   const bankWarn = document.getElementById('import-inline-bank-warn');
   if (bankWarn) bankWarn.remove();
