@@ -1,505 +1,633 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { parsePlanillaFile } from '../services/planilla-parser';
-import type { PlanillaRow } from '../services/planilla-parser';
-import { resolvePayoutAccount, payoutAviso } from '../services/account-resolver';
-import { loadAccountFlags, blockedMessage } from '../services/journal-guard';
-import type { PayoutCache, PayoutResolution } from '../services/account-resolver';
-
-/**
- * Carga masiva de PLANILLA (nómina) — proceso independiente de las demás
- * cargas (Importar → 👷 Planilla). No usa IA ni consume cuota del plan:
- * por cada empleado crea UN asiento BORRADOR con las cuentas configuradas
- * en Administración → Configuración → Planilla y guarda la información en
- * metadata para informes futuros por empleado.
- *
- * Asiento por fila: SUELDO/HORAS EXTRAS/DÉCIMO/VACACIONES al DEBE; SS/SE/ISR y
- * el NETO (TOPAL A PAGAR) al HABER. Cuadre: bruto = deducciones + neto (±0.01).
- */
+import { requireRole } from '../middleware/auth';
+import { requireQuota, incrementUsage } from '../middleware/quota';
+import { validate } from '../middleware/validate';
+import { localDateKey } from '../services/tabular-utils';
+import {
+  previsualizarCorrida,
+  ejecutarCorrida,
+  anularCorrida,
+  revisarCorrida,
+  listarCorridas,
+  obtenerCorrida,
+  corridaACSV,
+  finDePeriodo,
+  type OpcionesCorrida,
+} from '../services/payroll-run';
+import { loadCompanyAccounts, filterPayoutAccounts } from '../services/account-resolver';
+import { parseLocalDate } from '../lib/dates';
+import { parseRosterFile, type TipoPago } from '../services/payroll-roster';
+import {
+  listarEmpleados,
+  obtenerEmpleado,
+  crearEmpleado,
+  actualizarEmpleado,
+} from '../services/payroll-empleados';
+import {
+  PLANILLA_FIELDS,
+  getOrCreateSettings,
+  parseTablaISR,
+  parseRiesgosPorClase,
+  resolverCuentasPlanilla,
+} from '../services/payroll-parametros';
+import { CLASES_RIESGO } from '../services/payroll-calc';
+import { resumenCSS, registrarPagoCSS, valorarCSS } from '../services/payroll-css';
+import { cuadrePlanilla } from '../services/payroll-cuadre';
+import {
+  createEmpleadoSchema,
+  updateEmpleadoSchema,
+  updatePayrollSettingsSchema,
+  corridaSchema,
+  anularCorridaSchema,
+  revisarCorridaSchema,
+  pagoCSSSchema,
+  type UpdatePayrollSettingsInput,
+} from '../validation/schemas';
 
 export const planillaRouter = Router();
 
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const allowed = [
-      'text/csv',
-      'application/vnd.ms-excel',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    ];
-    const ext = file.originalname.toLowerCase();
-    if (allowed.includes(file.mimetype) || ext.endsWith('.csv') || ext.endsWith('.xlsx')) {
-      cb(null, true);
-    } else {
-      cb(new Error(`Formato no soportado: ${file.mimetype}. Use CSV o XLSX.`));
-    }
-  },
-});
-
-type TipoPlanilla = 'SUELDO' | 'DECIMO';
-
-const TIPO_LABEL: Record<TipoPlanilla, string> = {
-  SUELDO: 'Sueldo + Horas Extras',
-  DECIMO: 'Décimo III',
-};
-
-/** Tolerancia de cuadre por fila (céntimos). */
-const PLANILLA_EPS = 0.01;
-
-function r2(n: number): number { return Math.round(n * 100) / 100; }
+// En memoria: el archivo se parsea y se descarta, no se guarda en disco.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 /**
- * Convierte "YYYY-MM-DD" a Date a MEDIODÍA local (12:00): guardado así, ningún
- * lector de la región (p. ej. navegador en Panamá UTC-5 con server en UTC-4)
- * ve el día anterior por el desfase de zona horaria.
+ * La carga de planilla por archivo se RETIRÓ (PLANILLA.md, fase 7).
+ *
+ * El módulo calcula las deducciones en vez de leerlas de la hoja, y el archivo
+ * quedó reducido a lo que sí aporta: el alta inicial del registro de empleados
+ * (`/roster/preview` y `/roster/execute`).
+ *
+ * El 410 con la guía es para los navegadores que todavía tengan en caché el JS viejo
+ * (js/planilla.js) y sigan llamando a los endpoints retirados: sin esto recibirían un
+ * 404 seco y no sabrían adónde ir.
  */
-function toLocalDate(dateStr: string): Date {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return new Date(y, m - 1, d, 12);
-}
+const RETIRADO = {
+  error:
+    'La carga de planilla por archivo ya no existe. El asiento ahora lo genera el módulo de Planilla: ' +
+    'registrá a los empleados en /planilla.html → Empleados (podés importarlos desde el mismo archivo) y ' +
+    'corré el período en /planilla.html → Corrida. Ahí el sistema calcula SS, SE e ISR, acumula el décimo y ' +
+    'las vacaciones, y contabiliza los aportes del patrono.',
+  code: 'PLANILLA_CARGA_RETIRADA',
+};
 
-function esFechaValida(s: string | null | undefined): boolean {
-  return !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(toLocalDate(s).getTime());
-}
+planillaRouter.post('/preview', (_req, res) => { res.status(410).json(RETIRADO); });
+planillaRouter.post('/execute-all', (_req, res) => { res.status(410).json(RETIRADO); });
 
-interface PlanillaAccountIds {
-  sueldo: string | null;
-  horasExtras: string | null;
-  decimo: string | null;
-  vacaciones: string | null;
-  ss: string | null;
-  se: string | null;
-  isr: string | null;
-}
+// ═════════════════════════════════════════════════════════════════════════════
+// Módulo de Planilla (PLANILLA.md): registro de empleados, parámetros, corridas,
+// acumulados, CSS y cuadre.
+//
+// Todo cuelga de /api/planilla a propósito: así el rol `planilla` lo cubre con una
+// sola entrada en su lista blanca, sin depender de que cada ruta se acuerde.
+// ═════════════════════════════════════════════════════════════════════════════
 
-async function loadPlanillaAccounts(prisma: any, companyId: string): Promise<PlanillaAccountIds> {
-  const c: any = await prisma.company.findUnique({
-    where: { id: companyId },
-    select: {
-      planillaSueldoId: true,
-      planillaHorasExtrasId: true,
-      planillaDecimoId: true,
-      planillaVacacionesId: true,
-      planillaSSId: true,
-      planillaSEId: true,
-      planillaISRId: true,
-    },
+/**
+ * Quién puede operar el módulo. El rol `planilla` SÍ entra: es el usuario de nómina,
+ * el que carga empleados y corre la planilla. Lo que no puede es aprobar los
+ * asientos — esa transición es del contador y va aparte, en `/corridas/:id/revisar`.
+ */
+const ROLES_ESCRITURA_PLANILLA = ['admin', 'contador', 'superadmin', 'planilla'] as const;
+
+/**
+ * Las tasas y las cuentas NO las toca el rol `planilla`: las lee. Cambiar la tarifa
+ * de riesgos o la escala del ISR cambia lo que se le retiene a todo el mundo, y eso
+ * es una decisión del contador, no de quien carga la nómina.
+ */
+const ROLES_PARAMETROS = ['admin', 'contador', 'superadmin'] as const;
+
+/** Express 4 no captura rechazos async; sin esto la petición queda colgada. */
+const wrap =
+  (fn: (req: any, res: any) => Promise<void>) => async (req: any, res: any) => {
+    try {
+      await fn(req, res);
+    } catch (e: any) {
+      console.error('[Planilla]', e?.message);
+      res.status(e?.status || 500).json({ error: e?.message || 'Error al procesar la operación de planilla' });
+    }
+  };
+
+/** GET /api/planilla/cuentas — catálogo para los selectores de cuenta. */
+planillaRouter.get(
+  '/cuentas',
+  wrap(async (req, res) => {
+    const cuentas = await req.prisma.account.findMany({
+      where: { companyId: req.user!.companyId },
+      select: { id: true, code: true, name: true, type: true, isActive: true },
+      orderBy: { code: 'asc' },
+    });
+    res.json(cuentas);
+  }),
+);
+
+// ─── Parámetros ──────────────────────────────────────────────────────────────
+
+/** GET /api/planilla/parametros — tasas, tabla del ISR, cuentas y avisos. */
+planillaRouter.get(
+  '/parametros',
+  wrap(async (req, res) => {
+    const companyId = req.user!.companyId;
+    const [settings, resolucion, cuentas] = await Promise.all([
+      getOrCreateSettings(req.prisma, companyId),
+      resolverCuentasPlanilla(req.prisma, companyId),
+      loadCompanyAccounts(req.prisma, companyId),
+    ]);
+
+    res.json({
+      settings: {
+        ...settings,
+        // Las tablas EFECTIVAS: si la columna está vacía, la del código. La pantalla
+        // tiene que mostrar la que se usa, no la que está guardada.
+        tablaISR: parseTablaISR(settings.tablaISR),
+        riesgosPorClase: parseRiesgosPorClase(settings.riesgosPorClase),
+      },
+      clasesRiesgo: CLASES_RIESGO,
+      cuentas: resolucion.cuentas,
+      faltantes: resolucion.faltantes,
+      avisos: resolucion.avisos,
+      // Cuentas donde puede caer el neto: bancos (1.1.02.*) y cajas.
+      bancos: filterPayoutAccounts(cuentas).map((a) => ({ id: a.id, code: a.code, name: a.name })),
+    });
+  }),
+);
+
+/** PUT /api/planilla/parametros — edita las tasas y las cuentas de la empresa. */
+planillaRouter.put(
+  '/parametros',
+  requireRole(...ROLES_PARAMETROS),
+  validate(updatePayrollSettingsSchema),
+  wrap(async (req, res) => {
+    const companyId = req.user!.companyId;
+    const { cuentas, tablaISR, riesgosPorClase, ...settings } = req.body as UpdatePayrollSettingsInput;
+
+    if (Object.keys(settings).length > 0 || tablaISR !== undefined || riesgosPorClase !== undefined) {
+      await getOrCreateSettings(req.prisma, companyId);
+      await req.prisma.payrollSettings.update({
+        where: { companyId },
+        data: {
+          ...settings,
+          // Las tablas vacías significan "usar la del código": se guardan "[]" / "{}"
+          // y el servicio las interpreta, en vez de copiar los valores del código a la BD.
+          ...(tablaISR !== undefined ? { tablaISR: JSON.stringify(tablaISR) } : {}),
+          // Una clase con null se guarda como ausente: el hueco tiene que llegar al
+          // motor como hueco, no como una tarifa del 0%.
+          ...(riesgosPorClase !== undefined
+            ? {
+                riesgosPorClase: JSON.stringify(
+                  Object.fromEntries(
+                    Object.entries(riesgosPorClase).filter(([, v]) => v !== null && v !== undefined),
+                  ),
+                ),
+              }
+            : {}),
+        },
+      });
+    }
+
+    if (cuentas) {
+      const campos = new Set(PLANILLA_FIELDS.map((f) => f.field));
+      const cambios: Record<string, string | null> = {};
+      for (const [campo, valor] of Object.entries(cuentas)) {
+        if (!campos.has(campo)) {
+          res.status(400).json({ error: `Campo de cuenta desconocido: ${campo}` });
+          return;
+        }
+        const id = valor ? String(valor) : null;
+        if (id) {
+          const acc = await req.prisma.account.findFirst({
+            where: { id, companyId },
+            select: { id: true },
+          });
+          if (!acc) {
+            const etiqueta = PLANILLA_FIELDS.find((f) => f.field === campo)?.label ?? campo;
+            res.status(400).json({ error: `La cuenta de "${etiqueta}" no existe en esta empresa` });
+            return;
+          }
+        }
+        cambios[campo] = id;
+      }
+      if (Object.keys(cambios).length > 0) {
+        await req.prisma.company.update({ where: { id: companyId }, data: cambios });
+      }
+    }
+
+    const resolucion = await resolverCuentasPlanilla(req.prisma, companyId);
+    res.json({ ok: true, faltantes: resolucion.faltantes, avisos: resolucion.avisos });
+  }),
+);
+
+// ─── Empleados ───────────────────────────────────────────────────────────────
+
+/** GET /api/planilla/empleados — registro con el acumulado de cada uno. */
+planillaRouter.get(
+  '/empleados',
+  wrap(async (req, res) => {
+    const empleados = await listarEmpleados(req.prisma, req.user!.companyId, {
+      q: (req.query.q as string) || undefined,
+      incluirInactivos: req.query.incluirInactivos === 'true',
+      corte: req.query.corte ? parseLocalDate(String(req.query.corte)) : undefined,
+    });
+    res.json(empleados);
+  }),
+);
+
+/** GET /api/planilla/empleados/:id — ficha, acumulados y últimas corridas. */
+planillaRouter.get(
+  '/empleados/:id',
+  wrap(async (req, res) => {
+    const empleado = await obtenerEmpleado(req.prisma, req.user!.companyId, req.params.id);
+    if (!empleado) {
+      res.status(404).json({ error: 'Empleado no encontrado' });
+      return;
+    }
+    res.json(empleado);
+  }),
+);
+
+planillaRouter.post(
+  '/empleados',
+  requireRole(...ROLES_ESCRITURA_PLANILLA),
+  validate(createEmpleadoSchema),
+  wrap(async (req, res) => {
+    const empleado = await crearEmpleado(req.prisma, req.user!.companyId, req.body);
+    res.status(201).json(empleado);
+  }),
+);
+
+planillaRouter.patch(
+  '/empleados/:id',
+  requireRole(...ROLES_ESCRITURA_PLANILLA),
+  validate(updateEmpleadoSchema),
+  wrap(async (req, res) => {
+    const empleado = await actualizarEmpleado(req.prisma, req.user!.companyId, req.params.id, req.body);
+    if (!empleado) {
+      res.status(404).json({ error: 'Empleado no encontrado' });
+      return;
+    }
+    res.json(empleado);
+  }),
+);
+
+// ─── Alta masiva desde el archivo de planilla ────────────────────────────────
+
+/**
+ * Arma el preview del alta: qué empleados salen del archivo, cuáles ya existen y
+ * cuáles vienen con error. No escribe nada.
+ */
+async function construirRosterPreview(prisma: any, companyId: string, parsed: any) {
+  const existentes: any[] = await prisma.employee.findMany({
+    where: { companyId },
+    select: { id: true, cedula: true, nombre: true, sueldoBase: true },
   });
+
+  const porCedula = new Map<string, any>();
+  const porNombre = new Map<string, any[]>();
+  for (const e of existentes) {
+    if (e.cedula) porCedula.set(e.cedula.trim().toLowerCase(), e);
+    const n = e.nombre.trim().toLowerCase();
+    porNombre.set(n, [...(porNombre.get(n) ?? []), e]);
+  }
+
+  const vistas = new Set<string>();
+  const filas = parsed.rows.map((row: any) => {
+    if (row.parseError) return { ...row, status: 'error', error: row.parseError, existenteId: null };
+
+    const cedulaKey = row.cedula?.trim().toLowerCase() ?? null;
+    if (cedulaKey) {
+      if (vistas.has(cedulaKey)) {
+        return { ...row, status: 'error', error: 'Cédula repetida dentro del archivo', existenteId: null };
+      }
+      vistas.add(cedulaKey);
+      const existente = porCedula.get(cedulaKey);
+      if (existente) {
+        return {
+          ...row,
+          status: 'existente',
+          error: `Ya existe en el registro (sueldo actual $${existente.sueldoBase.toFixed(2)})`,
+          existenteId: existente.id,
+        };
+      }
+    } else {
+      // Sin cédula no hay identidad: se compara por nombre EXACTO y solo si es
+      // único. Fusionar dos "Juan Pérez" distintos sería peor que duplicar uno.
+      const candidatos = porNombre.get(row.nombre.trim().toLowerCase()) ?? [];
+      if (candidatos.length === 1) {
+        return {
+          ...row,
+          status: 'existente',
+          error: `Coincide por nombre con un empleado ya registrado (sin cédula en el archivo)`,
+          existenteId: candidatos[0].id,
+        };
+      }
+      if (candidatos.length > 1) {
+        return {
+          ...row,
+          status: 'error',
+          error: 'Hay varios empleados con ese nombre y la fila no trae cédula: no se puede saber cuál es',
+          existenteId: null,
+        };
+      }
+    }
+
+    return { ...row, status: 'ok', error: undefined, existenteId: null };
+  });
+
   return {
-    sueldo: c?.planillaSueldoId || null,
-    horasExtras: c?.planillaHorasExtrasId || null,
-    decimo: c?.planillaDecimoId || null,
-    vacaciones: c?.planillaVacacionesId || null,
-    ss: c?.planillaSSId || null,
-    se: c?.planillaSEId || null,
-    isr: c?.planillaISRId || null,
+    headers: parsed.headers,
+    detectedColumns: parsed.detectedColumns,
+    totalRows: parsed.totalRows,
+    todas: filas,
+    resumen: {
+      total: filas.length,
+      ok: filas.filter((f: any) => f.status === 'ok').length,
+      existentes: filas.filter((f: any) => f.status === 'existente').length,
+      errores: filas.filter((f: any) => f.status === 'error').length,
+    },
   };
 }
 
-/** Aviso de la fila cuando el banco no salió de la columna del archivo. */
-
-
-/**
- * Validación de una fila de planilla (fuente de verdad: la usan el preview
- * sobre TODAS las filas y la ejecución). Devuelve el mensaje de error o null.
- */
-function validatePlanillaRow(
-  row: PlanillaRow,
-  tipo: TipoPlanilla,
-  cuentas: PlanillaAccountIds,
-): string | null {
-  if (row.parseError) return row.parseError;
-  if (!row.employee) return 'Falta el nombre del empleado';
-
-  const bruto = r2(row.salario + row.horasExtras + row.decimo + row.vacaciones);
-  const deducciones = r2(row.ss + row.se + row.isr);
-  if (bruto <= 0 && deducciones <= 0 && row.neto <= 0) return 'La fila no tiene montos';
-  if (row.neto < 0) return 'El Neto a pagar no puede ser negativo';
-  if (Math.abs(bruto - (deducciones + row.neto)) > PLANILLA_EPS) {
-    return `No cuadra: Sueldo+Extras+Décimo+Vacaciones ($${bruto.toFixed(2)}) ≠ SS+SE+ISR ($${deducciones.toFixed(2)}) + Neto ($${row.neto.toFixed(2)})`;
-  }
-  if (tipo === 'SUELDO' && row.decimo > 0) {
-    return 'El Décimo III se paga en su propio proceso (selecciona Tipo: Décimo III)';
-  }
-  if (tipo === 'DECIMO' && (row.salario > 0 || row.horasExtras > 0)) {
-    return 'El pago de Décimo III no lleva Sueldo ni Horas Extras (selecciona Tipo: Sueldo)';
-  }
-
-  const faltantes: string[] = [];
-  if (row.salario > 0 && !cuentas.sueldo) faltantes.push('Sueldo');
-  if (row.horasExtras > 0 && !cuentas.horasExtras) faltantes.push('Horas Extras');
-  if (row.decimo > 0 && !cuentas.decimo) faltantes.push('Décimo III');
-  if (row.vacaciones > 0 && !cuentas.vacaciones) faltantes.push('Vacaciones');
-  if (row.ss > 0 && !cuentas.ss) faltantes.push('SS');
-  if (row.se > 0 && !cuentas.se) faltantes.push('SE');
-  if (row.isr > 0 && !cuentas.isr) faltantes.push('ISR');
-  if (faltantes.length > 0) {
-    return `Configura la cuenta de ${faltantes.join(', ')} en Configuración → Planilla`;
-  }
-  return null;
-}
-
-/** Clave de dedupe de una planilla cargada: tipo + quincena + empleado + montos. */
-function planillaDupKey(tipo: TipoPlanilla, row: PlanillaRow, quincena: string): string {
-  const cents = (n: number) => Math.round(n * 100);
-  return [
-    tipo, quincena,
-    (row.employee || '').trim().toLowerCase(),
-    (row.cedula || '').trim().toLowerCase(),
-    cents(row.neto),
-    cents(row.vacaciones),
-    cents(r2(row.ss + row.se + row.isr)),
-  ].join('|');
-}
-
-/**
- * Índice de planillas ya cargadas (re-subir el mismo archivo no duplica):
- * lee las Transactions de planilla y reconstruye su clave de dedupe.
- */
-async function buildPlanillaIndex(prisma: any, companyId: string): Promise<Set<string>> {
-  const txs = await prisma.transaction.findMany({
-    where: {
-      companyId,
-      metadata: { contains: '"source":"planilla"' },
-      // Un asiento anulado no debe bloquear una re-carga de la misma planilla: se
-      // anuló porque estaba mal. La marca vive en el asiento.
-      journalEntry: { is: { anuladoPorId: null } },
-    },
-    select: { metadata: true },
-  });
-  const index = new Set<string>();
-  for (const t of txs) {
-    try {
-      const m = JSON.parse(t.metadata || '{}');
-      if (m.source !== 'planilla') continue;
-      const cents = (n: any) => Math.round((Number(n) || 0) * 100);
-      index.add([
-        m.tipo, m.quincena,
-        String(m.employee || '').trim().toLowerCase(),
-        String(m.cedula || '').trim().toLowerCase(),
-        cents(m.neto),
-        cents(m.vacaciones),
-        cents((Number(m.ss) || 0) + (Number(m.se) || 0) + (Number(m.isr) || 0)),
-      ].join('|'));
-    } catch { /* metadata inválida: se ignora */ }
-  }
-  return index;
-}
-
-interface PlanillaPreviewRow extends PlanillaRow {
-  row: number;
-  status: 'ok' | 'error' | 'omitida';
-  error?: string;
-  quincenaFinal: string | null;
-  /** Cuenta de banco que se usará en el asiento (columna Banco o la por defecto) */
-  bankAccount?: { id: string; code: string; name: string } | null;
-  bankSource?: string | null;
-  bankAviso?: string | null;
-}
-
-/**
- * Valida todas las filas y devuelve la muestra (20) con su estado, más el
- * detalle de errores del archivo completo. No escribe nada.
- * El banco de cada fila se resuelve aquí: columna "Banco" del archivo →
- * cuenta de banco por defecto → respaldo 1.1.02.01 (con aviso).
- */
-async function buildPlanillaValidation(
-  prisma: any,
-  companyId: string,
-  rows: PlanillaRow[],
-  tipo: TipoPlanilla,
-  defaultDate: string | null,
-) {
-  const cuentas = await loadPlanillaAccounts(prisma, companyId);
-  const dupIndex = await buildPlanillaIndex(prisma, companyId);
-  const payoutCache: PayoutCache = { accounts: null, defaultId: null };
-
-  const previewRows: PlanillaPreviewRow[] = [];
-  const errors: { row: number; error: string }[] = [];
-  let ok = 0;
-  let omitted = 0;
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const rowNum = i + 1;
-    const quincenaFinal = row.quincena || (esFechaValida(defaultDate) ? defaultDate : null);
-    let status: PlanillaPreviewRow['status'] = 'ok';
-    let error: string | undefined;
-    let payout: PayoutResolution | null = null;
-
-    if (!quincenaFinal) {
-      status = 'error';
-      error = 'Falta la fecha de la quincena (columna QUINCENA o fecha global)';
-    } else {
-      const invalid = validatePlanillaRow(row, tipo, cuentas);
-      if (invalid) {
-        status = 'error';
-        error = invalid;
-      } else {
-        payout = await resolvePayoutAccount(prisma, companyId, row.bankName, payoutCache);
-        if (row.neto > 0 && !payout.account) {
-          status = 'error';
-          error = 'No hay cuentas de banco (1.1.02.*) en el catálogo: crea una o configura el banco por defecto';
-        } else if (dupIndex.has(planillaDupKey(tipo, row, quincenaFinal))) {
-          status = 'omitida';
-          error = 'Ya cargada (mismo tipo, quincena, empleado y montos)';
-        }
-      }
-    }
-
-    if (status === 'ok') ok++;
-    else if (status === 'omitida') omitted++;
-    else errors.push({ row: rowNum, error: error || 'Error' });
-
-    if (i < 20) {
-      previewRows.push({
-        ...row, row: rowNum, status, error, quincenaFinal,
-        bankAccount: payout?.account
-          ? { id: payout.account.id, code: payout.account.code, name: payout.account.name }
-          : null,
-        bankSource: payout?.source || null,
-        bankAviso: payoutAviso(payout),
-      });
-    }
-  }
-
-  return { rows: previewRows, errors, ok, omitted, total: rows.length };
-}
-
-/**
- * POST /api/planilla/preview
- * Archivo de planilla (multipart: file, tipo=SUELDO|DECIMO, importDate?) →
- * validación de todas las filas + muestra de 20. No escribe en BD.
- */
-planillaRouter.post('/preview', upload.single('file'), async (req, res) => {
-  if (!req.file) {
-    res.status(400).json({ error: 'No se recibió ningún archivo' });
-    return;
-  }
-  try {
-    const tipo = String(req.body.tipo || '').toUpperCase() as TipoPlanilla;
-    if (tipo !== 'SUELDO' && tipo !== 'DECIMO') {
-      res.status(400).json({ error: 'Tipo de planilla inválido: use SUELDO o DECIMO' });
+planillaRouter.post(
+  '/roster/preview',
+  requireRole(...ROLES_ESCRITURA_PLANILLA),
+  upload.single('file'),
+  wrap(async (req, res) => {
+    if (!req.file) {
+      res.status(400).json({ error: 'No se recibió ningún archivo' });
       return;
     }
-    const defaultDate = (req.body.importDate as string) || null;
-
-    const parsed = await parsePlanillaFile(req.file.buffer, req.file.originalname);
-    if (parsed.rows.length === 0) {
-      res.json({
-        headers: parsed.headers,
-        totalRows: 0,
-        tipo,
-        planilla: true,
-        planillaPreview: { rows: [], ok: 0, omitted: 0, errors: [], total: 0 },
-      });
+    const tipoPago = String(req.body.tipoPago || '').toUpperCase();
+    if (tipoPago !== 'QUINCENAL' && tipoPago !== 'MENSUAL') {
+      res.status(400).json({ error: 'Indica si el SUELDO del archivo es quincenal o mensual' });
       return;
     }
 
-    const validation = await buildPlanillaValidation(
-      req.prisma, req.user!.companyId, parsed.rows, tipo, defaultDate,
-    );
+    const parsed = await parseRosterFile(req.file.buffer, req.file.originalname, tipoPago as TipoPago);
+    const preview = await construirRosterPreview(req.prisma, req.user!.companyId, parsed);
+    // La muestra es de 30; el resumen y la ejecución usan el archivo entero.
+    res.json({ ...preview, rows: preview.todas.slice(0, 30), tipoPago });
+  }),
+);
 
-    res.json({
-      headers: parsed.headers,
-      detectedColumns: parsed.detectedColumns,
-      totalRows: parsed.totalRows,
-      tipo,
-      planilla: true,
-      planillaPreview: validation,
-    });
-  } catch (error: any) {
-    console.error('[Planilla] Preview error:', error);
-    res.status(400).json({ error: error.message || 'Error al procesar el archivo', detail: error?.message });
-  }
-});
-
-/**
- * POST /api/planilla/execute-all
- * Ejecuta la carga: un asiento BORRADOR por empleado (con su Transaction y
- * metadata), en su propia transacción Prisma. Las filas con error se omiten
- * y se reportan; NO consume cuota del plan.
- */
-planillaRouter.post('/execute-all', upload.single('file'), async (req, res) => {
-  if (!req.file) {
-    res.status(400).json({ error: 'No se recibió ningún archivo' });
-    return;
-  }
-  try {
-    const tipo = String(req.body.tipo || '').toUpperCase() as TipoPlanilla;
-    if (tipo !== 'SUELDO' && tipo !== 'DECIMO') {
-      res.status(400).json({ error: 'Tipo de planilla inválido: use SUELDO o DECIMO' });
+planillaRouter.post(
+  '/roster/execute',
+  requireRole(...ROLES_ESCRITURA_PLANILLA),
+  upload.single('file'),
+  wrap(async (req, res) => {
+    if (!req.file) {
+      res.status(400).json({ error: 'No se recibió ningún archivo' });
       return;
     }
-    const defaultDate = (req.body.importDate as string) || null;
+    const tipoPago = String(req.body.tipoPago || '').toUpperCase();
+    if (tipoPago !== 'QUINCENAL' && tipoPago !== 'MENSUAL') {
+      res.status(400).json({ error: 'Indica si el SUELDO del archivo es quincenal o mensual' });
+      return;
+    }
+
     const companyId = req.user!.companyId;
-    const userId = req.user!.userId;
+    const parsed = await parseRosterFile(req.file.buffer, req.file.originalname, tipoPago as TipoPago);
+    const preview = await construirRosterPreview(req.prisma, companyId, parsed);
 
-    const parsed = await parsePlanillaFile(req.file.buffer, req.file.originalname);
-    if (parsed.rows.length === 0) {
-      res.status(400).json({ error: 'No se encontraron filas válidas en el archivo.' });
-      return;
-    }
+    // Se re-verifica acá y no se confía en el preview: la BD pudo cambiar entre
+    // los dos pasos (alguien registró a alguien mientras tanto).
+    const aCrear = preview.todas.filter((f: any) => f.status === 'ok');
+    const resultados = { creados: 0, omitidos: preview.resumen.existentes, errores: [] as { row: number; error: string }[] };
 
-    const cuentas = await loadPlanillaAccounts(req.prisma, companyId);
-    // Dedupe: lo ya cargado se re-detecta aquí (la BD pudo cambiar desde el preview)
-    const dupIndex = await buildPlanillaIndex(req.prisma, companyId);
-    // Banco por fila (columna "Banco" → por defecto → 1.1.02.01), una carga por lote
-    const payoutCache: PayoutCache = { accounts: null, defaultId: null };
-    // Cuentas bloqueadas: 1 query por lote, reusada empleado a empleado
-    const accountFlags = await loadAccountFlags(req.prisma, companyId);
-
-    const results = {
-      success: 0,
-      omitted: 0,
-      errors: [] as { row: number; error: string }[],
-      entryIds: [] as string[],
-    };
-
-    for (let i = 0; i < parsed.rows.length; i++) {
-      const row = parsed.rows[i];
-      const rowNum = i + 1;
-
+    for (const fila of aCrear) {
       try {
-        const quincena = row.quincena || (esFechaValida(defaultDate) ? defaultDate! : null);
-        if (!quincena) {
-          throw new Error('Falta la fecha de la quincena (columna QUINCENA o fecha global)');
-        }
-        const invalid = validatePlanillaRow(row, tipo, cuentas);
-        if (invalid) throw new Error(invalid);
-        if (dupIndex.has(planillaDupKey(tipo, row, quincena))) {
-          results.omitted++;
-          continue;
-        }
-
-        const date = toLocalDate(quincena);
-        const bruto = r2(row.salario + row.horasExtras + row.decimo + row.vacaciones);
-
-        // Líneas del asiento: DEBE gastos (sueldo/extras/décimo/vacaciones),
-        // HABER retenciones (SS/SE/ISR) y neto al banco — solo columnas con
-        // monto. El banco sale de la columna "Banco" de la fila o del banco por
-        // defecto (respaldo 1.1.02.01).
-        const lines: { accountId: string; debit: number; credit: number }[] = [];
-        if (row.salario > 0) lines.push({ accountId: cuentas.sueldo!, debit: row.salario, credit: 0 });
-        if (row.horasExtras > 0) lines.push({ accountId: cuentas.horasExtras!, debit: row.horasExtras, credit: 0 });
-        if (row.decimo > 0) lines.push({ accountId: cuentas.decimo!, debit: row.decimo, credit: 0 });
-        if (row.vacaciones > 0) lines.push({ accountId: cuentas.vacaciones!, debit: row.vacaciones, credit: 0 });
-        if (row.ss > 0) lines.push({ accountId: cuentas.ss!, debit: 0, credit: row.ss });
-        if (row.se > 0) lines.push({ accountId: cuentas.se!, debit: 0, credit: row.se });
-        if (row.isr > 0) lines.push({ accountId: cuentas.isr!, debit: 0, credit: row.isr });
-        if (row.neto > 0) {
-          const payout = await resolvePayoutAccount(req.prisma, companyId, row.bankName, payoutCache);
-          if (!payout.account) {
-            throw new Error('No hay cuentas de banco (1.1.02.*) en el catálogo: crea una o configura el banco por defecto');
-          }
-          lines.push({ accountId: payout.account.id, debit: 0, credit: row.neto });
-        }
-
-        const totalDebit = r2(lines.reduce((s, l) => s + l.debit, 0));
-        const totalCredit = r2(lines.reduce((s, l) => s + l.credit, 0));
-        if (lines.length < 2 || Math.abs(totalDebit - totalCredit) > PLANILLA_EPS) {
-          throw new Error(`Asiento no balanceado (débito $${totalDebit.toFixed(2)} ≠ crédito $${totalCredit.toFixed(2)})`);
-        }
-        // Residuo de redondeo (≤ 1 céntimo): lo absorbe SS por Pagar. El Sueldo,
-        // las demás percepciones y el neto al banco van EXACTOS como en el
-        // archivo (el SS de la hoja suele salir con un redondeo distinto: 38.03
-        // vs 38.02). Sin retenciones donde absorberlo se rechaza la fila, antes
-        // que alterar en silencio un monto del archivo.
-        const residuo = r2(totalDebit - totalCredit);
-        if (Math.abs(residuo) > 0.001) {
-          // SS por Pagar primero; si la fila no lo trae, SE y luego ISR.
-          const target = [cuentas.ss, cuentas.se, cuentas.isr]
-            .map(id => lines.find(l => l.accountId === id && l.credit + residuo > 0))
-            .find(Boolean);
-          if (!target) {
-            throw new Error(`La fila no cuadra por $${Math.abs(residuo).toFixed(2)} y no tiene SS/SE/ISR donde absorberlo: revisa los montos del archivo`);
-          }
-          target.credit = r2(target.credit + residuo);
-        }
-
-        const prefix = tipo === 'DECIMO' ? 'Décimo III de' : 'Planilla de';
-        const description = `${prefix} ${row.employee} — ${quincena}`;
-
-        // Cuenta bloqueada (sueldos, retenciones o banco): se rechaza este empleado
-        const blocked = blockedMessage(accountFlags, lines.map(l => l.accountId));
-        if (blocked) throw new Error(blocked);
-
-        const je = await req.prisma.$transaction(async (tx: any) => {
-          const created = await tx.journalEntry.create({
-            data: {
-              date,
-              description,
-              status: 'BORRADOR',
-              companyId,
-              createdById: userId,
-              lines: { create: lines },
-            },
-          });
-
-          await tx.transaction.create({
-            data: {
-              type: 'PLANILLA',
-              amount: bruto,
-              description,
-              concept: tipo === 'DECIMO' ? 'Décimo III' : 'Planilla',
-              paymentMethod: null,
-              date,
-              companyId,
-              createdById: userId,
-              journalEntryId: created.id,
-              // Sin "provider" a propósito: la planilla no es una compra a
-              // proveedor y no debe aparecer en el Informe Por Proveedores.
-              // Los montos van tal cual el archivo (aunque el asiento haya
-              // ajustado SS por 1 céntimo): con ellos se calcula la clave de
-              // dedupe, y debe seguir casando con la del archivo re-subido.
-              metadata: JSON.stringify({
-                source: 'planilla',
-                tipo,
-                quincena,
-                employee: row.employee,
-                cedula: row.cedula,
-                salario: row.salario,
-                horasExtras: row.horasExtras,
-                decimo: row.decimo,
-                vacaciones: row.vacaciones,
-                ss: row.ss,
-                se: row.se,
-                isr: row.isr,
-                neto: row.neto,
-              }),
-            },
-          });
-
-          return created;
+        await crearEmpleado(req.prisma, companyId, {
+          nombre: fila.nombre,
+          cedula: fila.cedula,
+          nss: fila.nss,
+          cargo: fila.cargo,
+          sueldoBase: fila.sueldoBase,
+          tipoPago,
+          fechaIngreso: fila.fechaIngreso,
         });
-
-        dupIndex.add(planillaDupKey(tipo, row, quincena));
-        results.entryIds.push(je.id);
-        results.success++;
-      } catch (err: any) {
-        results.errors.push({ row: rowNum, error: (err?.message || 'Error desconocido').toString().slice(0, 300) });
+        resultados.creados++;
+      } catch (e: any) {
+        resultados.errores.push({ row: fila.row, error: e?.message || 'Error al crear el empleado' });
       }
     }
+    // Las filas que ya venían con error del parseo también se reportan.
+    for (const fila of preview.todas.filter((f: any) => f.status === 'error')) {
+      resultados.errores.push({ row: fila.row, error: fila.error });
+    }
 
+    res.json({ ...resultados, total: parsed.totalRows, tipoPago });
+  }),
+);
+
+// ─── Acumulados ──────────────────────────────────────────────────────────────
+
+/** GET /api/planilla/acumulados — décimo, vacaciones y prima por empleado. */
+planillaRouter.get(
+  '/acumulados',
+  wrap(async (req, res) => {
+    const companyId = req.user!.companyId;
+    const empleados = await listarEmpleados(req.prisma, companyId, {
+      incluirInactivos: req.query.incluirInactivos === 'true',
+      corte: req.query.corte ? parseLocalDate(String(req.query.corte)) : undefined,
+    });
     res.json({
-      success: results.success,
-      omitted: results.omitted,
-      errors: results.errors,
-      total: parsed.rows.length,
-      tipo,
-      tipoLabel: TIPO_LABEL[tipo],
-      entryIds: results.entryIds.slice(0, 5),
+      corte: (req.query.corte as string) || null,
+      empleados: empleados.map((e: any) => ({
+        id: e.id,
+        nombre: e.nombre,
+        cedula: e.cedula,
+        isActive: e.isActive,
+        acumulados: e.acumulados,
+      })),
     });
-  } catch (error: any) {
-    console.error('[Planilla] Execute-all error:', error);
-    const isClientError = /no se|no encontrad|inválid|formato|cuadra|configura|falta/i.test(error.message || '');
-    res.status(isClientError ? 400 : 500).json({
-      error: isClientError ? error.message : 'Error interno al procesar la planilla. Intente de nuevo.',
-      detail: error?.message,
+  }),
+);
+
+// ─── Corridas ────────────────────────────────────────────────────────────────
+
+/** Completa el período: si no vienen las fechas, se derivan de la periodicidad. */
+function opcionesDeCorrida(body: any): OpcionesCorrida {
+  const fechaDesde = parseLocalDate(body.fechaDesde);
+  return {
+    tipo: body.tipo,
+    periodicidad: body.periodicidad,
+    fechaDesde: body.fechaDesde,
+    fechaHasta: body.fechaHasta ?? localDateKey(finDePeriodo(body.periodicidad, fechaDesde)),
+    fechaPago: body.fechaPago,
+    empleadoIds: body.empleadoIds,
+    ajustes: body.ajustes,
+    notas: body.notas,
+  };
+}
+
+/** POST /api/planilla/corridas/preview — calcula el período sin escribir nada. */
+planillaRouter.post(
+  '/corridas/preview',
+  requireRole(...ROLES_ESCRITURA_PLANILLA),
+  validate(corridaSchema),
+  wrap(async (req, res) => {
+    const preview = await previsualizarCorrida(req.prisma, req.user!.companyId, opcionesDeCorrida(req.body));
+    res.json(preview);
+  }),
+);
+
+/**
+ * POST /api/planilla/corridas — ejecuta: crea la corrida, un asiento BORRADOR por
+ * empleado y su Transaction. Consume UNA cuota del plan, no una por empleado: una
+ * nómina es un movimiento contable, no treinta.
+ */
+planillaRouter.post(
+  '/corridas',
+  requireRole(...ROLES_ESCRITURA_PLANILLA),
+  requireQuota,
+  validate(corridaSchema),
+  wrap(async (req, res) => {
+    const resultado = await ejecutarCorrida(
+      req.prisma,
+      req.user!.companyId,
+      req.user!.userId,
+      opcionesDeCorrida(req.body),
+    );
+    await incrementUsage(req);
+    res.status(201).json(resultado);
+  }),
+);
+
+/** GET /api/planilla/corridas — historial con el estado de sus asientos. */
+planillaRouter.get(
+  '/corridas',
+  wrap(async (req, res) => {
+    const corridas = await listarCorridas(req.prisma, req.user!.companyId, {
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
     });
-  }
-});
+    res.json(corridas);
+  }),
+);
+
+/**
+ * GET /api/planilla/corridas/:id/export.csv — las columnas del archivo viejo.
+ * Va ANTES de `/:id` para que Express no lo tome como un id.
+ */
+planillaRouter.get(
+  '/corridas/:id/export.csv',
+  wrap(async (req, res) => {
+    const corrida = await obtenerCorrida(req.prisma, req.user!.companyId, req.params.id);
+    if (!corrida) {
+      res.status(404).json({ error: 'Corrida no encontrada' });
+      return;
+    }
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="planilla-${corrida.tipo}-${corrida.periodo}.csv"`);
+    // El BOM hace que Excel en Windows respete los acentos.
+    res.send('﻿' + corridaACSV(corrida));
+  }),
+);
+
+planillaRouter.get(
+  '/corridas/:id',
+  wrap(async (req, res) => {
+    const corrida = await obtenerCorrida(req.prisma, req.user!.companyId, req.params.id);
+    if (!corrida) {
+      res.status(404).json({ error: 'Corrida no encontrada' });
+      return;
+    }
+    res.json(corrida);
+  }),
+);
+
+/** POST /api/planilla/corridas/:id/anular — reversos fechados hoy, en bloque. */
+planillaRouter.post(
+  '/corridas/:id/anular',
+  requireRole(...ROLES_ESCRITURA_PLANILLA),
+  validate(anularCorridaSchema),
+  wrap(async (req, res) => {
+    const resultado = await anularCorrida(
+      req.prisma,
+      req.user!.companyId,
+      req.user!.userId,
+      req.params.id,
+      req.body.motivo,
+    );
+    res.json(resultado);
+  }),
+);
+
+/**
+ * POST /api/planilla/corridas/:id/revisar — aprueba o rechaza los asientos en
+ * bloque. El rol `planilla` NO pasa por acá: aprobar asientos es del contador.
+ */
+planillaRouter.post(
+  '/corridas/:id/revisar',
+  requireRole('admin', 'contador', 'superadmin'),
+  validate(revisarCorridaSchema),
+  wrap(async (req, res) => {
+    const resultado = await revisarCorrida(
+      req.prisma,
+      req.user!.companyId,
+      req.user!.userId,
+      req.params.id,
+      req.body.accion,
+      req.body.notes,
+    );
+    res.json(resultado);
+  }),
+);
+
+// ─── Cuadre ──────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/planilla/cuadre — compara las corridas del período contra el mayor.
+ * Muestra las diferencias; no arregla nada.
+ */
+planillaRouter.get(
+  '/cuadre',
+  wrap(async (req, res) => {
+    const hasta = (req.query.hasta as string) || localDateKey(new Date());
+    const desde = (req.query.desde as string) || `${hasta.slice(0, 4)}-01-01`;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(desde) || !/^\d{4}-\d{2}-\d{2}$/.test(hasta)) {
+      res.status(400).json({ error: 'Las fechas deben venir como AAAA-MM-DD' });
+      return;
+    }
+    res.json(await cuadrePlanilla(req.prisma, req.user!.companyId, { desde, hasta }));
+  }),
+);
+
+// ─── CSS ─────────────────────────────────────────────────────────────────────
+
+/** GET /api/planilla/css — lo que se le debe a la CSS, mes a mes, y el saldo vivo. */
+planillaRouter.get(
+  '/css',
+  wrap(async (req, res) => {
+    const meses = req.query.meses ? Math.min(24, Math.max(1, Number(req.query.meses))) : 6;
+    res.json(await resumenCSS(req.prisma, req.user!.companyId, { meses }));
+  }),
+);
+
+/** POST /api/planilla/css/:periodo/valorar — le pone el monto real a la obligación. */
+planillaRouter.post(
+  '/css/:periodo/valorar',
+  requireRole(...ROLES_ESCRITURA_PLANILLA),
+  wrap(async (req, res) => {
+    const resultado = await valorarCSS(req.prisma, req.user!.companyId, req.params.periodo);
+    res.json(resultado);
+  }),
+);
+
+/**
+ * POST /api/planilla/css/pago — registra el pago: debita el pasivo, acredita el banco.
+ * El asiento nace en BORRADOR y lo aprueba el contador como cualquier otro.
+ */
+planillaRouter.post(
+  '/css/pago',
+  requireRole(...ROLES_ESCRITURA_PLANILLA),
+  validate(pagoCSSSchema),
+  wrap(async (req, res) => {
+    const resultado = await registrarPagoCSS(
+      req.prisma,
+      req.user!.companyId,
+      req.user!.userId,
+      req.body,
+    );
+    res.status(201).json(resultado);
+  }),
+);
 
 // Errores de multer (tamaño de archivo) con mensaje claro
 planillaRouter.use((err: any, _req: any, res: any, next: any) => {

@@ -120,43 +120,66 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 // superadmin = dueño de la plataforma (AdminSaaS). Solo esa cuenta puede
 // ver/operar el panel SaaS. admin = administrador de UNA empresa (ámbito empresa).
 // inventario = usuario de depósito/mostrador: solo inventario, facturas de venta y
-// el catálogo de clientes y proveedores (ver `limitarRolInventario`).
-type Role = 'superadmin' | 'admin' | 'contador' | 'asistente' | 'inventario';
+// el catálogo de clientes y proveedores (ver `ROLES_EXCLUSIVOS`).
+// planilla = usuario de nómina: solo planilla y el registro de empleados.
+type Role = 'superadmin' | 'admin' | 'contador' | 'asistente' | 'inventario' | 'planilla';
 
 /**
- * Rutas a las que SÍ entra el rol `inventario`. Todo lo demás se le niega.
+ * Roles EXCLUSIVOS: ven y operan un solo módulo, y todo lo demás se les niega.
  *
  * El resto de la API es permisivo por defecto (casi ningún router usa `requireRole`),
- * así que un rol restringido necesita una barrera que niegue por defecto. Esta lista
- * es la única puerta: si algo no está acá, el usuario de inventario no lo ve — ni el
+ * así que un rol restringido necesita una barrera que niegue por defecto. Estas
+ * listas son la única puerta: si algo no está acá, ese usuario no lo ve — ni el
  * diario, ni los informes, ni la salud financiera.
+ *
+ * Están juntas en un mapa y no en una función por rol a propósito: con una barrera
+ * por rol, agregar el segundo es copiar el archivo equivocado y dejar el nuevo sin
+ * puerta —que es peor que no tenerlo, porque el rol nace con acceso a todo—.
  */
-const PERMITIDO_INVENTARIO = [
-  '/api/inventario',
-  '/api/facturas',   // emite las ventas que descuentan stock
-  '/api/clients',    // los necesita para facturar
-  '/api/suppliers',  // los necesita para cargar compras
-  '/api/auth',
-  '/api/health',
-];
+const ROLES_EXCLUSIVOS: Record<string, { modulo: string; rutas: string[] }> = {
+  inventario: {
+    modulo: 'Inventario',
+    rutas: [
+      '/api/inventario',
+      '/api/facturas',   // emite las ventas que descuentan stock
+      '/api/clients',    // los necesita para facturar
+      '/api/suppliers',  // los necesita para cargar compras
+      '/api/auth',
+      '/api/health',
+    ],
+  },
+  planilla: {
+    modulo: 'Planilla',
+    rutas: [
+      '/api/planilla',
+      // El catálogo de cuentas: los selectores de banco y de cuentas del módulo lo
+      // necesitan para mostrar NOMBRES. Sin esto el desplegable llega vacío y el
+      // usuario ve un 403 silencioso, que es lo que hoy le pasa al rol de inventario.
+      '/api/accounts',
+      '/api/auth',
+      '/api/health',
+    ],
+  },
+};
 
 /**
- * Deja pasar al rol `inventario` solo por la lista blanca; al resto, sin cambios.
+ * Deja pasar a un rol exclusivo solo por SU lista blanca; al resto, sin cambios.
  *
  * Va montado una sola vez después de `requireAuth`, no en cada router: así el rol
  * restringido no depende de que veinte archivos de rutas se acuerden de filtrarlo.
  */
-export function limitarRolInventario(req: Request, res: Response, next: NextFunction): void {
-  if (req.user?.role !== 'inventario') {
+export function limitarRolesExclusivos(req: Request, res: Response, next: NextFunction): void {
+  const rol = ROLES_EXCLUSIVOS[req.user?.role ?? ''];
+  if (!rol) {
     next();
     return;
   }
   // `originalUrl` y no `path`: montado en /api, `path` viene sin el prefijo y la
   // lista no coincidiría con nada.
   const ruta = (req.originalUrl || '').split('?')[0];
-  const permitido = PERMITIDO_INVENTARIO.some((base) => ruta === base || ruta.startsWith(`${base}/`));
+  const permitido = rol.rutas.some((base) => ruta === base || ruta.startsWith(`${base}/`));
   if (!permitido) {
-    res.status(403).json({ error: 'Tu usuario solo tiene acceso al módulo de Inventario.' });
+    res.status(403).json({ error: `Tu usuario solo tiene acceso al módulo de ${rol.modulo}.` });
     return;
   }
   next();

@@ -1,22 +1,11 @@
 import { Router } from 'express';
+import { PLANILLA_FIELDS } from '../services/payroll-parametros';
 
 export const configRouter = Router();
 
-/**
- * Cuentas de planilla por columna del archivo maestro (Configuración →
- * Planilla). El campo en Company y la etiqueta legible para los errores.
- */
-const PLANILLA_FIELDS: { field: string; label: string }[] = [
-  { field: 'planillaSueldoId', label: 'Sueldo' },
-  { field: 'planillaHorasExtrasId', label: 'Horas Extras' },
-  { field: 'planillaDecimoId', label: 'Décimo III' },
-  { field: 'planillaVacacionesId', label: 'Vacaciones' },
-  { field: 'planillaSSId', label: 'Seguro Social (SS)' },
-  { field: 'planillaSEId', label: 'Seguro Educativo (SE)' },
-  { field: 'planillaISRId', label: 'ISR' },
-  { field: 'planillaBancoId', label: 'Neto a banco' },
-];
-
+// Cuentas de planilla: la lista vive en `payroll-parametros.ts` porque el módulo de
+// Planilla valida contra los MISMOS campos. Definirla dos veces es garantizar que
+// se separen.
 const planillaSelect = Object.fromEntries(PLANILLA_FIELDS.map(f => [f.field, true]));
 
 /** Público: número de WhatsApp del bot (no requiere autenticación). */

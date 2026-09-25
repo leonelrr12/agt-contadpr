@@ -33,7 +33,7 @@ import { retencionesRouter } from './routes/retenciones';
 import { usersRouter } from './routes/users';
 import { saludRouter } from './routes/salud';
 import { planRateLimiter } from './middleware/plan-rate-limit';
-import { requireAuth, requireRole, limitarRolInventario } from './middleware/auth';
+import { requireAuth, requireRole, limitarRolesExclusivos } from './middleware/auth';
 import { errorHandler, notFoundHandler } from './middleware/error-handler';
 import { encryptData, decryptResult, hashField } from './services/crypto-fields';
 
@@ -154,7 +154,7 @@ app.use('/api/config', publicConfigRouter);  // público: wa-phone, etc.
 // ── Middleware de autenticación para el resto de rutas ──
 app.use('/api', requireAuth);
 // El rol `inventario` solo pasa por su lista blanca (ver middleware/auth.ts).
-app.use('/api', limitarRolInventario);
+app.use('/api', limitarRolesExclusivos);
 
 // ── Rate limiting por plan (después de auth, aplica a todas las rutas protegidas) ──
 app.use('/api', planRateLimiter);

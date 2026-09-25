@@ -9,7 +9,7 @@ import { requireRole } from '../middleware/auth';
  */
 export const usersRouter = Router();
 
-const COMPANY_ROLES = ['contador', 'asistente', 'inventario'];
+const COMPANY_ROLES = ['contador', 'asistente', 'inventario', 'planilla'];
 
 // GET /api/users — listar usuarios de la empresa
 usersRouter.get('/', requireRole('admin', 'superadmin'), async (req, res) => {

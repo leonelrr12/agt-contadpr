@@ -357,3 +357,131 @@ export const anularMovimientoSchema = z.object({
   motivo: z.string().min(5, 'Explicá por qué se anula (mínimo 5 caracteres)').max(300),
 });
 export type AnularMovimientoInput = z.infer<typeof anularMovimientoSchema>;
+
+// ── Planilla (módulo) ──
+export const tipoPagoSchema = z.enum(['QUINCENAL', 'MENSUAL']);
+
+export const createEmpleadoSchema = z.object({
+  nombre: z.string().min(1, 'El nombre es requerido').max(150),
+  // Opcional: los empleados que vienen del archivo viejo no siempre la traían.
+  cedula: z.string().max(30).nullable().optional(),
+  nss: z.string().max(30).nullable().optional(),
+  cargo: z.string().max(100).nullable().optional(),
+  // SIEMPRE mensual, aunque cobre quincenal: el tipoPago decide cómo se parte.
+  sueldoBase: z.number().positive('El sueldo debe ser mayor que cero').max(1e9),
+  tipoPago: tipoPagoSchema.default('QUINCENAL'),
+  // Clase de riesgo profesional (I…V). Sin clase, el empleado usa la tarifa general.
+  claseRiesgo: z.enum(['I', 'II', 'III', 'IV', 'V']).nullable().optional(),
+  fechaIngreso: isoDate.nullable().optional(),
+  fechaSalida: isoDate.nullable().optional(),
+  bancoCuentaId: z.string().nullable().optional(),
+  cuentaBanco: z.string().max(40).nullable().optional(),
+  // Saldos de los acumulados ANTES de usar el módulo (el corte de mitad de año).
+  decimoSaldoInicial: z.number().min(0).max(1e9).optional(),
+  vacacionesSaldoInicial: z.number().min(0).max(1e9).optional(),
+  primaSaldoInicial: z.number().min(0).max(1e9).optional(),
+  fechaSaldoInicial: isoDate.nullable().optional(),
+  notas: z.string().max(500).nullable().optional(),
+});
+export type CreateEmpleadoInput = z.infer<typeof createEmpleadoSchema>;
+
+export const updateEmpleadoSchema = createEmpleadoSchema.partial().extend({
+  // Los empleados no se borran: se desactivan.
+  isActive: z.boolean().optional(),
+});
+export type UpdateEmpleadoInput = z.infer<typeof updateEmpleadoSchema>;
+
+export const rosterImportSchema = z.object({
+  // En el archivo el SUELDO es el del período; el sistema guarda el mensual.
+  // Sin esto no se puede convertir, así que es obligatorio y no una adivinanza.
+  tipoPago: tipoPagoSchema,
+  /** Ejecuta el alta; sin esto solo se valida y se muestra el preview. */
+  ejecutar: z.boolean().optional(),
+});
+export type RosterImportInput = z.infer<typeof rosterImportSchema>;
+
+const tramoISRSchema = z.object({
+  desde: z.number().min(0),
+  hasta: z.number().min(0).nullable(),
+  tasa: z.number().min(0).max(1),
+});
+
+/** Un renglón del grid que el contador ajusta antes de ejecutar. */
+const ajusteCorridaSchema = z.object({
+  employeeId: z.string().min(1),
+  diasTrabajados: z.number().int().min(0).max(31).optional(),
+  horasExtras: z.number().min(0).max(1e7).optional(),
+  otrosIngresos: z.number().min(0).max(1e7).optional(),
+  otrasDeducciones: z.number().min(0).max(1e7).optional(),
+  /** Solo en corridas de DECIMO/VACACIONES: cuánto se le paga de la prestación. */
+  montoPrestacion: z.number().min(0).max(1e9).optional(),
+  notas: z.string().max(300).optional(),
+});
+
+/**
+ * El período NO se acepta del cliente: lo deriva el servidor de las fechas. Si
+ * viniera de afuera, dos peticiones con el mismo período escrito distinto
+ * esquivarían la clave única y la nómina se pagaría dos veces.
+ */
+export const corridaSchema = z.object({
+  tipo: z.enum(['SUELDO', 'DECIMO', 'VACACIONES']),
+  periodicidad: z.enum(['QUINCENAL', 'MENSUAL', 'ANUAL', 'EVENTUAL']),
+  fechaDesde: isoDate,
+  /** Si no viene, se calcula desde la periodicidad (quincena o mes completo). */
+  fechaHasta: isoDate.optional(),
+  fechaPago: isoDate,
+  empleadoIds: z.array(z.string()).max(500).optional(),
+  ajustes: z.array(ajusteCorridaSchema).max(500).optional(),
+  notas: z.string().max(500).optional(),
+});
+export type CorridaInput = z.infer<typeof corridaSchema>;
+
+export const anularCorridaSchema = z.object({
+  motivo: z.string().min(5, 'Explicá por qué se anula (mínimo 5 caracteres)').max(300),
+});
+
+export const revisarCorridaSchema = z.object({
+  accion: z.enum(['aprobar', 'rechazar']),
+  notes: z.string().max(500).optional(),
+});
+
+/** Pago a la CSS: descarga el pasivo del Seguro Social y del Seguro Educativo. */
+export const pagoCSSSchema = z
+  .object({
+    periodo: z.string().regex(/^\d{4}-\d{2}$/, 'El período debe venir como AAAA-MM'),
+    fecha: isoDate,
+    bancoCuentaId: z.string().min(1, 'Elegí el banco por el que salió el pago'),
+    montoSS: z.number().min(0).max(1e9),
+    montoSE: z.number().min(0).max(1e9).optional(),
+    /** ISR retenido a los empleados: se paga en el mismo movimiento que la CSS. */
+    montoISR: z.number().min(0).max(1e9).optional(),
+    referencia: z.string().max(100).optional(),
+    notas: z.string().max(500).optional(),
+    /** Marca la obligación del calendario fiscal como cumplida (por defecto, sí). */
+    marcarPagada: z.boolean().optional(),
+  })
+  .refine((d) => d.montoSS > 0 || (d.montoSE ?? 0) > 0 || (d.montoISR ?? 0) > 0, {
+    message: 'El pago tiene que tener un monto mayor que cero',
+    path: ['montoSS'],
+  });
+export type PagoCSSInput = z.infer<typeof pagoCSSSchema>;
+
+export const updatePayrollSettingsSchema = z.object({
+  ssObrero: z.number().min(0).max(1).optional(),
+  seObrero: z.number().min(0).max(1).optional(),
+  ssPatronal: z.number().min(0).max(1).optional(),
+  sePatronal: z.number().min(0).max(1).optional(),
+  ssObreroDecimo: z.number().min(0).max(1).optional(),
+  seObreroDecimo: z.number().min(0).max(1).optional(),
+  factorDecimo: z.number().min(0).max(1).optional(),
+  factorVacaciones: z.number().min(0).max(1).optional(),
+  factorPrima: z.number().min(0).max(1).optional(),
+  // [] = usar la tabla legal del código. El servicio valida el orden de los tramos.
+  tablaISR: z.array(tramoISRSchema).optional(),
+  // Tarifa de riesgos por clase. Una clase ausente rechaza la fila de ese empleado.
+  riesgosPorClase: z.record(z.string(), z.number().min(0).max(1).nullable()).optional(),
+  provisionarPrestaciones: z.boolean().optional(),
+  // Cuentas contables: los mismos campos que Administración → Configuración.
+  cuentas: z.record(z.string(), z.string().nullable()).optional(),
+});
+export type UpdatePayrollSettingsInput = z.infer<typeof updatePayrollSettingsSchema>;

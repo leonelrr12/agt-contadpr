@@ -185,6 +185,72 @@ async function estimateITBMS(prisma: any, companyId: string, period: string): Pr
   return getSaldoITBMS(prisma, companyId, endDate);
 }
 
+/**
+ * Le pone monto a una obligación que todavía no lo tiene, sin crear filas.
+ *
+ * Es la misma regla que el recálculo del ITBMS de arriba: **solo si está PENDING y
+ * no tiene monto real**. Una vez que el contador registró lo que efectivamente
+ * pagó (`actualAmount`), el estimado deja de importar y no se le pasa por encima.
+ *
+ * No crea la fila si no existe —el generador mantiene un horizonte de 3 meses y
+ * inventar obligaciones fuera de él llenaría la tabla de períodos que nadie pidió—;
+ * devuelve el motivo para que quien llama pueda decirlo en pantalla.
+ */
+export async function valorarObligacion(
+  prisma: any,
+  companyId: string,
+  type: string,
+  period: string,
+  monto: number,
+): Promise<{ actualizada: boolean; motivo?: string }> {
+  const obligacion = await prisma.taxObligation.findFirst({
+    where: { companyId, type, period },
+  });
+
+  if (!obligacion) {
+    return { actualizada: false, motivo: 'El período todavía no está en el calendario fiscal.' };
+  }
+  if (obligacion.status !== 'PENDING') {
+    return { actualizada: false, motivo: `La obligación ya está en estado ${obligacion.status}.` };
+  }
+  if (obligacion.actualAmount != null) {
+    return { actualizada: false, motivo: 'La obligación ya tiene un monto real registrado.' };
+  }
+  if (obligacion.estimatedAmount === monto) {
+    return { actualizada: false, motivo: 'El monto ya estaba al día.' };
+  }
+
+  await prisma.taxObligation.update({
+    where: { id: obligacion.id },
+    data: { estimatedAmount: monto },
+  });
+  return { actualizada: true };
+}
+
+/** Marca una obligación como cumplida, con el monto que efectivamente se pagó. */
+export async function marcarObligacionCumplida(
+  prisma: any,
+  companyId: string,
+  type: string,
+  period: string,
+  monto: number,
+  notas?: string,
+): Promise<boolean> {
+  const obligacion = await prisma.taxObligation.findFirst({ where: { companyId, type, period } });
+  if (!obligacion) return false;
+
+  await prisma.taxObligation.update({
+    where: { id: obligacion.id },
+    data: {
+      status: 'COMPLETED',
+      actualAmount: monto,
+      completedAt: new Date(),
+      ...(notas ? { notes: notas } : {}),
+    },
+  });
+  return true;
+}
+
 export interface ObligacionProyectada {
   type: string;
   period: string;
