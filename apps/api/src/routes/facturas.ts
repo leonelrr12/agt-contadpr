@@ -12,6 +12,7 @@ import { AccountingAgent } from '@agt-contador/agents';
 import { findOrCreateClient } from '../services/counterparty';
 import { retencionCobroInfo, marcarClienteAgente } from '../services/retencion-itbms';
 import { checkNotBlocked } from '../services/journal-guard';
+import { prepararSalidaVenta, confirmarSalidaVenta } from '../services/inventario';
 
 export const facturasRouter = Router();
 
@@ -148,6 +149,11 @@ facturasRouter.post('/', requireRole('admin', 'contador', 'superadmin'), require
       lineas.push({ accountId: ventasId, debit: 0, credit: subtotal });
       if (itbms > 0) lineas.push({ accountId: itbmsPorPagarId, debit: 0, credit: itbms });
 
+      // Costo de lo vendido: solo los renglones que llevan producto del kardex. Un
+      // servicio no entra acá y la factura sale igual que siempre.
+      const salida = await prepararSalidaVenta(tx, companyId, itbmsItems);
+      if (salida) lineas.push(...salida.lineasCosto);
+
       const desc = `Venta: ${client.name} - ${number} - $${Number(total).toFixed(2)}`;
       const blocked = await checkNotBlocked(tx, companyId, lineas.map((l: any) => l.accountId));
       if (blocked) throw Object.assign(new Error(blocked), { status: 400 });
@@ -179,12 +185,24 @@ facturasRouter.post('/', requireRole('admin', 'contador', 'superadmin'), require
         data: {
           companyId, clientId: client.id, number, amount: subtotal, itbms, total,
           dueDate: vence, date: fecha, description: desc, paymentMethod, journalEntryId: je.id,
-          items: { create: itbmsItems.map((it: any) => ({ descripcion: it.descripcion, cantidad: it.cantidad, precio: it.precio, itbms: it.itbms })) },
+          items: { create: itbmsItems.map((it: any) => ({ descripcion: it.descripcion, cantidad: it.cantidad, precio: it.precio, itbms: it.itbms, productId: it.productId || null })) },
         },
         include: { items: true, client: { select: { id: true, name: true, taxId: true } } },
       });
 
-      return { invoice, txRow };
+      // El kardex se mueve después de tener la factura, para dejar el vínculo. Sigue
+      // dentro de la transacción: si algo falla, no queda ni stock ni asiento.
+      let movimientos: any[] = [];
+      if (salida) {
+        movimientos = await confirmarSalidaVenta(tx, companyId, req.user!.userId, salida, {
+          asientoId: je.id,
+          invoiceId: invoice.id,
+          fecha,
+          referencia: number,
+        });
+      }
+
+      return { invoice, txRow, movimientos, avisos: salida?.avisos || [] };
     });
 
     await incrementUsage(req);
@@ -196,7 +214,7 @@ facturasRouter.post('/', requireRole('admin', 'contador', 'superadmin'), require
       after: { number: result.invoice.number, total: result.invoice.total },
     }).catch(() => {});
 
-    res.status(201).json(result.invoice);
+    res.status(201).json({ ...result.invoice, avisosInventario: result.avisos });
   } catch (e: any) {
     if (e.code === 'P2002') {
       res.status(409).json({ error: 'Número de factura duplicado, reintenta.', code: 'NUMBER_CONFLICT' });

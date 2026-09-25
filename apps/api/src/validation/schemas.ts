@@ -243,6 +243,9 @@ export const createFacturaSchema = z.object({
     descripcion: z.string().min(1, 'Descripción requerida'),
     cantidad: z.number().int().min(1).default(1),
     precio: z.number().min(0, 'Precio inválido'),
+    // Producto del kardex. Opcional: un servicio va sin producto, no mueve stock y
+    // no genera línea de costo (ver INVENTARIO.md §3.5).
+    productId: z.string().optional(),
   })).min(1, 'Se requiere al menos un item'),
   itbmsRate: z.number().min(0).max(0.2).optional(),
   date: isoDate.optional(),

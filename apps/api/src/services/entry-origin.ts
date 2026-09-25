@@ -77,7 +77,8 @@ function fmt(n: number): string {
 /**
  * Resuelve el origen de UN asiento. Orden de prioridad:
  *  1. Marca propia del asiento (cierre fiscal, anulación, corrección).
- *  2. FK del documento: factura emitida → cobro → retención ITBMS.
+ *  2. FK del documento: factura emitida → cobro → retención ITBMS → movimiento de
+ *     kardex (la factura gana: es el documento que el contador quiere abrir).
  *  3. `metadata.source` de la Transaction (importación de cobros, R52, planilla…).
  *  4. Plantilla recurrente (`metadata.recurring` + `templateId`).
  *  5. Sin rastro verificable → asiento manual, o registro automático sin marca.
@@ -171,6 +172,34 @@ export async function resolveEntryOrigin(
       link: retention.invoice
         ? { type: 'invoice', id: retention.invoice.id, label: retention.invoice.number || 'factura' }
         : undefined,
+    };
+  }
+
+  // El asiento de un movimiento de kardex. Se busca DESPUÉS de la factura porque una
+  // venta con producto tiene las dos cosas, y ahí manda la factura: es el documento
+  // que el contador quiere abrir. Acá caen las compras y las salidas.
+  const movimiento = await prisma.inventoryMovement.findFirst({
+    where: { journalEntryId: entry.id, companyId },
+    select: { origen: true, tipo: true, cantidad: true, costoTotal: true, product: { select: { nombre: true } } },
+  });
+  if (movimiento) {
+    const etiquetas: Record<string, string> = {
+      COMPRA: 'Compra de mercancía',
+      APERTURA: 'Apertura de inventario',
+      REGULARIZACION: 'Regularización de costo',
+      AJUSTE: 'Salida de inventario',
+    };
+    return {
+      kind: 'INVENTARIO',
+      icon: '📦',
+      label: etiquetas[movimiento.origen] || 'Movimiento de inventario',
+      detail: [
+        movimiento.product?.nombre,
+        movimiento.cantidad > 0 ? `${movimiento.cantidad} u.` : null, // la regularización no mueve unidades
+        fmt(movimiento.costoTotal),
+      ]
+        .filter(Boolean)
+        .join(' · '),
     };
   }
 

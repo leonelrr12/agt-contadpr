@@ -472,6 +472,135 @@ export async function registrarSalida(
   return { movimientos, asiento, avisos };
 }
 
+// ── Salida por VENTA ────────────────────────────────────────────────────────
+//
+// La venta la emite el módulo de Facturas, así que el costo se calcula en dos
+// tiempos: primero para poder meter las líneas de costo en el asiento —que se crea
+// entero y de una sola vez— y después para dejar los movimientos con el asiento y la
+// factura ya creados. Todo dentro de la misma transacción.
+
+export interface PendienteSalidaVenta {
+  /** Movimientos ya calculados, a la espera del id del asiento y de la factura. */
+  calcular: { producto: any; mov: MovimientoCalculado }[];
+  estados: Map<string, EstadoProducto>;
+  cuentas: Map<string, { inventarioId: string; costoId: string }>;
+  /** Par Debe costo / Haber inventario, listo para sumar al asiento de la venta. */
+  lineasCosto: { accountId: string; debit: number; credit: number }[];
+  avisos: string[];
+}
+
+/**
+ * Calcula el costo de los renglones que llevan producto. Devuelve `null` cuando
+ * ninguno lo lleva —una factura de servicios, o la de una empresa que no usa el
+ * módulo— y en ese caso la venta sigue exactamente como antes.
+ *
+ * Una venta NUNCA se rechaza por falta de existencia: ya ocurrió y la numeración es
+ * correlativa. El faltante se valora a costo 0 y el producto queda marcado para
+ * regularizar cuando se cargue la compra.
+ */
+export async function prepararSalidaVenta(
+  tx: any,
+  companyId: string,
+  items: { productId?: string | null; cantidad: number }[],
+): Promise<PendienteSalidaVenta | null> {
+  const conProducto = items.filter((i) => i.productId);
+  if (!conProducto.length) return null;
+
+  const ids = conProducto.map((i) => i.productId!) as string[];
+  await bloquearProductos(tx, ids);
+  const productos = await cargarProductos(tx, companyId, ids);
+
+  const agent = new AccountingAgent(tx, companyId);
+  await agent.init();
+  const empresa = await tx.company.findUnique({
+    where: { id: companyId },
+    select: { inventarioCuentaId: true, inventarioCostoId: true },
+  });
+
+  const cuentas = new Map<string, { inventarioId: string; costoId: string }>();
+  const calcular: { producto: any; mov: MovimientoCalculado }[] = [];
+  const estados = new Map<string, EstadoProducto>();
+  const avisos: string[] = [];
+
+  for (const item of conProducto) {
+    const producto = productos.get(item.productId!);
+    if (!cuentas.has(producto.id)) cuentas.set(producto.id, resolverCuentas(agent, empresa || {}, producto));
+
+    const estado = estados.get(producto.id) || estadoDe(producto);
+    const res = calcularMovimiento(estado, { tipo: 'SALIDA', cantidad: item.cantidad }, { forzar: true });
+    if (!res.ok) throw Object.assign(new Error(`${producto.nombre}: ${res.error}`), { status: 400 });
+
+    const mov = res.movimientos[0];
+    calcular.push({ producto, mov });
+    avisos.push(...mov.avisos.map((a) => `${producto.nombre}: ${a}`));
+    estados.set(producto.id, {
+      cantidad: mov.saldoCantidad,
+      valor: mov.saldoValor,
+      promedio: mov.saldoCostoPromedio,
+    });
+  }
+
+  const porCuenta = new Map<string, { debit: number; credit: number }>();
+  const sumar = (accountId: string, campo: 'debit' | 'credit', monto: number) => {
+    const acc = porCuenta.get(accountId) || { debit: 0, credit: 0 };
+    acc[campo] = r2(acc[campo] + monto);
+    porCuenta.set(accountId, acc);
+  };
+  for (const { mov, producto } of calcular) {
+    const { inventarioId, costoId } = cuentas.get(producto.id)!;
+    sumar(costoId, 'debit', mov.costoTotal);
+    sumar(inventarioId, 'credit', mov.costoTotal);
+  }
+
+  const lineasCosto = [...porCuenta.entries()]
+    .map(([accountId, v]) => ({ accountId, debit: v.debit, credit: v.credit }))
+    .filter((l) => l.debit !== 0 || l.credit !== 0);
+
+  return { calcular, estados, cuentas, lineasCosto, avisos };
+}
+
+/** Deja los movimientos y el saldo del producto, ya con el asiento y la factura creados. */
+export async function confirmarSalidaVenta(
+  tx: any,
+  companyId: string,
+  userId: string,
+  pendiente: PendienteSalidaVenta,
+  ctx: { asientoId: string; invoiceId: string; fecha: Date; referencia?: string | null },
+): Promise<any[]> {
+  const filas: any[] = [];
+  let seq = 0;
+  for (const { producto, mov } of pendiente.calcular) {
+    filas.push({
+      companyId,
+      productId: producto.id,
+      fecha: ctx.fecha,
+      tipo: mov.tipo,
+      origen: 'VENTA',
+      cantidad: mov.cantidad,
+      costoUnitario: mov.costoUnitario,
+      costoTotal: mov.costoTotal,
+      saldoCantidad: mov.saldoCantidad,
+      saldoValor: mov.saldoValor,
+      saldoCostoPromedio: mov.saldoCostoPromedio,
+      journalEntryId: ctx.asientoId,
+      invoiceId: ctx.invoiceId,
+      referencia: ctx.referencia || null,
+      createdById: userId,
+      dedupeKey: `venta:${ctx.invoiceId}:${producto.id}:${seq++}`,
+    });
+  }
+  await tx.inventoryMovement.createMany({ data: filas });
+
+  for (const [productId, estado] of pendiente.estados) {
+    await tx.inventoryProduct.update({
+      where: { id: productId },
+      data: { stockActual: estado.cantidad, stockValor: estado.valor, costoPromedio: estado.promedio },
+    });
+  }
+
+  return tx.inventoryMovement.findMany({ where: { invoiceId: ctx.invoiceId }, orderBy: { createdAt: 'asc' } });
+}
+
 // ── Apoyo ───────────────────────────────────────────────────────────────────
 
 const totalDe = (calcular: { mov: MovimientoCalculado }[]) =>

@@ -108,6 +108,13 @@ let facturaItems = [{ descripcion: '', cantidad: 1, precio: '' }];
 
 function openFacturaModal() {
   facturaItems = [{ descripcion: '', cantidad: 1, precio: '' }];
+  // El catálogo se pide al abrir: si el usuario no tiene acceso al módulo, la lista
+  // queda vacía y la factura se emite con servicios, sin selector y sin ruido.
+  facturaProductos = [];
+  cargarProductosFactura().then((ps) => {
+    facturaProductos = ps;
+    renderFacturaItems();
+  });
   const overlay = document.createElement('div'); overlay.className = 'app-dialog-overlay';
   overlay.id = 'factura-modal-overlay';
   overlay.innerHTML = `<div class="app-dialog" style="max-width:720px;max-height:90vh;overflow-y:auto">
@@ -152,17 +159,57 @@ function addFacturaItemRow() {
   renderFacturaItems();
 }
 
+/**
+ * Productos del inventario para vincular un renglón. Si el usuario no tiene acceso
+ * al módulo (o la empresa no lo usa) la lista queda vacía y la factura se emite con
+ * servicios: no es un error, es el caso normal de quien solo presta servicios.
+ */
+let facturaProductos = [];
+
+async function cargarProductosFactura() {
+  try {
+    const res = await authFetch(`${API_URL}/inventario/productos?pageSize=200`);
+    if (!res.ok) return [];
+    const d = await res.json();
+    return (d.items || []).filter((p) => p.isActive);
+  } catch {
+    return [];
+  }
+}
+
 function renderFacturaItems() {
   const el = document.getElementById('fac-items');
   if (!el) return;
+  const opcionesProducto = (sel) =>
+    `<option value="">— Servicio / sin inventario —</option>` +
+    facturaProductos.map((p) => `<option value="${escapeHtml(p.id)}" ${p.id === sel ? 'selected' : ''}>${escapeHtml(p.nombre)} (${p.stockActual})</option>`).join('');
+
   el.innerHTML = facturaItems.map((it, i) => `
-    <div style="display:flex;gap:8px;margin-bottom:6px">
-      <input value="${escapeHtml(it.descripcion)}" oninput="facItem(${i},'descripcion',this.value)" placeholder="Descripción" style="flex:3;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px">
-      <input type="number" min="1" value="${it.cantidad}" oninput="facItem(${i},'cantidad',parseFloat(this.value)||1)" placeholder="Cant." style="flex:0 0 60px;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;text-align:right">
-      <input type="number" step="0.01" min="0" value="${it.precio}" oninput="facItem(${i},'precio',parseFloat(this.value)||0)" placeholder="Precio" style="flex:0 0 90px;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;text-align:right">
-      <button onclick="facRemoveItem(${i})" style="background:none;border:none;cursor:pointer;font-size:14px">🗑️</button>
+    <div style="margin-bottom:8px">
+      ${facturaProductos.length ? `<select onchange="facProducto(${i}, this.value)" style="width:100%;margin-bottom:4px;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:11px;background:#fff;color:${it.productId ? '#065f46' : '#6b7280'}">${opcionesProducto(it.productId)}</select>` : ''}
+      <div style="display:flex;gap:8px">
+        <input value="${escapeHtml(it.descripcion)}" oninput="facItem(${i},'descripcion',this.value)" placeholder="${it.productId ? 'Descripción' : 'Descripción del servicio o producto'}" style="flex:3;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px">
+        <input type="number" min="1" step="1" value="${it.cantidad}" oninput="facItem(${i},'cantidad',parseInt(this.value)||1)" placeholder="Cant." style="flex:0 0 60px;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;text-align:right">
+        <input type="number" step="0.01" min="0" value="${it.precio}" oninput="facItem(${i},'precio',parseFloat(this.value)||0)" placeholder="Precio" style="flex:0 0 90px;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;text-align:right">
+        ${facturaItems.length > 1 ? `<button onclick="facRemoveItem(${i})" style="background:none;border:none;cursor:pointer;font-size:14px">🗑️</button>` : ''}
+      </div>
     </div>`).join('');
   updateFacturaTotales();
+}
+
+/**
+ * Al elegir un producto se completa la descripción con su nombre. El precio NO se
+ * completa: el sistema guarda el costo, no un precio de venta, y poner el costo
+ * como precio sería un error caro de detectar.
+ */
+function facProducto(i, productId) {
+  facturaItems[i].productId = productId || null;
+  const p = facturaProductos.find((x) => x.id === productId);
+  if (p) {
+    facturaItems[i].descripcion = p.nombre;
+    facturaItems[i].cantidad = 1;
+  }
+  renderFacturaItems();
 }
 
 function facItem(i, field, value) {
@@ -186,7 +233,9 @@ function updateFacturaTotales() {
 async function saveFactura() {
   const cliente = document.getElementById('fac-cliente').value.trim();
   if (!cliente) { alert('❌ Indica el cliente (o CONSUMIDOR FINAL)'); return; }
-  const items = facturaItems.filter(it => it.descripcion.trim());
+  const items = facturaItems
+    .filter(it => it.descripcion.trim())
+    .map(it => ({ descripcion: it.descripcion, cantidad: it.cantidad, precio: it.precio, productId: it.productId || undefined }));
   if (!items.length) { alert('❌ Agrega al menos un item con descripción'); return; }
   const pago = document.getElementById('fac-pago').value;
   try {

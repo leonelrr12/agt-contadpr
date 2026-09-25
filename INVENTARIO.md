@@ -222,7 +222,7 @@ en los renglones de factura.
 | 1 | Modelos + migración `0018`/`0019` + motor de costo puro | ✅ **Hecho** (25-09) — 19 tests |
 | 2 | API y asientos (productos, entradas, salidas, kardex, valoración) | ✅ **Hecho** (25-09) — verificado E2E |
 | 3 | Página `inventario.html` + enlace desde el SPA | ✅ **Hecho** (25-09) — smoke de 13 casos |
-| 4 | La venta descuenta stock (`InvoiceItem.productId`) | ⬜ Pendiente |
+| 4 | La venta descuenta stock (`InvoiceItem.productId`) | ✅ **Hecho** (25-09) — verificado E2E |
 | 5 | La compra deja de entrar por importación y chat | ⬜ Pendiente |
 | 6 | Cuadre y alertas | ⬜ Pendiente |
 | 7 | Ajustes, anulación y toma física | ⬜ Pendiente |
@@ -231,6 +231,18 @@ en los renglones de factura.
 los endpoints. Un rol restringido sin la barrera que niega por defecto es un agujero abierto desde el
 primer día. También el redirect: al arrancar el SPA, un usuario de depósito va directo a su página, sin
 importar por dónde entró. Falta de esa fase darle permiso de escritura en facturas, clientes y proveedores.
+
+**Hecho en la Fase 4** (verificado E2E): al elegir un producto en un renglón de la factura, la venta
+descuenta el stock y añade al mismo asiento el par `Debe Costo de Productos Vendidos / Haber Inventario`
+al costo promedio. Verificado con una factura mixta: tres unidades de mercancía y un servicio en el mismo
+documento generaron el par de costo solo por las tres, y una factura de **solo servicios** salió idéntica
+a como salía antes —sin línea de costo y sin movimientos—, que es la garantía de que activar Inventario no
+le cambia la contabilidad a quien solo presta servicios.
+
+Dos detalles de la pantalla: al elegir un producto se completa la **descripción** pero **no el precio** —el
+sistema guarda el costo, no un precio de venta, y poner el costo como precio sería un error caro de
+detectar—, y la cantidad se fuerza a entero, porque el servicio va siempre en 1 y su detalle va en la
+descripción.
 
 **La página** (`/inventario.html`) es standalone y comparte la sesión del SPA, así que no pide login de
 nuevo. Muestra las existencias con su valor y su alerta de mínimo, el formulario de entrada con vista
