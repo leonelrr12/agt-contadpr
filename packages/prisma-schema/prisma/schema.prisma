@@ -37,6 +37,22 @@ model Company {
   planillaSEId          String?
   planillaISRId         String?
   planillaBancoId       String?
+  // Planilla (módulo): los aportes del patrono son un GASTO y su contrapartida un
+  // PASIVO, así que no alcanza una sola cuenta aunque hoy las dos apunten al mismo
+  // pasivo que el obrero (a la CSS se le paga una sola vez, pero el gasto no es el
+  // mismo que la retención). `planillaOtrasDeduccionesId` es el destino de los
+  // préstamos y embargos; sin ella, una corrida con otras deducciones se rechaza.
+  planillaSSPatronalId       String?
+  planillaSEPatronalId       String?
+  planillaPatronalGastoId    String?
+  planillaOtrasDeduccionesId String?
+  // El gasto del patrono va a TRES cuentas, no a una: el Seguro Social, el Seguro
+  // Educativo y los Riesgos Profesionales se analizan por separado. Si no están
+  // configuradas, caen a los códigos 6.01.02.03 / .02 / .01 —las que el contador ya
+  // tiene en su catálogo— y de última al gasto patronal genérico de arriba.
+  planillaSSPatronalGastoId      String?
+  planillaSEPatronalGastoId      String?
+  planillaRiesgosProfesionalesId String?
   // Inventario: cuentas por defecto del kardex. Un producto puede sobreescribirlas;
   // si no, se resuelven por alias y por código (1.1.04.01 / 5.01.01).
   inventarioCuentaId    String?
@@ -60,6 +76,10 @@ model Company {
   budgets            Budget[]
   inventoryProducts  InventoryProduct[]
   inventoryMovements InventoryMovement[]
+  employees          Employee[]
+  payrollRuns        PayrollRun[]
+  payrollItems       PayrollItem[]
+  payrollSettings    PayrollSettings?
 }
 
 model User {
@@ -800,4 +820,209 @@ model InventoryMovement {
   @@index([invoiceId])
   @@index([supplierId])
   @@map("inventory_movement")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Planilla (nómina panameña). Ver PLANILLA.md en la raíz del repo.
+
+/// Empleado de la nómina. Es la identidad que la carga por archivo no tenía:
+/// sin esto el sistema no sabe que el "Juan Pérez" de marzo y el de abril son la
+/// misma persona, y por eso no puede acumular décimo, vacaciones ni prima.
+///
+/// `sueldoBase` es SIEMPRE mensual, incluso para quien cobra quincenal: el
+/// `tipoPago` decide cómo se parte, no cómo se guarda. Así cambiar de quincenal a
+/// mensual no obliga a reescribir la ficha ni a reinterpretar el histórico.
+model Employee {
+  id        String  @id @default(cuid())
+  companyId String
+  /// Identidad del empleado. Nullable a propósito: en Postgres los NULL conviven
+  /// en el unique, así que los empleados sin cédula del archivo viejo no se pierden.
+  cedula    String?
+  /// Número de seguro social — la planilla de la CSS (SIPE) lo exige.
+  nss       String?
+  nombre    String
+  cargo     String?
+  sueldoBase Float
+  tipoPago   String  @default("QUINCENAL") // QUINCENAL | MENSUAL
+  /// Clase de riesgo profesional (I…V) para la tarifa de riesgos. Null = la tasa
+  /// general de la empresa. Existe porque una misma empresa puede tener una oficina
+  /// al 1,00% y un almacén con otra clase, y con una sola tasa eso no se representa.
+  claseRiesgo String?
+  /// Fechas a mediodía local (lib/dates.ts). Deciden si el empleado entra en una
+  /// corrida y con cuántos días: un ingreso a mitad de quincena no cobra la quincena completa.
+  fechaIngreso DateTime?
+  fechaSalida  DateTime?
+  /// Cuenta 1.1.02.x por la que sale SU neto; si falta, se resuelve por la cadena
+  /// banco por defecto de la empresa → 1.1.02.01.
+  bancoCuentaId String?
+  cuentaBanco   String? // número de cuenta, solo informativo
+  /// Saldos de los acumulados ANTES de usar el módulo. Es lo que permite arrancar
+  /// desde un corte (p. ej. junio de ODESA) sin recargar años de planilla.
+  decimoSaldoInicial     Float @default(0)
+  vacacionesSaldoInicial Float @default(0)
+  primaSaldoInicial      Float @default(0)
+  fechaSaldoInicial      DateTime?
+  // Los empleados NO se borran: se desactivan. El histórico de corridas y de
+  // acumulados los referencia.
+  isActive  Boolean  @default(true)
+  notas     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company       @relation(fields: [companyId], references: [id])
+  items   PayrollItem[]
+
+  @@unique([companyId, cedula])
+  @@index([companyId, isActive])
+  @@map("employee")
+}
+
+/// Una corrida de planilla: el período que se está pagando (una quincena, una
+/// cuota del décimo, un pago de vacaciones). Agrupa los asientos de sus empleados
+/// para poder revisarlos y anularlos en bloque.
+///
+/// `periodo` lleva la GRANULARIDAD dentro — "2026-06-Q1", "2026-06" (mensual),
+/// "2026" (décimo), "2026-08-14" (eventual) — porque una nómina real mezcla gente
+/// quincenal y mensual, y un solo formato no puede representar las dos.
+/// `periodoMensual` ("2026-06") es la llave con el calendario CSS, sin parsear nada.
+///
+/// El estado se llama EJECUTADA y no CONFIRMADO a propósito: en este sistema
+/// CONFIRMADO ya significa "el contador aprobó el asiento", y una corrida
+/// "confirmada" con treinta asientos en BORRADOR sería una mentira en pantalla.
+model PayrollRun {
+  id             String @id @default(cuid())
+  companyId      String
+  tipo           String // SUELDO | DECIMO | VACACIONES
+  periodicidad   String @default("QUINCENAL") // QUINCENAL | MENSUAL | ANUAL | EVENTUAL
+  periodo        String
+  periodoMensual String
+  fechaDesde     DateTime
+  fechaHasta     DateTime
+  fechaPago      DateTime // a mediodía local
+  status         String   @default("BORRADOR") // BORRADOR | EJECUTADA | ANULADA
+  /// Totales congelados al ejecutar: la pantalla no recalcula la corrida, la lee.
+  totalBruto               Float @default(0)
+  totalDeducciones         Float @default(0)
+  totalNeto                Float @default(0)
+  totalPatronal            Float @default(0)
+  totalDecimoGenerado      Float @default(0)
+  totalVacacionesGeneradas Float @default(0)
+  totalPrimaGenerada       Float @default(0)
+  asientosCount            Int   @default(0)
+  notas           String?
+  motivoAnulacion String?
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company Company       @relation(fields: [companyId], references: [id])
+  items   PayrollItem[]
+
+  // La idempotencia de la corrida —una sola corrida VIVA por período— la impone un
+  // índice único PARCIAL que vive en SQL (migración 0023): Prisma no sabe expresar
+  // el `WHERE`, y sin el parcial una corrida anulada seguiría bloqueando el período,
+  // que es justo lo contrario de "se anula y se rehace". Mismo idioma que el guardia
+  // de re-cierre de año en la migración 0006.
+  @@index([companyId, tipo, periodo])
+  @@index([companyId, fechaPago])
+  @@index([companyId, periodoMensual]) // cruce con el calendario CSS
+  @@map("payroll_run")
+}
+
+/// Un renglón de la corrida: un empleado con sus montos CONGELADOS.
+///
+/// La corrida no se recalcula, se anula y se rehace. Congelar los acumulados con su
+/// factor es lo que hace que cambiar `factorDecimo` mañana no reescriba el pasado —
+/// el mismo argumento por el que `InventoryMovement` guarda su costo unitario en vez
+/// de depender del promedio vigente.
+///
+/// `neto` es el RESIDUO (bruto − deducciones ya redondeadas), nunca se recalcula
+/// aparte: por eso el asiento cuadra por construcción y desaparece la clase de bug
+/// del céntimo que absorbe diferencias en un monto que vino del archivo.
+model PayrollItem {
+  id             String @id @default(cuid())
+  companyId      String
+  runId          String
+  employeeId     String
+  diasTrabajados Int
+  sueldo         Float  @default(0)
+  horasExtras    Float  @default(0)
+  /// Bono, viático: NO cotiza (no lleva SS ni SE) y debita la cuenta de sueldos.
+  otrosIngresos  Float  @default(0)
+  bruto          Float  @default(0)
+  ss             Float  @default(0)
+  se             Float  @default(0)
+  isr            Float  @default(0)
+  otrasDeducciones Float @default(0) // préstamos, embargos — exigen cuenta configurada
+  neto           Float  @default(0)
+  /// Aportes del patrono. Son costo de la empresa, no retención del empleado:
+  /// por eso también van al asiento, aunque no toquen el neto. Se causan sobre
+  /// sueldo, décimo y vacaciones, cada uno con su tasa.
+  ssPatronal     Float  @default(0)
+  sePatronal     Float  @default(0)
+  riesgosPatronal Float @default(0)
+  /// Acumulados generados en ESTA corrida, congelados con su factor.
+  decimoGenerado      Float @default(0)
+  vacacionesGeneradas Float @default(0)
+  primaGenerada       Float @default(0)
+  journalEntryId String?
+  notas          String?
+  createdAt      DateTime @default(now())
+
+  company  Company    @relation(fields: [companyId], references: [id])
+  run      PayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  employee Employee   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([runId, employeeId])
+  @@index([companyId, employeeId]) // los acumulados por empleado
+  @@index([journalEntryId])
+  @@map("payroll_item")
+}
+
+/// Parámetros del módulo, 1:1 con la empresa. Se crea PEREZOSAMENTE con `upsert`:
+/// nunca asumir que la fila existe.
+///
+/// `tablaISR` viaja como JSON en un String (la convención del repo: `Concept.keywords`,
+/// `Transaction.metadata`). El default es `"[]"`, que significa **usar la tabla legal
+/// del código**: así los valores por defecto viven en un solo sitio y la BD solo
+/// guarda lo que el contador haya cambiado.
+model PayrollSettings {
+  id        String @id @default(cuid())
+  companyId String @unique
+  // Retenciones del empleado (verificadas contra los asientos ya cargados).
+  ssObrero Float @default(0.0975)
+  seObrero Float @default(0.0125)
+  // Aportes del patrono.
+  ssPatronal Float @default(0.1225)
+  sePatronal Float @default(0.015)
+  /// Tasa general de Riesgos Profesionales: un aporte del patrono que va a su PROPIA
+  /// cuenta de gasto, aparte del Seguro Social. Es la que se aplica al empleado que
+  /// no tiene clase asignada; 1,00% corresponde a la clase I (oficina).
+  riesgosProfesionales Float @default(0.01)
+  /// Tarifa por clase de riesgo, en JSON (la convención de `tablaISR`). `"{}"` —el
+  /// default— significa "usar la del código", que trae solo la clase I.
+  ///
+  /// Una clase SIN tasa no se asume en cero: la fila de ese empleado se rechaza con
+  /// el motivo, porque un cero silencioso subvalúa el pasivo y nadie se entera.
+  riesgosPorClase String @default("{}")
+  /// El décimo NO cotiza como un sueldo: lleva SS a otra tasa y no lleva Seguro
+  /// Educativo. Son parámetros y no constantes porque la tasa puede cambiar por ley.
+  /// Verificado contra los asientos cargados: el empleado paga 7,25%.
+  ssObreroDecimo Float @default(0.0725)
+  seObreroDecimo Float @default(0)
+  /// Aporte del patrono sobre el décimo. Es MENOR que el del sueldo (10,75% contra
+  /// 13,25% en total) y va entero a la cuenta de Seguro Social del patrono.
+  ssPatronalDecimo Float @default(0.1075)
+  factorDecimo      Float @default(0.0833333333) // 1/12 del bruto del período
+  factorVacaciones  Float @default(0.0833333333) // 1/12 — 30 días por año
+  factorPrima       Float @default(0.0192307692) // 1/52 — una semana por año
+  tablaISR          String @default("[]")        // [] = la tabla legal del código
+  /// Apagado por defecto: los acumulados se calculan y se ven siempre, pero el
+  /// asiento de provisión solo se genera si el contador lo enciende.
+  provisionarPrestaciones Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+  @@map("payroll_settings")
 }

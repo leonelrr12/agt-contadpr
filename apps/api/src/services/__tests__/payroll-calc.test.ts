@@ -1,0 +1,543 @@
+import { describe, it, expect } from 'vitest';
+import {
+  calcularItem,
+  calcularCorrida,
+  construirLineas,
+  impuestoAnual,
+  isrMensual,
+  isrDelPago,
+  diasDelMes,
+  diasEntre,
+  TABLA_ISR_PANAMA,
+  type CalculoItem,
+  type ContextoCorrida,
+  type CuentasPlanilla,
+  type EmpleadoCalc,
+  type LineaAsiento,
+  type Tasas,
+} from '../payroll-calc';
+import { r2, sumarMontos } from '../../lib/money';
+
+/**
+ * El motor de planilla es puro, así que se prueba entero sin base de datos.
+ *
+ * Lo que fijan estos casos NO son reglas de manual: son las reglas que el contador
+ * ya aplica, leídas de los 77 asientos de planilla que están cargados en producción.
+ * Tres de ellas contradicen lo que uno supondría de memoria, y por eso tienen su
+ * propio caso: el ISR proyectado a 13 meses, el décimo cotizando al 7,25% sin
+ * Seguro Educativo, y el redondeo medio-arriba en los `.xx5`.
+ */
+
+const TASAS: Tasas = {
+  ssObrero: 0.0975,
+  seObrero: 0.0125,
+  ssPatronal: 0.1225,
+  sePatronal: 0.015,
+  // 13,25% − 12,25%: los riesgos profesionales van a su propia cuenta de gasto.
+  riesgosProfesionales: 0.01,
+  riesgosPorClase: { I: 0.01, IV: 0.04 },
+  ssObreroDecimo: 0.0725,
+  seObreroDecimo: 0,
+  ssPatronalDecimo: 0.1075,
+  factorDecimo: 1 / 12,
+  factorVacaciones: 1 / 12,
+  factorPrima: 1 / 52,
+  tablaISR: TABLA_ISR_PANAMA,
+  provisionarPrestaciones: false,
+};
+
+/** Primera quincena de junio de 2026: 15 días sobre un mes de 30. */
+const Q1_JUNIO: ContextoCorrida = {
+  tipo: 'SUELDO',
+  periodicidad: 'QUINCENAL',
+  fechaDesde: new Date(2026, 5, 1),
+  fechaHasta: new Date(2026, 5, 15),
+  pagoNumero: 1,
+  pagosDelMes: 2,
+};
+
+const Q2_JUNIO: ContextoCorrida = { ...Q1_JUNIO, fechaDesde: new Date(2026, 5, 16), fechaHasta: new Date(2026, 5, 30), pagoNumero: 2 };
+
+function empleado(sueldoBase: number, extra: Partial<EmpleadoCalc> = {}): EmpleadoCalc {
+  return { id: 'e1', nombre: 'Empleado', sueldoBase, tipoPago: 'QUINCENAL', ...extra };
+}
+
+function item(
+  sueldoBase: number,
+  entrada: Record<string, unknown> = {},
+  ctx: ContextoCorrida = Q1_JUNIO,
+  empExtra: Partial<EmpleadoCalc> = {},
+): CalculoItem {
+  const res = calcularItem(empleado(sueldoBase, empExtra), { employeeId: 'e1', ...entrada }, ctx, TASAS);
+  if ('error' in res) throw new Error(`renglón con error inesperado: ${res.error}`);
+  if ('omitido' in res) throw new Error(`renglón omitido inesperadamente: ${res.omitido}`);
+  return res;
+}
+
+const CUENTAS: CuentasPlanilla = {
+  sueldo: 'c-sueldo',
+  horasExtras: 'c-extras',
+  decimo: 'c-decimo',
+  vacaciones: 'c-vacaciones',
+  ss: 'c-ss',
+  se: 'c-se',
+  isr: 'c-isr',
+  otrasDeducciones: 'c-otras',
+  ssPatronal: 'c-ss-patronal',
+  sePatronal: 'c-se-patronal',
+  ssPatronalGasto: 'c-ss-pat-gasto',
+  sePatronalGasto: 'c-se-pat-gasto',
+  riesgosGasto: 'c-riesgos-gasto',
+  decimoPorPagar: 'c-decimo-xp',
+  vacacionesPorPagar: 'c-vacaciones-xp',
+  prestacionesPorPagar: 'c-prestaciones-xp',
+};
+
+const debitos = (lineas: LineaAsiento[]) => sumarMontos(...lineas.map((l) => l.debit));
+const creditos = (lineas: LineaAsiento[]) => sumarMontos(...lineas.map((l) => l.credit));
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('tasas de seguridad social (fixture verificado contra los asientos reales)', () => {
+  // Cada fila salió del archivo de planilla que el contador ya cargó: sueldo
+  // quincenal y las dos retenciones que le aplicó.
+  const FIXTURE: [sueldoBase: number, sueldo: number, ss: number, se: number][] = [
+    [780, 390, 38.03, 4.88],
+    [700, 350, 34.13, 4.38],
+    [716, 358, 34.91, 4.48],
+    [728, 364, 35.49, 4.55],
+    [784, 392, 38.22, 4.9],
+    [800, 400, 39, 5],
+    [840, 420, 40.95, 5.25],
+    [1220.8, 610.4, 59.51, 7.63],
+    [1500, 750, 73.13, 9.38],
+  ];
+
+  it.each(FIXTURE)('sueldo base %d → quincena %d con SS %d y SE %d', (base, sueldo, ss, se) => {
+    const r = item(base);
+    expect(r.sueldo).toBe(sueldo);
+    expect(r.ss).toBe(ss);
+    expect(r.se).toBe(se);
+  });
+
+  it('las horas extras SÍ entran en la base de cotización', () => {
+    // Fila real: 610,40 de sueldo + 120,32 de extras → SS 71,25 y SE 9,13.
+    const r = item(1220.8, { horasExtras: 120.32 });
+    expect(r.ss).toBe(71.25);
+    expect(r.se).toBe(9.13);
+  });
+
+  it('redondea medio-arriba en los casos .xx5 (el ruido binario no los tumba)', () => {
+    // 390 × 9,75% = 38,025 → 38,03 · 350 × 1,25% = 4,375 → 4,38
+    // Con Math.round pelado, 38.025 * 100 da 3802.4999… y saldría 38,02.
+    expect(item(780).ss).toBe(38.03);
+    expect(item(700).se).toBe(4.38);
+    expect(r2(38.025)).toBe(38.03);
+    expect(r2(4.375)).toBe(4.38);
+  });
+
+  it('el bono y el viático no cotizan', () => {
+    const conBono = item(1220.8, { otrosIngresos: 100 });
+    expect(conBono.ss).toBe(item(1220.8).ss);
+    expect(conBono.bruto).toBe(r2(610.4 + 100));
+  });
+});
+
+describe('décimo tercer mes', () => {
+  const ctxDecimo: ContextoCorrida = {
+    tipo: 'DECIMO',
+    periodicidad: 'ANUAL',
+    fechaDesde: new Date(2026, 0, 1),
+    fechaHasta: new Date(2026, 11, 31),
+    pagoNumero: 1,
+    pagosDelMes: 1,
+  };
+
+  // Montos reales del archivo: SS al 7,25%, sin SE y sin ISR.
+  it.each([
+    [260, 18.85],
+    [266.66, 19.33],
+    [280, 20.3],
+    [406.93, 29.5],
+    [500, 36.25],
+  ])('un décimo de %d retiene SS %d', (monto, ss) => {
+    const r = item(780, { montoPrestacion: monto }, ctxDecimo);
+    expect(r.ss).toBe(ss);
+  });
+
+  it('no lleva Seguro Educativo ni ISR (el ×13 del ISR ya lo incluye)', () => {
+    const r = item(780, { montoPrestacion: 500 }, ctxDecimo);
+    expect(r.se).toBe(0);
+    expect(r.isr).toBe(0);
+  });
+
+  it('el patrono cotiza el décimo a su propia tasa, MENOR que la del sueldo', () => {
+    // 500 × 10,75% = 53,75 (contra 12,25% + 1% que sería sobre un sueldo).
+    const r = item(780, { montoPrestacion: 500 }, ctxDecimo);
+    expect(r.ssPatronal).toBe(53.75);
+    // El Seguro Educativo del patrono y los riesgos son cero en el décimo: el
+    // contador dio una sola tasa para el décimo, y del lado del empleado el SE
+    // también es cero.
+    expect(r.sePatronal).toBe(0);
+    expect(r.riesgosPatronal).toBe(0);
+  });
+
+  it('el neto es el monto menos la retención', () => {
+    const r = item(780, { montoPrestacion: 500 }, ctxDecimo);
+    expect(r.neto).toBe(r2(500 - r.ss));
+  });
+});
+
+describe('vacaciones', () => {
+  const ctxVacaciones: ContextoCorrida = {
+    tipo: 'VACACIONES',
+    periodicidad: 'EVENTUAL',
+    fechaDesde: new Date(2026, 5, 1),
+    fechaHasta: new Date(2026, 5, 30),
+    pagoNumero: 1,
+    pagosDelMes: 1,
+  };
+
+  it('se pagan completas: sin SS, sin SE y sin ISR', () => {
+    const r = item(780, { montoPrestacion: 780 }, ctxVacaciones);
+    expect(r.ss).toBe(0);
+    expect(r.se).toBe(0);
+    expect(r.isr).toBe(0);
+    expect(r.neto).toBe(780);
+  });
+});
+
+describe('ISR: proyección anual ×13', () => {
+  it('la escala es progresiva: el tramo del 25% arrastra el impuesto del 15%', () => {
+    expect(impuestoAnual(11000)).toBe(0);
+    expect(impuestoAnual(50000)).toBe(5850); // 39.000 × 15%
+    // Si el tramo del 25% no arrastrara, esto daría 2.500 en vez de 8.350.
+    expect(impuestoAnual(60000)).toBe(8350);
+  });
+
+  it('proyecta 13 meses y reparte entre 13', () => {
+    // Verificado: 1.220,80/mes → 15.870,40 anual → 730,56 → 56,1969 → 56,20
+    expect(isrMensual(1220.8)).toBe(56.2);
+    // Verificado: 1.500/mes → 19.500 anual → 1.275 → 98,0769 → 98,08
+    expect(isrMensual(1500)).toBe(98.08);
+  });
+
+  it('un sueldo proyectado por debajo del mínimo exento no retiene', () => {
+    // 780 × 13 = 10.140 < 11.000 — las nueve filas de sueldo del archivo con estos
+    // montos tienen ISR en cero, y la tabla mensual también habría dado cero acá.
+    expect(isrMensual(780)).toBe(0);
+    expect(isrMensual(800)).toBe(0);
+    expect(isrMensual(840)).toBe(0);
+  });
+
+  it('la quincena es la mitad del mes', () => {
+    expect(item(1220.8).isr).toBe(28.1);
+    expect(item(1500).isr).toBe(49.04);
+  });
+
+  it('la corrida MENSUAL retiene el mes completo', () => {
+    const ctxMensual: ContextoCorrida = {
+      tipo: 'SUELDO',
+      periodicidad: 'MENSUAL',
+      fechaDesde: new Date(2026, 5, 1),
+      fechaHasta: new Date(2026, 5, 30),
+      pagoNumero: 1,
+      pagosDelMes: 1,
+    };
+    const r = item(1500, {}, ctxMensual);
+    expect(r.sueldo).toBe(1500);
+    expect(r.isr).toBe(98.08); // el valor del archivo real
+  });
+
+  it('los dos pagos del mes cierran el mes EXACTO, sin céntimo perdido', () => {
+    // 56,19 no se parte en dos mitades iguales: 28,095 → 28,10 el primero y 28,09
+    // el último. Dos veces 28,10 daría 56,20 y el mes quedaría un céntimo arriba.
+    const primero = isrDelPago(56.19, 1, 2, 0);
+    const ultimo = isrDelPago(56.19, 2, 2, primero);
+    expect(primero).toBe(28.1);
+    expect(ultimo).toBe(28.09);
+    expect(sumarMontos(primero, ultimo)).toBe(56.19);
+  });
+
+  it('el último pago del mes descuenta lo ya retenido', () => {
+    const r = item(1220.8, {}, { ...Q2_JUNIO, isrYaRetenidoPorEmpleado: { e1: 28.1 } });
+    expect(r.isr).toBe(28.1);
+  });
+
+  it('las horas extras no mueven la retención: la proyección usa el sueldo base', () => {
+    expect(item(1220.8, { horasExtras: 120.32 }).isr).toBe(item(1220.8).isr);
+  });
+});
+
+describe('prorrateo por fechas', () => {
+  it('un ingreso a mitad de quincena no cobra la quincena completa', () => {
+    // Entró el 8 de junio: del 8 al 15 son 8 días de 30 → 780 × 8/30 = 208.
+    const r = item(780, {}, Q1_JUNIO, { fechaIngreso: new Date(2026, 5, 8) });
+    expect(r.diasTrabajados).toBe(8);
+    expect(r.sueldo).toBe(208);
+  });
+
+  it('la salida a mitad de período recorta igual', () => {
+    const r = item(780, {}, Q1_JUNIO, { fechaSalida: new Date(2026, 5, 10) });
+    expect(r.diasTrabajados).toBe(10);
+    expect(r.sueldo).toBe(260);
+  });
+
+  it('los días trabajados se pueden editar a mano', () => {
+    expect(item(780, { diasTrabajados: 10 }).sueldo).toBe(260);
+  });
+
+  it('las dos quincenas de un mes de 30 suman el sueldo del mes', () => {
+    const q1 = item(780, {}, Q1_JUNIO);
+    const q2 = item(780, {}, Q2_JUNIO);
+    expect(sumarMontos(q1.sueldo, q2.sueldo)).toBe(780);
+  });
+
+  it('quien no estaba empleado en el período queda omitido, no en cero', () => {
+    const res = calcularItem(
+      empleado(780, { fechaIngreso: new Date(2026, 6, 1) }),
+      { employeeId: 'e1' },
+      Q1_JUNIO,
+      TASAS,
+    );
+    expect('omitido' in res).toBe(true);
+  });
+
+  it('y quien ya había salido, también', () => {
+    const res = calcularItem(
+      empleado(780, { fechaSalida: new Date(2026, 4, 31) }),
+      { employeeId: 'e1' },
+      Q1_JUNIO,
+      TASAS,
+    );
+    expect('omitido' in res).toBe(true);
+  });
+
+  it('el mes se cuenta real, no de 30 días', () => {
+    expect(diasDelMes(new Date(2026, 1, 10))).toBe(28); // febrero 2026
+    expect(diasDelMes(new Date(2028, 1, 10))).toBe(29); // febrero bisiesto
+    expect(diasEntre(new Date(2026, 5, 1), new Date(2026, 5, 15))).toBe(15);
+  });
+});
+
+describe('clase de riesgo profesional', () => {
+  it('sin clase asignada usa la tarifa general de la empresa', () => {
+    expect(item(1220.8).riesgosPatronal).toBe(6.1); // 610,40 × 1%
+  });
+
+  it('con clase asignada usa la tarifa de ESA clase', () => {
+    const r = item(1220.8, {}, Q1_JUNIO, { claseRiesgo: 'IV' });
+    expect(r.riesgosPatronal).toBe(r2(610.4 * 0.04)); // 24,42
+  });
+
+  it('una clase SIN tarifa cargada no se asume en cero: la fila se rechaza', () => {
+    // La clase III no está en las tarifas. Un cero silencioso subvaluaría el pasivo
+    // del patrono y el balance cuadraría igual, así que nadie lo notaría.
+    const res = calcularItem(
+      empleado(1220.8, { claseRiesgo: 'III' }),
+      { employeeId: 'e1' },
+      Q1_JUNIO,
+      TASAS,
+    );
+    expect('error' in res).toBe(true);
+    if ('error' in res) expect(res.error).toContain('clase III');
+  });
+
+  it('la corrida separa los errores de los omitidos', () => {
+    const empleados: EmpleadoCalc[] = [
+      empleado(1220.8, { id: 'e1', nombre: 'Con clase cargada', claseRiesgo: 'I' }),
+      empleado(900, { id: 'e2', nombre: 'Clase sin tarifa', claseRiesgo: 'III' }),
+      empleado(900, { id: 'e3', nombre: 'No entró todavía', fechaIngreso: new Date(2026, 6, 1) }),
+    ];
+    const res = calcularCorrida(empleados, [], Q1_JUNIO, TASAS);
+
+    expect(res.items.map((i) => i.employeeId)).toEqual(['e1']);
+    expect(res.errores).toHaveLength(1);
+    expect(res.errores[0]).toMatchObject({ employeeId: 'e2' });
+    expect(res.omitidos).toHaveLength(1);
+    expect(res.omitidos[0]).toMatchObject({ employeeId: 'e3' });
+  });
+});
+
+describe('el neto es el residuo', () => {
+  it('cuadra con un sueldo que no da redondo', () => {
+    const r = item(666.66); // quincena 333,33
+    expect(r.sueldo).toBe(333.33);
+    expect(r.ss).toBe(32.5);
+    expect(r.se).toBe(4.17);
+    expect(r.neto).toBe(r2(r.bruto - r.ss - r.se - r.isr - r.otrasDeducciones));
+  });
+
+  it('la invariante vale para todo el fixture', () => {
+    for (const base of [390, 666.66, 780, 1220.8, 1500, 3333.33]) {
+      const r = item(base, { horasExtras: 17.77, otrosIngresos: 3.33, otrasDeducciones: 5.55 });
+      expect(r.neto).toBe(r2(r.bruto - r.ss - r.se - r.isr - r.otrasDeducciones));
+      expect(r.bruto).toBe(sumarMontos(r.sueldo, r.horasExtras, r.otrosIngresos));
+    }
+  });
+});
+
+describe('acumulados', () => {
+  it('se congelan en el ítem con el factor vigente', () => {
+    const r = item(1220.8);
+    expect(r.decimoGenerado).toBe(r2(r.bruto / 12));
+    expect(r.vacacionesGeneradas).toBe(r2(r.bruto / 12));
+    expect(r.primaGenerada).toBe(r2(r.bruto / 52));
+  });
+
+  it('solo se devengan en las corridas de sueldo', () => {
+    const ctxDecimo: ContextoCorrida = { ...Q1_JUNIO, tipo: 'DECIMO', periodicidad: 'ANUAL' };
+    const r = item(780, { montoPrestacion: 500 }, ctxDecimo);
+    expect(r.decimoGenerado).toBe(0);
+    expect(r.vacacionesGeneradas).toBe(0);
+    expect(r.primaGenerada).toBe(0);
+  });
+});
+
+describe('el asiento cuadra por construcción', () => {
+  const casos: [string, CalculoItem, ContextoCorrida][] = [
+    ['sueldo redondo', item(1220.8), Q1_JUNIO],
+    ['sueldo feo', item(666.66), Q1_JUNIO],
+    ['con extras', item(1220.8, { horasExtras: 120.32 }), Q1_JUNIO],
+    ['con bono', item(1220.8, { otrosIngresos: 250 }), Q1_JUNIO],
+    ['con préstamo', item(1220.8, { otrasDeducciones: 75.5 }), Q1_JUNIO],
+    ['todo junto', item(666.66, { horasExtras: 17.77, otrosIngresos: 3.33, otrasDeducciones: 5.55 }), Q1_JUNIO],
+    ['décimo', item(780, { montoPrestacion: 406.93 }, { ...Q1_JUNIO, tipo: 'DECIMO' }), { ...Q1_JUNIO, tipo: 'DECIMO' }],
+    ['vacaciones', item(780, { montoPrestacion: 780 }, { ...Q1_JUNIO, tipo: 'VACACIONES' }), { ...Q1_JUNIO, tipo: 'VACACIONES' }],
+  ];
+
+  it.each(casos)('%s', (_nombre, calculo, ctx) => {
+    for (const provisionar of [false, true]) {
+      const lineas = construirLineas(calculo, ctx.tipo, CUENTAS, 'c-banco', provisionar);
+      expect(lineas.length).toBeGreaterThanOrEqual(2);
+      expect(debitos(lineas)).toBe(creditos(lineas));
+    }
+  });
+
+  it('el crédito al banco es exactamente el neto', () => {
+    const calculo = item(1220.8, { horasExtras: 50 });
+    const lineas = construirLineas(calculo, 'SUELDO', CUENTAS, 'c-banco', false);
+    const banco = lineas.filter((l) => l.accountId === 'c-banco');
+    expect(banco).toHaveLength(1);
+    expect(banco[0].credit).toBe(calculo.neto);
+  });
+
+  it('los aportes del patrono van al debe, cada uno a SU cuenta, y no tocan el neto', () => {
+    const calculo = item(1220.8);
+    const lineas = construirLineas(calculo, 'SUELDO', CUENTAS, 'c-banco', false);
+    const gasto = (id: string) => lineas.find((l) => l.accountId === id)?.debit ?? 0;
+
+    expect(gasto('c-ss-pat-gasto')).toBe(calculo.ssPatronal);
+    expect(gasto('c-se-pat-gasto')).toBe(calculo.sePatronal);
+    expect(gasto('c-riesgos-gasto')).toBe(calculo.riesgosPatronal);
+    // El pasivo del Seguro Social recibe también los riesgos: a la CSS se le paga
+    // todo junto, aunque el gasto se analice por separado.
+    const pasivoSS = lineas.find((l) => l.accountId === 'c-ss-patronal')!;
+    expect(pasivoSS.credit).toBe(sumarMontos(calculo.ssPatronal, calculo.riesgosPatronal));
+
+    expect(calculo.neto).toBe(r2(calculo.bruto - calculo.ss - calculo.se - calculo.isr));
+    // 1% sobre la base de cotización, que es la quincena de 610,40.
+    expect(calculo.riesgosPatronal).toBe(6.1);
+  });
+
+  it('el gasto del patrono queda repartido en tres cuentas distintas', () => {
+    const lineas = construirLineas(item(1220.8), 'SUELDO', CUENTAS, 'c-banco', false);
+    const gastos = lineas.filter((l) => l.debit > 0).map((l) => l.accountId);
+    expect(gastos).toContain('c-ss-pat-gasto');
+    expect(gastos).toContain('c-se-pat-gasto');
+    expect(gastos).toContain('c-riesgos-gasto');
+    expect(new Set(gastos).size).toBe(gastos.length);
+  });
+
+  it('el décimo y las vacaciones también causan el aporte del patrono', () => {
+    const decimo = item(780, { montoPrestacion: 500 }, { ...Q1_JUNIO, tipo: 'DECIMO' });
+    const lineasDecimo = construirLineas(decimo, 'DECIMO', CUENTAS, 'c-banco', false);
+    expect(lineasDecimo.find((l) => l.accountId === 'c-ss-pat-gasto')!.debit).toBe(53.75);
+    expect(debitos(lineasDecimo)).toBe(creditos(lineasDecimo));
+
+    const vacaciones = item(780, { montoPrestacion: 780 }, { ...Q1_JUNIO, tipo: 'VACACIONES' });
+    const lineasVac = construirLineas(vacaciones, 'VACACIONES', CUENTAS, 'c-banco', false);
+    expect(vacaciones.ssPatronal).toBe(r2(780 * 0.1225)); // 95,55
+    expect(vacaciones.riesgosPatronal).toBe(r2(780 * 0.01)); // 7,80
+    expect(debitos(lineasVac)).toBe(creditos(lineasVac));
+  });
+
+  it('la provisión suma sus tres líneas solo si está encendida', () => {
+    const calculo = item(1220.8);
+    const sin = construirLineas(calculo, 'SUELDO', CUENTAS, 'c-banco', false);
+    const con = construirLineas(calculo, 'SUELDO', CUENTAS, 'c-banco', true);
+
+    expect(sin.some((l) => l.accountId === 'c-decimo-xp')).toBe(false);
+    expect(con.some((l) => l.accountId === 'c-decimo-xp')).toBe(true);
+    expect(con.some((l) => l.accountId === 'c-vacaciones-xp')).toBe(true);
+    expect(con.some((l) => l.accountId === 'c-prestaciones-xp')).toBe(true);
+    expect(debitos(con)).toBe(creditos(con));
+    // La provisión mueve gasto y pasivo en la misma cuantía: el neto no cambia.
+    expect(con.find((l) => l.accountId === 'c-banco')!.credit).toBe(calculo.neto);
+  });
+
+  it('el décimo descarga el pasivo acumulado en vez de generar gasto nuevo', () => {
+    const calculo = item(780, { montoPrestacion: 500 }, { ...Q1_JUNIO, tipo: 'DECIMO' });
+    const lineas = construirLineas(calculo, 'DECIMO', CUENTAS, 'c-banco', false);
+    expect(lineas.find((l) => l.accountId === 'c-decimo')!.debit).toBe(500);
+    expect(lineas.some((l) => l.accountId === 'c-patronal-gasto')).toBe(false);
+    expect(debitos(lineas)).toBe(creditos(lineas));
+  });
+
+  it('no emite líneas de monto cero', () => {
+    const calculo = item(1220.8);
+    const lineas = construirLineas(calculo, 'SUELDO', CUENTAS, 'c-banco', false);
+    for (const l of lineas) {
+      expect(l.debit > 0 || l.credit > 0).toBe(true);
+    }
+    expect(lineas.some((l) => l.accountId === 'c-extras')).toBe(false);
+    expect(lineas.some((l) => l.accountId === 'c-otras')).toBe(false);
+  });
+});
+
+describe('la corrida completa', () => {
+  const empleados: EmpleadoCalc[] = [
+    empleado(1220.8, { id: 'e1', nombre: 'Ana' }),
+    empleado(1500, { id: 'e2', nombre: 'Beto' }),
+    empleado(780, { id: 'e3', nombre: 'Caro' }),
+    empleado(900, { id: 'e4', nombre: 'Dora', fechaIngreso: new Date(2026, 6, 1) }),
+  ];
+
+  it('barre a todos y deja fuera a quien no corresponde, sin fallar', () => {
+    const res = calcularCorrida(empleados, [{ employeeId: 'e1', horasExtras: 120.32 }], Q1_JUNIO, TASAS);
+    expect(res.items).toHaveLength(3);
+    expect(res.omitidos).toEqual([
+      { employeeId: 'e4', nombre: 'Dora', motivo: 'no estaba empleado en el período' },
+    ]);
+  });
+
+  it('los totales son la suma de los renglones', () => {
+    const res = calcularCorrida(empleados, [], Q1_JUNIO, TASAS);
+    expect(res.totales.bruto).toBe(sumarMontos(...res.items.map((i) => i.bruto)));
+    expect(res.totales.neto).toBe(sumarMontos(...res.items.map((i) => i.neto)));
+    expect(res.totales.deducciones).toBe(
+      sumarMontos(...res.items.map((i) => i.ss + i.se + i.isr + i.otrasDeducciones)),
+    );
+  });
+
+  it('el total de los asientos cuadra con el total de la corrida', () => {
+    const res = calcularCorrida(empleados, [], Q1_JUNIO, TASAS);
+    const lineas = res.items.flatMap((i) => construirLineas(i, 'SUELDO', CUENTAS, 'c-banco', false));
+    expect(debitos(lineas)).toBe(creditos(lineas));
+
+    const banco = sumarMontos(...lineas.filter((l) => l.accountId === 'c-banco').map((l) => l.credit));
+    expect(banco).toBe(res.totales.neto);
+
+    const patronal = sumarMontos(
+      ...res.items.map((i) => i.ssPatronal + i.sePatronal + i.riesgosPatronal),
+    );
+    expect(patronal).toBe(res.totales.patronal);
+    expect(patronal).toBeGreaterThan(0);
+  });
+
+  it('sin empleados no explota: devuelve totales en cero', () => {
+    const res = calcularCorrida([], [], Q1_JUNIO, TASAS);
+    expect(res.items).toHaveLength(0);
+    expect(res.totales.neto).toBe(0);
+  });
+});
