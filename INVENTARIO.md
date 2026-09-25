@@ -137,7 +137,16 @@ sería una segunda forma de facturar y con ella una segunda numeración y un seg
 
 - El renglón de la factura puede apuntar a un **producto** del catálogo. Al elegirlo se descuenta el stock y
   se añade al asiento la línea `D Costo de Productos Vendidos / C Inventario` por el costo promedio.
-- **Un renglón sin producto no genera costo.** Las facturas de servicios y las históricas no cambian.
+- **Un renglón sin producto no genera costo ni toca el stock.** Los **servicios** se facturan exactamente
+  como hoy: sin producto, sin kardex y sin línea de costo. Es una directiva, no un efecto colateral.
+  La cantidad de un servicio va **siempre en 1** y el detalle —las horas, los días, el alcance— se escribe
+  en la descripción del trabajo. Por eso la cantidad de los renglones sigue siendo un entero.
+- **La factura puede mezclar los dos.** Un mismo documento con renglones de mercancía y de servicios
+  descuenta solo los primeros; los demás quedan igual que siempre. El vínculo es por renglón, no por
+  factura.
+- Toda la Facturación sigue funcionando para una empresa que **no use** el módulo: si ningún renglón tiene
+  producto, el asiento es idéntico al de antes. Es la garantía de que activar Inventario no cambia la
+  contabilidad de quien solo presta servicios —el caso de ODESA—.
 - **Stock insuficiente no rechaza la venta**: la venta ya ocurrió y la numeración es correlativa. El faltante
   se valora a 0, el saldo queda negativo y el producto entra en "regularizar" — cuando se cargue la compra,
   el motor emite la regularización sola.

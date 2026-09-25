@@ -234,6 +234,12 @@ rentabilidad** por segmento.
   sufrida; lo aplicado a la factura es la suma.
 - Compras sin derecho a crédito: la app registra el ITBMS dentro del costo (a confirmar — pregunta 4 de §4.1).
 
+**Facturación**
+- La cantidad de un renglón es un **entero**. Un **servicio** va siempre en cantidad 1 y el detalle —horas,
+  días, alcance— se escribe en la descripción del trabajo. No se factura por 2,5 horas ni por 2,5 lb.
+- Una factura puede mezclar renglones de mercancía (con producto del inventario) y de servicios (sin
+  producto). Solo los primeros mueven stock y generan línea de costo.
+
 **Anexos DGI y bloqueo de cuentas**
 - Con `requiresAnexo`, la fila exige siempre fecha, monto y detalle, y **además RUC/cédula y nombre del
   tercero**. La factura es opcional, obligatoria solo si la forma de pago es CRÉDITO (tarjeta de crédito
