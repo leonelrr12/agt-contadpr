@@ -23,6 +23,7 @@ import { planillaRouter } from './routes/planilla';
 import { honorariosRetiredRouter } from './routes/honorarios-retired';
 import { recurringRouter } from './routes/recurring';
 import { budgetsRouter } from './routes/budgets';
+import { inventarioRouter } from './routes/inventario';
 import { yearCloseRouter } from './routes/year-close';
 import { reconcileRouter } from './routes/reconcile';
 import { facturasRouter } from './routes/facturas';
@@ -32,7 +33,7 @@ import { retencionesRouter } from './routes/retenciones';
 import { usersRouter } from './routes/users';
 import { saludRouter } from './routes/salud';
 import { planRateLimiter } from './middleware/plan-rate-limit';
-import { requireAuth, requireRole } from './middleware/auth';
+import { requireAuth, requireRole, limitarRolInventario } from './middleware/auth';
 import { errorHandler, notFoundHandler } from './middleware/error-handler';
 import { encryptData, decryptResult, hashField } from './services/crypto-fields';
 
@@ -152,6 +153,8 @@ app.use('/api/config', publicConfigRouter);  // público: wa-phone, etc.
 
 // ── Middleware de autenticación para el resto de rutas ──
 app.use('/api', requireAuth);
+// El rol `inventario` solo pasa por su lista blanca (ver middleware/auth.ts).
+app.use('/api', limitarRolInventario);
 
 // ── Rate limiting por plan (después de auth, aplica a todas las rutas protegidas) ──
 app.use('/api', planRateLimiter);
@@ -172,6 +175,7 @@ app.use('/api/planilla', planillaRouter);
 app.use('/api/honorarios', honorariosRetiredRouter);  // modo retirado → 410 con guía
 app.use('/api/recurring', recurringRouter);
 app.use('/api/budgets', budgetsRouter);
+app.use('/api/inventario', inventarioRouter);
 app.use('/api/year-close', yearCloseRouter);
 app.use('/api/reconcile', reconcileRouter);
 app.use('/api/facturas', facturasRouter);

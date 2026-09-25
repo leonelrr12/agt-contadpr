@@ -184,6 +184,9 @@ const ALIAS_BY_CODE: Record<string, string[]> = {
   '2.1.01': ['proveedores'],
   '2.1.03': ['tarjeta-credito'],
   '1.1.04.01': ['inventario-mercancia'],
+  // Contrapartida del kardex al vender. Las empresas ya creadas no tienen el alias,
+  // pero el módulo de Inventario cae al código 5.01.01 y funciona igual.
+  '5.01.01': ['costo-ventas'],
   '2.2.01': ['prestamos-lp'],
   '4.01.01': ['ventas'],
   '6.06.01': ['gasto'],

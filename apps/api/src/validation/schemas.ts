@@ -249,3 +249,67 @@ export const createFacturaSchema = z.object({
   dueDate: isoDate.optional(),
   paymentMethod: z.enum(['EFECTIVO', 'CREDITO']).default('EFECTIVO'),
 });
+
+// ── Inventario ──
+export const createProductoSchema = z.object({
+  nombre: z.string().min(1, 'El nombre es requerido').max(200),
+  sku: z.string().max(60).optional(),
+  descripcion: z.string().max(500).optional(),
+  unidad: z.string().max(10).optional(),
+  stockMinimo: z.number().min(0).max(1e12).optional(),
+  cuentaInventarioId: z.string().optional(),
+  cuentaCostoId: z.string().optional(),
+  // Apertura: si viene cantidad y costo, el alta deja también el movimiento inicial.
+  cantidadInicial: z.number().positive('La cantidad debe ser mayor que cero').max(1e12).optional(),
+  costoInicial: z.number().min(0).max(1e12).optional(),
+  fechaInicial: isoDate.optional(),
+});
+export type CreateProductoInput = z.infer<typeof createProductoSchema>;
+
+export const updateProductoSchema = z.object({
+  nombre: z.string().min(1).max(200).optional(),
+  sku: z.string().max(60).nullable().optional(),
+  descripcion: z.string().max(500).nullable().optional(),
+  unidad: z.string().max(10).optional(),
+  stockMinimo: z.number().min(0).max(1e12).optional(),
+  cuentaInventarioId: z.string().nullable().optional(),
+  cuentaCostoId: z.string().nullable().optional(),
+  isActive: z.boolean().optional(),
+});
+export type UpdateProductoInput = z.infer<typeof updateProductoSchema>;
+
+const lineaEntradaSchema = z.object({
+  productId: z.string().min(1),
+  cantidad: z.number().positive('La cantidad debe ser mayor que cero').max(1e12),
+  costoUnitario: z.number().min(0, 'El costo no puede ser negativo').max(1e12),
+});
+
+export const entradaInventarioSchema = z.object({
+  lineas: z.array(lineaEntradaSchema).min(1, 'Se requiere al menos un producto').max(200),
+  fecha: isoDate,
+  paymentMethod: z.enum(['EFECTIVO', 'TRANSFERENCIA', 'CHEQUE', 'TARJETA_DEBITO', 'TARJETA_CREDITO', 'CREDITO']),
+  bancoCuentaId: z.string().optional(),
+  supplierId: z.string().optional(),
+  referencia: z.string().max(100).optional(),
+  notas: z.string().max(500).optional(),
+  // Va a crédito fiscal y solo si la empresa declara ITBMS; si no, va dentro del costo.
+  itbmsAmount: z.number().min(0).max(1e12).optional(),
+  origen: z.enum(['COMPRA', 'APERTURA']).optional(),
+  // Obligatoria en una APERTURA: contra qué cuenta se carga la existencia.
+  cuentaContrapartidaId: z.string().optional(),
+  dedupeKey: z.string().max(120).optional(),
+});
+export type EntradaInventarioInput = z.infer<typeof entradaInventarioSchema>;
+
+export const salidaInventarioSchema = z.object({
+  lineas: z.array(z.object({
+    productId: z.string().min(1),
+    cantidad: z.number().positive('La cantidad debe ser mayor que cero').max(1e12),
+  })).min(1, 'Se requiere al menos un producto').max(200),
+  fecha: isoDate,
+  motivo: z.string().max(300).optional(),
+  cuentaContrapartidaId: z.string().optional(),
+  forzar: z.boolean().optional(),
+  dedupeKey: z.string().max(120).optional(),
+});
+export type SalidaInventarioInput = z.infer<typeof salidaInventarioSchema>;

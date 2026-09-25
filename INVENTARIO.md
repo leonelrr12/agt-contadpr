@@ -210,17 +210,38 @@ en los renglones de factura.
 
 | Fase | Contenido | Estado |
 |---|---|---|
-| 1 | Modelos + migración `0018` + motor de costo puro | ✅ **Hecho** (25-09) — 19 tests |
-| 2 | API y asientos (productos, entradas, salidas, kardex, valoración) | ⬜ Pendiente |
-| 3 | Página `inventario.html` + enlace desde el SPA | ⬜ Pendiente |
+| 1 | Modelos + migración `0018`/`0019` + motor de costo puro | ✅ **Hecho** (25-09) — 19 tests |
+| 2 | API y asientos (productos, entradas, salidas, kardex, valoración) | ✅ **Hecho** (25-09) — verificado E2E |
 | 4 | La venta descuenta stock (`InvoiceItem.productId`) | ⬜ Pendiente |
+| 3 | Página `inventario.html` + enlace desde el SPA | ⬜ Pendiente |
 | 5 | La compra deja de entrar por importación y chat | ⬜ Pendiente |
 | 6 | Cuadre y alertas | ⬜ Pendiente |
 | 7 | Ajustes, anulación y toma física | ⬜ Pendiente |
 
-La Fase 1 dejó en la base las tablas `inventory_product` e `inventory_movement`, `invoice_item.productId`
-y las cuentas de inventario por empresa. Nada las usa todavía: son aditivas y no cambian ningún
-comportamiento existente.
+**Adelantado de la Fase 4** (no se puede posponer): el rol `inventario` y su barrera nacieron junto con
+los endpoints. Un rol restringido sin la barrera que niega por defecto es un agujero abierto desde el
+primer día. Falta de esa fase el redirect del login y los permisos de facturas/clientes/proveedores.
+
+**Hecho en la Fase 2** (verificado contra producción y limpiado después): alta de producto, entrada de
+compra con ITBMS, salida con barrido, kardex, valoración y cuadre. El ciclo cierra en 0/0 exacto y el
+`cuadra` da verdadero. Una compra a crédito crea su **Bill** en el auxiliar de CxP.
+
+Decisiones que tomó la implementación, y que no estaban en el diseño:
+
+- **`costoUnitario` es siempre lo que queda en el kardex**, y el asiento debita inventario por exactamente
+  ese importe. El ITBMS es una línea aparte contra crédito fiscal, y **solo si la empresa lo declara**: si
+  no, se rechaza con un mensaje que dice que el impuesto va dentro del costo. Nada de recalcular el costo
+  por detrás, que es la forma más fácil de que el kardex y el mayor se separen.
+- **Una apertura exige la cuenta de contrapartida.** Cargar existencias sin compra puede ir contra
+  patrimonio, contra una cuenta de carga inicial o contra proveedores, y eso lo decide el contador: no se
+  adivina. La Carga Inicial que ya existe es una carga de archivo con ambos lados, así que no había una
+  cuenta que copiar.
+- **El producto guarda su `stockValor`**, no lo deriva de `cantidad × costoPromedio`: es la cifra que
+  tiene que cuadrar con el mayor al centavo y no puede quedar a merced del redondeo de punto flotante.
+- **La condición para crear el `Bill` es "quedó a deber"**, no la forma de pago: se mira si la cuenta
+  acreditada es Proveedores. Una apertura contra proveedores también es deuda y aparece en el auxiliar.
+- **`PATCH /productos/:id` no toca existencia ni costo.** Son el resultado del kardex; para moverlos hay
+  que registrar un movimiento, que es lo que deja el rastro.
 
 Las fases 1 a 3 son aditivas y se despliegan sin tocar ningún flujo existente. La **fase 5 es el único
 cambio de comportamiento sobre datos vivos** y va al final, cuando el módulo ya es la alternativa.

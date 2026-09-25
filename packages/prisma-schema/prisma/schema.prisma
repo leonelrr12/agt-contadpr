@@ -704,7 +704,12 @@ model InventoryProduct {
   /// Saldo corrido vigente. Puede ser NEGATIVO si se vendió sin stock cargado;
   /// el módulo lo marca para regularizar en vez de bloquear la venta.
   stockActual   Float  @default(0)
-  /// Costo promedio ponderado vigente. Se DERIVA del kardex (saldoValor / saldoCantidad);
+  /// Valor vigente del inventario: el `saldoValor` del último movimiento. Se guarda
+  /// explícito en vez de derivarlo de `stockActual × costoPromedio` para no depender
+  /// de un ida y vuelta por punto flotante: es la cifra que tiene que cuadrar con el
+  /// mayor al centavo, y no puede quedar a merced del redondeo.
+  stockValor    Float  @default(0)
+  /// Costo promedio ponderado vigente. Se DERIVA del kardex (stockValor / stockActual);
   /// puede quedar fraccionario, es un número de gestión y se redondea al mostrarlo.
   costoPromedio Float  @default(0)
   // Sobreescritura de las cuentas de la empresa para este producto.
