@@ -1,5 +1,5 @@
 /**
- * Guard de cuentas bloqueadas (`Account.isBlocked`) — Fase C de Anexo-DGI.md.
+ * Guard de cuentas bloqueadas (`Account.isBlocked`) — flag ⛔ de Administración → Cuentas.
  *
  * Una cuenta bloqueada no admite asientos nuevos en NINGÚN flujo. Se aplica a la
  * creación de asientos (manual, cargas, cobros, planilla, retenciones, recurrentes,

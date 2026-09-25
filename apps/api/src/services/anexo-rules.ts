@@ -1,6 +1,6 @@
 /**
  * Reglas del flag "Lleva Anexo" (`Account.requiresAnexo`) en la carga general de
- * Transacciones — Fase D de Anexo-DGI.md.
+ * Transacciones. Ver Tuning.md §5 (Reglas de negocio) — los flags nacen apagados.
  *
  * Con el flag activo, además de fecha/concepto/monto (que valida
  * `missingImportFields` para TODAS las filas), la cuenta exige RUC/Cédula y

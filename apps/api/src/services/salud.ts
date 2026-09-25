@@ -443,7 +443,7 @@ export async function computeProyeccion(
   return result;
 }
 
-// ── Alertas de desviación de presupuesto (Tuning.md §12 F4) ──
+// ── Alertas de desviación de presupuesto ──
 
 /** Tope de alertas de presupuesto: por encima de esto el panel deja de ser legible. */
 const MAX_ALERTAS_PRESUPUESTO = 8;
