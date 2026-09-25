@@ -253,7 +253,7 @@ en los renglones de factura.
 | 3 | Página `inventario.html` + enlace desde el SPA | ✅ **Hecho** (25-09) — smoke de 13 casos |
 | 4 | La venta descuenta stock (`InvoiceItem.productId`) | ✅ **Hecho** (25-09) — verificado E2E |
 | 6b | Carga inicial de inventario por archivo | ✅ **Hecho** (25-09) — verificado E2E |
-| 5 | La compra deja de entrar por importación y chat | ⬜ Pendiente |
+| 5 | La compra deja de entrar por importación y chat | ✅ **Hecho** (25-09) — verificado con importación real |
 | 6 | Cuadre y alertas | ⬜ Pendiente |
 | 7 | Ajustes, anulación y toma física | ⬜ Pendiente |
 
@@ -261,6 +261,15 @@ en los renglones de factura.
 los endpoints. Un rol restringido sin la barrera que niega por defecto es un agujero abierto desde el
 primer día. También el redirect: al arrancar el SPA, un usuario de depósito va directo a su página, sin
 importar por dónde entró. Falta de esa fase darle permiso de escritura en facturas, clientes y proveedores.
+
+**Hecho en la Fase 5** (verificado con una importación real): el agente contable ya **no hardcodea** la
+cuenta de inventario en la rama de compra —usa la que resolvió el clasificador—, y el fallback de compra
+del clasificador pasó de inventario a gasto. Antes, cualquier compra cargada por importación o chat
+debitaba `1.1.04.01` con el monto pero **sin cantidad**, así que inflaba el activo y el kardex nunca se
+enteraba; ahora esa vía lleva a la cuenta que la pantalla de vista previa ya mostraba.
+
+Un test de invariante recorre **todos** los tipos de transacción por todas las formas de pago y verifica
+que ninguna línea genere la cuenta de inventario: el agente no puede volver a escribirla por su cuenta.
 
 **Hecho en la Fase 4** (verificado E2E): al elegir un producto en un renglón de la factura, la venta
 descuenta el stock y añade al mismo asiento el par `Debe Costo de Productos Vendidos / Haber Inventario`

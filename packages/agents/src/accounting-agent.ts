@@ -112,14 +112,22 @@ export class AccountingAgent {
       }
       case 'COMPRA': {
         const netAmount = dialog.amount;
+        // La cuenta la decide el clasificador, NO se hardcodea el inventario.
+        //
+        // Una compra puede ser mercancía de reventa, materia prima o un insumo, y
+        // solo la primera lleva kardex (ver INVENTARIO.md §2). Mandarla siempre a
+        // inventario inflaba el activo con compras que eran gasto, y encima sin
+        // cantidad: el kardex nunca se enteraba. La mercancía de reventa entra al
+        // kardex desde el módulo de Inventario, que es el único que debita esa cuenta.
+        const cuentaCompra = classification.accountId || 'gasto';
         if (this.declaraITBMS && itbmsAmount > 0) {
           // Declara: ITBMS separado como crédito fiscal
-          entry.debit.push({ accountId: 'inventario-mercancia', name: 'Inventario de Mercancía', amount: netAmount });
+          entry.debit.push({ accountId: cuentaCompra, name: classification.concept, amount: netAmount });
           entry.debit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: itbmsAmount });
           entry.description = `${dialog.type}: ${dialog.description || dialog.concept} - $${netAmount.toFixed(2)} + ITBMS $${itbmsAmount.toFixed(2)}`;
         } else {
           // No declara: ITBMS como parte del costo
-          entry.debit.push({ accountId: 'inventario-mercancia', name: 'Inventario de Mercancía', amount: r2(netAmount + itbmsAmount) });
+          entry.debit.push({ accountId: cuentaCompra, name: classification.concept, amount: r2(netAmount + itbmsAmount) });
         }
         const totalAmount = r2(netAmount + itbmsAmount);
         if (dialog.paymentMethod === 'TARJETA_CREDITO') {

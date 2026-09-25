@@ -203,13 +203,22 @@ describe('AccountingAgent', () => {
       confidence: 0.95,
     };
 
-    it('splits debit into inventory and ITBMS por Pagar', () => {
+    it('divide el debe entre la cuenta clasificada y el ITBMS por Pagar', () => {
+      // La cuenta la decide el clasificador: una compra puede ser mercancía de
+      // reventa, materia prima o un insumo, y solo la primera lleva kardex.
       const entry = agent.generateEntry(dialog, classification);
       expect(entry.debit).toHaveLength(2);
-      expect(entry.debit[0].accountId).toBe('inventario-mercancia');
+      expect(entry.debit[0].accountId).toBe('inventario-mercancia-id');
       expect(entry.debit[0].amount).toBe(100);
       expect(entry.debit[1].accountId).toBe('itbms-por-pagar');
       expect(entry.debit[1].amount).toBe(7);
+    });
+
+    it('una compra clasificada como gasto NO toca inventario', () => {
+      const comoGasto: ClassificationResult = { ...classification, accountId: 'gasto-id', concept: 'Compra de insumos' };
+      const entry = agent.generateEntry(dialog, comoGasto);
+      expect(entry.debit[0].accountId).toBe('gasto-id');
+      expect(entry.debit.some((d) => d.accountId.includes('inventario'))).toBe(false);
     });
 
     it('total credit equals total debit (balanced)', () => {
@@ -400,6 +409,67 @@ describe('AccountingAgent', () => {
       const agent = new AccountingAgent(makePrismaStub(), 'demo-company');
       await agent.init();
       expect(() => agent.resolveAlias('unknown')).toThrow('Cuenta contable no encontrada');
+    });
+  });
+
+  /**
+   * INVARIANTE del módulo de Inventario: el agente contable NO puede debitar la
+   * cuenta de inventario por su cuenta.
+   *
+   * La mercancía de reventa entra al kardex desde el módulo de Inventario, que es el
+   * único que sabe la cantidad y el costo. Si un flujo automático (chat, importación,
+   * recurrente) debita inventario, infla el activo con compras que pueden ser gasto
+   * —materia prima, insumos— y encima sin cantidad: el kardex nunca se entera y las
+   * dos cifras se separan para siempre.
+   *
+   * La cuenta la decide el clasificador. Solo se usa lo que él resuelva.
+   */
+  describe('invariante: ningún flujo automático debita inventario', () => {
+    const TIPOS: DialogResult['type'][] = [
+      'INGRESO', 'GASTO', 'COMPRA', 'VENTA', 'PAGO_PROVEEDOR',
+      'COBRO_CLIENTE', 'PRESTAMO', 'PAGO_PRESTAMO', 'PAGO_ITBMS',
+    ];
+    const PAGOS = ['EFECTIVO', 'TRANSFERENCIA', 'CREDITO', 'TARJETA_CREDITO', null];
+
+    it('con la clasificación apuntando a un gasto, ninguna línea toca inventario', () => {
+      const agent = new AccountingAgent(makePrismaStub(), 'demo-company');
+      const comoGasto: ClassificationResult = { concept: 'Compra de insumos', accountId: 'gasto-id', confidence: 0.9 };
+
+      for (const type of TIPOS) {
+        for (const paymentMethod of PAGOS) {
+          for (const conItbms of [0, 7]) {
+            const dialog = {
+              type, amount: 100, currency: 'USD', description: 'prueba', concept: 'prueba',
+              paymentMethod, date: '2026-09-25', confidence: 0.9, missingFields: [],
+              suggestedResponse: '', provider: null, itbmsAmount: conItbms,
+            } as DialogResult;
+            const entry = agent.generateEntry(dialog, comoGasto);
+            const lineas = [...entry.debit, ...entry.credit];
+            const culpables = lineas.filter((l) => String(l.accountId).includes('inventario'));
+            expect(culpables, `${type}/${paymentMethod}/itbms=${conItbms} debitó inventario`).toEqual([]);
+          }
+        }
+      }
+    });
+
+    it('el alias de inventario ya no aparece hardcodeado en ningún asiento', () => {
+      // El literal 'inventario-mercancia' solo puede llegar al asiento si el agente
+      // lo escribe a mano, porque es un alias, no una cuenta. Que no aparezca nunca
+      // es la prueba de que el hardcodeo se fue.
+      const agent = new AccountingAgent(makePrismaStub(), 'demo-company');
+      const clasificacion: ClassificationResult = { concept: 'x', accountId: 'gasto-id', confidence: 0.9 };
+
+      for (const type of TIPOS) {
+        const dialog = {
+          type, amount: 100, currency: 'USD', description: 'prueba', concept: 'prueba',
+          paymentMethod: 'TRANSFERENCIA', date: '2026-09-25', confidence: 0.9,
+          missingFields: [], suggestedResponse: '', provider: null, itbmsAmount: 7,
+        } as DialogResult;
+        const entry = agent.generateEntry(dialog, clasificacion);
+        for (const l of [...entry.debit, ...entry.credit]) {
+          expect(l.accountId).not.toBe('inventario-mercancia');
+        }
+      }
     });
   });
 });

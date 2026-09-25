@@ -313,7 +313,12 @@ const CUENTAS_GASTO = new Set(['GASTO', 'COSTO']);
 const ALIAS_GENERICA: Record<string, { nombre: string; alias?: string }> = {
   INGRESO: { nombre: 'Otros Ingresos' },
   GASTO: { nombre: 'Gastos Varios', alias: 'gasto' },
-  COMPRA: { nombre: 'Compra de mercancía', alias: 'inventario-mercancia' },
+  // Una compra que no se pudo clasificar cae a gasto, NO a inventario. Debitar
+  // inventario sin saber qué se compró —y sin cantidad— infla el activo y descuadra
+  // el kardex. La mercancía de reventa entra por el módulo de Inventario, con su
+  // cantidad y su costo; los conceptos ya cargados ("Compra de mercancía" → 5.01.01)
+  // resuelven antes de llegar acá, así que este fallback es el último recurso.
+  COMPRA: { nombre: 'Gastos Varios', alias: 'gasto' },
   VENTA: { nombre: 'Ventas', alias: 'ventas' },
   PAGO_PROVEEDOR: { nombre: 'Proveedores', alias: 'proveedores' },
   COBRO_CLIENTE: { nombre: 'Clientes', alias: 'clientes' },

@@ -301,6 +301,12 @@ function renderImportInlinePreview() {
       } else if (r.type === 'GASTO' || r.type === 'COMPRA') {
         pagoHtml = '<span style="color:#059669;font-size:11px;font-weight:600" title="Al contado: sale del banco indicado en la columna Banco/Cuenta o del banco por defecto">Contado (banco)</span>';
       }
+      // Una compra ya no debita inventario (ver INVENTARIO.md §3.4): el aviso evita
+      // que alguien crea que el kardex se alimenta solo desde la importación.
+      const avisoKardex = r.type === 'COMPRA'
+        ? '<span style="color:#1565c0;font-size:11px;font-weight:600" title="Las compras ya no debitan inventario. Si es mercancía de reventa, cargala desde el módulo de Inventario para que quede en el kardex con su cantidad y su costo; si es materia prima o un insumo, va a gasto y está bien así.">📦 Sin kardex</span>'
+        : '';
+
       html += `<tr${rowCls}>
         <td>${i+1}</td><td>${r.date||'—'}</td><td>${escapeHtml(r.description||'')}</td>
         <td>${montoHtml}</td>
@@ -311,7 +317,7 @@ function renderImportInlinePreview() {
         <td>${conf?Math.round(conf.confidence*100)+'%':'—'}</td>
         <td>${omitida
           ? '<span style="color:#b45309;font-size:11px;font-weight:600" title="Ya está en el sistema con los mismos datos: se omite al importar">↩️ Ya cargada</span>'
-          : `${bloqueada ? `<span style="color:#dc2626;font-size:11px;font-weight:600" title="La cuenta no admite asientos: se rechazará esta fila al importar">⛔ Bloqueada</span>` : ''}${faltantes.length ? `<span style="color:#dc2626;font-size:11px"> Falta: ${faltantes.join(', ')}</span>` : ''}`}</td></tr>`;
+          : `${bloqueada ? `<span style="color:#dc2626;font-size:11px;font-weight:600" title="La cuenta no admite asientos: se rechazará esta fila al importar">⛔ Bloqueada</span>` : ''}${avisoKardex}${faltantes.length ? `<span style="color:#dc2626;font-size:11px"> Falta: ${faltantes.join(', ')}</span>` : ''}`}</td></tr>`;
     });
     document.getElementById('import-inline-tbody').innerHTML = html;
   }
