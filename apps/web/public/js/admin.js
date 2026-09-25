@@ -364,63 +364,6 @@ async function saveConfig() {
   } catch (e) { await showAlert('Error de conexión'); }
 }
 
-/* ── Administración: Configuración → Cuentas de Planilla ──
- * Tarjeta propia dentro de la pestaña Configuración, con su guardar
- * independiente del de la empresa. Cuenta contable por columna del archivo de
- * Planilla (Importar → 👷 Planilla). El banco ya no se configura aquí: sale de
- * la columna "Banco" del archivo o de la cuenta de banco por defecto
- * (Configuración). Se guardan en Company vía PUT /api/config, que valida que
- * cada cuenta exista en la empresa.
- * Formato: [selectId, grupo de la respuesta GET /config, campo de Company] */
-const CARGAS_CONFIG_FIELDS = [
-  ['planilla-sueldo', 'planilla', 'planillaSueldoId'],
-  ['planilla-horas-extras', 'planilla', 'planillaHorasExtrasId'],
-  ['planilla-decimo', 'planilla', 'planillaDecimoId'],
-  ['planilla-vacaciones', 'planilla', 'planillaVacacionesId'],
-  ['planilla-ss', 'planilla', 'planillaSSId'],
-  ['planilla-se', 'planilla', 'planillaSEId'],
-  ['planilla-isr', 'planilla', 'planillaISRId'],
-];
-
-async function loadPanelConfigPlanilla() {
-  try {
-    // Todas las cuentas activas ordenadas por código (patrón de selects del repo)
-    let cuentas = [];
-    try {
-      const ra = await authFetch(`${API_URL}/accounts?excludeBlocked=true`);
-      cuentas = (await ra.json() || []).filter(a => a.isActive !== false)
-        .sort((a, b) => String(a.code).localeCompare(String(b.code), undefined, { numeric: true }));
-    } catch { /* sin cuentas */ }
-    const optionsHtml = cuentas.map(a => `<option value="${a.id}">${escapeHtml(a.code)} — ${escapeHtml(a.name)}</option>`).join('');
-
-    const res = await authFetch(`${API_URL}/config`);
-    const cfg = await res.json();
-    for (const [selectId, grupo, field] of CARGAS_CONFIG_FIELDS) {
-      const sel = document.getElementById(selectId);
-      if (!sel) continue;
-      sel.innerHTML = `<option value="">— Sin definir —</option>${optionsHtml}`;
-      sel.value = (cfg[grupo] || {})[field] || '';
-    }
-  } catch (e) { /* keep defaults */ }
-}
-
-async function saveConfigPlanilla() {
-  const body = {};
-  for (const [selectId, _grupo, field] of CARGAS_CONFIG_FIELDS) {
-    const sel = document.getElementById(selectId);
-    body[field] = sel ? (sel.value || null) : undefined;
-  }
-  try {
-    const res = await authFetch(`${API_URL}/config`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) { const e = await res.json(); await showAlert(e.error || 'Error al guardar'); return; }
-    const msg = document.getElementById('planilla-saved-msg');
-    if (msg) { msg.style.display = 'inline'; setTimeout(() => { msg.style.display = 'none'; }, 2000); }
-  } catch (e) { await showAlert('Error de conexión'); }
-}
 
 document.getElementById('message-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -540,7 +483,16 @@ async function loadPanelUsuariosAdmin() {
       list.innerHTML = '<tr><td colspan="5" style="padding:16px;text-align:center;color:#6b7280">Sin usuarios adicionales. Crea el primero con "+ Nuevo usuario".</td></tr>';
       return;
     }
-    const roleBadge = r => ({ admin: ['Dueño', '#7c3aed', '#f5f3ff'], contador: ['Contador', '#0369a1', '#f0f9ff'], asistente: ['Asistente', '#6b7280', '#f3f4f6'] }[r] || [r, '#6b7280', '#f3f4f6']);
+    // `inventario` y `planilla` faltaban: el rol existía en la API desde que se creó
+    // cada módulo, pero el desplegable solo ofrecía contador y asistente, así que
+    // desde la UI era imposible asignarlos (solo por API o directo en la base).
+    const roleBadge = r => ({
+      admin: ['Dueño', '#7c3aed', '#f5f3ff'],
+      contador: ['Contador', '#0369a1', '#f0f9ff'],
+      asistente: ['Asistente', '#6b7280', '#f3f4f6'],
+      inventario: ['Inventario', '#b45309', '#fffbeb'],
+      planilla: ['Planilla', '#047857', '#ecfdf5'],
+    }[r] || [r, '#6b7280', '#f3f4f6']);
     const rows = users.map(u => {
       const [rl, rc, rb] = roleBadge(u.role);
       const esYo = me && u.id === me.id;
@@ -573,6 +525,8 @@ function openCrearUsuario() {
     <select id="nu-rol" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px">
       <option value="contador">Contador — registra y revisa la contabilidad</option>
       <option value="asistente">Asistente — acceso básico</option>
+      <option value="inventario">Inventario — solo inventario, facturas y clientes/proveedores</option>
+      <option value="planilla">Planilla — solo nómina y registro de empleados</option>
     </select>
     <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Contraseña inicial (mín. 6 caracteres — entrégasela al usuario)</label>
     <div style="display:flex;gap:6px;align-items:center">
@@ -636,6 +590,8 @@ async function openEditarUsuario(id) {
     <select id="eu-rol" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px">
       <option value="contador" ${u.role === 'contador' ? 'selected' : ''}>Contador</option>
       <option value="asistente" ${u.role === 'asistente' ? 'selected' : ''}>Asistente</option>
+      <option value="inventario" ${u.role === 'inventario' ? 'selected' : ''}>Inventario</option>
+      <option value="planilla" ${u.role === 'planilla' ? 'selected' : ''}>Planilla</option>
     </select>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
       <button class="app-dialog-btn" onclick="this.closest('.app-dialog-overlay').remove()">Cancelar</button>

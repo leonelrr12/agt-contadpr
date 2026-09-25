@@ -70,6 +70,7 @@
         <button class="nav-link" data-view="panel-whatsapp" id="nav-whatsapp-link">📱 WhatsApp</button>
         <button class="nav-link" data-view="panel-admin" id="nav-admin-link" style="display:none">⚙️ Panel Admin</button>
         <a class="nav-link" href="/inventario.html" id="nav-inventario-link" style="display:none">📦 Inventario</a>
+        <a class="nav-link" href="/planilla.html" id="nav-planilla-link" style="display:none">🧮 Planilla</a>
         <a class="nav-link" href="/admin.html" id="nav-saas-link" style="display:none">🖥️ SaaS Admin</a>
       </nav>
     </aside>
@@ -254,9 +255,6 @@
               <label style="padding:6px 12px;border-radius:6px;font-size:12.5px;cursor:pointer;color:#374151" id="import-mode-label-cobros">
                 <input type="radio" name="import-inline-mode" value="cobros" style="display:none"> 💰 Pagos a facturas
               </label>
-              <label style="padding:6px 12px;border-radius:6px;font-size:12.5px;cursor:pointer;color:#374151" id="import-mode-label-planilla">
-                <input type="radio" name="import-inline-mode" value="planilla" style="display:none"> 👷 Planilla
-              </label>
             </div>
             <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap" id="import-inline-date-label">📅 Fecha:</label>
             <input type="date" id="import-inline-date" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;width:160px">
@@ -264,13 +262,6 @@
               <input type="checkbox" id="import-inline-calcular-itbms" style="width:15px;height:15px;cursor:pointer">
               Calcular ITBMS 7% en ventas/compras sin columna
             </label>
-            <span id="import-inline-planilla-tipo-wrap" style="display:none;align-items:center;gap:6px">
-              <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap">Tipo:</label>
-              <select id="import-inline-planilla-tipo" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit">
-                <option value="SUELDO">Sueldo + Horas Extras</option>
-                <option value="DECIMO">Décimo III</option>
-              </select>
-            </span>
             <span id="import-inline-file-name" style="font-size:13px;color:#6b7280"></span>
           </div>
           <p id="import-inline-mode-hint" style="margin:8px 0 0 0;color:#6b7280;font-size:12px">Sube el CSV/Excel con tus transacciones históricas. La IA clasificará cada concepto.</p>
@@ -478,44 +469,12 @@
               <span id="config-saved-msg" style="display:none;color:#059669;font-size:13px;font-weight:600">✅ Guardado</span>
             </div>
           </div>
-          <!-- Cuentas de Planilla (nómina): tarjeta independiente, con su propio botón de guardar -->
+          <!-- Las cuentas de Planilla se mudaron al módulo: allá viven las tasas y las
+               cuentas juntas, y tenerlas en dos pantallas era pedir que se separaran. -->
           <div class="admin-form-card">
-            <h4>👷 Cuentas de Planilla</h4>
-            <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">Cuenta contable para cada columna del archivo de planilla (carga en Importar → 👷 Planilla). El asiento de cada empleado debita Sueldo, Horas Extras, Décimo III y Vacaciones, y acredita SS, SE, ISR y el Neto. El banco del Neto sale de la columna "Banco" del archivo o de la cuenta de banco por defecto (Configuración).</p>
-            <div class="form-grid">
-              <div>
-                <label>📋 Sueldo (DEBE)</label>
-                <select id="planilla-sueldo" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
-              </div>
-              <div>
-                <label>⏱ Horas Extras (DEBE)</label>
-                <select id="planilla-horas-extras" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
-              </div>
-              <div>
-                <label>🎁 Décimo III (DEBE)</label>
-                <select id="planilla-decimo" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
-              </div>
-              <div>
-                <label>🌴 Vacaciones (DEBE)</label>
-                <select id="planilla-vacaciones" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
-              </div>
-              <div>
-                <label>🏥 Seguro Social — SS (HABER)</label>
-                <select id="planilla-ss" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
-              </div>
-              <div>
-                <label>🎓 Seguro Educativo — SE (HABER)</label>
-                <select id="planilla-se" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
-              </div>
-              <div>
-                <label>🧾 Impuesto sobre la Renta — ISR (HABER)</label>
-                <select id="planilla-isr" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit"><option value="">— Sin definir —</option></select>
-              </div>
-            </div>
-            <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
-              <button class="btn-primary" onclick="saveConfigPlanilla()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar Cuentas de Planilla</button>
-              <span id="planilla-saved-msg" style="display:none;color:#059669;font-size:13px;font-weight:600">✅ Guardado</span>
-            </div>
+            <h4>🧮 Planilla</h4>
+            <p style="font-size:12px;color:#6b7280;margin:0">Las tasas, la escala del ISR y las cuentas contables de la nómina se configuran en
+              <a href="/planilla.html?tab=parametros" style="color:#1565c0;font-weight:600">Planilla → Parámetros</a>.</p>
           </div>
         </div>
         <!-- Carga Inicial Admin (balance de apertura — un solo uso por empresa) -->
@@ -654,7 +613,6 @@
   <script src="js/init.js?v=75"></script>
   <script src="js/panels-sidebar.js?v=74"></script>
   <script src="js/import.js?v=94"></script>
-  <script src="js/planilla.js?v=3"></script>
   <script src="js/carga-inicial.js?v=3"></script>
   <script src="js/auxiliares-revision.js?v=80"></script>
   <script src="js/entry-modals.js?v=82"></script>

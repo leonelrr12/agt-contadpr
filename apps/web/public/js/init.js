@@ -50,6 +50,11 @@ document.addEventListener('DOMContentLoaded', () => {
     window.location.replace('/inventario.html');
     return;
   }
+  // El usuario de nómina, igual: la API solo le responde Planilla y Empleados.
+  if (user?.role === 'planilla') {
+    window.location.replace('/planilla.html');
+    return;
+  }
 
   if (user) {
     document.getElementById('sidebar-user-name').textContent = user.name;
@@ -63,6 +68,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // usuario de depósito, que no ve nada más del sistema.
     if (['admin', 'contador', 'superadmin', 'inventario'].includes(user.role)) {
       document.getElementById('nav-inventario-link').style.display = 'block';
+    }
+    // Planilla: la usan los roles de la contabilidad y el usuario de nómina.
+    if (['admin', 'contador', 'superadmin', 'planilla'].includes(user.role)) {
+      document.getElementById('nav-planilla-link').style.display = 'block';
     }
     // SaaS Admin (control de accesos) SOLO para el dueño de la plataforma
     if (user.role === 'superadmin') {

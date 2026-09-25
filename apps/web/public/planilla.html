@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Planilla — Contador507</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css?v=7">
+  <style>
+    .pl-container { max-width: 1280px; margin: 0 auto; padding: 24px; }
+    .pl-header h1 { font-size: 24px; color: #1a1a2e; margin: 0 0 8px 0; }
+    .pl-header p { color: #6b7280; margin: 0; font-size: 14px; }
+    .pl-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 20px 0 16px 0; border-bottom: 2px solid #e5e7eb; }
+    .pl-tab { padding: 8px 14px; border: none; background: none; cursor: pointer; font-size: 13px; font-weight: 600; color: #6b7280; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+    .pl-tab.active { color: #047857; border-bottom-color: #047857; }
+    .summary-cards { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+    .summary-card { flex: 1; min-width: 140px; background: #fff; border-radius: 8px; padding: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); text-align: center; }
+    .summary-card .num { font-size: 22px; font-weight: 700; color: #1a1a2e; font-variant-numeric: tabular-nums; }
+    .summary-card .label { font-size: 12px; color: #6b7280; margin-top: 4px; }
+    .summary-card.ok .num { color: #059669; }
+    .summary-card.warn .num { color: #d97706; }
+    .summary-card.err .num { color: #dc2626; }
+    .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .data-table th { background: #f0f0f0; padding: 8px 10px; text-align: left; font-weight: 600; border-bottom: 2px solid #d0d5dd; white-space: nowrap; }
+    .data-table td { padding: 6px 10px; border-bottom: 1px solid #e5e7eb; }
+    .data-table tr:hover td { background: #f9fafb; }
+    .data-table td.num, .data-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .data-table input.celda { width: 90px; padding: 4px 6px; border: 1px solid #d0d5dd; border-radius: 5px; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+    .data-table input.celda:focus { outline: 2px solid #047857; border-color: transparent; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .badge-ok { background: #d1fae5; color: #065f46; }
+    .badge-warn { background: #fef3c7; color: #92400e; }
+    .badge-err { background: #fee2e2; color: #991b1b; }
+    .badge-neutral { background: #e5e7eb; color: #374151; }
+    .btn { padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; }
+    .btn-primary { background: #047857; color: #fff; }
+    .btn-primary:hover { background: #065f46; }
+    .btn-primary:disabled { background: #9ca3af; cursor: not-allowed; }
+    .btn-secondary { background: #e5e7eb; color: #374151; }
+    .btn-secondary:hover { background: #d1d5db; }
+    .btn-sm { padding: 4px 10px; font-size: 11px; }
+    .btn-danger { background: #dc2626; color: #fff; }
+    .hidden { display: none !important; }
+    .loading { text-align: center; padding: 32px; color: #6b7280; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+    .card h3 { margin: 0 0 12px 0; font-size: 15px; color: #1a1a2e; }
+    .form-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .form-grid label { font-size: 12px; color: #6b7280; display: block; margin-bottom: 2px; }
+    .form-grid input, .form-grid select { width: 100%; padding: 8px; border: 1px solid #d0d5dd; border-radius: 6px; box-sizing: border-box; font-size: 13px; }
+    .aviso { background: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 6px; padding: 10px 14px; font-size: 13px; color: #92400e; margin-bottom: 8px; }
+    .aviso.err { background: #fef2f2; border-left-color: #dc2626; color: #991b1b; }
+    .aviso.ok { background: #ecfdf5; border-left-color: #059669; color: #065f46; }
+    .nota { font-size: 12px; color: #6b7280; margin-top: 10px; line-height: 1.5; }
+    .preview { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; font-size: 13px; margin-top: 12px; }
+    .preview .fila { display: flex; justify-content: space-between; padding: 3px 0; }
+    .preview .fila.total { border-top: 1px solid #cbd5e1; margin-top: 6px; padding-top: 6px; font-weight: 700; }
+    @media (max-width: 900px) { .form-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }
+  </style>
+  <script src="js/shared.js?v=1"></script>
+</head>
+<body>
+<div class="pl-container">
+  <div class="pl-header">
+    <h1>🧮 Planilla</h1>
+    <p>Registro de empleados, corridas de nómina y cuentas de la CSS. Los asientos nacen en BORRADOR y los aprueba el contador.</p>
+    <p style="margin-top:8px"><a href="/index.html" style="color:#047857;text-decoration:none;font-size:14px">← Volver al inicio</a></p>
+  </div>
+
+  <div class="pl-tabs" id="pl-tabs">
+    <button class="pl-tab" data-tab="corrida">Corrida</button>
+    <button class="pl-tab" data-tab="empleados">Empleados</button>
+    <button class="pl-tab" data-tab="acumulados">Acumulados</button>
+    <button class="pl-tab" data-tab="historial">Historial</button>
+    <button class="pl-tab" data-tab="css">CSS</button>
+    <button class="pl-tab" data-tab="cuadre">Cuadre</button>
+    <button class="pl-tab" data-tab="parametros">Parámetros</button>
+  </div>
+
+  <div id="pl-contenido"><div class="loading">Cargando…</div></div>
+</div>
+
+<script src="js/planilla-modulo.js?v=1"></script>
+</body>
+</html>
