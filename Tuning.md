@@ -7,8 +7,8 @@
 > Para arrancar el proyecto (comandos, BD, despliegue, trampas) ver **AGENTS.md**, que es el que se
 > carga en cada sesión. Esto de acá es el estado del producto y lo que falta.
 
-**Última verificación contra el código: 2026-09-25** — 30 modelos Prisma, 39 rutas montadas, migración
-más alta `0017_budget`, 66 tests.
+**Última verificación contra el código: 2026-09-25** — 36 modelos Prisma, 41 rutas montadas, migración
+más alta `0025_empleado_clase_riesgo`, 172 tests.
 
 ---
 
@@ -70,7 +70,7 @@ Verificado contra el código el 25-09-2026. **Si algo no está en esta lista, no
 | Export XLSX/CSV | `services/export.ts` |
 | Salud financiera con IA (ratios, score, alertas, narrativa) | `services/salud.ts` + panel 🩺 |
 | Presupuestos + proyección de caja 3/6/12 | `budget-comparison.ts`, `cuentas-efectivo.ts`, migración `0017` |
-| Planilla (nómina) por archivo | `routes/planilla.ts`, migración `0012`/`0016` |
+| **Planilla (nómina)**: registro de empleados, cálculo de SS/SE/ISR, décimo y vacaciones, aportes del patrono en tres cuentas, CSS y cuadre | `payroll-calc.ts`, `payroll-run.ts`, `planilla.html`, migraciones `0022`-`0025` — ver [`PLANILLA.md`](PLANILLA.md) |
 | **Inventario**: kardex con costo promedio, carga inicial por archivo, toma física, anulación y cuadre contra el mayor | `inventario.ts`, `costo-promedio.ts`, `inventario.html`, migraciones `0018`-`0020` — ver [`INVENTARIO.md`](INVENTARIO.md) |
 | Multi-tenant SaaS: planes, suscripciones, API Keys, cuotas, admin | `Plan`, `Subscription`, `ApiKey`, `routes/admin.ts` |
 | Audit log de asientos | `services/audit-log.ts` |
@@ -189,8 +189,12 @@ rentabilidad** por segmento.
 - **§7 Facturas:** **envío por email al cliente** (lo demás está: logo, correlativo, ITBMS, resolución).
 - **§8 Cierre:** ajustes sugeridos por IA (depreciación, amortización, provisiones) y **resumen del año
   con comparativa** contra el período anterior.
-- **§11 Nómina:** registro de **empleados** con salarios y cargos (hoy es carga por archivo, no hay
-  modelo de empleado), recordatorios de cuotas CSS y acumulados para décimo tercer mes y liquidaciones.
+- **§11 Nómina:** lo que queda **fuera** de [`PLANILLA.md`](PLANILLA.md) — liquidaciones de personal, ISR
+  anual, préstamos o embargos como descuento recurrente por empleado, y el registro del pago mensual del ISR
+  retenido a la DGI (el calendario fiscal no tiene esa obligación).
+- **§11 Nómina:** las tarifas de Riesgos Profesionales de las clases II a V. La tabla arranca con la clase I
+  (1,00%) y las demás se cargan desde Planilla → Parámetros; un empleado en una clase sin tarifa **rechaza su
+  fila** en la corrida, a propósito.
 - **Retención ITBMS:** probar el flujo multi-turn real por WhatsApp (orden categoría→pago→resto) y el
   caso de respuesta corta con solo el número.
 
