@@ -160,6 +160,12 @@ model JournalEntry {
   reviewedAt   DateTime?
   reviewNotes  String?
   reconciledAt DateTime?
+  /// Asiento de reversión que lo anuló. Un asiento anulado NO deja de contar: se
+  /// contabilizó y después se corrigió, así que sigue en los informes de su período
+  /// y el reverso (fechado el día de la corrección) lo netea desde ese mes en
+  /// adelante. Marcar el original como ANULADO lo borraba de su período, que es
+  /// reescribir la historia. Esta marca es para la UI, no para los reportes.
+  anuladoPorId String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

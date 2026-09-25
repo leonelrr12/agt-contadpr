@@ -143,8 +143,9 @@ async function buildProveedoresReport(prisma: any, companyId: string, startDate?
  * el eje es la cuenta (la que el usuario marcó con "Lleva Anexo"), no el proveedor.
  * - Filas: líneas de asiento que tocan la cuenta (por eso una cuenta de banco
  *   lista todo lo que la tocó) — se documenta en la UI.
- * - Las anulaciones no cuentan: journal.ts re-apunta la Transaction al asiento de
- *   reversión ("ANULACIÓN: …"), que hay que excluir explícitamente.
+ * - Las anulaciones sí cuentan: el reverso ("ANULACIÓN: …") está fechado el día de la
+ *   corrección y netea al original desde ese mes en adelante. Excluirlo borraba el
+ *   ajuste del período en que se hizo.
  */
 async function buildAnexosDgiReport(
   prisma: any,
@@ -165,8 +166,9 @@ async function buildAnexosDgiReport(
         status: { notIn: ['RECHAZADO', 'ANULADO'] },
         isClosing: false,
         ...(accountId ? { lines: { some: { accountId } } } : {}),
-        // Al anular, journal.ts re-apunta las Transactions al asiento de reversión
-        NOT: { description: { startsWith: 'ANULACIÓN:' } },
+        // El reverso SÍ cuenta: es una corrección real, fechada el día en que se hizo.
+        // Excluirlo dejaba el asiento original sin su contrapartida y el período del
+        // reverso sin el ajuste.
       },
     },
   };

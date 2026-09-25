@@ -324,6 +324,7 @@ journalRouter.post('/:id/anular', requireRole('admin', 'contador', 'superadmin')
       });
       const orig = original as any;
       if (!orig) throw Object.assign(new Error('Asiento no encontrado'), { status: 404 });
+      if (orig.anuladoPorId) throw Object.assign(new Error('El asiento ya está anulado'), { status: 400 });
       if (orig.status === 'ANULADO') throw Object.assign(new Error('El asiento ya está anulado'), { status: 400 });
       if (orig.description.startsWith('ANULACIÓN:')) throw Object.assign(new Error('No se puede anular un asiento de reversión'), { status: 400 });
 
@@ -345,19 +346,22 @@ journalRouter.post('/:id/anular', requireRole('admin', 'contador', 'superadmin')
         include: { lines: { include: { account: true } } },
       });
 
+      // El original NO se marca ANULADO ni se le mueven las Transactions.
+      //
+      // Anular no es borrar: el asiento se contabilizó y después se corrigió, así que
+      // sigue contando en el período en que se registró y el reverso —fechado hoy— lo
+      // netea desde el mes de la corrección. Marcarlo ANULADO lo sacaba de su propio
+      // período y el informe de enero pasaba a decir que ese gasto nunca existió.
+      //
+      // La Transaction se queda con el original: es el registro del hecho económico.
+      // El reverso se identifica solo por su descripción ("ANULACIÓN: …"), que
+      // `entry-origin` ya reconoce.
       await tx.journalEntry.update({
         where: { id: orig.id },
-        data: { status: 'ANULADO' },
+        data: { anuladoPorId: reversal.id },
       });
 
-      if (orig.transactions?.length > 0) {
-        await tx.transaction.updateMany({
-          where: { journalEntryId: orig.id },
-          data: { journalEntryId: reversal.id },
-        });
-      }
-
-      return { original: { ...original, status: 'ANULADO' }, reversal };
+      return { original: { ...original, anuladoPorId: reversal.id }, reversal };
     });
 
     await logAudit(req.prisma, {

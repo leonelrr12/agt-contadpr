@@ -162,9 +162,9 @@ async function buildPlanillaIndex(prisma: any, companyId: string): Promise<Set<s
     where: {
       companyId,
       metadata: { contains: '"source":"planilla"' },
-      // Un asiento ANULADO (Transaction re-apuntada al reverso "ANULACIÓN: …")
-      // no debe bloquear una re-carga de la misma planilla.
-      journalEntry: { is: { NOT: { description: { startsWith: 'ANULACIÓN:' } } } },
+      // Un asiento anulado no debe bloquear una re-carga de la misma planilla: se
+      // anuló porque estaba mal. La marca vive en el asiento.
+      journalEntry: { is: { anuladoPorId: null } },
     },
     select: { metadata: true },
   });

@@ -408,7 +408,10 @@ async function buildImportIndex(prisma: any, companyId: string): Promise<Map<str
     where: {
       companyId,
       metadata: { contains: '"source":"import-masivo"' },
-      journalEntry: { is: { NOT: { description: { startsWith: 'ANULACIÓN:' } } } },
+      // Un asiento anulado no bloquea una re-carga de la misma fila: se anuló justamente
+      // porque estaba mal. Ahora la marca vive en el asiento (antes se miraba el reverso,
+      // porque la Transaction se re-apuntaba ahí).
+      journalEntry: { is: { anuladoPorId: null } },
     },
     select: { metadata: true },
   });
@@ -1450,7 +1453,7 @@ importRouter.get('/carga-inicial/existe', async (req, res) => {
         companyId: req.user!.companyId,
         description: { startsWith: 'Carga Inicial' },
         status: { notIn: ['ANULADO'] },
-        NOT: { description: { startsWith: 'ANULACIÓN:' } },
+        anuladoPorId: null,
       },
       orderBy: { createdAt: 'desc' },
       select: { id: true, date: true, description: true, status: true, createdAt: true, lines: { select: { debit: true, credit: true } } },
