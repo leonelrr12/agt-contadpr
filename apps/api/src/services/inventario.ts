@@ -472,6 +472,216 @@ export async function registrarSalida(
   return { movimientos, asiento, avisos };
 }
 
+// ── Carga inicial de inventario ─────────────────────────────────────────────
+
+export interface FilaCargaInventario {
+  sku?: string | null;
+  nombre: string;
+  cantidad: number;
+  costoUnitario: number;
+  /** Precio de venta SIN ITBMS (igual que el renglón de una factura). */
+  precioVenta?: number | null;
+}
+
+export interface OpcionesCargaInicial {
+  filas: FilaCargaInventario[];
+  fecha: string;
+  /**
+   * `true` cuando el inventario YA está reflejado en el mayor (por ejemplo, porque
+   * se cargó el balance de apertura). En ese caso la carga solo crea los movimientos
+   * del kardex y NO genera asiento: el kardex alcanza al mayor en vez de duplicarlo.
+   * `false` cuando la mercancía existe físicamente pero la contabilidad no la
+   * refleja: se genera un asiento de apertura por el valor total.
+   */
+  yaEnContabilidad: boolean;
+  /** Contrapartida del asiento de apertura. Obligatoria si `yaEnContabilidad` es false. */
+  cuentaContrapartidaId?: string | null;
+  dedupeKey?: string | null;
+}
+
+export interface ResultadoCargaInicial {
+  creados: number;
+  actualizados: number;
+  movimientos: any[];
+  asiento: any | null;
+  valorTotal: number;
+  avisos: string[];
+}
+
+/**
+ * Carga el catálogo de productos con sus existencias iniciales.
+ *
+ * Un solo asiento para toda la carga cuando corresponde: la apertura de inventario
+ * es un documento, no doscientos. Los movimientos van con `origen: 'APERTURA'` y, si
+ * el inventario ya estaba contabilizado, sin asiento —queda registrado en el cuadre
+ * que el kardex nació después que el mayor.
+ */
+export async function cargarInventarioInicial(
+  tx: any,
+  companyId: string,
+  userId: string,
+  data: OpcionesCargaInicial,
+): Promise<ResultadoCargaInicial> {
+  await verificarIdempotencia(tx, companyId, data.dedupeKey);
+
+  const agent = new AccountingAgent(tx, companyId);
+  await agent.init();
+  const empresa = await tx.company.findUnique({
+    where: { id: companyId },
+    select: { inventarioCuentaId: true, inventarioCostoId: true },
+  });
+
+  const inventarioId = buscarCuenta(agent, empresa?.inventarioCuentaId, 'inventario-mercancia', '1.1.04.01');
+  if (!inventarioId) {
+    throw Object.assign(
+      new Error('No encuentro la cuenta de inventario. Asígnale el alias "inventario-mercancia" a la cuenta de mercancía.'),
+      { status: 400 },
+    );
+  }
+
+  // Contrapartida solo si hay que asentar la apertura.
+  let contrapartidaId: string | null = null;
+  if (!data.yaEnContabilidad) {
+    contrapartidaId = buscarCuenta(agent, data.cuentaContrapartidaId);
+    if (!contrapartidaId) {
+      throw Object.assign(
+        new Error('Si el inventario todavía no está en la contabilidad, hay que indicar la cuenta de contrapartida.'),
+        { status: 400 },
+      );
+    }
+  }
+
+  // Los productos que ya existen se bloquean antes de tocarlos.
+  const existentes = await tx.inventoryProduct.findMany({
+    where: {
+      companyId,
+      OR: data.filas.map((f) => (f.sku ? { sku: f.sku } : { nombre: f.nombre })),
+    },
+  });
+  if (existentes.length) await bloquearProductos(tx, existentes.map((p: any) => p.id));
+
+  const avisos: string[] = [];
+  const calcular: { producto: any; mov: MovimientoCalculado }[] = [];
+  const estados = new Map<string, EstadoProducto>();
+  let creados = 0;
+  let actualizados = 0;
+
+  for (const fila of data.filas) {
+    let producto = existentes.find((p: any) =>
+      fila.sku ? p.sku === fila.sku : p.nombre.toLowerCase() === fila.nombre.toLowerCase());
+
+    if (!producto) {
+      producto = await tx.inventoryProduct.create({
+        data: {
+          companyId,
+          sku: fila.sku || null,
+          nombre: fila.nombre,
+          precioVenta: fila.precioVenta ?? null,
+        },
+      });
+      creados++;
+    } else {
+      actualizados++;
+      if (fila.precioVenta != null) {
+        await tx.inventoryProduct.update({ where: { id: producto.id }, data: { precioVenta: fila.precioVenta } });
+      }
+      // El estado del producto pudo cambiar entre la lectura y el lock.
+      producto = await tx.inventoryProduct.findUnique({ where: { id: producto.id } });
+    }
+
+    const estado = estados.get(producto.id) || estadoDe(producto);
+    const res = calcularMovimiento(estado, {
+      tipo: 'ENTRADA',
+      cantidad: fila.cantidad,
+      costoUnitario: fila.costoUnitario,
+    });
+    if (!res.ok) throw Object.assign(new Error(`${fila.nombre}: ${res.error}`), { status: 400 });
+
+    for (const mov of res.movimientos) calcular.push({ producto, mov });
+    avisos.push(...res.movimientos.flatMap((m) => m.avisos.map((a) => `${fila.nombre}: ${a}`)));
+
+    const ultimo = res.movimientos[res.movimientos.length - 1];
+    estados.set(producto.id, {
+      cantidad: ultimo.saldoCantidad,
+      valor: ultimo.saldoValor,
+      promedio: ultimo.saldoCostoPromedio,
+    });
+  }
+
+  // El asiento de apertura: Debe Inventario / Haber contrapartida, por el total.
+  // Se suman los costos posteados, igual que el saldo del kardex: así el asiento y
+  // el kardex dicen lo mismo al centavo.
+  const totalApertura = r2(
+    calcular.filter((c) => c.mov.origen !== 'REGULARIZACION').reduce((s, c) => s + c.mov.costoTotal, 0),
+  );
+
+  let asiento: any = null;
+  if (!data.yaEnContabilidad && totalApertura > 0) {
+    const bloqueada = await checkNotBlocked(tx, companyId, [inventarioId, contrapartidaId!]);
+    if (bloqueada) throw Object.assign(new Error(bloqueada), { status: 400 });
+
+    asiento = await tx.journalEntry.create({
+      data: {
+        date: parseLocalDate(data.fecha),
+        description: `Apertura de inventario: ${creados + actualizados} producto(s) - $${totalApertura.toFixed(2)}`,
+        status: 'BORRADOR',
+        companyId,
+        createdById: userId,
+        lines: {
+          create: [
+            { accountId: inventarioId, debit: totalApertura, credit: 0 },
+            { accountId: contrapartidaId!, debit: 0, credit: totalApertura },
+          ],
+        },
+      },
+    });
+  } else if (data.yaEnContabilidad) {
+    avisos.push('El inventario ya estaba en la contabilidad: se cargó el kardex sin generar asiento.');
+  }
+
+  const filas: any[] = [];
+  let seq = 0;
+  for (const { producto, mov } of calcular) {
+    filas.push({
+      companyId,
+      productId: producto.id,
+      fecha: parseLocalDate(data.fecha),
+      tipo: mov.tipo,
+      origen: mov.origen === 'REGULARIZACION' ? 'REGULARIZACION' : 'APERTURA',
+      cantidad: mov.cantidad,
+      costoUnitario: mov.costoUnitario,
+      costoTotal: mov.costoTotal,
+      saldoCantidad: mov.saldoCantidad,
+      saldoValor: mov.saldoValor,
+      saldoCostoPromedio: mov.saldoCostoPromedio,
+      journalEntryId: asiento?.id || null,
+      notas: 'Carga inicial de inventario',
+      dedupeKey: data.dedupeKey ? claveFila(data.dedupeKey, producto.id, seq++) : null,
+      createdById: userId,
+    });
+  }
+  await tx.inventoryMovement.createMany({ data: filas });
+
+  for (const [productId, estado] of estados) {
+    await tx.inventoryProduct.update({
+      where: { id: productId },
+      data: { stockActual: estado.cantidad, stockValor: estado.valor, costoPromedio: estado.promedio },
+    });
+  }
+
+  return {
+    creados,
+    actualizados,
+    movimientos: await tx.inventoryMovement.findMany({
+      where: { productId: { in: [...estados.keys()] }, journalEntryId: asiento?.id ?? null, origen: 'APERTURA' },
+      orderBy: { createdAt: 'asc' },
+    }),
+    asiento,
+    valorTotal: totalApertura,
+    avisos,
+  };
+}
+
 // ── Salida por VENTA ────────────────────────────────────────────────────────
 //
 // La venta la emite el módulo de Facturas, así que el costo se calcula en dos

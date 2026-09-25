@@ -151,6 +151,35 @@ sería una segunda forma de facturar y con ella una segunda numeración y un seg
   se valora a 0, el saldo queda negativo y el producto entra en "regularizar" — cuando se cargue la compra,
   el motor emite la regularización sola.
 
+### 3.5b La carga inicial
+
+Para arrancar con el sistema no se cargan los productos de a uno: se sube un archivo CSV o Excel con el
+catálogo y sus existencias. Columnas: `SKU` (opcional), `Nombre`, `Existencia`, `Costo` y
+`Precio de Venta` (opcional, **sin ITBMS**, igual que el renglón de una factura).
+
+Se previsualiza antes de cargar —igual que la importación masiva— porque es una operación de una sola vez
+y hay que poder ver qué va a entrar. Las filas con errores se marcan y **no se cargan**; las válidas sí.
+
+**Solo mercancía de reventa.** La materia prima y los insumos no van en este archivo: son gasto y no
+llevan kardex.
+
+La pregunta que decide todo es **si ese inventario ya está en la contabilidad**:
+
+- **No lo está** (la mercancía existe pero el mayor no la refleja) → se genera **un** asiento de apertura
+  por el valor total: `Debe Inventario / Haber la cuenta de contrapartida` que se elija. Un asiento para
+  toda la carga, no uno por producto: la apertura es un documento.
+- **Ya lo está** (se cargó el balance de apertura) → se crean **solo los movimientos del kardex**, sin
+  asiento, para que el kardex alcance al mayor en vez de duplicarlo. Queda anotado en el aviso y se ve en
+  el cuadre.
+
+Un producto que ya existe **suma** la existencia a la que tenía. Si el archivo repite un producto, las
+filas se suman en una sola. Y la carga entera lleva clave de idempotencia: un doble clic no duplica nada.
+
+**El precio de venta es solo una referencia** para prellenar la factura. El precio que manda es siempre el
+del renglón, así que puede quedar viejo sin romper ninguna contabilidad. Si un producto no lo tiene, el
+formulario de facturas deja el precio en blanco en vez de poner el costo — que sería un error caro de
+detectar.
+
 ### 3.6 Los Auxiliares de CxC y CxP
 
 No alcanza con que el asiento exista: la compra y la venta tienen que **aparecer en los auxiliares**, que es
@@ -223,6 +252,7 @@ en los renglones de factura.
 | 2 | API y asientos (productos, entradas, salidas, kardex, valoración) | ✅ **Hecho** (25-09) — verificado E2E |
 | 3 | Página `inventario.html` + enlace desde el SPA | ✅ **Hecho** (25-09) — smoke de 13 casos |
 | 4 | La venta descuenta stock (`InvoiceItem.productId`) | ✅ **Hecho** (25-09) — verificado E2E |
+| 6b | Carga inicial de inventario por archivo | ✅ **Hecho** (25-09) — verificado E2E |
 | 5 | La compra deja de entrar por importación y chat | ⬜ Pendiente |
 | 6 | Cuadre y alertas | ⬜ Pendiente |
 | 7 | Ajustes, anulación y toma física | ⬜ Pendiente |

@@ -316,3 +316,21 @@ export const salidaInventarioSchema = z.object({
   dedupeKey: z.string().max(120).optional(),
 });
 export type SalidaInventarioInput = z.infer<typeof salidaInventarioSchema>;
+
+// Carga inicial de inventario: el archivo se previsualiza primero y recién después
+// se ejecuta con las filas ya validadas.
+export const cargaInventarioSchema = z.object({
+  filas: z.array(z.object({
+    sku: z.string().max(60).nullable().optional(),
+    nombre: z.string().min(1, 'El nombre es requerido').max(200),
+    cantidad: z.number().positive('La existencia debe ser mayor que cero').max(1e12),
+    costoUnitario: z.number().min(0, 'El costo no puede ser negativo').max(1e12),
+    precioVenta: z.number().min(0).max(1e12).nullable().optional(),
+  })).min(1, 'El archivo no tiene filas válidas').max(2000, 'Demasiadas filas para una carga inicial'),
+  fecha: isoDate,
+  // true = el inventario ya está en el mayor: solo se carga el kardex, sin asiento.
+  yaEnContabilidad: z.boolean(),
+  cuentaContrapartidaId: z.string().optional(),
+  dedupeKey: z.string().max(120).optional(),
+});
+export type CargaInventarioInput = z.infer<typeof cargaInventarioSchema>;

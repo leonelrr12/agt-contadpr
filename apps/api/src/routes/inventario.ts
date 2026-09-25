@@ -1,17 +1,23 @@
 import { Router, type Request, type Response } from 'express';
+import multer from 'multer';
 import { requireRole } from '../middleware/auth';
 import { requireQuota, incrementUsage } from '../middleware/quota';
 import { validate } from '../middleware/validate';
 import { logAudit } from '../services/audit-log';
-import { registrarEntrada, registrarSalida } from '../services/inventario';
+import { registrarEntrada, registrarSalida, cargarInventarioInicial } from '../services/inventario';
+import { parseInventarioFile } from '../services/csv-parser';
 import {
   createProductoSchema,
   updateProductoSchema,
   entradaInventarioSchema,
   salidaInventarioSchema,
+  cargaInventarioSchema,
 } from '../validation/schemas';
 
 export const inventarioRouter = Router();
+
+// En memoria: el archivo se parsea y se descarta, no se guarda en disco.
+const cargaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 /**
  * El throw va DENTRO del try y el status se propaga: Express 4 no captura rechazos
@@ -343,6 +349,81 @@ inventarioRouter.post('/entradas', requireRole(...ROLES_ESCRITURA, 'inventario')
     entity: 'InventoryMovement',
     entityId: result.asiento.id,
     after: { asiento: result.asiento.id, movimientos: result.movimientos.length },
+  }).catch(() => {});
+
+  res.status(201).json(result);
+}));
+
+// ── Carga inicial ───────────────────────────────────────────────────────────
+
+/**
+ * POST /api/inventario/carga-inicial/preview — lee el archivo y devuelve lo que
+ * haría, sin tocar nada.
+ *
+ * Se separa del execute a propósito, igual que la importación masiva: cargar un
+ * catálogo de existencias es una operación de una sola vez y el usuario tiene que
+ * poder ver qué va a entrar antes de que entre.
+ */
+inventarioRouter.post('/carga-inicial/preview', requireRole(...ROLES_ESCRITURA, 'inventario'), cargaUpload.single('file'), wrap(async (req: any, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'Subí un archivo CSV o Excel.' });
+    return;
+  }
+  const companyId = req.user!.companyId;
+
+  let parsed;
+  try {
+    parsed = await parseInventarioFile(req.file.buffer, req.file.originalname || 'archivo.csv');
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+    return;
+  }
+
+  // Productos que ya existen: se avisa antes de cargar, no después.
+  const claves = parsed.rows.filter((r) => !r.errores).map((r) => (r.sku ? { sku: r.sku } : { nombre: r.nombre }));
+  const existentes = claves.length
+    ? await req.prisma.inventoryProduct.findMany({ where: { companyId, OR: claves }, select: { sku: true, nombre: true } })
+    : [];
+  const yaExiste = new Set(existentes.map((p: any) => (p.sku || p.nombre).toLowerCase()));
+
+  const conError = parsed.rows.filter((r) => r.errores.length);
+  const validas = parsed.rows.filter((r) => !r.errores.length);
+  const filas = parsed.rows.map((r) => ({
+    ...r,
+    existente: yaExiste.has((r.sku || r.nombre).toLowerCase()),
+  }));
+
+  res.json({
+    headers: parsed.headers,
+    columnas: parsed.cuentas,
+    filas,
+    resumen: {
+      total: parsed.totalRows,
+      validas: validas.length,
+      conError: conError.length,
+      existentes: filas.filter((f) => f.existente && !f.errores.length).length,
+      valorTotal: r2(validas.reduce((s, f) => s + f.cantidad * f.costoUnitario, 0)),
+    },
+    duplicadas: parsed.duplicadas,
+  });
+}));
+
+/** POST /api/inventario/carga-inicial/execute — crea los productos y el kardex. */
+inventarioRouter.post('/carga-inicial/execute', requireRole(...ROLES_ESCRITURA, 'inventario'), requireQuota, validate(cargaInventarioSchema), wrap(async (req, res) => {
+  const companyId = req.user!.companyId;
+  const userId = req.user!.userId;
+
+  const result = await req.prisma.$transaction((tx: any) => cargarInventarioInicial(tx, companyId, userId, req.body));
+
+  // Una carga inicial es UN movimiento contable, no doscientos: se consume una sola
+  // cuota aunque el archivo traiga cien productos.
+  if (result.asiento) await incrementUsage(req);
+  await logAudit(req.prisma, {
+    userId,
+    action: 'INVENTARIO_CARGA_INICIAL',
+    entity: 'InventoryProduct',
+    entityId: result.asiento?.id || 'sin-asiento',
+    after: { creados: result.creados, actualizados: result.actualizados, valor: result.valorTotal },
   }).catch(() => {});
 
   res.status(201).json(result);

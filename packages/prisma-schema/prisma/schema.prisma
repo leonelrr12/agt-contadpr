@@ -700,6 +700,10 @@ model InventoryProduct {
   nombre      String
   descripcion String?
   unidad      String   @default("UND") // UND, LB, MT, CAJA…
+  /// Precio de venta SIN ITBMS, igual que `InvoiceItem.precio`: el impuesto se
+  /// calcula encima al facturar. Es solo una referencia para prellenar la factura —
+  /// el precio que manda es el del renglón, así que puede quedar viejo sin romper nada.
+  precioVenta Float?
   stockMinimo Float    @default(0)     // umbral de la alerta de reposición; 0 = sin alerta
   /// Saldo corrido vigente. Puede ser NEGATIVO si se vendió sin stock cargado;
   /// el módulo lo marca para regularizar en vez de bloquear la venta.

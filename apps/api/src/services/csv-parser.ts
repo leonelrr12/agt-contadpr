@@ -640,6 +640,186 @@ export async function parseCargaInicialFile(
   return { headers, rows, totalRows: rows.length };
 }
 
+// ── Carga inicial de INVENTARIO ─────────────────────────────────────────────
+//
+// Distinta de la carga inicial contable de arriba: aquella sube el balance de
+// apertura (cuentas y montos) y esta sube el catálogo de productos con sus
+// existencias. El kardex es solo para mercancía de reventa: la materia prima y los
+// insumos son gasto y no van en este archivo (ver INVENTARIO.md §2).
+
+export interface InventarioRow {
+  sku: string | null;
+  nombre: string;
+  cantidad: number;
+  costoUnitario: number;
+  /** Precio de venta SIN ITBMS. Null si el archivo no lo trae. */
+  precioVenta: number | null;
+  /** Problemas de la fila. Con alguno, no se carga. */
+  errores: string[];
+}
+
+export interface InventarioParseResult {
+  headers: string[];
+  rows: InventarioRow[];
+  /** Filas del archivo con encabezados ya reconocidos (una por línea con datos). */
+  totalRows: number;
+  /** Filas idénticas repetidas dentro del archivo (se cargan una sola vez). */
+  duplicadas: string[];
+  cuentas: { sku: string | null; nombre: string | null; cantidad: string | null; costo: string | null; precio: string | null };
+}
+
+// Los encabezados en inglés van a propósito: los catálogos suelen exportarse de
+// sistemas que los nombran así, y obligar a renombrar columnas es fricción tonta.
+const SKU_PATTERNS = [/^sku$/i, /c[oó]digo/i, /^code$/i, /referencia/i, /^ref$/i, /^item$/i];
+const PRODUCTO_PATTERNS = [/^product/i, /nombre/i, /^name$/i, /descripc/i, /art[ií]culo/i, /^detalle$/i];
+const CANTIDAD_PATTERNS = [/existencia/i, /cantidad/i, /^qty$/i, /^quantity$/i, /^stock$/i, /^saldo$/i];
+// El costo se busca ANTES que el precio: "precio costo" contiene "precio".
+const COSTO_PATTERNS = [/costo/i, /^cost/i, /precio\s*de?\s*costo/i];
+const PRECIO_PATTERNS = [/precio\s*de?\s*venta/i, /^pvp$/i, /^venta$/i, /^price/i, /precio\s*p[uú]blico/i];
+
+/**
+ * Parsea el archivo de carga inicial de inventario.
+ * Columnas: SKU (opcional), Nombre del producto, Existencia, Costo, Precio de venta (opcional).
+ *
+ * Un `Precio` a secas NO se acepta como costo ni como precio de venta: es ambiguo y
+ * elegir mal deja el margen al revés. Se rechaza la fila con un mensaje que pide
+ * nombrar la columna.
+ */
+export async function parseInventarioFile(
+  buffer: Buffer,
+  fileName: string,
+): Promise<InventarioParseResult> {
+  const { headers, rawRows } = await leerTabla(buffer, fileName);
+  if (headers.length === 0) throw new Error('No se detectaron encabezados en el archivo.');
+
+  let skuCol: string | null = null;
+  let nombreCol: string | null = null;
+  let cantidadCol: string | null = null;
+  let costoCol: string | null = null;
+  let precioCol: string | null = null;
+  let precioAmbiguo = false;
+
+  for (const h of headers) {
+    const esPrecio = /precio/i.test(h);
+    if (!skuCol && matchHeader(h, SKU_PATTERNS)) { skuCol = h; continue; }
+    if (!nombreCol && matchHeader(h, PRODUCTO_PATTERNS)) { nombreCol = h; continue; }
+    if (!cantidadCol && matchHeader(h, CANTIDAD_PATTERNS)) { cantidadCol = h; continue; }
+    if (!costoCol && matchHeader(h, COSTO_PATTERNS)) { costoCol = h; continue; }
+    if (!precioCol && matchHeader(h, PRECIO_PATTERNS)) { precioCol = h; continue; }
+    // Un "Precio" suelto no se puede asignar sin adivinar.
+    if (esPrecio && !costoCol && !precioCol) precioAmbiguo = true;
+  }
+
+  if (!nombreCol) {
+    throw new Error('No se detectó la columna del producto. Poné "Nombre" o "Producto" como encabezado.');
+  }
+  if (!cantidadCol) {
+    throw new Error('No se detectó la columna de existencia. Poné "Existencia" o "Cantidad" como encabezado.');
+  }
+  if (!costoCol) {
+    throw new Error(
+      precioAmbiguo
+        ? 'La columna "Precio" es ambigua: nombrá una "Costo" y, si querés, otra "Precio de Venta".'
+        : 'No se detectó la columna de costo. Poné "Costo" como encabezado.',
+    );
+  }
+
+  const rows: InventarioRow[] = [];
+  const vistos = new Map<string, InventarioRow>();
+  const duplicadas: string[] = [];
+
+  for (const rawRow of rawRows) {
+    const raw: Record<string, string> = {};
+    headers.forEach((h, i) => { raw[h] = rawRow[i] || ''; });
+
+    const nombre = (raw[nombreCol] || '').trim();
+    const sku = skuCol ? (raw[skuCol] || '').trim() || null : null;
+    const cantidadTxt = (raw[cantidadCol] || '').trim();
+    const costoTxt = (raw[costoCol] || '').trim();
+    const precioTxt = precioCol ? (raw[precioCol] || '').trim() : '';
+
+    if (!nombre && !cantidadTxt && !costoTxt) continue; // línea en blanco
+
+    const errores: string[] = [];
+    if (!nombre) errores.push('Falta el nombre del producto');
+
+    const cantidad = parseAmount(cantidadTxt);
+    if (cantidad === null || cantidad <= 0) errores.push(`Existencia inválida: "${cantidadTxt}"`);
+
+    const costoUnitario = parseAmount(costoTxt);
+    if (costoUnitario === null || costoUnitario < 0) errores.push(`Costo inválido: "${costoTxt}"`);
+
+    let precioVenta: number | null = null;
+    if (precioTxt) {
+      precioVenta = parseAmount(precioTxt);
+      if (precioVenta === null || precioVenta < 0) errores.push(`Precio de venta inválido: "${precioTxt}"`);
+    }
+
+    const clave = sku ? `sku:${sku.toLowerCase()}` : `nombre:${nombre.toLowerCase()}`;
+    if (!errores.length) {
+      const previa = vistos.get(clave);
+      if (previa) {
+        // Mismo producto dos veces: se acumula la existencia en vez de perder una.
+        previa.cantidad += cantidad!;
+        duplicadas.push(nombre);
+        continue;
+      }
+    }
+
+    const fila: InventarioRow = {
+      sku,
+      nombre,
+      cantidad: cantidad ?? 0,
+      costoUnitario: costoUnitario ?? 0,
+      precioVenta,
+      errores,
+    };
+    if (!errores.length) vistos.set(clave, fila);
+    rows.push(fila);
+  }
+
+  return {
+    headers,
+    rows,
+    totalRows: rows.length,
+    duplicadas,
+    cuentas: { sku: skuCol, nombre: nombreCol, cantidad: cantidadCol, costo: costoCol, precio: precioCol },
+  };
+}
+
+/** Lee CSV o XLSX a `headers` + filas crudas. Compartido por los parsers de carga. */
+async function leerTabla(buffer: Buffer, fileName: string): Promise<{ headers: string[]; rawRows: string[][] }> {
+  const headers: string[] = [];
+  const rawRows: string[][] = [];
+
+  if (fileName.toLowerCase().endsWith('.xlsx')) {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as any);
+    const sheet = workbook.worksheets[0];
+    if (!sheet) throw new Error('El archivo Excel no tiene hojas.');
+    sheet.eachRow((row, rowNum) => {
+      const values: string[] = [];
+      row.eachCell({ includeEmpty: true }, (cell) => values.push(String(cell.value ?? '').trim()));
+      while (values.length > 0 && values[values.length - 1] === '') values.pop();
+      if (values.length === 0) return;
+      if (rowNum === 1) headers.push(...values);
+      else rawRows.push(values);
+    });
+    return { headers, rawRows };
+  }
+
+  const text = buffer.toString('utf-8').replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines = text.split('\n').filter((l) => l.trim());
+  if (!lines.length) throw new Error('El archivo está vacío.');
+  const delimiter = detectDelimiter(lines[0]);
+  for (let i = 0; i < lines.length; i++) {
+    const values = parseCSVLine(lines[i], delimiter);
+    if (i === 0) headers.push(...values.map((h) => h.trim()));
+    else rawRows.push(values.map((v) => v.trim()));
+  }
+  return { headers, rawRows };
+}
+
 /**
  * Normaliza el tipo de cuenta a: ACTIVO, PASIVO, PATRIMONIO.
  * Retorna null si no se reconoce.

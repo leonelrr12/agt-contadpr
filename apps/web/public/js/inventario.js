@@ -51,6 +51,7 @@ function render() {
     salidas: vistaSalidas,
     kardex: vistaKardex,
     valoracion: vistaValoracion,
+    carga: vistaCarga,
   };
   el.innerHTML = '<div class="loading">Cargando…</div>';
   (vistas[_invTab] || vistaExistencias)()
@@ -418,6 +419,148 @@ async function vistaValoracion() {
     <div class="nota">${v.mayor.cuadra
       ? 'El kardex y el mayor coinciden al centavo.'
       : 'Hay una diferencia entre lo que vale el kardex y lo que dice el mayor. Suele venir de movimientos cuyo asiento quedó rechazado, o de asientos hechos a mano contra la cuenta de inventario.'}</div>`;
+}
+
+// ── Carga inicial ───────────────────────────────────────────────────────────
+
+let _invCargaPreview = null;
+
+async function vistaCarga() {
+  const cuentas = await pedir(`${API_URL}/accounts`).then((d) => (Array.isArray(d) ? d : d.accounts || [])).catch(() => []);
+  const opcionesCuenta = cuentas
+    .filter((c) => ['PATRIMONIO', 'PASIVO', 'ACTIVO'].includes(c.type))
+    .map((c) => `<option value="${esc(c.id)}">${esc(c.code)} — ${esc(c.name)}</option>`).join('');
+
+  return `
+  <div class="card">
+    <h3>📥 Carga inicial de inventario</h3>
+    <p class="nota" style="margin-top:0">
+      Subí el catálogo de <strong>mercancía de reventa</strong> con sus existencias. La materia prima y los
+      insumos no van acá: son gasto y no llevan kardex.
+      <br>Columnas: <code>SKU</code> (opcional), <code>Nombre</code>, <code>Existencia</code>,
+      <code>Costo</code>, <code>Precio de Venta</code> (opcional). El precio va <strong>sin ITBMS</strong>.
+    </p>
+
+    <div class="form-grid">
+      <div style="grid-column:1/-1">
+        <label>Archivo CSV o Excel</label>
+        <input type="file" id="ci-archivo" accept=".csv,.xlsx">
+      </div>
+      <div><label>Fecha de la carga</label><input id="ci-fecha" type="date" value="${hoy()}"></div>
+      <div>
+        <label>¿Este inventario ya está en la contabilidad?</label>
+        <select id="ci-ya" onchange="document.getElementById('ci-contrapartida-bloque').style.display = this.value === '1' ? 'none' : 'block'">
+          <option value="0">No — hay que asentarlo</option>
+          <option value="1">Sí — solo cargar el kardex</option>
+        </select>
+      </div>
+      <div id="ci-contrapartida-bloque" style="grid-column:1/-1">
+        <label>Cuenta de contrapartida del asiento de apertura</label>
+        <select id="ci-contrapartida">${opcionesCuenta || '<option value="">(no se pudieron cargar las cuentas)</option>'}</select>
+      </div>
+    </div>
+
+    <div style="margin-top:12px"><button class="btn btn-secondary" onclick="previsualizarCarga()">Ver qué va a entrar</button></div>
+    <div class="nota">
+      Si el inventario <strong>ya está en el mayor</strong> —porque cargaste el balance de apertura— dejá "Sí":
+      la carga crea solo los movimientos del kardex, para que el kardex alcance al mayor en vez de duplicarlo.
+    </div>
+  </div>
+  <div id="ci-resultado"></div>`;
+}
+
+async function previsualizarCarga() {
+  const input = document.getElementById('ci-archivo');
+  const el = document.getElementById('ci-resultado');
+  if (!input.files?.length) return showAlert('Elegí un archivo primero');
+
+  el.innerHTML = '<div class="loading">Leyendo el archivo…</div>';
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  try {
+    const res = await authFetch(`${API_URL}/inventario/carga-inicial/preview`, { method: 'POST', body: fd });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'No se pudo leer el archivo');
+    _invCargaPreview = d;
+    el.innerHTML = htmlPreviewCarga(d);
+  } catch (e) {
+    el.innerHTML = `<div class="aviso">${esc(e.message)}</div>`;
+  }
+}
+
+function htmlPreviewCarga(d) {
+  const s = d.resumen;
+  const filas = d.filas.map((f) => `
+    <tr style="${f.errores.length ? 'background:#fef2f2' : ''}">
+      <td>${esc(f.sku) || '—'}</td>
+      <td>${esc(f.nombre) || '<em>sin nombre</em>'}</td>
+      <td class="num">${num(f.cantidad)}</td>
+      <td class="num">${money(f.costoUnitario)}</td>
+      <td class="num">${f.precioVenta == null ? '—' : money(f.precioVenta)}</td>
+      <td class="num">${money(f.cantidad * f.costoUnitario)}</td>
+      <td>${f.errores.length
+        ? `<span class="badge badge-err" title="${esc(f.errores.join(' · '))}">${esc(f.errores[0])}</span>`
+        : f.existente ? '<span class="badge badge-warn">Ya existe</span>' : '<span class="badge badge-ok">Nuevo</span>'}</td>
+    </tr>`).join('');
+
+  const puedeCargar = s.validas > 0;
+  return `
+  <div class="summary-cards">
+    <div class="summary-card"><div class="num">${s.validas}</div><div class="label">Filas válidas</div></div>
+    <div class="summary-card ${s.conError ? 'err' : ''}"><div class="num">${s.conError}</div><div class="label">Con errores</div></div>
+    <div class="summary-card ${s.existentes ? 'warn' : ''}"><div class="num">${s.existentes}</div><div class="label">Ya existen</div></div>
+    <div class="summary-card"><div class="num">${money(s.valorTotal)}</div><div class="label">Valor de la carga</div></div>
+  </div>
+  ${d.duplicadas?.length ? `<div class="aviso">El archivo repite ${d.duplicadas.length} producto(s); sus existencias se sumaron en una sola fila: ${esc(d.duplicadas.slice(0, 5).join(', '))}${d.duplicadas.length > 5 ? '…' : ''}</div>` : ''}
+  ${s.conError ? '<div class="aviso">Las filas en rojo tienen errores y <strong>no se van a cargar</strong>. Corregí el archivo y volvé a subirlo, o cargá solo las válidas.</div>' : ''}
+  <div style="overflow-x:auto;max-height:400px;overflow-y:auto"><table class="data-table">
+    <thead><tr><th>SKU</th><th>Producto</th><th class="num">Existencia</th><th class="num">Costo</th><th class="num">P. Venta</th><th class="num">Valor</th><th>Estado</th></tr></thead>
+    <tbody>${filas}</tbody>
+  </table></div>
+  <div style="margin-top:12px">
+    <button class="btn btn-primary" onclick="ejecutarCarga()" ${puedeCargar ? '' : 'disabled'}>Cargar ${s.validas} producto(s)</button>
+  </div>
+  <div class="nota">Los productos que ya existen suman la existencia a la que tenían. Todo queda con su movimiento de kardex fechado el día que elegiste.</div>`;
+}
+
+async function ejecutarCarga() {
+  if (!_invCargaPreview) return showAlert('Primero previsualizá el archivo');
+  const yaEnContabilidad = document.getElementById('ci-ya').value === '1';
+  const contrapartida = document.getElementById('ci-contrapartida')?.value;
+
+  if (!yaEnContabilidad && !contrapartida) {
+    return showAlert('Elegí la cuenta de contrapartida del asiento de apertura.');
+  }
+  const validas = _invCargaPreview.filas.filter((f) => !f.errores.length);
+
+  try {
+    const r = await pedir(`${API_URL}/inventario/carga-inicial/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filas: validas.map((f) => ({
+          sku: f.sku, nombre: f.nombre, cantidad: f.cantidad,
+          costoUnitario: f.costoUnitario, precioVenta: f.precioVenta,
+        })),
+        fecha: document.getElementById('ci-fecha').value || hoy(),
+        yaEnContabilidad,
+        cuentaContrapartidaId: yaEnContabilidad ? undefined : contrapartida,
+        dedupeKey: `carga-inicial:${Date.now()}`,
+      }),
+    });
+    await showAlert(
+      `Cargados ${r.creados} producto(s) nuevo(s) y actualizados ${r.actualizados}.\n` +
+      `Valor de la carga: ${money(r.valorTotal)}.` +
+      (r.asiento ? `\nAsiento de apertura ${r.asiento.id.slice(-6)} en borrador.` : '\nSin asiento: el kardex alcanzó al mayor.') +
+      (r.avisos?.length ? `\n\n${r.avisos.join('\n')}` : ''),
+    );
+    _invCargaPreview = null;
+    _invTab = 'existencias';
+    document.querySelectorAll('.inv-tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === 'existencias'));
+    render();
+  } catch (e) {
+    await showAlert(e.message);
+  }
 }
 
 // ── Arranque ────────────────────────────────────────────────────────────────

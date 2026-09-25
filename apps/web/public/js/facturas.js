@@ -198,9 +198,11 @@ function renderFacturaItems() {
 }
 
 /**
- * Al elegir un producto se completa la descripción con su nombre. El precio NO se
- * completa: el sistema guarda el costo, no un precio de venta, y poner el costo
- * como precio sería un error caro de detectar.
+ * Al elegir un producto se completa la descripción con su nombre y, si el producto
+ * tiene precio de venta cargado, también el precio.
+ *
+ * Si NO lo tiene, el precio se deja como estaba: el sistema conoce el costo, y
+ * ponerlo como precio de venta sería un error caro de detectar. Mejor en blanco.
  */
 function facProducto(i, productId) {
   facturaItems[i].productId = productId || null;
@@ -208,6 +210,7 @@ function facProducto(i, productId) {
   if (p) {
     facturaItems[i].descripcion = p.nombre;
     facturaItems[i].cantidad = 1;
+    if (p.precioVenta != null) facturaItems[i].precio = p.precioVenta;
   }
   renderFacturaItems();
 }
