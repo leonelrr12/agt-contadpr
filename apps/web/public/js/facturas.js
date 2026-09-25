@@ -111,6 +111,11 @@ function openFacturaModal() {
   // El catálogo se pide al abrir: si el usuario no tiene acceso al módulo, la lista
   // queda vacía y la factura se emite con servicios, sin selector y sin ruido.
   facturaProductos = [];
+  facturaClientes = [];
+  cargarClientesFactura().then((cs) => {
+    facturaClientes = cs;
+    refrescarSelectorCliente();
+  });
   cargarProductosFactura().then((ps) => {
     facturaProductos = ps;
     renderFacturaItems();
@@ -122,7 +127,12 @@ function openFacturaModal() {
     <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
       <div style="flex:2;min-width:200px">
         <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Cliente</label>
-        <input id="fac-cliente" placeholder="Nombre del cliente (o CONSUMIDOR FINAL)" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+        <select id="fac-cliente-sel" onchange="alElegirCliente()" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px;background:#fff">
+          <option value="">— Consumidor final —</option>
+          ${(facturaClientes || []).map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('')}
+          <option value="__nuevo__">➕ Otro cliente…</option>
+        </select>
+        <input id="fac-cliente" placeholder="Nombre del cliente nuevo" style="display:none;margin-top:6px;width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
       </div>
       <div style="flex:1;min-width:140px">
         <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">RUC (opcional)</label>
@@ -175,6 +185,50 @@ async function cargarProductosFactura() {
   } catch {
     return [];
   }
+}
+
+/**
+ * Clientes de la empresa para elegirlos en vez de escribirlos.
+ *
+ * A diferencia del proveedor, acá el backend no falla: hace find-or-create y
+ * resuelve el duplicado solo. Pero con texto libre el usuario no VE quién existe, y
+ * ahí es donde nacen los duplicados por escribir distinto ("Importadora del Este" y
+ * "Importadora del este" son dos clientes). Elegir de una lista evita el problema de
+ * raíz, y el RUC ya no hay que volver a teclearlo.
+ */
+let facturaClientes = [];
+
+async function cargarClientesFactura() {
+  try {
+    const res = await authFetch(`${API_URL}/clients`);
+    return res.ok ? await res.json() : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Repinta solo el selector: los clientes llegan después de que el modal se abrió. */
+function refrescarSelectorCliente() {
+  const sel = document.getElementById('fac-cliente-sel');
+  if (!sel) return;
+  const elegido = sel.value;
+  sel.innerHTML = '<option value="">— Consumidor final —</option>'
+    + facturaClientes.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('')
+    + '<option value="__nuevo__">➕ Otro cliente…</option>';
+  sel.value = elegido;
+}
+
+/** El RUC solo hace falta para un cliente nuevo: el existente ya lo tiene guardado. */
+function alElegirCliente() {
+  const sel = document.getElementById('fac-cliente-sel');
+  const esNuevo = sel.value === '__nuevo__';
+  document.getElementById('fac-cliente').style.display = esNuevo ? 'block' : 'none';
+  const ruc = document.getElementById('fac-ruc');
+  if (ruc) {
+    ruc.disabled = !esNuevo;
+    ruc.parentElement.style.opacity = esNuevo ? '1' : '0.45';
+  }
+  if (esNuevo) document.getElementById('fac-cliente').focus();
 }
 
 function renderFacturaItems() {
@@ -234,8 +288,13 @@ function updateFacturaTotales() {
 }
 
 async function saveFactura() {
-  const cliente = document.getElementById('fac-cliente').value.trim();
-  if (!cliente) { alert('❌ Indica el cliente (o CONSUMIDOR FINAL)'); return; }
+  const clienteSel = document.getElementById('fac-cliente-sel');
+  const clienteId = clienteSel?.value && clienteSel.value !== '__nuevo__' ? clienteSel.value : undefined;
+  const clienteNuevo = clienteId ? '' : (document.getElementById('fac-cliente').value.trim());
+  if (!clienteId && !clienteNuevo && clienteSel?.value === '__nuevo__') {
+    alert('❌ Escribí el nombre del cliente nuevo, o elegí «Consumidor final».');
+    return;
+  }
   const items = facturaItems
     .filter(it => it.descripcion.trim())
     .map(it => ({ descripcion: it.descripcion, cantidad: it.cantidad, precio: it.precio, productId: it.productId || undefined }));
@@ -246,8 +305,11 @@ async function saveFactura() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        clientName: cliente,
-        clientTaxId: document.getElementById('fac-ruc').value.trim() || undefined,
+        // Un cliente existente va por id; el nuevo, por nombre (el backend lo crea y
+        // deduplica por RUC/nombre). Sin ninguno de los dos es consumidor final.
+        clientId: clienteId,
+        clientName: clienteNuevo || undefined,
+        clientTaxId: clienteId ? undefined : (document.getElementById('fac-ruc').value.trim() || undefined),
         items,
         paymentMethod: pago,
       }),
