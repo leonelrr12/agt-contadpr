@@ -51,6 +51,7 @@ function render() {
     salidas: vistaSalidas,
     kardex: vistaKardex,
     valoracion: vistaValoracion,
+    cuadre: vistaCuadre,
     carga: vistaCarga,
   };
   el.innerHTML = '<div class="loading">Cargando…</div>';
@@ -435,6 +436,80 @@ async function vistaValoracion() {
     <div class="nota">${v.mayor.cuadra
       ? 'El kardex y el mayor coinciden al centavo.'
       : 'Hay una diferencia entre lo que vale el kardex y lo que dice el mayor. Suele venir de movimientos cuyo asiento quedó rechazado, o de asientos hechos a mano contra la cuenta de inventario.'}</div>`;
+}
+
+// ── Cuadre y alertas ────────────────────────────────────────────────────────
+
+async function vistaCuadre() {
+  const [c, a] = await Promise.all([
+    pedir(`${API_URL}/inventario/cuadre`),
+    pedir(`${API_URL}/inventario/alertas`),
+  ]);
+
+  const tituloBloque = (b) => `
+    <div class="card">
+      <h3>${b.cuadra ? '✅' : '⚠️'} ${esc(b.titulo)}</h3>
+      <p class="nota" style="margin-top:0">${esc(b.detalle)}</p>
+      ${detalleBloque(b)}
+    </div>`;
+
+  return `
+  <div class="summary-cards">
+    <div class="summary-card ${a.bajoMinimo.length ? 'warn' : ''}"><div class="num">${a.bajoMinimo.length}</div><div class="label">Bajo el mínimo</div></div>
+    <div class="summary-card ${a.negativos.length ? 'err' : ''}"><div class="num">${a.negativos.length}</div><div class="label">En negativo</div></div>
+    <div class="summary-card ${a.sinCosto.length ? 'warn' : ''}"><div class="num">${a.sinCosto.length}</div><div class="label">Sin costo cargado</div></div>
+    <div class="summary-card ${a.sinPrecio.length ? 'warn' : ''}"><div class="num">${a.sinPrecio.length}</div><div class="label">Sin precio de venta</div></div>
+  </div>
+
+  ${listaAlerta('Stock bajo el mínimo', a.bajoMinimo, (p) => `${num(p.stockActual)} ${esc(p.unidad)} de ${num(p.stockMinimo)}`)}
+  ${listaAlerta('Existencia negativa', a.negativos, (p) => `${num(p.stockActual)} ${esc(p.unidad)} — hay que cargar la compra o ajustar`, 'err')}
+  ${listaAlerta('Existencia sin costo', a.sinCosto, () => 'El costo promedio quedó en cero: las salidas van a valer $0', 'warn')}
+  ${listaAlerta('Sin precio de venta', a.sinPrecio, (p) => `Costo ${money(p.costoPromedio)}`, 'warn')}
+
+  <h3 style="font-size:15px;color:#1a1a2e;margin:24px 0 8px 0">Cuadre con la contabilidad</h3>
+  ${c.bloques.map(tituloBloque).join('')}
+
+  <div class="nota">
+    El cuadre <strong>no corrige nada solo</strong>: muestra las diferencias para que las resuelva el contador.
+    Un descuadre suele venir de un asiento rechazado después de mover el stock, de un asiento manual contra la
+    cuenta de inventario, o de una carga inicial contable que nunca se pasó al kardex.
+  </div>`;
+}
+
+function listaAlerta(titulo, items, detalle, tono = 'warn') {
+  if (!items.length) return '';
+  const filas = items.map((p) => `
+    <tr><td>${esc(p.sku) || '—'}</td><td>${esc(p.nombre)}</td><td>${esc(detalle(p))}</td></tr>`).join('');
+  return `
+  <div class="card">
+    <h3><span class="badge badge-${tono === 'err' ? 'err' : 'warn'}">${items.length}</span> ${esc(titulo)}</h3>
+    <table class="data-table"><tbody>${filas}</tbody></table>
+  </div>`;
+}
+
+function detalleBloque(b) {
+  if (b.clave === 'kardex-mayor') {
+    return `<div class="summary-cards" style="margin-bottom:0">
+      <div class="summary-card"><div class="num">${money(b.kardex)}</div><div class="label">Valor del kardex</div></div>
+      <div class="summary-card"><div class="num">${money(b.mayor)}</div><div class="label">Saldo en el mayor</div></div>
+      <div class="summary-card ${b.cuadra ? 'ok' : 'err'}"><div class="num">${money(b.diferencia)}</div><div class="label">Diferencia</div></div>
+    </div>`;
+  }
+  if (b.clave === 'sin-producto') {
+    return `<div style="font-size:20px;font-weight:700;color:#1a1a2e">${b.cantidad}</div>`;
+  }
+  if (!b.items?.length) return '<div style="color:#059669;font-size:13px">Sin nada que reportar.</div>';
+
+  const filas = b.items.map((i) => `
+    <tr>
+      <td>${esc(i.code || i.sku) || '—'}</td>
+      <td>${esc(i.name || i.nombre || i.description || '')}</td>
+      <td class="num">${i.saldo != null ? money(i.saldo) : i.costoTotal != null ? money(i.costoTotal) : i.amount != null ? money(i.amount) : ''}</td>
+      <td>${esc(i.motivo || '')}</td>
+    </tr>`).join('');
+  return `<div style="overflow-x:auto"><table class="data-table">
+    <thead><tr><th>Cuenta / Producto</th><th>Detalle</th><th class="num">Monto</th><th>Motivo</th></tr></thead>
+    <tbody>${filas}</tbody></table></div>`;
 }
 
 // ── Carga inicial ───────────────────────────────────────────────────────────

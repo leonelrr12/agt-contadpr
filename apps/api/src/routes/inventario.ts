@@ -62,16 +62,26 @@ async function cuentasInventarioEnUso(prisma: any, companyId: string): Promise<s
   const ids = new Set<string>();
   if (empresa?.inventarioCuentaId) ids.add(empresa.inventarioCuentaId);
   for (const p of productos) if (p.cuentaInventarioId) ids.add(p.cuentaInventarioId);
+  if (ids.size) return [...ids];
 
-  // Sin configuración explícita, cae al catálogo clásico (1.1.04 completo).
-  if (!ids.size) {
-    const cuentas = await prisma.account.findMany({
-      where: { companyId, code: { startsWith: '1.1.04' } },
-      select: { id: true },
-    });
-    for (const c of cuentas) ids.add(c.id);
-  }
-  return [...ids];
+  // Sin configuración explícita se usa la cuenta del módulo por convención: el alias
+  // clásico o el código 1.1.04.01.
+  //
+  // NO todo el subtree 1.1.04: si se toma entero, un saldo en la cuenta PADRE
+  // —una carga inicial contable, por ejemplo— queda dentro de "la cuenta del kardex"
+  // y el bloque de saldos sin kardex no lo ve nunca. El cuadre diría que no cuadra
+  // sin decir por qué, que es la peor de las dos cosas.
+  const porAlias = await prisma.account.findFirst({
+    where: { companyId, aliases: { has: 'inventario-mercancia' } },
+    select: { id: true },
+  });
+  if (porAlias) return [porAlias.id];
+
+  const porCodigo = await prisma.account.findFirst({
+    where: { companyId, code: '1.1.04.01' },
+    select: { id: true },
+  });
+  return porCodigo ? [porCodigo.id] : [];
 }
 
 /** El producto tal como lo ve la pantalla: con su valor y su estado de alerta. */
@@ -334,6 +344,170 @@ inventarioRouter.get('/valoracion', wrap(async (req, res) => {
       cuadra: Math.abs(r2(total - saldo)) < 0.005,
     },
   });
+}));
+
+// ── Cuadre y alertas ────────────────────────────────────────────────────────
+
+/**
+ * GET /api/inventario/cuadre — kardex contra contabilidad, sin arreglar nada solo.
+ *
+ * Cinco bloques, cada uno con su lista y su veredicto. La doctrina es la del cuadre
+ * del lote de la importación: mostrar lo que quedó fuera es más útil que un OK
+ * mentiroso, y ninguna diferencia se corrige automáticamente.
+ */
+inventarioRouter.get('/cuadre', wrap(async (req, res) => {
+  const companyId = req.user!.companyId;
+  const { fechaCorte } = req.query;
+  const corte = fechaCorte ? new Date(`${fechaCorte}T23:59:59`) : null;
+
+  const productos = await req.prisma.inventoryProduct.findMany({
+    where: { companyId },
+    select: { id: true, nombre: true, stockActual: true, stockValor: true, cuentaInventarioId: true },
+  });
+
+  const movWhere: any = { companyId };
+  if (corte) movWhere.fecha = { lte: corte };
+
+  const movimientos = await req.prisma.inventoryMovement.findMany({
+    where: movWhere,
+    select: { id: true, productId: true, origen: true, cantidad: true, costoTotal: true, journalEntryId: true, estado: true },
+  });
+
+  // ── 1. Kardex contra el mayor ──
+  const cuentasKardex = await cuentasInventarioEnUso(req.prisma, companyId);
+  const saldoKardex = r2(productos.reduce((s: number, p: any) => s + p.stockValor, 0));
+  const saldoContable = await saldoMayor(req.prisma, companyId, cuentasKardex);
+  const difKardex = r2(saldoKardex - saldoContable);
+
+  // ── 2. Saldos en cuentas de inventario que el kardex no explica ──
+  // Es lo que aparece cuando el inventario se cargó por la contabilidad y nunca se
+  // pasó al kardex (el caso de ODESA, con su carga inicial).
+  const cuentasSubárbol = await req.prisma.account.findMany({
+    where: { companyId, code: { startsWith: '1.1.04' } },
+    select: { id: true, code: true, name: true },
+    orderBy: { code: 'asc' },
+  });
+  const saldos: any[] = [];
+  for (const c of cuentasSubárbol) {
+    if (cuentasKardex.includes(c.id)) continue;
+    const saldo = await saldoMayor(req.prisma, companyId, [c.id]);
+    if (Math.abs(saldo) >= 0.005) saldos.push({ ...c, saldo });
+  }
+
+  // ── 3. Movimientos sin asiento, o con el asiento rechazado ──
+  const idsAsientos = [...new Set(movimientos.map((m: any) => m.journalEntryId).filter(Boolean))] as string[];
+  const asientos = idsAsientos.length
+    ? await req.prisma.journalEntry.findMany({
+        where: { id: { in: idsAsientos } },
+        select: { id: true, status: true, description: true },
+      })
+    : [];
+  const estadoPorAsiento = new Map(asientos.map((a: any) => [a.id, a]));
+
+  const sinAsiento = movimientos.filter((m: any) => !m.journalEntryId);
+  const conAsientoCaido = movimientos.filter((m: any) => {
+    const a: any = m.journalEntryId ? estadoPorAsiento.get(m.journalEntryId) : null;
+    return a && ['RECHAZADO', 'ANULADO'].includes(a.status);
+  });
+
+  // ── 4. Ventas sin costo: renglones de factura sin producto ──
+  // No es un error —un servicio no lleva costo— pero sirve verlo: si son mercancía,
+  // esa venta no descontó stock.
+  const ventasSinCosto = await req.prisma.$queryRawUnsafe(`
+    SELECT COUNT(*)::int AS n
+    FROM invoice_item i
+    JOIN invoice f ON f.id = i."invoiceId"
+    WHERE f."companyId" = '${companyId}' AND i."productId" IS NULL
+  `).catch(() => [{ n: 0 }]);
+
+  // ── 5. Recurrentes de compra apuntando a inventario ──
+  // Una plantilla con cuenta explícita debita lo que diga su cuenta, sin pasar por
+  // el kardex: si apunta acá, vuelve el problema que la Fase 5 cerró.
+  const plantillas = await req.prisma.recurringTemplate.findMany({
+    where: { companyId, isActive: true, type: 'COMPRA', debitAccountId: { in: cuentasKardex } },
+    select: { id: true, description: true, amount: true },
+  });
+
+  const sinAsientoDetalle = [
+    ...sinAsiento.map((m: any) => ({ ...m, motivo: 'Sin asiento' })),
+    ...conAsientoCaido.map((m: any) => ({ ...m, motivo: `Asiento ${estadoPorAsiento.get(m.journalEntryId)?.status}` })),
+  ];
+  const renglonesSinProducto = (ventasSinCosto as any[])[0]?.n || 0;
+
+  res.json({
+    fechaCorte: corte ? corte.toISOString().slice(0, 10) : null,
+    bloques: [
+      {
+        clave: 'kardex-mayor',
+        titulo: 'Kardex contra el mayor',
+        detalle: 'El valor del kardex y el saldo de la cuenta de inventario tienen que coincidir al centavo.',
+        kardex: saldoKardex,
+        mayor: saldoContable,
+        diferencia: difKardex,
+        cuadra: Math.abs(difKardex) < 0.005,
+        items: [],
+      },
+      {
+        clave: 'sin-kardex',
+        titulo: 'Saldos en cuentas de inventario sin kardex',
+        detalle: 'Cuentas de inventario con saldo que el kardex no explica. Suele venir de una carga inicial contable: se resuelve abriendo el kardex con una apertura por ese monto, o dejándolo si la empresa no usa el módulo.',
+        items: saldos,
+        cuadra: !saldos.length,
+      },
+      {
+        clave: 'asientos',
+        titulo: 'Movimientos sin asiento o con el asiento caído',
+        detalle: 'El kardex es un hecho físico y no se revierte si el contador rechaza el asiento; el mayor sí. Esa diferencia es legítima y conviene verla.',
+        items: sinAsientoDetalle,
+        cuadra: !sinAsientoDetalle.length,
+      },
+      {
+        clave: 'sin-producto',
+        titulo: 'Renglones de factura sin producto',
+        // Informativo, nunca un descuadre: un servicio no lleva costo y está bien.
+        detalle: 'Un servicio no lleva costo y está bien. Si son mercancía, esa venta no descontó stock.',
+        cantidad: renglonesSinProducto,
+        items: [],
+        cuadra: true,
+      },
+      {
+        clave: 'recurrentes',
+        titulo: 'Recurrentes de compra que debitan inventario',
+        detalle: 'Una plantilla con cuenta explícita debita lo que dice su cuenta, sin pasar por el kardex: volvería a inflar el inventario sin cantidad.',
+        items: plantillas,
+        cuadra: !plantillas.length,
+      },
+    ],
+  });
+}));
+
+/** GET /api/inventario/alertas — lo que hay que mirar del catálogo. */
+inventarioRouter.get('/alertas', wrap(async (req, res) => {
+  const companyId = req.user!.companyId;
+  const productos = await req.prisma.inventoryProduct.findMany({
+    where: { companyId, isActive: true },
+    select: { id: true, sku: true, nombre: true, unidad: true, stockActual: true, stockMinimo: true, costoPromedio: true, stockValor: true },
+    orderBy: { nombre: 'asc' },
+  });
+
+  const bajoMinimo = productos.filter((p: any) => p.stockMinimo > 0 && p.stockActual <= p.stockMinimo);
+  const negativos = productos.filter((p: any) => p.stockActual < 0);
+  const sinCosto = productos.filter((p: any) => p.stockActual > 0 && p.costoPromedio === 0);
+  const sinPrecio = productos.filter((p: any) => p.precioVenta == null && p.stockActual > 0);
+
+  const cuentasKardex = await cuentasInventarioEnUso(req.prisma, companyId);
+  const subárbol = await req.prisma.account.findMany({
+    where: { companyId, code: { startsWith: '1.1.04' } },
+    select: { id: true, code: true, name: true },
+  });
+  const sinKardex: any[] = [];
+  for (const c of subárbol) {
+    if (cuentasKardex.includes(c.id)) continue;
+    const saldo = await saldoMayor(req.prisma, companyId, [c.id]);
+    if (Math.abs(saldo) >= 0.005) sinKardex.push({ ...c, saldo });
+  }
+
+  res.json({ bajoMinimo, negativos, sinCosto, sinPrecio, sinKardex });
 }));
 
 // ── Entradas y salidas ──────────────────────────────────────────────────────

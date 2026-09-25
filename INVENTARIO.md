@@ -95,6 +95,17 @@ posteados, y el de cantidad a la suma firmada de las cantidades, en cualquier se
 
 ### 3.3 El cuadre con el mayor
 
+> **Implementado en la Fase 6.** El cuadre tiene su propia pestaña, con los cinco bloques y las alertas del
+> catálogo. `GET /api/inventario/cuadre` y `GET /api/inventario/alertas`.
+>
+> Un detalle que la verificación destapó: cuando no hay cuenta de kardex configurada, la cuenta por
+> convención es **`1.1.04.01`** (o la del alias `inventario-mercancia`) — **nunca todo el subtree `1.1.04`**.
+> Tomarlo entero hacía que un saldo en la cuenta padre o en Materia Prima quedara dentro de "la cuenta del
+> kardex", y entonces el cuadre decía que no cuadraba sin decir por qué. En ODESA el bloque reporta ahora
+> los **$1.000 de `1.1.04.02 Inventario de Materia Prima`**, que vienen de su Carga Inicial del 31-12-2025:
+> una cuenta que por la directiva §2 no debería tener kardex, y que el contador tiene que resolver.
+
+
 `GET /api/inventario/cuadre` compara el kardex contra la contabilidad y **muestra las diferencias en vez de
 esconderlas**. Cinco bloques, cada uno con su lista y su `cuadra`:
 
@@ -254,7 +265,7 @@ en los renglones de factura.
 | 4 | La venta descuenta stock (`InvoiceItem.productId`) | ✅ **Hecho** (25-09) — verificado E2E |
 | 6b | Carga inicial de inventario por archivo | ✅ **Hecho** (25-09) — verificado E2E |
 | 5 | La compra deja de entrar por importación y chat | ✅ **Hecho** (25-09) — verificado con importación real |
-| 6 | Cuadre y alertas | ⬜ Pendiente |
+| 6 | Cuadre y alertas | ✅ **Hecho** (25-09) — verificado contra ODESA |
 | 7 | Ajustes, anulación y toma física | ⬜ Pendiente |
 
 **Adelantado de la Fase 4** (no se puede posponer): el rol `inventario` y su barrera nacieron junto con
