@@ -172,7 +172,7 @@ async function crearProducto() {
 // ── Entrada de mercancía ────────────────────────────────────────────────────
 
 async function vistaEntradas() {
-  await recargar();
+  await Promise.all([recargar(), cargarProveedores()]);
   const opciones = _invProductos.map((p) => `<option value="${esc(p.id)}">${esc(p.nombre)} (${num(p.stockActual)} ${esc(p.unidad)})</option>`).join('');
 
   return `
@@ -194,7 +194,14 @@ async function vistaEntradas() {
         <option value="TARJETA_CREDITO">Tarjeta de crédito</option>
         <option value="CREDITO">Crédito (queda a deber)</option>
       </select></div>
-      <div><label>Proveedor (obligatorio si es a crédito)</label><input id="en-proveedor" placeholder="Nombre del proveedor"></div>
+      <div><label>Proveedor (obligatorio si es a crédito)</label>
+        <select id="en-proveedor-sel" onchange="alElegirProveedor()">
+          <option value="">— Sin proveedor (contado) —</option>
+          ${_invProveedores.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}
+          <option value="__nuevo__">➕ Otro proveedor…</option>
+        </select>
+        <input id="en-proveedor" placeholder="Nombre del proveedor nuevo" style="display:none;margin-top:6px">
+      </div>
       <div><label>N° de factura del proveedor</label><input id="en-referencia" placeholder="Opcional"></div>
       <div><label>ITBMS de la compra</label><input id="en-itbms" type="number" step="0.01" min="0" value="0" onfocus="this.select()" style="text-align:right"></div>
       <div><label>&nbsp;</label><button class="btn btn-secondary" style="width:100%" onclick="previsualizar()">Ver el asiento</button></div>
@@ -221,6 +228,70 @@ function normalizarLineas(lineas) {
   for (const l of lineas) {
     if (!ids.has(l.productId)) l.productId = primero;
   }
+}
+
+/**
+ * Proveedores de la empresa, para elegirlos en vez de escribirlos.
+ *
+ * Antes el campo era texto libre y el sistema intentaba CREAR el proveedor en cada
+ * guardado: si ya existía, el endpoint lo rechazaba (higiene de contrapartes: no
+ * queremos duplicados) y la entrada no se podía registrar, con un mensaje que
+ * hablaba de editar el proveedor en otro lado. Elegir de una lista evita el
+ * problema de raíz.
+ */
+let _invProveedores = [];
+
+async function cargarProveedores() {
+  try {
+    const res = await authFetch(`${API_URL}/suppliers`);
+    _invProveedores = res.ok ? await res.json() : [];
+  } catch {
+    _invProveedores = [];
+  }
+  return _invProveedores;
+}
+
+function alElegirProveedor() {
+  const esNuevo = document.getElementById('en-proveedor-sel').value === '__nuevo__';
+  document.getElementById('en-proveedor').style.display = esNuevo ? 'block' : 'none';
+  if (esNuevo) document.getElementById('en-proveedor').focus();
+}
+
+/**
+ * Resuelve el proveedor de la entrada: el elegido, o el nuevo.
+ *
+ * Si el nombre nuevo ya existe, el endpoint responde 409 con el nombre del que hay:
+ * en ese caso se BUSCA y se usa el existente en vez de fallar. El caso es real —dos
+ * personas cargando la misma compra, o el mismo proveedor escrito distinto— y
+ * rechazar la entrada por eso sería castigar al usuario por una regla interna.
+ */
+async function resolverProveedor() {
+  const sel = document.getElementById('en-proveedor-sel');
+  if (sel?.value && sel.value !== '__nuevo__') return sel.value;
+
+  const nombre = document.getElementById('en-proveedor')?.value.trim();
+  if (!nombre) return null;
+
+  const res = await authFetch(`${API_URL}/suppliers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: nombre }),
+  });
+  if (res.ok) {
+    const nuevo = await res.json();
+    _invProveedores.push({ id: nuevo.id, name: nuevo.name });
+    return nuevo.id;
+  }
+
+  // Ya existe: se busca por nombre y se usa el que hay.
+  const busqueda = await authFetch(`${API_URL}/suppliers?search=${encodeURIComponent(nombre)}`);
+  if (busqueda.ok) {
+    const lista = await busqueda.json();
+    const exacto = lista.find((p) => p.name.toLowerCase() === nombre.toLowerCase()) || lista[0];
+    if (exacto) return exacto.id;
+  }
+  const err = await res.json().catch(() => ({}));
+  throw new Error(err.error || 'No se pudo resolver el proveedor');
 }
 
 function lineasHtml() {
@@ -290,23 +361,15 @@ async function guardarEntrada() {
     dedupeKey: `entrada:${Date.now()}`,
   };
 
-  const proveedor = document.getElementById('en-proveedor').value.trim();
-  if (cuerpo.paymentMethod === 'CREDITO' && !proveedor) {
-    return showAlert('Una compra a crédito necesita el nombre del proveedor.');
+  const eligeProveedor = document.getElementById('en-proveedor-sel')?.value;
+  if (cuerpo.paymentMethod === 'CREDITO' && !eligeProveedor) {
+    return showAlert('Una compra a crédito necesita proveedor: elegí uno de la lista o creá uno nuevo.');
   }
-  if (proveedor) {
-    // El proveedor se crea si no existe: la compra a crédito lo necesita para el
-    // auxiliar de CxP, y obligar a darlo de alta antes rompe el flujo.
-    try {
-      const sup = await pedir(`${API_URL}/suppliers`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: proveedor }),
-      });
-      cuerpo.supplierId = sup.id || sup.supplier?.id;
-    } catch (e) {
-      return showAlert(`No se pudo usar el proveedor "${proveedor}": ${e.message}`);
-    }
+  try {
+    const supplierId = await resolverProveedor();
+    if (supplierId) cuerpo.supplierId = supplierId;
+  } catch (e) {
+    return showAlert(e.message);
   }
 
   try {
