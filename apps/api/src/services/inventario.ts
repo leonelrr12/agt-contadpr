@@ -14,6 +14,7 @@ import { AccountingAgent } from '@agt-contador/agents';
 import { checkNotBlocked } from './journal-guard';
 import { calcularMovimiento, type EstadoProducto, type MovimientoCalculado } from './costo-promedio';
 import { syncEntityFromEntry } from './entity-service';
+import { anularAsiento } from './journal-annul';
 import { parseLocalDate } from '../lib/dates';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -470,6 +471,307 @@ export async function registrarSalida(
   });
 
   return { movimientos, asiento, avisos };
+}
+
+// ── Toma física ─────────────────────────────────────────────────────────────
+
+export interface ConteoFisico {
+  productId: string;
+  /** Lo que se contó en el depósito. */
+  cantidadContada: number;
+  /** Costo para un sobrante sin existencia previa. Si falta, hereda el promedio. */
+  costoUnitario?: number;
+}
+
+export interface OpcionesAjuste {
+  conteos: ConteoFisico[];
+  fecha: string;
+  motivo?: string | null;
+  /** Cuenta contra la que se registra el ajuste. Por defecto, la de costo de ventas. */
+  cuentaContrapartidaId?: string | null;
+  dedupeKey?: string | null;
+}
+
+/**
+ * Toma física: se cuenta el depósito y el sistema registra la diferencia.
+ *
+ * Un solo asiento para toda la toma, como la carga inicial: es un documento, no uno
+ * por producto. Los que coinciden con el sistema no generan nada.
+ *
+ * Un sobrante sin existencia previa necesita costo: no hay promedio del que heredar
+ * y ponerlo en cero valoraría el inventario en nada.
+ */
+export async function registrarAjustes(
+  tx: any,
+  companyId: string,
+  userId: string,
+  data: OpcionesAjuste,
+): Promise<ResultadoMovimiento & { ajustados: number }> {
+  await verificarIdempotencia(tx, companyId, data.dedupeKey);
+
+  const agent = new AccountingAgent(tx, companyId);
+  await agent.init();
+  const empresa = await tx.company.findUnique({
+    where: { id: companyId },
+    select: { inventarioCuentaId: true, inventarioCostoId: true },
+  });
+
+  const ids = data.conteos.map((c) => c.productId);
+  await bloquearProductos(tx, ids);
+  const productos = await cargarProductos(tx, companyId, ids);
+
+  const cuentas = new Map<string, { inventarioId: string; costoId: string }>();
+  for (const id of new Set(ids)) cuentas.set(id, resolverCuentas(agent, empresa || {}, productos.get(id)));
+
+  const calcular: { producto: any; mov: MovimientoCalculado }[] = [];
+  const estados = new Map<string, EstadoProducto>();
+  const avisos: string[] = [];
+  const sinCambio: string[] = [];
+
+  for (const conteo of data.conteos) {
+    const producto = productos.get(conteo.productId);
+    const estado = estados.get(producto.id) || estadoDe(producto);
+    const diff = r2(conteo.cantidadContada - estado.cantidad);
+
+    if (Math.abs(diff) < 0.0001) {
+      sinCambio.push(producto.nombre);
+      continue;
+    }
+
+    const tipo = diff > 0 ? 'AJUSTE_POSITIVO' : 'AJUSTE_NEGATIVO';
+    const res = calcularMovimiento(
+      estado,
+      { tipo, cantidad: Math.abs(diff), costoUnitario: conteo.costoUnitario },
+      { forzar: false },
+    );
+    if (!res.ok) throw Object.assign(new Error(`${producto.nombre}: ${res.error}`), { status: 400 });
+
+    const mov = res.movimientos[0];
+    calcular.push({ producto, mov });
+    avisos.push(...mov.avisos.map((a) => `${producto.nombre}: ${a}`));
+    estados.set(producto.id, {
+      cantidad: mov.saldoCantidad,
+      valor: mov.saldoValor,
+      promedio: mov.saldoCostoPromedio,
+    });
+  }
+
+  if (!calcular.length) {
+    return {
+      movimientos: [],
+      asiento: null,
+      avisos: [`Todos los productos contados coinciden con el sistema${sinCambio.length ? `: ${sinCambio.join(', ')}` : ''}.`],
+      ajustados: 0,
+    };
+  }
+
+  // Un asiento para toda la toma: sobrantes al debe del inventario, faltantes al haber.
+  const porCuenta = new Map<string, { debit: number; credit: number }>();
+  const sumar = (accountId: string, campo: 'debit' | 'credit', monto: number) => {
+    const acc = porCuenta.get(accountId) || { debit: 0, credit: 0 };
+    acc[campo] = r2(acc[campo] + monto);
+    porCuenta.set(accountId, acc);
+  };
+
+  let sobrante = 0;
+  let faltante = 0;
+  for (const { mov, producto } of calcular) {
+    const { inventarioId, costoId } = cuentas.get(producto.id)!;
+    const contrapartida = data.cuentaContrapartidaId || costoId;
+    const esSobrante = mov.tipo === 'AJUSTE_POSITIVO';
+    sumar(inventarioId, esSobrante ? 'debit' : 'credit', mov.costoTotal);
+    sumar(contrapartida, esSobrante ? 'credit' : 'debit', mov.costoTotal);
+    if (esSobrante) sobrante = r2(sobrante + mov.costoTotal);
+    else faltante = r2(faltante + mov.costoTotal);
+  }
+
+  const lineas = [...porCuenta.entries()]
+    .map(([accountId, v]) => ({ accountId, debit: v.debit, credit: v.credit }))
+    .filter((l) => l.debit !== 0 || l.credit !== 0);
+
+  const bloqueada = await checkNotBlocked(tx, companyId, lineas.map((l) => l.accountId));
+  if (bloqueada) throw Object.assign(new Error(bloqueada), { status: 400 });
+
+  const fecha = parseLocalDate(data.fecha);
+  const asiento = await tx.journalEntry.create({
+    data: {
+      date: fecha,
+      description: `Toma física de inventario${data.motivo ? `: ${data.motivo}` : ''} - sobrante $${sobrante.toFixed(2)} / faltante $${faltante.toFixed(2)}`,
+      status: 'BORRADOR',
+      companyId,
+      createdById: userId,
+      lines: { create: lineas },
+    },
+  });
+
+  const claveBase = data.dedupeKey || `ajuste:${asiento.id}`;
+  const filas: any[] = [];
+  let seq = 0;
+  for (const { producto, mov } of calcular) {
+    filas.push({
+      companyId,
+      productId: producto.id,
+      fecha,
+      tipo: mov.tipo,
+      origen: 'AJUSTE',
+      cantidad: mov.cantidad,
+      costoUnitario: mov.costoUnitario,
+      costoTotal: mov.costoTotal,
+      saldoCantidad: mov.saldoCantidad,
+      saldoValor: mov.saldoValor,
+      saldoCostoPromedio: mov.saldoCostoPromedio,
+      journalEntryId: asiento.id,
+      notas: data.motivo ? `Toma física: ${data.motivo}` : 'Toma física',
+      dedupeKey: claveFila(claveBase, producto.id, seq++),
+      createdById: userId,
+    });
+  }
+  await tx.inventoryMovement.createMany({ data: filas });
+
+  for (const [productId, estado] of estados) {
+    await tx.inventoryProduct.update({
+      where: { id: productId },
+      data: { stockActual: estado.cantidad, stockValor: estado.valor, costoPromedio: estado.promedio },
+    });
+  }
+
+  return {
+    movimientos: await tx.inventoryMovement.findMany({ where: { journalEntryId: asiento.id }, orderBy: { createdAt: 'asc' } }),
+    asiento,
+    avisos,
+    ajustados: calcular.length,
+  };
+}
+
+// ── Anulación de movimientos ────────────────────────────────────────────────
+
+/**
+ * Anula una operación de kardex: la identifica por el movimiento y revierte TODOS
+ * los movimientos del mismo documento, más su asiento.
+ *
+ * Es por operación y no por fila a propósito: un movimiento suelto de una compra de
+ * tres productos no se puede revertir solo —el asiento cubre los tres y el kardex
+ * quedaría diciendo una cosa y el mayor otra—. El usuario confirma la operación
+ * completa, que es lo que realmente quiere deshacer.
+ *
+ * Los inversos se aplican en orden INVERSO al original y cada uno al costo del
+ * movimiento que revierte: al promedio vigente no devolvería el valor anterior.
+ */
+export async function anularMovimiento(
+  tx: any,
+  companyId: string,
+  userId: string,
+  movimientoId: string,
+  motivo?: string | null,
+): Promise<{ movimientos: any[]; asiento: any | null; cantidad: number }> {
+  const mov = await tx.inventoryMovement.findFirst({ where: { id: movimientoId, companyId } });
+  if (!mov) throw Object.assign(new Error('Movimiento no encontrado'), { status: 404 });
+  if (mov.estado === 'ANULADO') throw Object.assign(new Error('El movimiento ya está anulado'), { status: 409 });
+
+  // La operación entera: los movimientos que salieron del mismo asiento. Sin asiento
+  // (una carga inicial que ya estaba en la contabilidad) es el movimiento solo.
+  const originales: any[] = mov.journalEntryId
+    ? await tx.inventoryMovement.findMany({
+        where: { companyId, journalEntryId: mov.journalEntryId, estado: 'ACTIVO' },
+        orderBy: { createdAt: 'desc' }, // se deshace de atrás hacia adelante
+      })
+    : [mov];
+  if (!originales.length) {
+    throw Object.assign(new Error('No hay movimientos activos que anular en esta operación'), { status: 409 });
+  }
+
+  await bloquearProductos(tx, originales.map((o) => o.productId));
+  const productos = new Map<string, any>();
+  for (const o of originales) {
+    if (!productos.has(o.productId)) {
+      productos.set(o.productId, await tx.inventoryProduct.findUnique({ where: { id: o.productId } }));
+    }
+  }
+
+  const fecha = parseLocalDate(new Date().toISOString().slice(0, 10));
+  const claveBase = `anulacion:${mov.id}`;
+  const filas: any[] = [];
+  let seq = 0;
+
+  for (const o of originales) {
+    const producto = productos.get(o.productId);
+    const estado = estadoDe(producto);
+    let inverso: { tipo: string; cantidad: number; costoUnitario: number; costoTotal: number };
+
+    if (o.cantidad === 0) {
+      // Fila de valor (regularización): no mueve cantidad, devuelve el importe. No
+      // pasa por el motor porque este rechaza cantidad 0, y acá la cantidad no cambia.
+      const valor = r2(estado.valor + o.costoTotal);
+      inverso = { tipo: 'AJUSTE_POSITIVO', cantidad: 0, costoUnitario: o.costoUnitario, costoTotal: o.costoTotal };
+      producto.stockActual = estado.cantidad;
+      producto.stockValor = valor;
+      producto.costoPromedio = estado.cantidad > 0 ? valor / estado.cantidad : estado.promedio;
+    } else {
+      const tipoInverso =
+        o.tipo === 'ENTRADA' ? 'SALIDA'
+        : o.tipo === 'SALIDA' ? 'ENTRADA'
+        : o.tipo === 'AJUSTE_POSITIVO' ? 'AJUSTE_NEGATIVO'
+        : 'AJUSTE_POSITIVO';
+
+      const res = calcularMovimiento(
+        { cantidad: estado.cantidad, valor: estado.valor, promedio: estado.promedio },
+        { tipo: tipoInverso as any, cantidad: o.cantidad, costoUnitario: o.costoUnitario },
+        { forzar: true },
+      );
+      if (!res.ok) throw Object.assign(new Error(`${producto.nombre}: ${res.error}`), { status: 400 });
+      const m = res.movimientos[res.movimientos.length - 1];
+      inverso = { tipo: m.tipo, cantidad: m.cantidad, costoUnitario: m.costoUnitario, costoTotal: m.costoTotal };
+      producto.stockActual = m.saldoCantidad;
+      producto.stockValor = m.saldoValor;
+      producto.costoPromedio = m.saldoCostoPromedio;
+    }
+
+    filas.push({
+      companyId,
+      productId: o.productId,
+      fecha, // el día de la corrección, como el reverso del asiento
+      tipo: inverso.tipo,
+      origen: 'ANULACION',
+      cantidad: inverso.cantidad,
+      costoUnitario: inverso.costoUnitario,
+      costoTotal: inverso.costoTotal,
+      saldoCantidad: producto.stockActual,
+      saldoValor: producto.stockValor,
+      saldoCostoPromedio: producto.costoPromedio,
+      notas: `Anulación${motivo ? `: ${motivo}` : ''}`,
+      revierteAId: o.id,
+      dedupeKey: claveFila(claveBase, o.productId, seq++),
+      createdById: userId,
+    });
+  }
+
+  await tx.inventoryMovement.createMany({ data: filas });
+
+  // El asiento de la operación se anula con la misma semántica que el diario: el
+  // original sigue contando en su período y el reverso lo netea desde hoy.
+  let asiento: any = null;
+  if (mov.journalEntryId) {
+    const r = await anularAsiento(tx, companyId, userId, mov.journalEntryId);
+    asiento = r.reversal;
+    await tx.inventoryMovement.updateMany({
+      where: { dedupeKey: { startsWith: `${claveBase}:` } },
+      data: { journalEntryId: r.reversal.id },
+    });
+  }
+
+  await tx.inventoryMovement.updateMany({
+    where: { id: { in: originales.map((o) => o.id) } },
+    data: { estado: 'ANULADO' },
+  });
+
+  for (const [productId, p] of productos) {
+    await tx.inventoryProduct.update({
+      where: { id: productId },
+      data: { stockActual: p.stockActual, stockValor: p.stockValor, costoPromedio: p.costoPromedio },
+    });
+  }
+
+  return { movimientos: filas, asiento, cantidad: originales.length };
 }
 
 // ── Carga inicial de inventario ─────────────────────────────────────────────

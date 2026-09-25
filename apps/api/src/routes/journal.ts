@@ -6,6 +6,7 @@ import { parseLocalDate } from '../lib/dates';
 import { getAnioFiscal, anioFiscalRange } from '../lib/fiscal-year';
 import { logAudit } from '../services/audit-log';
 import { syncEntityFromEntry } from '../services/entity-service';
+import { anularAsiento } from '../services/journal-annul';
 import { resolveEntryOrigin } from '../services/entry-origin';
 import { requireQuota, incrementUsage } from '../middleware/quota';
 import { checkNotBlocked } from '../services/journal-guard';
@@ -317,60 +318,17 @@ journalRouter.post('/:id/anular', requireRole('admin', 'contador', 'superadmin')
   const entryId = req.params.id;
 
   try {
-    const result = await req.prisma.$transaction(async (tx) => {
-      const original = await tx.journalEntry.findFirst({
-        where: { id: entryId, companyId: req.user!.companyId },
-        include: { lines: true, transactions: true },
-      });
-      const orig = original as any;
-      if (!orig) throw Object.assign(new Error('Asiento no encontrado'), { status: 404 });
-      if (orig.anuladoPorId) throw Object.assign(new Error('El asiento ya está anulado'), { status: 400 });
-      if (orig.status === 'ANULADO') throw Object.assign(new Error('El asiento ya está anulado'), { status: 400 });
-      if (orig.description.startsWith('ANULACIÓN:')) throw Object.assign(new Error('No se puede anular un asiento de reversión'), { status: 400 });
-
-      const reversal = await tx.journalEntry.create({
-        data: {
-          date: new Date(),
-          description: `ANULACIÓN: ${orig.description}`,
-          status: 'CONFIRMADO',
-          companyId: req.user!.companyId,
-          createdById: req.user!.userId,
-          lines: {
-            create: orig.lines.map((l: any) => ({
-              accountId: l.accountId,
-              debit: l.credit,
-              credit: l.debit,
-            })),
-          },
-        },
-        include: { lines: { include: { account: true } } },
-      });
-
-      // El original NO se marca ANULADO ni se le mueven las Transactions.
-      //
-      // Anular no es borrar: el asiento se contabilizó y después se corrigió, así que
-      // sigue contando en el período en que se registró y el reverso —fechado hoy— lo
-      // netea desde el mes de la corrección. Marcarlo ANULADO lo sacaba de su propio
-      // período y el informe de enero pasaba a decir que ese gasto nunca existió.
-      //
-      // La Transaction se queda con el original: es el registro del hecho económico.
-      // El reverso se identifica solo por su descripción ("ANULACIÓN: …"), que
-      // `entry-origin` ya reconoce.
-      await tx.journalEntry.update({
-        where: { id: orig.id },
-        data: { anuladoPorId: reversal.id },
-      });
-
-      return { original: { ...original, anuladoPorId: reversal.id }, reversal };
-    });
+    // El cuerpo vive en services/journal-annul.ts: es la fuente única y la que fija
+    // la semántica de "anular no reescribe la historia" (ver el comentario del servicio).
+    const result = await req.prisma.$transaction((tx: any) =>
+      anularAsiento(tx, req.user!.companyId, req.user!.userId, entryId));
 
     await logAudit(req.prisma, {
       userId: req.user!.userId,
       action: 'JOURNAL_ANNULED',
       entity: 'JournalEntry',
       entityId: entryId,
-      before: { status: result.original.status },
-      after: { status: 'ANULADO', reversalId: result.reversal.id },
+      after: { anuladoPorId: result.reversal.id },
     });
 
     res.json(result);

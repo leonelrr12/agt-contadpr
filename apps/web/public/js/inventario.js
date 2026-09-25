@@ -329,7 +329,82 @@ async function vistaSalidas() {
       <input type="checkbox" id="sa-forzar"> Permitir dejar el stock en negativo (venta ya ocurrida sin mercancía cargada)
     </label>
     <div style="margin-top:12px"><button class="btn btn-primary" onclick="guardarSalida()">Registrar salida</button></div>
+  </div>
+
+  ${_invProductos.length ? tomaFisicaHtml() : ''}`;
+}
+
+/**
+ * Toma física: se cuenta el depósito y el sistema registra la diferencia.
+ *
+ * Los campos vienen precargados con lo que dice el sistema: solo se toca lo que no
+ * coincide, y lo que queda igual no genera nada. Es más rápido y más difícil de
+ * equivocar que cargar cada ajuste a mano.
+ */
+function tomaFisicaHtml() {
+  const filas = _invProductos.map((p) => `
+    <tr>
+      <td>${esc(p.nombre)}</td>
+      <td class="num">${num(p.stockActual)} ${esc(p.unidad)}</td>
+      <td style="width:130px">
+        <input type="number" step="0.001" min="0" value="${p.stockActual}"
+               data-contado="${esc(p.id)}" style="width:100%;padding:5px;border:1px solid #d0d5dd;border-radius:6px;text-align:right">
+      </td>
+    </tr>`).join('');
+
+  return `
+  <div class="card">
+    <h3>🧮 Toma física</h3>
+    <p class="nota" style="margin-top:0">Contá el depósito y corregí lo que no coincida. Los productos que queden igual no generan nada.
+    Un solo asiento para toda la toma: los sobrantes al debe del inventario y los faltantes al haber.</p>
+    <div style="overflow-x:auto;max-height:340px;overflow-y:auto">
+      <table class="data-table">
+        <thead><tr><th>Producto</th><th class="num">Según el sistema</th><th class="num">Contado</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>
+    <div class="form-grid" style="margin-top:12px">
+      <div><label>Fecha</label><input id="tf-fecha" type="date" value="${hoy()}"></div>
+      <div><label>Motivo</label><input id="tf-motivo" placeholder="Ej: toma física trimestral"></div>
+    </div>
+    <div style="margin-top:12px"><button class="btn btn-primary" onclick="guardarTomaFisica()">Registrar diferencias</button></div>
+    <div class="nota">Un sobrante de un producto sin existencia previa necesita costo: no hay promedio del que heredar. Si aparece uno, el sistema lo rechaza con el nombre del producto.</div>
   </div>`;
+}
+
+async function guardarTomaFisica() {
+  const campos = [...document.querySelectorAll('[data-contado]')];
+  const conteos = campos
+    .map((el) => ({ productId: el.dataset.contado, cantidadContada: Number(el.value) }))
+    .filter((c) => Number.isFinite(c.cantidadContada));
+
+  if (!conteos.length) return showAlert('Completá al menos una cantidad');
+
+  // Se avisa antes de mandar: si nada cambió, no tiene sentido generar un asiento.
+  const distintos = conteos.filter((c) => {
+    const p = _invProductos.find((x) => x.id === c.productId);
+    return p && Math.abs(c.cantidadContada - p.stockActual) > 0.0001;
+  });
+  if (!distintos.length) return showAlert('Todas las cantidades coinciden con el sistema: no hay nada que ajustar.');
+  if (!(await showConfirm(`Se van a ajustar ${distintos.length} producto(s). ¿Confirmás la toma física?`))) return;
+
+  try {
+    const r = await pedir(`${API_URL}/inventario/ajustes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conteos,
+        fecha: document.getElementById('tf-fecha').value || hoy(),
+        motivo: document.getElementById('tf-motivo').value.trim() || undefined,
+        dedupeKey: `toma:${Date.now()}`,
+      }),
+    });
+    const avisos = (r.avisos || []).length ? `\n\n${r.avisos.join('\n')}` : '';
+    await showAlert(`Toma física registrada: ${r.ajustados} producto(s) ajustado(s).\nAsiento ${r.asiento?.id.slice(-6) || '—'} en borrador.${avisos}`);
+    render();
+  } catch (e) {
+    await showAlert(e.message);
+  }
 }
 
 async function guardarSalida() {
@@ -377,6 +452,9 @@ async function vistaKardex() {
       <td class="num">${money(m.costoUnitario)}</td>
       <td class="num">${num(m.saldoCantidad)}</td>
       <td class="num">${money(m.saldoValor)}</td>
+      <td>${m.estado === 'ANULADO'
+        ? '<span class="badge badge-neutral">Anulado</span>'
+        : `<button class="btn btn-secondary btn-sm" onclick="anularMovimiento('${esc(m.id)}')">Anular</button>`}</td>
     </tr>`).join('');
 
   return `
@@ -393,8 +471,8 @@ async function vistaKardex() {
       <div class="summary-card ${k.mayor.cuadra ? 'ok' : 'err'}"><div class="num">${money(k.mayor.diferencia)}</div><div class="label">Diferencia vs mayor</div></div>
     </div>
     <div style="overflow-x:auto"><table class="data-table">
-      <thead><tr><th>Fecha</th><th>Movimiento</th><th>Referencia</th><th class="num">Entrada</th><th class="num">Salida</th><th class="num">Costo unit.</th><th class="num">Saldo cant.</th><th class="num">Saldo valor</th></tr></thead>
-      <tbody>${filas || '<tr><td colspan="8" style="text-align:center;color:#6b7280;padding:24px">Sin movimientos todavía</td></tr>'}</tbody>
+      <thead><tr><th>Fecha</th><th>Movimiento</th><th>Referencia</th><th class="num">Entrada</th><th class="num">Salida</th><th class="num">Costo unit.</th><th class="num">Saldo cant.</th><th class="num">Saldo valor</th><th></th></tr></thead>
+      <tbody>${filas || '<tr><td colspan="9" style="text-align:center;color:#6b7280;padding:24px">Sin movimientos todavía</td></tr>'}</tbody>
     </table></div>
     <div class="nota">El kardex va en <strong>orden de registro</strong>, no de fecha del documento: una factura retroactiva no reescribe los promedios que ya pasaron. ${k.mayor.cuadra ? 'El valor del kardex coincide con el saldo del mayor en la cuenta de inventario.' : `El mayor dice ${money(k.mayor.saldo)} — la diferencia se muestra para que no pase inadvertida.`}</div>`;
 }
@@ -408,6 +486,33 @@ function etiquetaTipo(m) {
   const mapa = { ENTRADA: ['badge-ok', 'Entrada'], SALIDA: ['badge-neutral', 'Salida'], AJUSTE_POSITIVO: ['badge-ok', 'Ajuste +'], AJUSTE_NEGATIVO: ['badge-neutral', 'Ajuste −'] };
   const [cls, txt] = mapa[m.tipo] || ['badge-neutral', m.tipo];
   return `<span class="badge ${cls}">${esc(txt)}</span>`;
+}
+
+/**
+ * Anula la OPERACIÓN del movimiento: si la compra tenía tres productos, se revierten
+ * los tres. El aviso lo dice antes de confirmar, porque no es lo que el usuario
+ * espera si cree que anula una sola fila.
+ */
+async function anularMovimiento(id) {
+  const motivo = prompt('¿Por qué se anula? (queda registrado)');
+  if (motivo === null) return;
+  if (motivo.trim().length < 5) return showAlert('Explicá el motivo (mínimo 5 caracteres).');
+  if (!(await showConfirm('Se revierte la operación completa: sus movimientos de kardex y su asiento. ¿Confirmás?'))) return;
+
+  try {
+    const r = await pedir(`${API_URL}/inventario/movimientos/${id}/anular`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo: motivo.trim() }),
+    });
+    await showAlert(
+      `Anulado. Se revirtieron ${r.cantidad} movimiento(s) del kardex` +
+      (r.asiento ? ' y se generó el asiento de reversión.' : ' (la operación no tenía asiento).'),
+    );
+    render();
+  } catch (e) {
+    await showAlert(e.message);
+  }
 }
 
 // ── Valoración ──────────────────────────────────────────────────────────────

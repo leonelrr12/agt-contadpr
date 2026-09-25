@@ -180,7 +180,13 @@ function salida(
   const cubierto = Math.min(cantidad, Math.max(0, estado.cantidad));
   const vacia = costoExplicito === undefined && cubierto === estado.cantidad && estado.cantidad > 0;
   const costoUnitario = costoExplicito ?? estado.promedio;
-  const costoTotal = vacia ? estado.valor : r2(cubierto * costoUnitario);
+  // Con costo explícito (un reverso) el importe es el de la CANTIDAD PEDIDA, no el de
+  // la que hay en stock: el reverso tiene que deshacer exactamente lo que el movimiento
+  // original hizo. Si se limita a lo que queda, un reverso parcial deja el valor
+  // corrido para siempre — sacar 10 unidades de un stock de 8 reponía solo 8.
+  const costoTotal = costoExplicito !== undefined
+    ? r2(cantidad * costoExplicito)
+    : vacia ? estado.valor : r2(cubierto * costoUnitario);
 
   const saldoCantidad = estado.cantidad - cantidad;
   const saldoValor = r2(estado.valor - costoTotal);

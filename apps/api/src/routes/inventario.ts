@@ -4,7 +4,7 @@ import { requireRole } from '../middleware/auth';
 import { requireQuota, incrementUsage } from '../middleware/quota';
 import { validate } from '../middleware/validate';
 import { logAudit } from '../services/audit-log';
-import { registrarEntrada, registrarSalida, cargarInventarioInicial } from '../services/inventario';
+import { registrarEntrada, registrarSalida, cargarInventarioInicial, registrarAjustes, anularMovimiento } from '../services/inventario';
 import { parseInventarioFile } from '../services/csv-parser';
 import {
   createProductoSchema,
@@ -12,6 +12,8 @@ import {
   entradaInventarioSchema,
   salidaInventarioSchema,
   cargaInventarioSchema,
+  ajusteInventarioSchema,
+  anularMovimientoSchema,
 } from '../validation/schemas';
 
 export const inventarioRouter = Router();
@@ -620,6 +622,51 @@ inventarioRouter.post('/salidas', requireRole(...ROLES_ESCRITURA, 'inventario'),
     entity: 'InventoryMovement',
     entityId: result.asiento.id,
     after: { asiento: result.asiento.id, movimientos: result.movimientos.length },
+  }).catch(() => {});
+
+  res.status(201).json(result);
+}));
+
+/** POST /api/inventario/ajustes — toma física: se cuenta el depósito y se registra la diferencia. */
+inventarioRouter.post('/ajustes', requireRole(...ROLES_ESCRITURA, 'inventario'), requireQuota, validate(ajusteInventarioSchema), wrap(async (req, res) => {
+  const companyId = req.user!.companyId;
+  const userId = req.user!.userId;
+
+  const result = await req.prisma.$transaction((tx: any) => registrarAjustes(tx, companyId, userId, req.body));
+
+  if (result.asiento) await incrementUsage(req);
+  await logAudit(req.prisma, {
+    userId,
+    action: 'INVENTARIO_AJUSTE',
+    entity: 'InventoryMovement',
+    entityId: result.asiento?.id || 'sin-asiento',
+    after: { ajustados: result.ajustados, motivo: req.body.motivo },
+  }).catch(() => {});
+
+  res.status(201).json(result);
+}));
+
+/**
+ * POST /api/inventario/movimientos/:id/anular — anula la OPERACIÓN del movimiento.
+ *
+ * Por operación y no por fila: un movimiento suelto de una compra de tres productos
+ * no se puede revertir solo, porque el asiento cubre los tres. La respuesta dice
+ * cuántos movimientos abarcó para que la UI pueda avisarlo.
+ */
+inventarioRouter.post('/movimientos/:id/anular', requireRole(...ROLES_ESCRITURA, 'inventario'), requireQuota, validate(anularMovimientoSchema), wrap(async (req, res) => {
+  const companyId = req.user!.companyId;
+  const userId = req.user!.userId;
+
+  const result = await req.prisma.$transaction((tx: any) =>
+    anularMovimiento(tx, companyId, userId, req.params.id, req.body.motivo));
+
+  await incrementUsage(req);
+  await logAudit(req.prisma, {
+    userId,
+    action: 'INVENTARIO_ANULADO',
+    entity: 'InventoryMovement',
+    entityId: req.params.id,
+    after: { movimientos: result.cantidad, motivo: req.body.motivo },
   }).catch(() => {});
 
   res.status(201).json(result);

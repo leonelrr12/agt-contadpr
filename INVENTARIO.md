@@ -191,6 +191,21 @@ del renglón, así que puede quedar viejo sin romper ninguna contabilidad. Si un
 formulario de facturas deja el precio en blanco en vez de poner el costo — que sería un error caro de
 detectar.
 
+### 3.5c Toma física y anulación
+
+**La toma física** se hace contando el depósito: la pantalla lista los productos con lo que dice el sistema y
+un campo para lo contado, precargado. Solo se toca lo que no coincide, y lo que queda igual no genera nada.
+Un solo asiento para toda la toma —sobrantes al debe del inventario, faltantes al haber— porque es un
+documento, no uno por producto. Un sobrante de un producto **sin existencia previa** necesita costo: no hay
+promedio del que heredar y ponerlo en cero valoraría el inventario en nada.
+
+**La anulación es por operación, no por fila.** Un movimiento suelto de una compra de tres productos no se
+puede revertir solo: el asiento cubre los tres y el kardex quedaría diciendo una cosa y el mayor otra. La
+pantalla lo avisa antes de confirmar. Los inversos se aplican en orden inverso y **cada uno al costo del
+movimiento que revierte** — al promedio vigente no devolvería el valor anterior. El asiento de la operación
+se anula con la misma semántica que el diario: el original sigue contando en su período y el reverso lo
+netea desde hoy.
+
 ### 3.6 Los Auxiliares de CxC y CxP
 
 No alcanza con que el asiento exista: la compra y la venta tienen que **aparecer en los auxiliares**, que es
@@ -266,7 +281,7 @@ en los renglones de factura.
 | 6b | Carga inicial de inventario por archivo | ✅ **Hecho** (25-09) — verificado E2E |
 | 5 | La compra deja de entrar por importación y chat | ✅ **Hecho** (25-09) — verificado con importación real |
 | 6 | Cuadre y alertas | ✅ **Hecho** (25-09) — verificado contra ODESA |
-| 7 | Ajustes, anulación y toma física | ⬜ Pendiente |
+| 7 | Ajustes, anulación y toma física | ✅ **Hecho** (25-09) — verificado E2E |
 
 **Adelantado de la Fase 4** (no se puede posponer): el rol `inventario` y su barrera nacieron junto con
 los endpoints. Un rol restringido sin la barrera que niega por defecto es un agujero abierto desde el

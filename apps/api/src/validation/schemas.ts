@@ -337,3 +337,23 @@ export const cargaInventarioSchema = z.object({
   dedupeKey: z.string().max(120).optional(),
 });
 export type CargaInventarioInput = z.infer<typeof cargaInventarioSchema>;
+
+// Toma física: se cuenta el depósito y el sistema registra la diferencia.
+export const ajusteInventarioSchema = z.object({
+  conteos: z.array(z.object({
+    productId: z.string().min(1),
+    cantidadContada: z.number().min(0, 'La cantidad contada no puede ser negativa').max(1e12),
+    // Solo hace falta para un sobrante sin existencia previa: no hay promedio del que heredar.
+    costoUnitario: z.number().min(0).max(1e12).optional(),
+  })).min(1, 'Se requiere al menos un producto contado').max(500),
+  fecha: isoDate,
+  motivo: z.string().max(300).optional(),
+  cuentaContrapartidaId: z.string().optional(),
+  dedupeKey: z.string().max(120).optional(),
+});
+export type AjusteInventarioInput = z.infer<typeof ajusteInventarioSchema>;
+
+export const anularMovimientoSchema = z.object({
+  motivo: z.string().min(5, 'Explicá por qué se anula (mínimo 5 caracteres)').max(300),
+});
+export type AnularMovimientoInput = z.infer<typeof anularMovimientoSchema>;

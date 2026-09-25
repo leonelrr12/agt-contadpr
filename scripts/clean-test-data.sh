@@ -37,6 +37,11 @@ if [ "$CONFIRM" != "SI" ]; then echo "Cancelado."; exit 0; fi
 #   JournalLine/Transaction/bank_statement_row → JournalEntry
 #   payment_record → subscription
 RUN_SQL=$(cat << ENDSQL
+-- Inventario: el kardex primero (FK al producto), después el catálogo
+DELETE FROM inventory_movement WHERE "companyId" = '${COMPANY_ID}';
+DELETE FROM invoice_item WHERE "productId" IN (SELECT id FROM inventory_product WHERE "companyId" = '${COMPANY_ID}');
+DELETE FROM inventory_product WHERE "companyId" = '${COMPANY_ID}';
+
 DELETE FROM invoice_item WHERE "invoiceId" IN (SELECT id FROM invoice WHERE "companyId" = '${COMPANY_ID}');
 DELETE FROM invoice_payment WHERE "invoiceId" IN (SELECT id FROM invoice WHERE "companyId" = '${COMPANY_ID}');
 DELETE FROM invoice WHERE "companyId" = '${COMPANY_ID}';

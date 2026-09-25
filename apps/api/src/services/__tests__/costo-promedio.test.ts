@@ -216,6 +216,18 @@ describe('costo promedio — reversos', () => {
     expect(estado.valor).toBe(inicial.valor);
   });
 
+  it('el reverso revierte la cantidad PEDIDA, aunque el stock sea menor', () => {
+    // Sacar 10 unidades de un stock de 8, al costo original, tiene que sacar 10 × costo:
+    // el reverso deshace lo que hizo el movimiento, no lo que queda. Si se limitara a las
+    // 8 que hay, el valor quedaría corrido para siempre.
+    const { estado, movimientos } = aplicar({ cantidad: 8, valor: 48, promedio: 6 }, [
+      { tipo: 'SALIDA', cantidad: 10, costoUnitario: 6, forzar: true },
+    ]);
+    expect(movimientos[0].costoTotal).toBe(60);
+    expect(estado.cantidad).toBe(-2);
+    expect(estado.valor).toBe(-12);
+  });
+
   it('reponer al PROMEDIO no devuelve el valor anterior: por eso el reverso lleva costo', () => {
     // Documenta por qué el costo explícito existe. Si el reverso saliera al promedio
     // vigente ($2,588…), repondría $25,88 en vez de $30 y el kardex quedaría corrido.
