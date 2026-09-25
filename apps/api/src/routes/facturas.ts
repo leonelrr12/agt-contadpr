@@ -105,7 +105,9 @@ facturasRouter.post('/config', requireRole('admin', 'superadmin'), configUpload.
 // ── Facturas ──
 
 /** POST /api/facturas — emite factura con numeración correlativa y asiento BORRADOR. */
-facturasRouter.post('/', requireRole('admin', 'contador', 'superadmin'), requireQuota, validate(createFacturaSchema), async (req, res) => {
+// El rol `inventario` emite ventas: es quien atiende el mostrador y descuenta stock.
+// Cobrar (`PATCH /:id/pay`) y configurar NO: eso es tesorería y administración.
+facturasRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventario'), requireQuota, validate(createFacturaSchema), async (req, res) => {
   const { clientId, clientName, clientTaxId, items, itbmsRate, date, dueDate, paymentMethod } = req.body;
   const tasa = itbmsRate ?? 0.07;
   const companyId = req.user!.companyId;

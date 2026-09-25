@@ -71,6 +71,7 @@ Verificado contra el código el 25-09-2026. **Si algo no está en esta lista, no
 | Salud financiera con IA (ratios, score, alertas, narrativa) | `services/salud.ts` + panel 🩺 |
 | Presupuestos + proyección de caja 3/6/12 | `budget-comparison.ts`, `cuentas-efectivo.ts`, migración `0017` |
 | Planilla (nómina) por archivo | `routes/planilla.ts`, migración `0012`/`0016` |
+| **Inventario**: kardex con costo promedio, carga inicial por archivo, toma física, anulación y cuadre contra el mayor | `inventario.ts`, `costo-promedio.ts`, `inventario.html`, migraciones `0018`-`0020` — ver [`INVENTARIO.md`](INVENTARIO.md) |
 | Multi-tenant SaaS: planes, suscripciones, API Keys, cuotas, admin | `Plan`, `Subscription`, `ApiKey`, `routes/admin.ts` |
 | Audit log de asientos | `services/audit-log.ts` |
 | WhatsApp (OpenWa) | `whatsapp-service.ts` |
@@ -154,6 +155,10 @@ Trabajo ya pagado que hoy no rinde nada:
   un monto histórico del que tirar el sistema no inventa cifras — es correcto, pero significa que para
   esa empresa la proyección fiscal todavía no sirve. Se arregla valorando sus obligaciones en el
   Calendario Fiscal.
+- **Los $1.000 de ODESA en `1.1.04.02 Inventario de Materia Prima`** (Carga Inicial del 31-12-2025). El
+  cuadre del inventario lo reporta y **no se toca solo**: el contador decide si se gastó, si se abre el
+  kardex con una apertura por ese monto, o si se reclasifica. Además, por la regla de §5 la materia prima
+  **no lleva kardex**, así que ese saldo está en una cuenta que no debería tenerlo.
 
 ---
 
@@ -161,10 +166,6 @@ Trabajo ya pagado que hoy no rinde nada:
 
 Ninguno tiene modelo en el schema todavía.
 
-- **§13 Inventario** — existencias con costo promedio, entradas/salidas alimentadas por compras y ventas,
-  alertas de stock mínimo, valoración. *Siguiente en la fila.* **Diseño completo, directivas y estado de
-  construcción en [`INVENTARIO.md`](INVENTARIO.md)** — acá solo va el avance, para que los dos documentos no
-  se separen.
 - **§10 Centro de Costos / Proyectos** — etiquetar transacciones por proyecto, sucursal o departamento;
   rentabilidad segmentada; cruce con presupuesto. El más transversal: toca informes, presupuesto y facturas.
 - **§14 Agente Multi-Empresa para Despachos** — vista unificada de todos los clientes del despacho,
@@ -251,6 +252,26 @@ rentabilidad** por segmento.
 - Los asientos de cierre se marcan `isClosing` + `period` y quedan **excluidos de reportes y diario**
   (no del mayor `3.03`). Índice único parcial por empresa/año.
 - El balance de comprobación sin filtro usa el **año fiscal activo** (último asiento).
+
+**Inventario**
+- El kardex lleva **solo mercancía de reventa**. Materia prima e insumos son gasto y no lo tocan; una empresa
+  de servicios no usa el módulo.
+- El valor del kardex es la **suma firmada de los montos que fueron al asiento**, no `cantidad × promedio`:
+  así cuadra con el mayor **por construcción**. El costo promedio se deriva.
+- **La compra de mercancía entra por Inventario**, que es la única vía que debita `1.1.04.01` con cantidad.
+  La importación y el chat mandan sus compras a la cuenta que resuelva el clasificador.
+- El kardex **no se borra ni se edita**: se corrige con el movimiento inverso, **al costo original** (al
+  promedio vigente no devolvería el valor anterior).
+- **La anulación es por operación, no por fila**: el asiento cubre todos los movimientos.
+- Los asientos del módulo nacen **BORRADOR** y los revisa el contador; el movimiento de stock es inmediato.
+- Un renglón de factura **sin producto** no mueve stock ni genera costo: los servicios se facturan igual que
+  siempre. Detalle completo en [`INVENTARIO.md`](INVENTARIO.md).
+
+**Anulación de asientos**
+- **Anular no reescribe la historia.** El asiento original **sigue contando** en el período en que se
+  registró, y el reverso —fechado el día de la corrección— lo netea desde ese mes en adelante.
+- El original queda marcado con `anuladoPorId` (migración `0021`), una seña para la UI que ningún reporte
+  mira. Fuente única: `services/journal-annul.ts`, compartida por el diario y el inventario.
 
 **Presupuestos**
 - Monto siempre positivo, en la **dirección natural** de la cuenta. No hay fila anual: es la suma de los 12

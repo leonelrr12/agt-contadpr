@@ -49,7 +49,8 @@ clientsRouter.get('/:id', async (req, res) => {
 });
 
 // POST /api/clients — Crear cliente (dedupe por RUC/nombre: higiene de duplicidad)
-clientsRouter.post('/', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
+// Crear un cliente es parte de facturar: lo hace quien emite la venta.
+clientsRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventario'), async (req, res) => {
   const { name, taxId, phone, email, address, notes } = req.body;
   if (!name) { res.status(400).json({ error: 'El nombre es requerido' }); return; }
 

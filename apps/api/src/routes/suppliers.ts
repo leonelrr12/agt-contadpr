@@ -37,7 +37,9 @@ suppliersRouter.get('/:id', async (req, res) => {
 });
 
 // POST /api/suppliers — Crear proveedor (dedupe por RUC/nombre: higiene de duplicidad)
-suppliersRouter.post('/', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
+// Crear un proveedor es parte de cargar una compra: lo hace quien la carga.
+// Registrar la factura del proveedor (`POST /:id/bills`) NO: esa vía no genera asiento.
+suppliersRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventario'), async (req, res) => {
   const { name, taxId, phone, email, paymentTerms, notes } = req.body;
   if (!name) { res.status(400).json({ error: 'El nombre es requerido' }); return; }
 
