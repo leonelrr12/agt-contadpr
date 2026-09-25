@@ -86,6 +86,7 @@ function presentarProducto(p: any) {
     nombre: p.nombre,
     descripcion: p.descripcion,
     unidad: p.unidad,
+    precioVenta: p.precioVenta,
     stockActual: p.stockActual,
     stockMinimo: p.stockMinimo,
     stockValor: p.stockValor,
@@ -138,7 +139,7 @@ inventarioRouter.get('/productos', wrap(async (req, res) => {
 /** POST /api/inventario/productos — alta del producto. */
 inventarioRouter.post('/productos', requireRole(...ROLES_ESCRITURA, 'inventario'), validate(createProductoSchema), wrap(async (req, res) => {
   const companyId = req.user!.companyId;
-  const { nombre, sku, descripcion, unidad, stockMinimo, cuentaInventarioId, cuentaCostoId } = req.body;
+  const { nombre, sku, descripcion, unidad, precioVenta, stockMinimo, cuentaInventarioId, cuentaCostoId } = req.body;
 
   try {
     const producto = await req.prisma.inventoryProduct.create({
@@ -148,6 +149,7 @@ inventarioRouter.post('/productos', requireRole(...ROLES_ESCRITURA, 'inventario'
         sku: sku?.trim() || null,
         descripcion: descripcion || null,
         unidad: unidad || 'UND',
+        precioVenta: precioVenta ?? null,
         stockMinimo: stockMinimo || 0,
         cuentaInventarioId: cuentaInventarioId || null,
         cuentaCostoId: cuentaCostoId || null,
@@ -184,12 +186,13 @@ inventarioRouter.patch('/productos/:id', requireRole(...ROLES_ESCRITURA, 'invent
 
   // stockActual/stockValor/costoPromedio NO se editan: son el resultado del kardex.
   // Para cambiarlos hay que registrar un movimiento, que es lo que deja el rastro.
-  const { nombre, sku, descripcion, unidad, stockMinimo, cuentaInventarioId, cuentaCostoId, isActive } = req.body;
+  const { nombre, sku, descripcion, unidad, precioVenta, stockMinimo, cuentaInventarioId, cuentaCostoId, isActive } = req.body;
   const data: any = {};
   if (nombre !== undefined) data.nombre = nombre.trim();
   if (sku !== undefined) data.sku = sku?.trim() || null;
   if (descripcion !== undefined) data.descripcion = descripcion || null;
   if (unidad !== undefined) data.unidad = unidad;
+  if (precioVenta !== undefined) data.precioVenta = precioVenta;
   if (stockMinimo !== undefined) data.stockMinimo = stockMinimo;
   if (cuentaInventarioId !== undefined) data.cuentaInventarioId = cuentaInventarioId || null;
   if (cuentaCostoId !== undefined) data.cuentaCostoId = cuentaCostoId || null;

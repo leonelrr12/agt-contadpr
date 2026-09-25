@@ -259,6 +259,8 @@ export const createProductoSchema = z.object({
   sku: z.string().max(60).optional(),
   descripcion: z.string().max(500).optional(),
   unidad: z.string().max(10).optional(),
+  // Precio de venta SIN ITBMS: es la referencia que prellena la factura.
+  precioVenta: z.number().min(0).max(1e12).nullable().optional(),
   stockMinimo: z.number().min(0).max(1e12).optional(),
   cuentaInventarioId: z.string().optional(),
   cuentaCostoId: z.string().optional(),
@@ -274,6 +276,7 @@ export const updateProductoSchema = z.object({
   sku: z.string().max(60).nullable().optional(),
   descripcion: z.string().max(500).nullable().optional(),
   unidad: z.string().max(10).optional(),
+  precioVenta: z.number().min(0).max(1e12).nullable().optional(),
   stockMinimo: z.number().min(0).max(1e12).optional(),
   cuentaInventarioId: z.string().nullable().optional(),
   cuentaCostoId: z.string().nullable().optional(),

@@ -79,6 +79,8 @@ async function vistaExistencias() {
       <td>${esc(p.nombre)}</td>
       <td class="num">${num(p.stockActual)} ${esc(p.unidad)}</td>
       <td class="num">${money(p.costoPromedio)}</td>
+      <td class="num">${p.precioVenta == null ? '—' : money(p.precioVenta)}</td>
+      <td class="num">${margen(p)}</td>
       <td class="num">${money(p.stockValor)}</td>
       <td class="num">${num(p.stockMinimo)}</td>
       <td>${badgeEstado(p.estado)}</td>
@@ -94,10 +96,22 @@ async function vistaExistencias() {
     </div>
     ${_invProductos.length ? `
     <div style="overflow-x:auto"><table class="data-table">
-      <thead><tr><th>Código</th><th>Producto</th><th class="num">Existencia</th><th class="num">Costo prom.</th><th class="num">Valor</th><th class="num">Mínimo</th><th>Estado</th></tr></thead>
+      <thead><tr><th>Código</th><th>Producto</th><th class="num">Existencia</th><th class="num">Costo prom.</th><th class="num">P. Venta</th><th class="num">Margen</th><th class="num">Valor</th><th class="num">Mínimo</th><th>Estado</th></tr></thead>
       <tbody>${filas}</tbody>
     </table></div>` : '<div class="card">Todavía no hay productos. Cargá el primero desde <code>POST /api/inventario/productos</code> o el formulario de alta.</div>'}
     ${puedeEditar() ? formularioProducto() : ''}`;
+}
+
+/**
+ * Margen sobre el precio de venta: (precio − costo) / precio. Se calcula sobre el
+ * precio y no sobre el costo porque es como se lee un margen comercial. Si el
+ * producto no tiene precio cargado no se inventa nada: se muestra un guion.
+ */
+function margen(p) {
+  if (p.precioVenta == null || p.precioVenta <= 0) return '—';
+  const m = ((p.precioVenta - p.costoPromedio) / p.precioVenta) * 100;
+  const color = m < 0 ? '#dc2626' : m < 15 ? '#d97706' : '#059669';
+  return `<span style="color:${color}">${m.toFixed(1)}%</span>`;
 }
 
 function badgeEstado(estado) {
@@ -119,6 +133,7 @@ function formularioProducto() {
       <div><label>Nombre *</label><input id="np-nombre" placeholder="Ej: Cemento gris 50kg"></div>
       <div><label>Código (opcional)</label><input id="np-sku" placeholder="SKU interno"></div>
       <div><label>Unidad</label><input id="np-unidad" value="UND" maxlength="10"></div>
+      <div><label>Precio de venta (sin ITBMS)</label><input id="np-precio" type="number" step="0.01" min="0" placeholder="Opcional"></div>
       <div><label>Stock mínimo (alerta)</label><input id="np-minimo" type="number" step="0.001" min="0" value="0"></div>
     </div>
     <div style="margin-top:12px"><button class="btn btn-primary" onclick="crearProducto()">Crear producto</button></div>
@@ -137,6 +152,7 @@ async function crearProducto() {
         nombre,
         sku: document.getElementById('np-sku').value.trim() || undefined,
         unidad: document.getElementById('np-unidad').value.trim() || 'UND',
+        precioVenta: document.getElementById('np-precio').value === '' ? null : Number(document.getElementById('np-precio').value),
         stockMinimo: Number(document.getElementById('np-minimo').value) || 0,
       }),
     });
