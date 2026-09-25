@@ -41,8 +41,16 @@ async function logout() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Mostrar info del usuario
   const user = getUser();
+
+  // El usuario de depósito no tiene nada que hacer acá: la API le responde 403 a
+  // todo menos Inventario. Se lo manda a su página desde el arranque, así vale
+  // para cualquier entrada (login, marcador o URL directa) y no solo para el login.
+  if (user?.role === 'inventario') {
+    window.location.replace('/inventario.html');
+    return;
+  }
+
   if (user) {
     document.getElementById('sidebar-user-name').textContent = user.name;
     document.getElementById('sidebar-user-company').textContent = user.company?.name || '';
@@ -50,6 +58,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Mostrar panel de administración solo a admins/contadores de la empresa
     if (user.role === 'admin' || user.role === 'contador' || user.role === 'superadmin') {
       document.getElementById('nav-admin-link').style.display = 'block';
+    }
+    // Inventario: lo usan los roles que pueden mover mercancía, y también el
+    // usuario de depósito, que no ve nada más del sistema.
+    if (['admin', 'contador', 'superadmin', 'inventario'].includes(user.role)) {
+      document.getElementById('nav-inventario-link').style.display = 'block';
     }
     // SaaS Admin (control de accesos) SOLO para el dueño de la plataforma
     if (user.role === 'superadmin') {

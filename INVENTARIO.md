@@ -212,15 +212,21 @@ en los renglones de factura.
 |---|---|---|
 | 1 | Modelos + migración `0018`/`0019` + motor de costo puro | ✅ **Hecho** (25-09) — 19 tests |
 | 2 | API y asientos (productos, entradas, salidas, kardex, valoración) | ✅ **Hecho** (25-09) — verificado E2E |
+| 3 | Página `inventario.html` + enlace desde el SPA | ✅ **Hecho** (25-09) — smoke de 13 casos |
 | 4 | La venta descuenta stock (`InvoiceItem.productId`) | ⬜ Pendiente |
-| 3 | Página `inventario.html` + enlace desde el SPA | ⬜ Pendiente |
 | 5 | La compra deja de entrar por importación y chat | ⬜ Pendiente |
 | 6 | Cuadre y alertas | ⬜ Pendiente |
 | 7 | Ajustes, anulación y toma física | ⬜ Pendiente |
 
 **Adelantado de la Fase 4** (no se puede posponer): el rol `inventario` y su barrera nacieron junto con
 los endpoints. Un rol restringido sin la barrera que niega por defecto es un agujero abierto desde el
-primer día. Falta de esa fase el redirect del login y los permisos de facturas/clientes/proveedores.
+primer día. También el redirect: al arrancar el SPA, un usuario de depósito va directo a su página, sin
+importar por dónde entró. Falta de esa fase darle permiso de escritura en facturas, clientes y proveedores.
+
+**La página** (`/inventario.html`) es standalone y comparte la sesión del SPA, así que no pide login de
+nuevo. Muestra las existencias con su valor y su alerta de mínimo, el formulario de entrada con vista
+previa del asiento, el de salidas, el kardex con el saldo corrido y el cuadre contra el mayor, y la
+valoración. En el kardex, un movimiento de regularización se distingue del resto: no mueve cantidad.
 
 **Hecho en la Fase 2** (verificado contra producción y limpiado después): alta de producto, entrada de
 compra con ITBMS, salida con barrido, kardex, valoración y cuadre. El ciclo cierra en 0/0 exacto y el
