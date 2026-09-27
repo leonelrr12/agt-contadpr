@@ -64,8 +64,13 @@ export async function requireQuota(req: Request, res: Response, next: NextFuncti
 /**
  * Incrementa el contador de movimientos usados para la suscripción activa.
  * Se llama DESPUÉS de crear un movimiento contable exitosamente.
+ *
+ * `cantidad` es fraccionaria para la planilla semanal, que consume media cuota: 52
+ * corridas al año contra 24 de la quincenal. El contador es un Float justamente por
+ * eso — con un entero, media cuota no existe y la única salida sería cobrar una cada
+ * dos corridas, que es más difícil de explicar en la factura.
  */
-export async function incrementUsage(req: Request): Promise<void> {
+export async function incrementUsage(req: Request, cantidad = 1): Promise<void> {
   const companyId = req.user!.companyId;
 
   const subscription = await req.prisma.subscription.findFirst({
@@ -78,7 +83,7 @@ export async function incrementUsage(req: Request): Promise<void> {
   if (subscription) {
     await req.prisma.subscription.update({
       where: { id: subscription.id },
-      data: { movementsUsed: { increment: 1 } },
+      data: { movementsUsed: { increment: cantidad } },
     });
   }
 }

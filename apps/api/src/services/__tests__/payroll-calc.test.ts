@@ -8,6 +8,10 @@ import {
   isrDelPago,
   diasDelMes,
   diasEntre,
+  sueldoSemanal,
+  pagosDelMes,
+  pagoNumeroEnElMes,
+  consolidarLineas,
   TABLA_ISR_PANAMA,
   type CalculoItem,
   type ContextoCorrida,
@@ -57,6 +61,19 @@ const Q1_JUNIO: ContextoCorrida = {
 };
 
 const Q2_JUNIO: ContextoCorrida = { ...Q1_JUNIO, fechaDesde: new Date(2026, 5, 16), fechaHasta: new Date(2026, 5, 30), pagoNumero: 2 };
+
+/**
+ * Una semana de septiembre 2026: del lunes 7 al domingo 13. Septiembre tiene cuatro
+ * viernes (4, 11, 18 y 25), así que este es el segundo pago del mes.
+ */
+const SEMANA_SEP_CTX: ContextoCorrida = {
+  tipo: 'SUELDO',
+  periodicidad: 'SEMANAL',
+  fechaDesde: new Date(2026, 8, 7),
+  fechaHasta: new Date(2026, 8, 13),
+  pagoNumero: 2,
+  pagosDelMes: 4,
+};
 
 function empleado(sueldoBase: number, extra: Partial<EmpleadoCalc> = {}): EmpleadoCalc {
   return { id: 'e1', nombre: 'Empleado', sueldoBase, tipoPago: 'QUINCENAL', ...extra };
@@ -539,5 +556,225 @@ describe('la corrida completa', () => {
     const res = calcularCorrida([], [], Q1_JUNIO, TASAS);
     expect(res.items).toHaveLength(0);
     expect(res.totales.neto).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * La planilla SEMANAL. Dos decisiones del dueño que estos casos fijan:
+ *
+ *  · El sueldo de una semana es `mensual × 12/52`, no un prorrateo por días del mes:
+ *    52 semanas son 364 días, así que el reparto por días dejaría el año corto.
+ *  · El mes tiene 4 o 5 pagos (no una constante), y el ÚLTIMO cierra el ISR del mes.
+ */
+describe('planilla semanal: el sueldo de la semana', () => {
+  /** La misma semana, corrida a otro mes: para probar que el mes no cambia el monto. */
+  const SEMANA_SEP = (dia: number, hasta?: number): ContextoCorrida => ({
+    ...SEMANA_SEP_CTX,
+    fechaDesde: new Date(2026, 8, dia),
+    fechaHasta: new Date(2026, 8, hasta ?? dia + 6),
+    pagoNumero: 1,
+  });
+
+  it('una semana completa paga mensual × 12/52', () => {
+    expect(sueldoSemanal(1220.8)).toBe(281.72); // 1220,80 × 12 / 52 = 281,7230…
+    expect(item(1220.8, {}, SEMANA_SEP(7)).sueldo).toBe(281.72);
+  });
+
+  it('el sueldo de la semana NO depende de los días del mes', () => {
+    // La misma semana completa en un mes de 31, en uno de 30 y en febrero paga igual.
+    const enEnero = item(1220.8, {}, { ...SEMANA_SEP(4), fechaDesde: new Date(2026, 0, 5), fechaHasta: new Date(2026, 0, 11) });
+    const enAbril = item(1220.8, {}, { ...SEMANA_SEP(4), fechaDesde: new Date(2026, 3, 6), fechaHasta: new Date(2026, 3, 12) });
+    const enFebrero = item(1220.8, {}, { ...SEMANA_SEP(4), fechaDesde: new Date(2026, 1, 2), fechaHasta: new Date(2026, 1, 8) });
+    expect(enEnero.sueldo).toBe(enAbril.sueldo);
+    expect(enAbril.sueldo).toBe(enFebrero.sueldo);
+  });
+
+  it('el año cierra casi exacto: la semana redondeada deja céntimos, no pesos', () => {
+    // 1220,80 × 12/52 = 281,7230769… → 281,72. La semana redondeada pierde tres
+    // milésimas cada vez, así que el año paga 16 céntimos menos que los 12 sueldos
+    // del contrato. Es inherente a pagar un monto semanal redondeado —el mismo
+    // redondeo que hace cualquier planilla— y por eso se acota en vez de exigir cero:
+    // el error máximo es medio céntimo por semana (52 × 0,005 = 0,26).
+    const semanal = sueldoSemanal(1220.8);
+    const anio = sumarMontos(...Array.from({ length: 52 }, () => semanal));
+    expect(Math.abs(anio - 1220.8 * 12)).toBeLessThanOrEqual(0.26);
+  });
+
+  it('una semana parcial prorratea sobre SÉPTIMOS (ingreso a mitad de semana)', () => {
+    // Entra el miércoles 9 y la semana corre hasta el domingo 13: cinco días.
+    const res = calcularItem(
+      empleado(1220.8, { tipoPago: 'SEMANAL', fechaIngreso: new Date(2026, 8, 9) }),
+      { employeeId: 'e1' },
+      SEMANA_SEP(7),
+      TASAS,
+    );
+    if ('error' in res || 'omitido' in res) throw new Error('no debería omitirse');
+    expect(res.diasTrabajados).toBe(5);
+    expect(res.sueldo).toBe(r2((281.72 * 5) / 7)); // 201,23
+    // La semana se paga entera (sábado y domingo incluidos) porque el sueldo es
+    // semanal, no por día trabajado. Para pagar solo los días laborables, el
+    // contador edita los días en el grid: es un dato del renglón, no una regla.
+  });
+
+  it('una corrida que cubre dos semanas paga las dos (sin duplicar el período)', () => {
+    const dosSemanas = item(1220.8, {}, SEMANA_SEP(7, 20));
+    expect(dosSemanas.diasTrabajados).toBe(14);
+    expect(dosSemanas.sueldo).toBe(sumarMontos(sueldoSemanal(1220.8), sueldoSemanal(1220.8)));
+  });
+
+  it('la cotización va sobre el bruto de la semana, con las horas extras adentro', () => {
+    const calculo = item(1220.8, { horasExtras: 20 }, SEMANA_SEP(7));
+    expect(calculo.ss).toBe(r2((calculo.sueldo + 20) * TASAS.ssObrero));
+    expect(calculo.se).toBe(r2((calculo.sueldo + 20) * TASAS.seObrero));
+  });
+});
+
+describe('planilla semanal: el calendario de pagos del mes', () => {
+  const VIERNES = 5;
+
+  it('cuenta los días de pago que el mes tiene de verdad', () => {
+    // Septiembre 2026: viernes 4, 11, 18 y 25.
+    expect(pagosDelMes('SEMANAL', new Date(2026, 8, 25), VIERNES)).toBe(4);
+    // Octubre 2026: viernes 2, 9, 16, 23 y 30 — cinco.
+    expect(pagosDelMes('SEMANAL', new Date(2026, 9, 30), VIERNES)).toBe(5);
+    // Febrero 2027: viernes 5, 12, 19 y 26.
+    expect(pagosDelMes('SEMANAL', new Date(2027, 1, 26), VIERNES)).toBe(4);
+  });
+
+  it('numera el pago dentro del mes, del 1 al 4 o 5', () => {
+    expect(pagoNumeroEnElMes(new Date(2026, 8, 4), VIERNES)).toBe(1);
+    expect(pagoNumeroEnElMes(new Date(2026, 8, 25), VIERNES)).toBe(4);
+    expect(pagoNumeroEnElMes(new Date(2026, 9, 30), VIERNES)).toBe(5);
+  });
+
+  it('la quincena y el mensual NO miran el calendario: son 2 y 1', () => {
+    expect(pagosDelMes('QUINCENAL', new Date(2026, 8, 30), VIERNES)).toBe(2);
+    expect(pagosDelMes('MENSUAL', new Date(2026, 8, 30), VIERNES)).toBe(1);
+    expect(pagosDelMes('ANUAL', new Date(2026, 8, 30), VIERNES)).toBe(1);
+  });
+
+  it('los 4 o 5 pagos del mes cierran el ISR exacto, sin céntimo perdido', () => {
+    const mensual = isrMensual(1220.8); // 56,20
+    for (const pagos of [4, 5]) {
+      let retenido = 0;
+      for (let n = 1; n <= pagos; n++) {
+        const pago = isrDelPago(mensual, n, pagos, retenido);
+        retenido = sumarMontos(retenido, pago);
+      }
+      expect(retenido).toBe(mensual);
+    }
+  });
+
+  it('un reparto que no da exacto deja el resto para el ÚLTIMO pago', () => {
+    // 28,10 entre 4 no da redondo: 7,025 → 7,03 los tres primeros, 7,01 el último.
+    expect(isrDelPago(28.1, 1, 4)).toBe(7.03);
+    expect(isrDelPago(28.1, 3, 4)).toBe(7.03);
+    expect(isrDelPago(28.1, 4, 4, 21.09)).toBe(7.01);
+  });
+});
+
+describe('el asiento consolidado', () => {
+  it('suma por cuenta y sigue cuadrando al centavo', () => {
+    const a = item(1220.8, { horasExtras: 20 }, SEMANA_SEP_CTX);
+    const b = item(666.66, { otrasDeducciones: 30 }, SEMANA_SEP_CTX, { id: 'e2', nombre: 'Otro' });
+    const lineas = consolidarLineas([
+      { lineas: construirLineas(a, 'SUELDO', CUENTAS, 'c-banco', false) },
+      { lineas: construirLineas(b, 'SUELDO', CUENTAS, 'c-banco', false) },
+    ]);
+
+    expect(debitos(lineas)).toBe(creditos(lineas));
+    // Una sola línea por cuenta, con la suma de los dos.
+    expect(lineas.filter((l) => l.accountId === 'c-banco')).toHaveLength(1);
+    expect(lineas.find((l) => l.accountId === 'c-banco')!.credit).toBe(sumarMontos(a.neto, b.neto));
+    expect(lineas.find((l) => l.accountId === 'c-ss')!.credit).toBe(sumarMontos(a.ss, b.ss));
+    expect(lineas.find((l) => l.accountId === 'c-sueldo')!.debit).toBe(sumarMontos(a.sueldo, b.sueldo));
+  });
+
+  it('dos empleados que cobran por bancos distintos llevan DOS créditos', () => {
+    // Fundirlos en una sola línea dejaría el banco mal y el neto bien: el asiento
+    // seguiría cuadrando y solo se notaría al conciliar.
+    const a = item(1220.8, {}, SEMANA_SEP_CTX);
+    const b = item(666.66, {}, SEMANA_SEP_CTX, { id: 'e2', nombre: 'Otro' });
+    const lineas = consolidarLineas([
+      { lineas: construirLineas(a, 'SUELDO', CUENTAS, 'banco-1', false) },
+      { lineas: construirLineas(b, 'SUELDO', CUENTAS, 'banco-2', false) },
+    ]);
+
+    expect(lineas.find((l) => l.accountId === 'banco-1')!.credit).toBe(a.neto);
+    expect(lineas.find((l) => l.accountId === 'banco-2')!.credit).toBe(b.neto);
+    expect(debitos(lineas)).toBe(creditos(lineas));
+  });
+
+  it('no emite líneas de monto cero ni deja cuentas sin sumar', () => {
+    const a = item(1220.8, {}, SEMANA_SEP_CTX);
+    const lineas = consolidarLineas([{ lineas: construirLineas(a, 'SUELDO', CUENTAS, 'c-banco', false) }]);
+    const sueltas = construirLineas(a, 'SUELDO', CUENTAS, 'c-banco', false);
+    expect(lineas).toHaveLength(sueltas.length);
+    for (const l of lineas) expect(l.debit + l.credit).toBeGreaterThan(0);
+  });
+});
+
+describe('descuento por ausencia o tardanza (R1c)', () => {
+  // Quincena de junio (15 días sobre un mes de 30): 1.220,80 / 2 = 610,40.
+  const AUSENCIA = 81.38; // dos días de sueldo diario (610,40 / 15 × 2)
+
+  it('baja el sueldo del período', () => {
+    const conDescuento = item(1220.8, { menosSueldo: AUSENCIA }, Q1_JUNIO);
+    expect(conDescuento.sueldo).toBe(529.02); // 610,40 − 81,38
+    expect(conDescuento.menosSueldo).toBe(AUSENCIA);
+    // El bruto es el sueldo ya descontado: lo que se paga es lo que se devengó.
+    expect(conDescuento.bruto).toBe(529.02);
+  });
+
+  it('baja la base de cotización: la CSS no cotiza sobre un sueldo que no se pagó', () => {
+    const sin = item(1220.8, {}, Q1_JUNIO);
+    const con = item(1220.8, { menosSueldo: AUSENCIA }, Q1_JUNIO);
+
+    expect(con.ss).toBe(r2(529.02 * TASAS.ssObrero));
+    expect(con.ss).toBeLessThan(sin.ss);
+    expect(con.se).toBe(r2(529.02 * TASAS.seObrero));
+    // Y también el gasto del patrono, que se causa sobre lo mismo.
+    expect(con.ssPatronal).toBe(r2(529.02 * TASAS.ssPatronal));
+  });
+
+  it('NO toca otras deducciones: no inventa un pasivo que nadie debe', () => {
+    const con = item(1220.8, { menosSueldo: AUSENCIA }, Q1_JUNIO);
+    expect(con.otrasDeducciones).toBe(0);
+
+    const lineas = construirLineas(con, 'SUELDO', CUENTAS, 'c-banco', false);
+    // Sin línea en la cuenta de otras deducciones, y el asiento cuadra igual.
+    expect(lineas.find((l) => l.accountId === 'c-otras')).toBeUndefined();
+    expect(debitos(lineas)).toBe(creditos(lineas));
+    expect(lineas.find((l) => l.accountId === 'c-sueldo')!.debit).toBe(529.02);
+  });
+
+  it('convive con las horas extras: el descuento va al sueldo, no a las extras', () => {
+    const con = item(1220.8, { menosSueldo: 50, horasExtras: 120.32 }, Q1_JUNIO);
+    expect(con.sueldo).toBe(560.4); // 610,40 − 50
+    expect(con.horasExtras).toBe(120.32);
+    // La base es la del sueldo descontado MÁS las extras.
+    expect(con.ss).toBe(r2((560.4 + 120.32) * TASAS.ssObrero));
+  });
+
+  it('un descuento mayor que el sueldo del período REPORTA la fila, no paga en negativo', () => {
+    const res = calcularItem(empleado(1220.8), { employeeId: 'e1', menosSueldo: 5000 }, Q1_JUNIO, TASAS);
+    expect('error' in res).toBe(true);
+    if ('error' in res) expect(res.error).toMatch(/supera el sueldo del período/);
+  });
+
+  it('la ausencia de días COMPLETOS se sigue cargando en Días (prorrateo, sin descuento)', () => {
+    // Dos días menos de quince: el sueldo baja igual, y sin inventar un monto a mano.
+    const conDias = item(1220.8, { diasTrabajados: 13 }, Q1_JUNIO);
+    expect(conDias.sueldo).toBe(r2((1220.8 * 13) / 30)); // 529,01
+    expect(conDias.menosSueldo).toBe(0);
+    expect(conDias.ss).toBe(r2(529.01 * TASAS.ssObrero));
+  });
+
+  it('en las prestaciones no aplica: no hay sueldo que descontar', () => {
+    const decimo = item(780, { montoPrestacion: 400, menosSueldo: 100 }, { ...Q1_JUNIO, tipo: 'DECIMO' });
+    expect(decimo.menosSueldo).toBe(0);
+    expect(decimo.bruto).toBe(400);
   });
 });

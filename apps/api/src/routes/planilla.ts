@@ -31,13 +31,14 @@ import {
   parseRiesgosPorClase,
   resolverCuentasPlanilla,
 } from '../services/payroll-parametros';
-import { CLASES_RIESGO } from '../services/payroll-calc';
+import { CLASES_RIESGO, DIAS_SEMANA } from '../services/payroll-calc';
 import { resumenCSS, registrarPagoCSS, valorarCSS } from '../services/payroll-css';
 import { cuadrePlanilla } from '../services/payroll-cuadre';
 import {
   createEmpleadoSchema,
   updateEmpleadoSchema,
   updatePayrollSettingsSchema,
+  tipoPagoSchema,
   corridaSchema,
   anularCorridaSchema,
   revisarCorridaSchema,
@@ -141,6 +142,9 @@ planillaRouter.get(
         riesgosPorClase: parseRiesgosPorClase(settings.riesgosPorClase),
       },
       clasesRiesgo: CLASES_RIESGO,
+      // El selector del día de pago semanal: se manda la lista completa para que la
+      // pantalla no tenga su propia copia de los días de la semana.
+      diasSemana: DIAS_SEMANA,
       cuentas: resolucion.cuentas,
       faltantes: resolucion.faltantes,
       avisos: resolucion.avisos,
@@ -354,16 +358,18 @@ planillaRouter.post(
       res.status(400).json({ error: 'No se recibió ningún archivo' });
       return;
     }
-    const tipoPago = String(req.body.tipoPago || '').toUpperCase();
-    if (tipoPago !== 'QUINCENAL' && tipoPago !== 'MENSUAL') {
-      res.status(400).json({ error: 'Indica si el SUELDO del archivo es quincenal o mensual' });
+    // Se valida con el mismo enum que el resto del módulo: tenía los dos valores
+    // escritos a mano y se quedaba corto con la planilla semanal.
+    const tipoPago = tipoPagoSchema.safeParse(String(req.body.tipoPago || '').toUpperCase());
+    if (!tipoPago.success) {
+      res.status(400).json({ error: 'Indica si el SUELDO del archivo es semanal, quincenal o mensual' });
       return;
     }
 
-    const parsed = await parseRosterFile(req.file.buffer, req.file.originalname, tipoPago as TipoPago);
+    const parsed = await parseRosterFile(req.file.buffer, req.file.originalname, tipoPago.data as TipoPago);
     const preview = await construirRosterPreview(req.prisma, req.user!.companyId, parsed);
     // La muestra es de 30; el resumen y la ejecución usan el archivo entero.
-    res.json({ ...preview, rows: preview.todas.slice(0, 30), tipoPago });
+    res.json({ ...preview, rows: preview.todas.slice(0, 30), tipoPago: tipoPago.data });
   }),
 );
 
@@ -376,14 +382,14 @@ planillaRouter.post(
       res.status(400).json({ error: 'No se recibió ningún archivo' });
       return;
     }
-    const tipoPago = String(req.body.tipoPago || '').toUpperCase();
-    if (tipoPago !== 'QUINCENAL' && tipoPago !== 'MENSUAL') {
-      res.status(400).json({ error: 'Indica si el SUELDO del archivo es quincenal o mensual' });
+    const tipoPago = tipoPagoSchema.safeParse(String(req.body.tipoPago || '').toUpperCase());
+    if (!tipoPago.success) {
+      res.status(400).json({ error: 'Indica si el SUELDO del archivo es semanal, quincenal o mensual' });
       return;
     }
 
     const companyId = req.user!.companyId;
-    const parsed = await parseRosterFile(req.file.buffer, req.file.originalname, tipoPago as TipoPago);
+    const parsed = await parseRosterFile(req.file.buffer, req.file.originalname, tipoPago.data as TipoPago);
     const preview = await construirRosterPreview(req.prisma, companyId, parsed);
 
     // Se re-verifica acá y no se confía en el preview: la BD pudo cambiar entre
@@ -399,7 +405,9 @@ planillaRouter.post(
           nss: fila.nss,
           cargo: fila.cargo,
           sueldoBase: fila.sueldoBase,
-          tipoPago,
+          // El de la FILA, no el del formulario: el archivo puede traer los dos
+          // tipos mezclados y el sueldo ya se convirtió con el de su propia fila.
+          tipoPago: fila.tipoPago,
           fechaIngreso: fila.fechaIngreso,
         });
         resultados.creados++;
@@ -412,7 +420,7 @@ planillaRouter.post(
       resultados.errores.push({ row: fila.row, error: fila.error });
     }
 
-    res.json({ ...resultados, total: parsed.totalRows, tipoPago });
+    res.json({ ...resultados, total: parsed.totalRows, tipoPago: tipoPago.data });
   }),
 );
 
@@ -485,7 +493,10 @@ planillaRouter.post(
       req.user!.userId,
       opcionesDeCorrida(req.body),
     );
-    await incrementUsage(req);
+    // Media cuota la semanal: son 52 corridas al año contra 24 de la quincenal, y
+    // cobrarle la cuota entera a cada una le costaría al cliente semanal el doble por
+    // la misma nómina. El movimiento contable que genera es UNO (va consolidada).
+    await incrementUsage(req, req.body.periodicidad === 'SEMANAL' ? 0.5 : 1);
     res.status(201).json(resultado);
   }),
 );

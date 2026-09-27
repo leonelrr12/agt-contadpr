@@ -208,6 +208,8 @@ export interface PayrollSettingsRow {
   tablaISR: string;
   riesgosPorClase: string;
   provisionarPrestaciones: boolean;
+  /** Día de la semana del pago semanal (0 = domingo). Ver el modelo en el esquema. */
+  diaPagoSemanal: number;
 }
 
 /**

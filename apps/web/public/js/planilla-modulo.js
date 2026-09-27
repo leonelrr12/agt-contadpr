@@ -92,6 +92,22 @@
     VACACIONES: { label: 'Vacaciones', periodicidad: 'EVENTUAL' },
   };
 
+  /**
+   * Las periodicidades de una corrida de SUELDO y cómo se llaman. La semanal se
+   * contabiliza en UN asiento para toda la nómina: 52 corridas al año por el asiento
+   * de cada empleado convertirían la cola de revisión en el cuello de botella.
+   */
+  const PERIODICIDADES = [
+    ['SEMANAL', 'Semanal'],
+    ['QUINCENAL', 'Quincenal'],
+    ['MENSUAL', 'Mensual'],
+  ];
+
+  /** El tipo de pago de la ficha del empleado. */
+  const TIPOS_PAGO = [['SEMANAL', 'Semanal'], ['QUINCENAL', 'Quincenal'], ['MENSUAL', 'Mensual']];
+
+  const etiquetaTipoPago = (v) => (TIPOS_PAGO.find(([k]) => k === v) || [, v || '—'])[1];
+
   function formaCorrida() {
     if (!estado.forma) {
       const d = new Date();
@@ -125,6 +141,7 @@
         <thead><tr>
           <th>Empleado</th><th class="num">Días</th><th class="num">Horas extras</th>
           <th class="num">${esPrestacion ? 'Monto a pagar' : 'Otros ingresos'}</th>
+          <th class="num" title="Ausencia o tardanza: baja el sueldo y la base de cotización">Menos sueldo</th>
           <th class="num">Otras deducc.</th>
           <th class="num">Sueldo</th><th class="num">SS</th><th class="num">SE</th>
           <th class="num">ISR</th><th class="num">Neto</th>
@@ -142,8 +159,7 @@
             </select></div>
           <div><label>Periodicidad</label>
             <select id="c-periodicidad" ${esPrestacion ? 'disabled' : ''}>
-              <option value="QUINCENAL" ${f.periodicidad === 'QUINCENAL' ? 'selected' : ''}>Quincenal</option>
-              <option value="MENSUAL" ${f.periodicidad === 'MENSUAL' ? 'selected' : ''}>Mensual</option>
+              ${PERIODICIDADES.map(([k, l]) => `<option value="${k}" ${f.periodicidad === k ? 'selected' : ''}>${l}</option>`).join('')}
             </select></div>
           <div><label>Desde</label><input type="date" id="c-desde" value="${f.fechaDesde}"></div>
           <div><label>Fecha de pago</label><input type="date" id="c-pago" value="${f.fechaPago}"></div>
@@ -151,7 +167,8 @@
         <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
           <button class="btn btn-secondary" id="c-calcular">Calcular</button>
           <button class="btn btn-primary" id="c-ejecutar" ${(p && p.items.length && !p.yaExiste && p.errores.length === 0) ? '' : 'disabled'}>Ejecutar corrida</button>
-          ${p ? `<span class="nota">Período <b>${esc(p.periodo)}</b> · pago ${p.pagoNumero} de ${p.pagosDelMes} del mes</span>` : ''}
+          ${p ? `<span class="nota">Período <b>${esc(p.periodo)}</b> · pago ${p.pagoNumero} de ${p.pagosDelMes} del mes${
+            p.consolidado ? ' · un solo asiento para toda la nómina' : ' · un asiento por empleado'}</span>` : ''}
         </div>
       </div>
 
@@ -177,12 +194,18 @@
     const campoExtras = esPrestacion
       ? '<span class="nota">—</span>'
       : `<input class="celda" data-edit="horasExtras" data-emp="${esc(i.employeeId)}" value="${a.horasExtras ?? i.horasExtras}">`;
+    // Ausencia o tardanza: baja el sueldo y la base de cotización. En las prestaciones
+    // no se usa —no hay sueldo que descontar— así que la celda queda vacía.
+    const campoMenosSueldo = esPrestacion
+      ? '<span class="nota">—</span>'
+      : `<input class="celda" data-edit="menosSueldo" data-emp="${esc(i.employeeId)}" value="${a.menosSueldo ?? i.menosSueldo ?? 0}">`;
 
     return `<tr>
       <td>${esc(i.nombre)}${i.cedula ? `<br><span class="nota">${esc(i.cedula)}</span>` : ''}</td>
       <td class="num"><input class="celda" style="width:56px" data-edit="diasTrabajados" data-emp="${esc(i.employeeId)}" value="${a.diasTrabajados ?? i.diasTrabajados}"></td>
       <td class="num">${campoExtras}</td>
       <td class="num">${campoMonto}</td>
+      <td class="num">${campoMenosSueldo}</td>
       <td class="num"><input class="celda" data-edit="otrasDeducciones" data-emp="${esc(i.employeeId)}" value="${a.otrasDeducciones ?? i.otrasDeducciones}"></td>
       ${celdasCalculadas(i)}
     </tr>`;
@@ -204,6 +227,27 @@
     f.fechaDesde = $('c-desde').value;
     f.fechaPago = $('c-pago').value;
     return f;
+  }
+
+  /**
+   * Al elegir Semanal, las fechas se van a la semana en curso.
+   *
+   * Dejarlas en la quincena que estaban daría un período de quince días —que el
+   * prorrateo cobra igual, pero con su aviso— y el contador tendría que corregir dos
+   * fechas antes de ver algo útil. El día de pago sale de Parámetros: es el mismo que
+   * usa el servidor para numerar el pago del mes.
+   */
+  async function prellenarSemana() {
+    if (!estado.parametros) estado.parametros = await pedir('/parametros');
+    const dia = Number(estado.parametros?.settings?.diaPagoSemanal ?? 5);
+    const ahora = new Date();
+    // El lunes de esta semana: `getDay()` pone el domingo en 0.
+    const lunes = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - ((ahora.getDay() + 6) % 7));
+    const pago = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate() + ((dia + 6) % 7));
+
+    const f = formaCorrida();
+    f.fechaDesde = isoDe(lunes);
+    f.fechaPago = isoDe(pago);
   }
 
   async function calcular() {
@@ -235,6 +279,42 @@
     }
   }
 
+  /**
+   * Teclado del módulo, para cargar treinta renglones sin soltar el mouse ni borrar a
+   * mano lo que ya estaba:
+   *
+   *  · Al entrar a un campo de número o de fecha, su contenido queda seleccionado: lo
+   *    que se escriba reemplaza. En los de texto NO, porque seleccionar el nombre
+   *    obligaría a volver a escribirlo entero para corregir una letra.
+   *  · Enter pasa al campo siguiente en el orden de la pantalla, y en el último
+   *    suelta el foco. En un textarea no, ahí Enter es un salto de línea.
+   */
+  const TIPOS_QUE_SE_SELECCIONAN = ['number', 'date'];
+
+  document.addEventListener('focusin', (e) => {
+    const el = e.target;
+    if (el instanceof HTMLInputElement && TIPOS_QUE_SE_SELECCIONAN.includes(el.type)) {
+      // En diferido: el clic que provocó el foco colapsa la selección si se hace ya.
+      setTimeout(() => el.select(), 0);
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const el = e.target;
+    if (!(el instanceof HTMLElement) || !el.matches('input, select, textarea')) return;
+    if (el.tagName === 'TEXTAREA') return;
+    if (el instanceof HTMLInputElement && ['file', 'checkbox', 'radio', 'button'].includes(el.type)) return;
+
+    e.preventDefault();
+    const campos = [...document.querySelectorAll('input, select, textarea')].filter(
+      (x) => !x.disabled && x.type !== 'hidden' && x.offsetParent !== null,
+    );
+    const siguiente = campos[campos.indexOf(el) + 1];
+    if (siguiente) siguiente.focus();
+    else el.blur();
+  });
+
   document.addEventListener('input', (e) => {
     const el = e.target;
     if (!el.dataset || !el.dataset.edit) return;
@@ -263,6 +343,9 @@
     }
     if (e.target.id === 'c-periodicidad' || e.target.id === 'c-desde' || e.target.id === 'c-pago') {
       leerForma();
+      if (e.target.id === 'c-periodicidad' && e.target.value === 'SEMANAL') {
+        try { await prellenarSemana(); } catch { /* sin parámetros, se dejan las fechas como están */ }
+      }
       estado.corrida = null;
       await render();
     }
@@ -288,7 +371,14 @@
           }),
         });
         estado.ajustes = {}; estado.corrida = null;
-        await showAlert(`Corrida ejecutada: ${r.creados} asientos creados por ${num(r.totales.neto)} de neto. Quedan en BORRADOR para que los revises.`);
+        // Una corrida consolidada que falla no crea NADA: decir "0 asientos creados"
+        // como si hubiera salido bien es la peor forma de reportar, porque el
+        // contador se entera cuando el empleado reclama.
+        await showAlert(
+          r.errores?.length
+            ? `La corrida quedó con ${r.creados} asiento(s) y estos errores: ${r.errores.map((e) => `${e.empleado}: ${e.motivo}`).join(' · ')}`
+            : `Corrida ejecutada: ${r.creados} asiento(s) por ${num(r.totales.neto)} de neto. Quedan en BORRADOR para que los revises.`,
+        );
         estado.vista = 'historial';
         await render();
       } catch (err) { alert(err.message); }
@@ -308,7 +398,7 @@
         <td>${esc(e.nombre)}</td>
         <td>${esc(e.cedula || '—')}</td>
         <td>${esc(e.cargo || '—')}</td>
-        <td>${e.tipoPago === 'QUINCENAL' ? 'Quincenal' : 'Mensual'}</td>
+        <td>${esc(etiquetaTipoPago(e.tipoPago))}</td>
         <td>${esc(e.claseRiesgo || '—')}</td>
         <td class="num">${num(e.sueldoBase)}</td>
         <td class="num">${num(e.acumulados?.decimo?.saldo)}</td>
@@ -328,8 +418,7 @@
           <div><label>Sueldo mensual</label><input id="e-sueldo" type="number" step="0.01" value="${ed?.sueldoBase ?? ''}"></div>
           <div><label>Tipo de pago</label>
             <select id="e-tipopago">
-              <option value="QUINCENAL" ${ed?.tipoPago === 'QUINCENAL' || !ed ? 'selected' : ''}>Quincenal</option>
-              <option value="MENSUAL" ${ed?.tipoPago === 'MENSUAL' ? 'selected' : ''}>Mensual</option>
+              ${TIPOS_PAGO.map(([k, l]) => `<option value="${k}" ${(ed ? ed.tipoPago === k : k === 'QUINCENAL') ? 'selected' : ''}>${l}</option>`).join('')}
             </select></div>
           <div><label>Clase de riesgo</label>
             <select id="e-riesgo">
@@ -358,11 +447,11 @@
         <h3>Alta masiva desde el archivo de planilla</h3>
         <div class="form-grid">
           <div><label>Archivo (CSV o XLSX)</label><input type="file" id="r-archivo" accept=".csv,.xlsx"></div>
-          <div><label>El SUELDO del archivo es</label>
-            <select id="r-tipopago"><option value="QUINCENAL">Quincenal</option><option value="MENSUAL">Mensual</option></select></div>
+          <div><label>Tipo de pago (si el archivo no lo trae)</label>
+            <select id="r-tipopago">${TIPOS_PAGO.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
         </div>
         <div style="margin-top:12px"><button class="btn btn-secondary" id="r-previa">Previsualizar</button></div>
-        <p class="nota">Se leen NOMBRE, CÉDULA y SUELDO (más CARGO, NSS y FECHA DE INGRESO si están). El sueldo se guarda mensual: uno quincenal de 450 entra como 900.</p>
+        <p class="nota">Se leen NOMBRE, CÉDULA y SUELDO (más CARGO, NSS, FECHA DE INGRESO y <b>TIPO DE PAGO</b> si están). El <b>SUELDO del archivo es el salario base MENSUAL</b> y se guarda tal cual: no se multiplica por nada. El tipo de pago sale de su columna, fila por fila —una celda vacía se toma como quincenal—; el selector de arriba solo aplica si el archivo no trae esa columna.</p>
         <div id="r-resultado"></div>
       </div>
 
@@ -433,8 +522,11 @@
         const r = await pedir('/roster/preview', { method: 'POST', body: fd });
         $('r-resultado').innerHTML = `
           <div class="aviso ok">${r.resumen.ok} para crear · ${r.resumen.existentes} ya existen · ${r.resumen.errores} con error</div>
-          <table class="data-table"><thead><tr><th>#</th><th>Nombre</th><th>Cédula</th><th class="num">Sueldo mensual</th><th>Estado</th></tr></thead>
+          <table class="data-table"><thead><tr><th>#</th><th>Nombre</th><th>Cédula</th><th>Cargo</th><th>NSS</th>
+            <th>Pago</th><th class="num">Sueldo base mensual</th><th>Estado</th></tr></thead>
           <tbody>${r.rows.map((f) => `<tr><td>${f.row}</td><td>${esc(f.nombre || '—')}</td><td>${esc(f.cedula || '—')}</td>
+            <td>${esc(f.cargo || '—')}</td><td>${esc(f.nss || '—')}</td>
+            <td>${esc(etiquetaTipoPago(f.tipoPago))}${f.tipoPagoFuente === 'DEFECTO' ? ' <span class="nota">(defecto)</span>' : ''}</td>
             <td class="num">${num(f.sueldoBase)}</td>
             <td>${f.status === 'ok' ? '<span class="badge badge-ok">nuevo</span>' : f.status === 'existente' ? '<span class="badge badge-warn">ya existe</span>' : `<span class="badge badge-err">${esc(f.error || 'error')}</span>`}</td></tr>`).join('')}</tbody></table>
           <div style="margin-top:12px"><button class="btn btn-primary" id="r-ejecutar" ${r.resumen.ok ? '' : 'disabled'}>Importar ${r.resumen.ok} empleado(s)</button></div>`;
@@ -789,7 +881,7 @@
         <h3>Empleados activos sin corrida en el período (${c.sinCorrida.length})</h3>
         ${c.sinCorrida.length
           ? `<table class="data-table"><thead><tr><th>Empleado</th><th>Tipo de pago</th></tr></thead>
-             <tbody>${c.sinCorrida.map((e) => `<tr><td>${esc(e.nombre)}</td><td>${e.tipoPago === 'QUINCENAL' ? 'Quincenal' : 'Mensual'}</td></tr>`).join('')}</tbody></table>`
+             <tbody>${c.sinCorrida.map((e) => `<tr><td>${esc(e.nombre)}</td><td>${esc(etiquetaTipoPago(e.tipoPago))}</td></tr>`).join('')}</tbody></table>`
           : '<p class="nota">Todos los empleados activos tienen al menos una corrida en el período.</p>'}
         <p class="nota">Es el olvido más caro porque no genera ningún error: nadie reclama hasta que no le pagan.</p>
       </div>`;
@@ -838,11 +930,18 @@
           <div><label>Factor vacaciones (1/12)</label><input id="t-fvac" type="number" step="0.0000000001" value="${s.factorVacaciones}"></div>
           <div><label>Factor prima (1/52)</label><input id="t-fprima" type="number" step="0.0000000001" value="${s.factorPrima}"></div>
         </div>
+        <div class="form-grid" style="margin-top:14px">
+          <div><label>Día del pago semanal</label>
+            <select id="t-diapago">
+              ${(r.diasSemana || ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'])
+                .map((d, i) => `<option value="${i}" ${Number(s.diaPagoSemanal) === i ? 'selected' : ''}>${d}</option>`).join('')}
+            </select></div>
+        </div>
         <label style="display:flex;gap:8px;align-items:center;margin-top:14px;font-size:13px">
           <input type="checkbox" id="t-provisionar" ${s.provisionarPrestaciones ? 'checked' : ''} style="width:auto">
           Contabilizar la provisión de prestaciones (décimo, vacaciones y prima por pagar)
         </label>
-        <p class="nota">Las tasas se guardan como decimal: 9,75% es 0.0975. El sueldo base es mensual, así que una quincena es la mitad — o los días exactos del mes.</p>
+        <p class="nota">Las tasas se guardan como decimal: 9,75% es 0.0975. El sueldo base es mensual, así que una quincena es la mitad — o los días exactos del mes— y una semana es <b>mensual × 12/52</b> (52 semanas de 7 días son 364, no 365). El día del pago semanal es el que fija cuántos pagos tiene el mes —4 o 5— y con eso el ISR del mes cierra exacto.</p>
       </div>
 
       <div class="card">
@@ -916,6 +1015,7 @@
       riesgosProfesionales: n('t-riesgos'),
       factorDecimo: n('t-fdecimo'), factorVacaciones: n('t-fvac'), factorPrima: n('t-fprima'),
       provisionarPrestaciones: $('t-provisionar').checked,
+      diaPagoSemanal: Number($('t-diapago').value),
       tablaISR, riesgosPorClase, cuentas,
     };
     try {

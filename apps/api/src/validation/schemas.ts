@@ -359,7 +359,7 @@ export const anularMovimientoSchema = z.object({
 export type AnularMovimientoInput = z.infer<typeof anularMovimientoSchema>;
 
 // ── Planilla (módulo) ──
-export const tipoPagoSchema = z.enum(['QUINCENAL', 'MENSUAL']);
+export const tipoPagoSchema = z.enum(['SEMANAL', 'QUINCENAL', 'MENSUAL']);
 
 export const createEmpleadoSchema = z.object({
   nombre: z.string().min(1, 'El nombre es requerido').max(150),
@@ -412,6 +412,8 @@ const ajusteCorridaSchema = z.object({
   diasTrabajados: z.number().int().min(0).max(31).optional(),
   horasExtras: z.number().min(0).max(1e7).optional(),
   otrosIngresos: z.number().min(0).max(1e7).optional(),
+  // Ausencia o tardanza: baja el sueldo y la base de cotización, no es una deducción.
+  menosSueldo: z.number().min(0).max(1e7).optional(),
   otrasDeducciones: z.number().min(0).max(1e7).optional(),
   /** Solo en corridas de DECIMO/VACACIONES: cuánto se le paga de la prestación. */
   montoPrestacion: z.number().min(0).max(1e9).optional(),
@@ -425,7 +427,7 @@ const ajusteCorridaSchema = z.object({
  */
 export const corridaSchema = z.object({
   tipo: z.enum(['SUELDO', 'DECIMO', 'VACACIONES']),
-  periodicidad: z.enum(['QUINCENAL', 'MENSUAL', 'ANUAL', 'EVENTUAL']),
+  periodicidad: z.enum(['SEMANAL', 'QUINCENAL', 'MENSUAL', 'ANUAL', 'EVENTUAL']),
   fechaDesde: isoDate,
   /** Si no viene, se calcula desde la periodicidad (quincena o mes completo). */
   fechaHasta: isoDate.optional(),
@@ -481,6 +483,9 @@ export const updatePayrollSettingsSchema = z.object({
   // Tarifa de riesgos por clase. Una clase ausente rechaza la fila de ese empleado.
   riesgosPorClase: z.record(z.string(), z.number().min(0).max(1).nullable()).optional(),
   provisionarPrestaciones: z.boolean().optional(),
+  // Día del pago semanal (0 = domingo). De él sale el calendario del pago: cuántos
+  // pagos tiene el mes y cuál es el que se está corriendo.
+  diaPagoSemanal: z.number().int().min(0).max(6).optional(),
   // Cuentas contables: los mismos campos que Administración → Configuración.
   cuentas: z.record(z.string(), z.string().nullable()).optional(),
 });

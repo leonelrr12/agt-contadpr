@@ -135,7 +135,14 @@ export async function cuadrePlanilla(
       select: { id: true, status: true, anuladoPorId: true },
     });
     const porId = new Map(asientos.map((a) => [a.id, a]));
+    // Se cuenta por ASIENTO y no por ítem: en una corrida consolidada treinta ítems
+    // apuntan al mismo asiento, y "30 rechazados" cuando hay uno solo es un número
+    // que el contador va a buscar al diario y no va a encontrar.
+    const contados = new Set<string>();
     for (const item of items) {
+      if (contados.has(item.journalEntryId)) continue;
+      contados.add(item.journalEntryId);
+
       const a = porId.get(item.journalEntryId);
       const estado = !a ? 'SIN_ASIENTO' : a.anuladoPorId ? 'ANULADO' : a.status;
       estados[estado] = (estados[estado] ?? 0) + 1;

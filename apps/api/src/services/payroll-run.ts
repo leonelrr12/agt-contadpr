@@ -6,7 +6,13 @@ import { logAudit } from './audit-log';
 import {
   calcularCorrida,
   construirLineas,
+  consolidarLineas,
   pagosDelMes as pagosDelMesDe,
+  pagoNumeroEnElMes,
+  diasEntre,
+  DIA_PAGO_SEMANAL_DEFAULT,
+  DIAS_DE_LA_SEMANA,
+  DIAS_SEMANA,
   type CalculoItem,
   type ContextoCorrida,
   type CuentasPlanilla,
@@ -71,6 +77,11 @@ export interface PreviewCorrida {
   fechaPago: string;
   pagoNumero: number;
   pagosDelMes: number;
+  /**
+   * La corrida se contabiliza en UN asiento para todos los empleados (semanal) en
+   * vez de uno por empleado. Ver `esConsolidada`.
+   */
+  consolidado: boolean;
   items: ItemCorrida[];
   totales: ReturnType<typeof calcularCorrida>['totales'];
   omitidos: ReturnType<typeof calcularCorrida>['omitidos'];
@@ -93,10 +104,22 @@ function ymd(d: Date): string {
  * dos peticiones con el mismo período escrito distinto esquivarían la clave única y
  * la nómina se pagaría dos veces.
  *
- * Lleva la granularidad dentro porque una empresa real mezcla gente quincenal y
- * mensual, y las tres cuotas del décimo comparten año.
+ * Lleva la granularidad dentro porque una empresa real mezcla gente quincenal,
+ * mensual y semanal, y las tres cuotas del décimo comparten año.
+ *
+ * La SEMANAL se nombra por su PAGO (`2026-09-S3` = el tercer pago de septiembre) y
+ * no por los días que cubre: es lo que la alinea con `periodoMensual` y con el
+ * reparto del ISR, que también cuelgan de la fecha de pago. Y una corrida que cubre
+ * dos semanas se paga junta —el prorrateo por séptimos la resuelve—, así que no hay
+ * dos corridas por mes de pago y la clave sigue siendo única.
  */
-export function periodoDe(tipo: TipoCorrida, periodicidad: Periodicidad, fechaDesde: Date, fechaPago: Date): string {
+export function periodoDe(
+  tipo: TipoCorrida,
+  periodicidad: Periodicidad,
+  fechaDesde: Date,
+  fechaPago: Date,
+  diaPagoSemanal: number = DIA_PAGO_SEMANAL_DEFAULT,
+): string {
   const anio = fechaDesde.getFullYear();
   const mes = String(fechaDesde.getMonth() + 1).padStart(2, '0');
 
@@ -107,12 +130,25 @@ export function periodoDe(tipo: TipoCorrida, periodicidad: Periodicidad, fechaDe
     return `${fechaPago.getFullYear()}-C${cuota}`;
   }
   if (tipo === 'VACACIONES') return ymd(fechaDesde);
+  if (periodicidad === 'SEMANAL') {
+    const mesPago = String(fechaPago.getMonth() + 1).padStart(2, '0');
+    return `${fechaPago.getFullYear()}-${mesPago}-S${pagoNumeroEnElMes(fechaPago, diaPagoSemanal)}`;
+  }
   if (periodicidad === 'QUINCENAL') return `${anio}-${mes}-Q${fechaDesde.getDate() <= 15 ? 1 : 2}`;
   return `${anio}-${mes}`;
 }
 
 /** Fin del período a partir del inicio, para no obligar a la pantalla a calcularlo. */
 export function finDePeriodo(periodicidad: Periodicidad, fechaDesde: Date): Date {
+  if (periodicidad === 'SEMANAL') {
+    // Siete días contando el inicial: una semana que empieza el lunes cierra el domingo.
+    return new Date(
+      fechaDesde.getFullYear(),
+      fechaDesde.getMonth(),
+      fechaDesde.getDate() + DIAS_DE_LA_SEMANA - 1,
+      12,
+    );
+  }
   if (periodicidad === 'QUINCENAL') {
     return fechaDesde.getDate() <= 15
       ? new Date(fechaDesde.getFullYear(), fechaDesde.getMonth(), 15, 12)
@@ -121,10 +157,27 @@ export function finDePeriodo(periodicidad: Periodicidad, fechaDesde: Date): Date
   return new Date(fechaDesde.getFullYear(), fechaDesde.getMonth() + 1, 0, 12);
 }
 
-/** Qué pago del mes es: la quincena 1 o la 2. El mensual es 1 de 1. */
-function pagoNumeroDe(periodicidad: Periodicidad, fechaDesde: Date): number {
+/**
+ * Qué pago del mes es: la quincena 1 o la 2, o el ordinal del día de pago semanal.
+ *
+ * El semanal sale de la fecha de PAGO (ver `pagoNumeroEnElMes`). La quincena sigue
+ * saliendo del inicio del período, como salía antes de que existiera el semanal:
+ * cambiarlo movería la retención de las corridas ya hechas sin que nadie lo pida.
+ */
+function pagoNumeroDe(
+  periodicidad: Periodicidad,
+  fechaDesde: Date,
+  fechaPago: Date,
+  diaPagoSemanal: number,
+): number {
+  if (periodicidad === 'SEMANAL') return pagoNumeroEnElMes(fechaPago, diaPagoSemanal);
   if (periodicidad !== 'QUINCENAL') return 1;
   return fechaDesde.getDate() <= 15 ? 1 : 2;
+}
+
+/** La corrida semanal se contabiliza en UN asiento; las demás, uno por empleado. */
+export function esConsolidada(periodicidad: Periodicidad): boolean {
+  return periodicidad === 'SEMANAL';
 }
 
 // ─── Cuentas y banco ─────────────────────────────────────────────────────────
@@ -197,13 +250,19 @@ export async function previsualizarCorrida(
   const fechaHasta = parseLocalDate(opts.fechaHasta);
   const fechaPago = parseLocalDate(opts.fechaPago);
 
-  const periodo = periodoDe(opts.tipo, opts.periodicidad, fechaDesde, fechaPago);
-  const periodoMensual = `${fechaPago.getFullYear()}-${String(fechaPago.getMonth() + 1).padStart(2, '0')}`;
-  const pagosDelMes = pagosDelMesDe(opts.periodicidad);
-  const pagoNumero = pagoNumeroDe(opts.periodicidad, fechaDesde);
+  // Los parámetros van primero: el período semanal se nombra por su pago y el reparto
+  // del ISR depende del día de pago configurado. Pedirlos en paralelo obligaría a
+  // construir el período dos veces.
+  const settings = await getOrCreateSettings(prisma, companyId);
+  const diaPagoSemanal = settings.diaPagoSemanal ?? DIA_PAGO_SEMANAL_DEFAULT;
 
-  const [settings, resolucion, empleados, company, existente] = await Promise.all([
-    getOrCreateSettings(prisma, companyId),
+  const periodo = periodoDe(opts.tipo, opts.periodicidad, fechaDesde, fechaPago, diaPagoSemanal);
+  const periodoMensual = `${fechaPago.getFullYear()}-${String(fechaPago.getMonth() + 1).padStart(2, '0')}`;
+  const pagosDelMes = pagosDelMesDe(opts.periodicidad, fechaPago, diaPagoSemanal);
+  const pagoNumero = pagoNumeroDe(opts.periodicidad, fechaDesde, fechaPago, diaPagoSemanal);
+  const consolidado = esConsolidada(opts.periodicidad);
+
+  const [resolucion, empleados, company, existente] = await Promise.all([
     resolverCuentasPlanilla(prisma, companyId),
     empleadosParaCorrida(prisma, companyId, {
       ids: opts.empleadoIds,
@@ -268,6 +327,26 @@ export async function previsualizarCorrida(
   // presentar la planilla a la CSS, al prorratear, o al calcular una antigüedad).
   // Solo se avisa de quien entra en la corrida: llenar la pantalla con datos de
   // gente que no se está pagando es ruido.
+  // El período semanal que no dura 7 días, o que se paga en un día que no es el
+  // configurado, no es un error —el prorrateo por séptimos cobra exactamente los días
+  // que sean— pero cambia la numeración del pago y con ella el reparto del ISR: si no
+  // es el día de pago configurado, el ordinal del mes puede no ser el que se espera.
+  if (opts.periodicidad === 'SEMANAL') {
+    const dias = diasEntre(fechaDesde, fechaHasta);
+    if (dias !== DIAS_DE_LA_SEMANA) {
+      avisos.push(
+        `El período semanal cubre ${dias} día(s) en vez de ${DIAS_DE_LA_SEMANA}: se paga por séptimos, ` +
+          'así que los días trabajados mandan sobre el rótulo del período.',
+      );
+    }
+    if (fechaPago.getDay() !== diaPagoSemanal) {
+      avisos.push(
+        `La fecha de pago no cae en ${DIAS_SEMANA[diaPagoSemanal]}: es el día configurado para pagar la semana, ` +
+          `y de él sale qué pago del mes es este (${pagoNumero} de ${pagosDelMes}).`,
+      );
+    }
+  }
+
   const entran = new Set(calculo.items.map((i) => i.employeeId));
   const sinNss = empleados.filter((e: any) => entran.has(e.id) && !e.nss);
   if (sinNss.length > 0) {
@@ -354,6 +433,7 @@ export async function previsualizarCorrida(
     fechaPago: opts.fechaPago,
     pagoNumero,
     pagosDelMes,
+    consolidado,
     items,
     totales: {
       bruto: sumarMontos(...items.map((i) => i.bruto)),
@@ -414,9 +494,23 @@ export interface ResultadoEjecucion {
   entryIds: string[];
 }
 
+/** Descripción del asiento cuando la corrida entera va en un solo asiento. */
+function descripcionConsolidada(tipo: TipoCorrida, cuantos: number, periodo: string): string {
+  const quienes = `${cuantos} empleado${cuantos === 1 ? '' : 's'}`;
+  if (tipo === 'DECIMO') return `Décimo III de ${quienes} — ${periodo}`;
+  if (tipo === 'VACACIONES') return `Vacaciones de ${quienes} — ${periodo}`;
+  return `Planilla de ${quienes} — ${periodo}`;
+}
+
 /**
- * Ejecuta la corrida: crea la fila, un asiento BORRADOR y su Transaction por
- * empleado, y los ítems con los montos congelados.
+ * Ejecuta la corrida: crea la fila, los asientos BORRADOR con su Transaction y los
+ * ítems con los montos congelados.
+ *
+ * Las corridas semanales van en UN asiento para toda la nómina (`consolidado`); las
+ * demás, uno por empleado. En el camino consolidado no hay errores por empleado
+ * posible: el asiento es uno, así que entra entero o no entra — y por eso las cuentas
+ * bloqueadas se verifican ANTES de crear la corrida, para no dejar una corrida
+ * vacía ocupando el período.
  */
 export async function ejecutarCorrida(
   prisma: any,
@@ -459,6 +553,20 @@ export async function ejecutarCorrida(
   const fechaDesde = parseLocalDate(opts.fechaDesde);
   const fechaHasta = parseLocalDate(opts.fechaHasta);
 
+  // Cuentas bloqueadas: una consulta por corrida, reusada empleado a empleado.
+  const accountFlags = await loadAccountFlags(prisma, companyId);
+
+  const lineasConsolidadas = preview.consolidado ? consolidarLineas(preview.items) : null;
+  if (lineasConsolidadas) {
+    const bloqueada = blockedMessage(accountFlags, lineasConsolidadas.map((l) => l.accountId));
+    if (bloqueada) {
+      throw Object.assign(
+        new Error(`No se puede ejecutar la corrida: ${bloqueada}`),
+        { status: 400 },
+      );
+    }
+  }
+
   let run: any;
   try {
     run = await prisma.payrollRun.create({
@@ -472,6 +580,7 @@ export async function ejecutarCorrida(
         fechaHasta,
         fechaPago,
         status: 'BORRADOR',
+        consolidado: preview.consolidado,
         createdById: userId,
         notas: opts.notas ?? null,
       },
@@ -495,8 +604,6 @@ export async function ejecutarCorrida(
     throw e;
   }
 
-  // Cuentas bloqueadas: una consulta por corrida, reusada empleado a empleado.
-  const accountFlags = await loadAccountFlags(prisma, companyId);
   const errores: { empleado: string; motivo: string }[] = [];
   const entryIds: string[] = [];
   const totales = {
@@ -504,7 +611,112 @@ export async function ejecutarCorrida(
     decimoGenerado: 0, vacacionesGeneradas: 0, primaGenerada: 0,
   };
 
-  for (const item of preview.items) {
+  const acumularTotales = (item: CalculoItem) => {
+    totales.bruto = sumarMontos(totales.bruto, item.bruto);
+    totales.deducciones = sumarMontos(totales.deducciones, item.ss + item.se + item.isr + item.otrasDeducciones);
+    totales.neto = sumarMontos(totales.neto, item.neto);
+    totales.patronal = sumarMontos(totales.patronal, item.ssPatronal + item.sePatronal + item.riesgosPatronal);
+    totales.decimoGenerado = sumarMontos(totales.decimoGenerado, item.decimoGenerado);
+    totales.vacacionesGeneradas = sumarMontos(totales.vacacionesGeneradas, item.vacacionesGeneradas);
+    totales.primaGenerada = sumarMontos(totales.primaGenerada, item.primaGenerada);
+  };
+
+  // ── Camino consolidado: un asiento para toda la nómina ──
+  if (lineasConsolidadas) {
+    const descripcion = descripcionConsolidada(preview.tipo, preview.items.length, preview.periodo);
+    try {
+      const je = await prisma.$transaction(async (tx: any) => {
+        const asiento = await tx.journalEntry.create({
+          data: {
+            date: fechaPago,
+            description: descripcion,
+            status: 'BORRADOR',
+            companyId,
+            createdById: userId,
+            lines: { create: lineasConsolidadas },
+          },
+        });
+
+        await tx.transaction.create({
+          data: {
+            type: 'PLANILLA',
+            // El bruto de la nómina entera: es lo que la Transaction representa, y el
+            // asiento —con el aporte del patrono adentro— vale más, igual que en el
+            // camino por empleado.
+            amount: preview.totales.bruto,
+            description: descripcion,
+            concept:
+              preview.tipo === 'DECIMO' ? 'Décimo III' : preview.tipo === 'VACACIONES' ? 'Vacaciones' : 'Planilla',
+            paymentMethod: null,
+            date: fechaPago,
+            companyId,
+            createdById: userId,
+            journalEntryId: asiento.id,
+            // El detalle por empleado NO viaja acá: vive en los ítems de la corrida,
+            // que es donde se consulta (`runId` es la llave). Meter treinta fichas en
+            // un JSON sería un dato que nadie lee y que sí puede quedar desfasado.
+            metadata: JSON.stringify({
+              source: 'planilla',
+              origen: 'MODULO',
+              runId: run.id,
+              tipo: preview.tipo,
+              periodo: preview.periodo,
+              quincena: opts.fechaPago,
+              empleados: preview.items.length,
+              consolidado: true,
+              bruto: preview.totales.bruto,
+              deducciones: preview.totales.deducciones,
+              neto: preview.totales.neto,
+              patronal: preview.totales.patronal,
+            }),
+          },
+        });
+
+        // Un solo INSERT para los treinta ítems: la transacción tiene 5 segundos.
+        await tx.payrollItem.createMany({
+          data: preview.items.map((item) => ({
+            companyId,
+            runId: run.id,
+            employeeId: item.employeeId,
+            diasTrabajados: item.diasTrabajados,
+            sueldo: item.sueldo,
+            horasExtras: item.horasExtras,
+            otrosIngresos: item.otrosIngresos,
+            menosSueldo: item.menosSueldo,
+            bruto: item.bruto,
+            ss: item.ss,
+            se: item.se,
+            isr: item.isr,
+            otrasDeducciones: item.otrasDeducciones,
+            neto: item.neto,
+            ssPatronal: item.ssPatronal,
+            sePatronal: item.sePatronal,
+            riesgosPatronal: item.riesgosPatronal,
+            decimoGenerado: item.decimoGenerado,
+            vacacionesGeneradas: item.vacacionesGeneradas,
+            primaGenerada: item.primaGenerada,
+            journalEntryId: asiento.id,
+            notas: item.notas ?? null,
+          })),
+        });
+
+        return asiento;
+      });
+
+      entryIds.push(je.id);
+      for (const item of preview.items) acumularTotales(item);
+    } catch (e: any) {
+      // El asiento es uno: o entra entero o no entra. No hay "la mitad de la nómina".
+      errores.push({
+        empleado: descripcionConsolidada(preview.tipo, preview.items.length, preview.periodo),
+        motivo: (e?.message || 'Error desconocido').slice(0, 300),
+      });
+    }
+  }
+
+  // ── Camino por empleado: un asiento BORRADOR cada uno ──
+  const itemsPorEmpleado = lineasConsolidadas ? [] : preview.items;
+  for (const item of itemsPorEmpleado) {
     const bloqueada = blockedMessage(accountFlags, item.lineas.map((l) => l.accountId));
     if (bloqueada) {
       errores.push({ empleado: item.nombre, motivo: bloqueada });
@@ -558,6 +770,7 @@ export async function ejecutarCorrida(
               salario: item.sueldo,
               horasExtras: item.horasExtras,
               otrosIngresos: item.otrosIngresos,
+            menosSueldo: item.menosSueldo,
               ss: item.ss,
               se: item.se,
               isr: item.isr,
@@ -579,6 +792,7 @@ export async function ejecutarCorrida(
             sueldo: item.sueldo,
             horasExtras: item.horasExtras,
             otrosIngresos: item.otrosIngresos,
+            menosSueldo: item.menosSueldo,
             bruto: item.bruto,
             ss: item.ss,
             se: item.se,
@@ -600,13 +814,7 @@ export async function ejecutarCorrida(
       });
 
       entryIds.push(je.id);
-      totales.bruto = sumarMontos(totales.bruto, item.bruto);
-      totales.deducciones = sumarMontos(totales.deducciones, item.ss + item.se + item.isr + item.otrasDeducciones);
-      totales.neto = sumarMontos(totales.neto, item.neto);
-      totales.patronal = sumarMontos(totales.patronal, item.ssPatronal + item.sePatronal + item.riesgosPatronal);
-      totales.decimoGenerado = sumarMontos(totales.decimoGenerado, item.decimoGenerado);
-      totales.vacacionesGeneradas = sumarMontos(totales.vacacionesGeneradas, item.vacacionesGeneradas);
-      totales.primaGenerada = sumarMontos(totales.primaGenerada, item.primaGenerada);
+      acumularTotales(item);
     } catch (e: any) {
       errores.push({ empleado: item.nombre, motivo: (e?.message || 'Error desconocido').slice(0, 300) });
     }
@@ -675,15 +883,27 @@ export async function anularCorrida(
   const errores: { empleado: string; motivo: string }[] = [];
   let anulados = 0;
 
+  // Los asientos SIN repetir: en una corrida consolidada todos los ítems apuntan al
+  // mismo asiento, y anularlo una vez por ítem crearía treinta reversos del mismo
+  // asiento — treinta veces la reversión, con el balance cuadrando igual.
+  const asientos = new Map<string, string>();
   for (const item of run.items) {
-    if (!item.journalEntryId) continue;
+    if (item.journalEntryId && !asientos.has(item.journalEntryId)) {
+      asientos.set(item.journalEntryId, item.employee?.nombre ?? item.employeeId);
+    }
+  }
+
+  for (const [asientoId, etiqueta] of asientos) {
     try {
       await prisma.$transaction(async (tx: any) => {
-        await anularAsiento(tx, companyId, userId, item.journalEntryId);
+        await anularAsiento(tx, companyId, userId, asientoId);
       });
       anulados++;
     } catch (e: any) {
-      errores.push({ empleado: item.employee?.nombre ?? item.employeeId, motivo: e?.message || 'Error al anular' });
+      errores.push({
+        empleado: run.consolidado ? `Corrida ${run.periodo}` : etiqueta,
+        motivo: e?.message || 'Error al anular',
+      });
     }
   }
 
@@ -734,16 +954,20 @@ export async function revisarCorrida(
   const omitidos: { empleado: string; motivo: string }[] = [];
   let revisados = 0;
 
-  for (const item of run.items) {
-    if (!item.journalEntryId) continue;
+  // Los asientos SIN repetir: en una corrida consolidada hay UNO para toda la
+  // nómina, y contarlo una vez por empleado diría que se revisaron treinta.
+  const idsAsientos = [...new Set(run.items.map((i: any) => i.journalEntryId).filter(Boolean))] as string[];
+  const etiqueta = (nombre: string | null) => (run.consolidado ? `Corrida ${run.periodo}` : nombre ?? '—');
+
+  for (const idAsiento of idsAsientos) {
     const asiento = await prisma.journalEntry.findFirst({
-      where: { id: item.journalEntryId, companyId },
+      where: { id: idAsiento, companyId },
       select: { id: true, status: true },
     });
     if (!asiento) continue;
     if (asiento.status !== 'BORRADOR') {
       omitidos.push({
-        empleado: item.employee?.nombre ?? item.employeeId,
+        empleado: etiqueta(run.items.find((i: any) => i.journalEntryId === idAsiento)?.employee?.nombre),
         motivo: `El asiento ya está en ${asiento.status}`,
       });
       continue;
@@ -801,8 +1025,16 @@ export async function listarCorridas(prisma: any, companyId: string, opts: { lim
   });
   const estados = await estadosDeAsientos(prisma, items.map((i) => i.journalEntryId));
 
+  // Se cuentan ASIENTOS, no empleados: en una corrida consolidada treinta ítems
+  // apuntan al mismo asiento, y decir "30 en BORRADOR" cuando hay uno solo es la
+  // clase de número que después alguien reconcilia contra el diario y no cierra.
   const conteoPorRun = new Map<string, Record<string, number>>();
+  const vistos = new Set<string>();
   for (const item of items) {
+    const llave = `${item.runId}:${item.journalEntryId}`;
+    if (vistos.has(llave)) continue;
+    vistos.add(llave);
+
     const conteo = conteoPorRun.get(item.runId) ?? {};
     const estado = estados.get(item.journalEntryId) ?? 'SIN_ASIENTO';
     conteo[estado] = (conteo[estado] ?? 0) + 1;

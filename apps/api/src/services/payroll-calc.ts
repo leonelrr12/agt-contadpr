@@ -20,6 +20,10 @@
  *  · **El redondeo es medio-arriba** en todos los casos (`lib/money.ts`), y el neto
  *    es el RESIDUO de la resta. Esa segunda parte es la que hace que el asiento
  *    cuadre por construcción: no hay céntimo que absorber en ningún monto.
+ *
+ *  · **El sueldo semanal es `mensual × 12/52`**, no un prorrateo por días del mes.
+ *    Es una decisión del dueño (PLANILLA.md §2): 52 semanas son 364 días, así que el
+ *    reparto por días dejaría el año corto y la base de cotización también.
  */
 
 import { r2, sumarMontos } from '../lib/money';
@@ -55,8 +59,8 @@ export const MESES_ISR = 13;
 // ─── Entradas y salidas ──────────────────────────────────────────────────────
 
 export type TipoCorrida = 'SUELDO' | 'DECIMO' | 'VACACIONES';
-export type Periodicidad = 'QUINCENAL' | 'MENSUAL' | 'ANUAL' | 'EVENTUAL';
-export type TipoPago = 'QUINCENAL' | 'MENSUAL';
+export type Periodicidad = 'SEMANAL' | 'QUINCENAL' | 'MENSUAL' | 'ANUAL' | 'EVENTUAL';
+export type TipoPago = 'SEMANAL' | 'QUINCENAL' | 'MENSUAL';
 
 export interface Tasas {
   ssObrero: number;
@@ -104,6 +108,13 @@ export interface EntradaItem {
   diasTrabajados?: number;
   horasExtras?: number;
   otrosIngresos?: number;
+  /**
+   * Lo que se le descuenta por ausencia o tardanza. NO es una deducción al neto: es
+   * salario que no se devengó, así que baja el sueldo y con él la base de cotización
+   * (ver R1c). Una ausencia de días completos se carga directamente en
+   * `diasTrabajados`, que ya prorratea.
+   */
+  menosSueldo?: number;
   otrasDeducciones?: number;
   /** Solo en corridas de DECIMO y VACACIONES: el monto a pagar de la prestación. */
   montoPrestacion?: number;
@@ -136,6 +147,8 @@ export interface CalculoItem {
   sueldo: number;
   horasExtras: number;
   otrosIngresos: number;
+  /** El descuento aplicado al sueldo, congelado para poder mostrarlo. */
+  menosSueldo: number;
   bruto: number;
   ss: number;
   se: number;
@@ -249,9 +262,80 @@ export function diasEntre(desde: Date, hasta: Date): number {
   return Math.round((b - a) / 86400000) + 1;
 }
 
-/** Cuántos pagos tiene un mes según la periodicidad de la corrida. */
-export function pagosDelMes(periodicidad: Periodicidad): number {
-  return periodicidad === 'QUINCENAL' ? 2 : 1;
+// ─── El calendario del pago semanal ──────────────────────────────────────────
+
+/** Semanas y meses de un año: de ahí sale la conversión mensual ↔ semanal. */
+export const SEMANAS_POR_ANIO = 52;
+export const MESES_POR_ANIO = 12;
+
+/** Días que cubre una semana completa de trabajo: el denominador del prorrateo. */
+export const DIAS_DE_LA_SEMANA = 7;
+
+/** Días de la semana en el orden de `Date.getDay()`: el selector de Parámetros. */
+export const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+/** Viernes: la semana se paga vencida, al cerrarla. */
+export const DIA_PAGO_SEMANAL_DEFAULT = 5;
+
+/**
+ * El sueldo de una semana completa, a partir del mensual del contrato.
+ *
+ * Es `mensual × 12 / 52`, y no `mensual / 4,33` ni un prorrateo por días del mes.
+ * Las dos alternativas fallan por lo mismo: 52 semanas son 364 días, así que
+ * repartir el sueldo entre los días del mes paga 364/365 avos del año y deja la base
+ * de cotización corta, además de romperse en la semana que cruza el fin de mes (no
+ * hay "mes del período" cuando el período tiene días de dos meses).
+ *
+ * Con la semana completa como unidad, el año cierra exacto: 52 pagos de
+ * `mensual × 12/52` suman los 12 sueldos, y el prorrateo de una semana parcial —un
+ * ingreso a mitad de semana— va sobre séptimos, que es la única partición que el
+ * empleado reconoce.
+ */
+export function sueldoSemanal(sueldoMensual: number): number {
+  return r2((sueldoMensual * MESES_POR_ANIO) / SEMANAS_POR_ANIO);
+}
+
+/**
+ * Cuántas veces cae `diaSemana` en el mes de `fecha`: 4 o 5.
+ *
+ * Es lo que hace que el ISR del mes cierre exacto en una nómina semanal. Con la
+ * quincena alcanza con saber que son dos pagos; acá no: un mes tiene cuatro o cinco
+ * de sus días de pago, y el reparto del impuesto necesita el número real.
+ */
+export function pagosSemanalesEnElMes(fecha: Date, diaSemana: number): number {
+  const primeroDelMes = new Date(fecha.getFullYear(), fecha.getMonth(), 1);
+  // Distancia al primer día de pago del mes (0 cuando el día 1 ya es el de pago).
+  const primerPago = 1 + ((diaSemana - primeroDelMes.getDay() + 7) % 7);
+  return Math.floor((diasDelMes(fecha) - primerPago) / 7) + 1;
+}
+
+/**
+ * Qué pago del mes es esta fecha, contando desde 1.
+ *
+ * El ÚLTIMO es el que cierra el mes: se lleva el resto del ISR que los anteriores
+ * dejaron pendiente (`isrDelPago`). Por eso el número tiene que salir de la fecha de
+ * PAGO —la misma de la que sale `periodoMensual` y, con ella, lo ya retenido—: si
+ * saliera del inicio del período, una semana que cruza el fin de mes se numeraría
+ * contra un mes y cerraría contra otro.
+ */
+export function pagoNumeroEnElMes(fecha: Date, diaSemana: number): number {
+  return Math.floor((fecha.getDate() - 1) / 7) + 1;
+}
+
+/**
+ * Cuántos pagos tiene el mes de `fechaPago` según la periodicidad de la corrida.
+ *
+ * El semanal no es una constante: son los días de pago que ese mes tenga. La
+ * quincena y el mensual sí, y se resuelven sin mirar el calendario.
+ */
+export function pagosDelMes(
+  periodicidad: Periodicidad,
+  fechaPago: Date,
+  diaPagoSemanal: number = DIA_PAGO_SEMANAL_DEFAULT,
+): number {
+  if (periodicidad === 'QUINCENAL') return 2;
+  if (periodicidad !== 'SEMANAL') return 1;
+  return pagosSemanalesEnElMes(fechaPago, diaPagoSemanal);
 }
 
 // ─── Cálculo ─────────────────────────────────────────────────────────────────
@@ -325,7 +409,31 @@ export function calcularItem(
     // R1 — el sueldo base es MENSUAL, así que el prorrateo va contra los días del
     // MES, no los del período: una quincena de 15 días sobre un mes de 31 cobra
     // 15/31 y la siguiente 16/31, y entre las dos suman el mes exacto.
-    const sueldo = r2((empleado.sueldoBase * diasTrabajados) / diasDelMes(ctx.fechaHasta));
+    //
+    // R1b — en la SEMANAL el prorrateo va contra la SEMANA (séptimos), no contra el
+    // mes: una semana que cruza el fin de mes no tiene "mes del período", y repartir
+    // por días del mes pagaría 364/365 avos del año. Ver `sueldoSemanal`.
+    const sueldoDelPeriodo =
+      ctx.periodicidad === 'SEMANAL'
+        ? r2((sueldoSemanal(empleado.sueldoBase) * diasTrabajados) / DIAS_DE_LA_SEMANA)
+        : r2((empleado.sueldoBase * diasTrabajados) / diasDelMes(ctx.fechaHasta));
+
+    // R1c — el descuento por ausencia o tardanza BAJA EL SUELDO, y con él la base de
+    // cotización. No es una deducción al neto: eso acreditaría un pasivo que nadie
+    // debe (¿a quién le debería la empresa el día que el empleado no trabajó?), y
+    // además dejaría la CSS cotizando sobre un sueldo que no se pagó. Es salario no
+    // devengado, así que se resta del sueldo ANTES de calcular SS, SE y el patronal.
+    const menosSueldo = r2(entrada.menosSueldo ?? 0);
+    if (menosSueldo > sueldoDelPeriodo) {
+      // Un descuento mayor que el sueldo del período es un error de carga (5000 por
+      // 50), no una intención: se reporta en vez de pagar un sueldo negativo.
+      return {
+        error:
+          `El descuento por ausencia o tardanza (${menosSueldo.toFixed(2)}) supera el sueldo del período ` +
+          `(${sueldoDelPeriodo.toFixed(2)}).`,
+      };
+    }
+    const sueldo = r2(sueldoDelPeriodo - menosSueldo);
     const horasExtras = r2(entrada.horasExtras ?? 0);
     const otrosIngresos = r2(entrada.otrosIngresos ?? 0);
 
@@ -362,6 +470,7 @@ export function calcularItem(
       sueldo,
       horasExtras,
       otrosIngresos,
+      menosSueldo,
       bruto,
       ss,
       se,
@@ -415,6 +524,7 @@ export function calcularItem(
     sueldo: 0,
     horasExtras: 0,
     otrosIngresos: 0,
+    menosSueldo: 0,
     bruto: monto,
     ss,
     se,
@@ -582,5 +692,43 @@ export function construirLineas(
   haber(cuentas.se, item.se);
   haber(cuentas.otrasDeducciones, item.otrasDeducciones);
   haber(bancoId, item.neto);
+  return lineas;
+}
+
+/**
+ * Funde las líneas de todos los empleados en UN solo asiento.
+ *
+ * Lo usan las corridas semanales. Con un asiento por empleado, 52 corridas al año
+ * convierten la cola de revisión del contador en el cuello de botella del módulo:
+ * treinta empleados serían 130 asientos al mes por una nómina que se aprueba de una
+ * sola vez. La contrapartida es que el asiento deja de nombrar a una persona —el
+ * detalle vive en los ítems de la corrida, que es donde se consulta—, y por eso las
+ * quincenales y mensuales siguen con su asiento por empleado.
+ *
+ * Suma por CUENTA y no por concepto: si dos empleados cobran por bancos distintos,
+ * el asiento consolidado lleva **un crédito por banco**. Fundirlos en una sola línea
+ * dejaría el banco mal y el neto bien, que es la peor forma de fallar: el asiento
+ * seguiría cuadrando y nadie lo notaría hasta conciliar.
+ */
+export function consolidarLineas(items: { lineas: LineaAsiento[] }[]): LineaAsiento[] {
+  const porCuenta = new Map<string, LineaAsiento>();
+  for (const item of items) {
+    for (const linea of item.lineas) {
+      const acumulada = porCuenta.get(linea.accountId) ?? { accountId: linea.accountId, debit: 0, credit: 0 };
+      acumulada.debit = sumarMontos(acumulada.debit, linea.debit);
+      acumulada.credit = sumarMontos(acumulada.credit, linea.credit);
+      porCuenta.set(linea.accountId, acumulada);
+    }
+  }
+
+  const lineas: LineaAsiento[] = [];
+  for (const linea of porCuenta.values()) {
+    // En la planilla el debe y el haber son cuentas distintas, así que una cuenta
+    // nunca aparece en las dos columnas; si una mala configuración las juntara, se
+    // netean en vez de emitir dos líneas de la misma cuenta en el mismo asiento.
+    const neto = r2(linea.debit - linea.credit);
+    if (neto > 0) lineas.push({ accountId: linea.accountId, debit: neto, credit: 0 });
+    else if (neto < 0) lineas.push({ accountId: linea.accountId, debit: 0, credit: r2(-neto) });
+  }
   return lineas;
 }

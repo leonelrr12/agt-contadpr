@@ -189,9 +189,34 @@ rentabilidad** por segmento.
 - **§7 Facturas:** **envío por email al cliente** (lo demás está: logo, correlativo, ITBMS, resolución).
 - **§8 Cierre:** ajustes sugeridos por IA (depreciación, amortización, provisiones) y **resumen del año
   con comparativa** contra el período anterior.
+- **§11 Nómina — deducciones de acreedores (bancos, mueblerías) recurrentes por empleado.** Pedido del
+  dueño (26-09). Hoy todo lo que no es SS, SE ni ISR cae en **una sola** cuenta de «otras deducciones» y se
+  carga **a mano en cada corrida**. Lo que se quiere:
+
+  - Un **catálogo de deducciones por empleado** (acreedor, monto o %, cuotas, saldo) que se **precargue solo
+    en cada corrida**, con el mismo patrón que las plantillas recurrentes — y que el contador pueda
+    saltarse una cuota puntual sin desarmar la deducción.
+  - **Una cuenta por pagar por acreedor**, no una genérica: con todo acreditado en la misma cuenta, el
+    pasivo de cada acreedor no se puede conciliar ni pagar por separado, que es justamente para lo que
+    sirve tenerlo.
+  - **`aplicaEnDiciembre` con default SÍ**: algunas se suspenden en diciembre —los descuentos de mueblería
+    suelen pactarse así—, pero la mayoría sigue corriendo, y una deducción que se salta un mes **por
+    defecto** le pagaría de más al acreedor y de menos al empleado sin que nadie lo note hasta que reclame.
+    El default correcto es el que no cambia nada, y el que se suspende se marca.
+  - **El saldo es lo que la hace terminar sola**: una deducción sin saldo que se precarga para siempre es
+    una deuda que no se extingue nunca. El préstamo y el embargo entran por acá, con la misma mecánica.
+  - Ojo con el asiento: hoy `otrasDeducciones` **acredita** la cuenta configurada en
+    `planillaOtrasDeduccionesId`. Con varias deducciones, cada una va a su propia cuenta por pagar, y el
+    renglón del ítem tiene que poder mostrar el detalle (`PayrollItem` guarda un monto por deducción, no un
+    total anónimo).
+
 - **§11 Nómina:** lo que queda **fuera** de [`PLANILLA.md`](PLANILLA.md) — liquidaciones de personal, ISR
-  anual, préstamos o embargos como descuento recurrente por empleado, y el registro del pago mensual del ISR
-  retenido a la DGI (el calendario fiscal no tiene esa obligación).
+  anual, y el registro del pago mensual del ISR retenido a la DGI (el calendario fiscal no tiene esa
+  obligación).
+- **§11 Nómina — el año de 53 pagos:** la planilla semanal paga `mensual × 12/52` por semana, así que un año
+  con 53 días de pago cuesta 53/52 del sueldo anual del contrato (pasa cada cinco o seis años, según en qué
+  día caiga el 1 de enero). El módulo no hace nada especial al respecto —cada semana trabajada se paga— pero
+  es una decisión del contador, no un olvido. Ver [`PLANILLA.md`](PLANILLA.md) §3.1.
 - **§11 Nómina:** las tarifas de Riesgos Profesionales de las clases II a V. La tabla arranca con la clase I
   (1,00%) y las demás se cargan desde Planilla → Parámetros; un empleado en una clase sin tarifa **rechaza su
   fila** en la corrida, a propósito.

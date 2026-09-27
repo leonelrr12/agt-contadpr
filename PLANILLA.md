@@ -11,6 +11,11 @@
 >
 > **El archivo de planilla se sigue subiendo, pero solo para dar de alta empleados** (Planilla → Empleados →
 > Alta masiva). El asiento ya no sale de la hoja: sale del motor.
+>
+> ## ✅ Planilla SEMANAL (26-09-2026)
+> El módulo paga por semana con dos decisiones del dueño: el sueldo de una semana es **`mensual × 12/52`**
+> (no un prorrateo por días del mes) y la corrida se contabiliza en **un solo asiento** para toda la nómina
+> en vez de uno por empleado. Migración `0026`, sin cambios en el asiento ni en las cuentas.
 
 ---
 
@@ -50,6 +55,11 @@ Estas son las decisiones del dueño. **Si alguna cambia, se cambia acá y en el 
 | 6 | **El neto es el residuo**: `bruto − deducciones ya redondeadas`. Nunca se recalcula aparte. Por eso el asiento cuadra **por construcción** y desaparece la clase de bug del céntimo del SS. |
 | 7 | **El motor se verifica contra los asientos ya cargados**, no contra una regla supuesta. Ver §3.1. |
 | 8 | **ODESA no se toca.** La migración es solo DDL, sin backfill: los empleados se registran cuando el dueño lo decida. |
+| 9 | **El sueldo semanal es `mensual × 12/52`**, no un prorrateo por días del mes. La semana completa es la unidad; solo se prorratea la semana parcial, sobre séptimos. |
+| 10 | **La corrida semanal va en UN asiento** para toda la nómina. Las quincenales y mensuales siguen con un asiento por empleado. |
+| 11 | **La corrida semanal consume MEDIA cuota** del plan: 52 corridas al año contra 24 de la quincenal, y la cuota entera le costaría al cliente semanal el doble por la misma nómina. |
+| 12 | **El SUELDO del archivo de alta es el salario base MENSUAL** y se guarda tal cual, sin conversión. El tipo de pago sale de su propia columna, fila por fila, y una celda vacía es quincenal. |
+| 13 | **La ausencia o tardanza baja el sueldo, no el neto.** Es salario no devengado: se descuenta antes de calcular SS, SE y el patronal, así que baja también la base de cotización. Los días completos van en **Días**; lo parcial, en **Menos sueldo**. |
 
 **Lo que NO entra** (y sigue pendiente en `Tuning.md` §4.4): liquidaciones de personal, ISR anual, préstamos
 y embargos como descuento recurrente, control de vacaciones disfrutadas, archivo de pago al banco y portal
@@ -82,6 +92,8 @@ Reglas del motor:
 | # | Regla |
 |---|---|
 | R1 | `sueldo = r2(sueldoBase × diasTrabajados / diasDelMes)` — el sueldo base es **mensual**, así que el prorrateo va contra los días del **mes**, no los del período: en un mes de 31, las dos quincenas cobran 15/31 y 16/31 y entre las dos suman el mes exacto |
+| R1b | **En la SEMANAL** el prorrateo va contra la SEMANA: `sueldo = r2(mensual × 12/52 × diasTrabajados / 7)`. La semana completa paga siempre lo mismo, sea el mes de 28 o de 31 días |
+| R1c | `menosSueldo` (ausencia o tardanza) se resta del sueldo ANTES de cotizar: baja SS, SE y el aporte del patrono. Un descuento mayor que el sueldo del período **reporta la fila** en vez de pagar en negativo |
 | R2 | Base de cotización = `sueldo + horasExtras` |
 | R3 | `otrosIngresos` (bono, viático) **no cotiza** y debita la cuenta de sueldos |
 | R4 | `neto = r2(bruto − ss − se − isr − otrasDeducciones)` — **residuo, jamás recalculado aparte** |
@@ -103,6 +115,23 @@ ISR_mensual             = impuestoAnual / 13
 
 En cada pago del mes va `r2(ISR_mensual / pagosDelMes)`, y **la última corrida del mes retiene el resto**
 para que el mes sume exacto, sin céntimos perdidos.
+
+**En la semanal, `pagosDelMes` no es una constante**: son los días de pago que ese mes tenga —4 o 5—, y el
+número sale del **día de pago configurado** en Parámetros (`diaPagoSemanal`, viernes por defecto). El ordinal
+del pago también sale de la fecha de PAGO, no del inicio del período: una semana que cruza el fin de mes se
+numera contra un mes y cerraría contra otro. Por eso la corrida avisa cuando la fecha de pago no cae en el
+día configurado — no es un error, pero cambia qué pago del mes es.
+
+Un año tiene 52 o 53 de esos días de pago, así que el mes de 5 pagos reparte el mismo ISR mensual entre cinco
+en vez de cuatro. Es correcto: **la retención del año no cambia** (`mensual × 12`), solo cambia el tamaño de
+cada pedazo.
+
+> **El modo de falla, para que no sorprenda:** si el mes no llega a su último pago —se corrieron cuatro de
+> los cinco, o el primero quedó fuera porque el módulo arrancó a mitad de mes—, ese resto **no se retiene
+> nunca**: el mes siguiente vuelve a empezar por el pago 1. Lo único que lo delata es la nota `pago N de M
+> del mes` que la corrida muestra antes de ejecutar; el cuadre no lo ve, porque el pasivo del ISR se mide
+> contra lo devengado y acá lo devengado es, justamente, lo que quedó corto. Se corrige corriendo el pago
+> que falta, no ajustando un asiento a mano.
 
 > **Evidencia:** 1.220,80/mes → 15.870,40 anual → 730,56 de impuesto → /13 = 56,1969 → quincena **28,10** (el
 > archivo dice 28,10, en 7 filas). Y 1.500/mes → 19.500 anual → 1.275 → /13 = 98,0769 → quincena **49,04**
@@ -126,10 +155,50 @@ Una **corrida** (`PayrollRun`) es el período que se está pagando: la quincena,
 vacaciones. El flujo reemplaza al archivo:
 
 1. **Elegir** tipo + período + fechas → **prellenar** con los empleados activos y sus sueldos.
-2. **Editar** el grid (horas extras, días trabajados, otros ingresos, otras deducciones, notas). El navegador
-   recalcula en vivo, pero **el servidor recalcula al guardar**: manda él.
+2. **Editar** el grid (horas extras, días trabajados, otros ingresos, menos sueldo, otras deducciones,
+   notas). El navegador recalcula en vivo, pero **el servidor recalcula al guardar**: manda él.
+
+   **Dónde va cada cosa cuando alguien faltó o llegó tarde** — es la pregunta que más se hace, y las dos
+   respuestas son distintas a propósito:
+
+   | Caso | Dónde | Por qué |
+   |---|---|---|
+   | Ausencia de **días completos** | **Días** | El prorrateo ya baja el sueldo y la base: no hay que calcular ningún monto a mano |
+   | Ausencia **parcial o tardanza** | **Menos sueldo** | Es un monto (horas × valor hora), y baja el sueldo igual que los días |
+   | Préstamo, embargo, adelanto | **Otras deducciones** | Sí es un pasivo: ese dinero se le debe a alguien |
+
+   Los dos primeros **no son deducciones**: son salario que no se devengó, así que van al sueldo y con él a la
+   base de la CSS. Ponerlos en «otras deducciones» acreditaría un pasivo que nadie debe —¿a quién le debería la
+   empresa el día que el empleado no trabajó?— y dejaría a la CSS cotizando sobre un sueldo que no se pagó.
 3. **Ejecutar**: crea la corrida, los ítems, un asiento BORRADOR por empleado y su `Transaction`.
 4. Los asientos entran a la cola de revisión del contador, como todo el sistema.
+
+**La corrida semanal se nombra por su PAGO** (`2026-09-S3` = el tercer día de pago de septiembre), no por
+los días que cubre: es lo que la alinea con `periodoMensual` y con el reparto del ISR, que también cuelgan de
+la fecha de pago. Una corrida que cubre **dos semanas se paga junta** —el prorrateo por séptimos la resuelve—
+así que nunca hay dos corridas por mes de pago y la clave sigue siendo única. `finDePeriodo` cierra la semana
+siete días después del inicio, contando el inicial.
+
+**La semanal se contabiliza en UN asiento** (`PayrollRun.consolidado`) con una línea por cuenta: 52 corridas
+al año por el asiento de cada empleado convertirían la cola de revisión del contador en el cuello de botella
+del módulo —treinta empleados serían 130 asientos al mes por una nómina que se aprueba de una sola vez—. Sus
+consecuencias, todas deliberadas:
+
+- **El asiento deja de nombrar a una persona.** El detalle por empleado vive en los ítems de la corrida
+  (`obtenerCorrida`), que es donde se consulta; la `Transaction` guarda el `runId` y los totales, no treinta
+  fichas que nadie lee.
+- **Los bancos NO se funden**: `consolidarLineas` suma por CUENTA, así que dos empleados que cobran por bancos
+  distintos llevan dos créditos. Fundirlos dejaría el banco mal y el neto bien —el asiento seguiría
+  cuadrando— y solo se notaría al conciliar.
+- **Entra entero o no entra.** No hay "la mitad de la nómina": si una cuenta está bloqueada, la corrida se
+  rechaza ANTES de crearse (si no, quedaría una corrida vacía ocupando el período, porque el índice parcial
+  solo libera el período al anular).
+- **La corrida consume MEDIA cuota** del plan (`requireQuota`), no una: 52 corridas al año contra 24 de la
+  quincenal. Por eso `Subscription.movementsUsed` es fraccionario (migración `0027`); con un entero, la única
+  salida sería cobrar una cuota cada dos corridas, más difícil de explicar en la factura que un 0,5.
+- **La anulación y la revisión deduplican por asiento.** Sin eso, anular reversaría el mismo asiento treinta
+  veces —treinta veces la reversión, con el balance cuadrando igual— y aprobar diría que revisó treinta
+  asientos cuando revisó uno.
 
 **La idempotencia es estructural**: un índice único **parcial** sobre `(companyId, tipo, periodo)` que solo
 cubre las corridas vivas (`status <> 'ANULADA'`). No se puede correr dos veces el mismo período — el segundo
@@ -259,9 +328,20 @@ El registro se puede llenar a mano o **importando el mismo archivo de planilla q
 NOMBRE, CÉDULA y SUELDO, más CARGO, NSS y FECHA DE INGRESO si el archivo los trae. El resto de las columnas se
 ignora — las deducciones las calcula el motor.
 
-**La conversión que importa:** en el archivo el SUELDO es el del **período** (casi siempre quincenal) y
-`Employee.sueldoBase` es **siempre mensual**. Por eso el tipo de pago es un dato obligatorio del alta y no una
-adivinanza: una quincena de 450 se guarda como 900, y el preview lo muestra antes de escribir nada.
+**El SUELDO del archivo es el salario base MENSUAL** y se guarda tal cual: no se multiplica ni se divide por
+nada. Antes había que decirle a la pantalla si el archivo venía quincenal o mensual para convertirlo, y eso era
+un error silencioso esperando: un archivo mensual leído como quincenal duplicaba todos los sueldos del
+registro. Ahora el archivo dice el sueldo del contrato y nada más.
+
+**El TIPO DE PAGO sale de su propia columna, fila por fila** —un archivo real mezcla gente semanal y
+quincenal, que es justo lo que obligó a agregarla—. Las tres reglas, en orden: manda la celda de la fila; una
+celda **vacía es quincenal**; y si el archivo no trae la columna, manda el selector de la pantalla, que es como
+se cargaban los archivos de antes.
+
+Un valor que no se reconoce **no cae al defecto**: la fila se reporta con su motivo. Un `CATORCENAL` mal
+escrito que se importe como quincenal le paga mal a esa persona hasta que alguien lo note, y el preview —que
+ahora muestra Cargo, NSS y el tipo de pago de cada fila, con la marca `(defecto)` cuando no vino del
+archivo— es el sitio donde eso se ve antes de escribir nada.
 
 El preview clasifica cada fila antes de tocar la base:
 
@@ -341,8 +421,9 @@ fiscalización. La tabla arranca solo con la clase I; las demás se cargan desde
 ## 4. Modelo de datos
 
 Migraciones **`0022_planilla`** (los cuatro modelos), **`0023_payroll_run_unico_parcial`** (el índice único
-que libera el período al anular), **`0024_patronal_tres_cuentas`** (el gasto del patrono en tres cuentas) y
-**`0025_empleado_clase_riesgo`** — SQL escrito a mano, **solo DDL, cero backfill**.
+que libera el período al anular), **`0024_patronal_tres_cuentas`** (el gasto del patrono en tres cuentas),
+**`0025_empleado_clase_riesgo`** y **`0026_planilla_semanal`** (el día de pago y la corrida consolidada) —
+SQL escrito a mano, **solo DDL, cero backfill**.
 
 **`Employee`** — `companyId`, `cedula?`, `nss?`, `nombre`, `cargo?`, `sueldoBase` (**siempre mensual**),
 `tipoPago` (`QUINCENAL`|`MENSUAL`), `fechaIngreso?`, `fechaSalida?`, `bancoCuentaId?`, `cuentaBanco?`,
@@ -352,8 +433,9 @@ que libera el período al anular), **`0024_patronal_tres_cuentas`** (el gasto de
 La cédula es **nullable a propósito**: Postgres deja convivir varios NULL y así los empleados sin cédula (los
 del archivo viejo) no se pierden. **Los empleados no se borran: se desactivan** — el histórico los referencia.
 
-**`PayrollRun`** — `tipo`, `periodicidad`, `periodo` (**lleva la granularidad dentro**: `2026-06-Q1`,
-`2026-06`, `2026`, `2026-08-14`), `periodoMensual` (la llave para cruzar con el calendario CSS),
+**`PayrollRun`** — `tipo`, `periodicidad`, `periodo` (**lleva la granularidad dentro**: `2026-09-S3`,
+`2026-06-Q1`, `2026-06`, `2026`, `2026-08-14`), `consolidado` (el asiento es uno para toda la nómina),
+`periodoMensual` (la llave para cruzar con el calendario CSS),
 `fechaDesde`, `fechaHasta`, `fechaPago`, `status` (**`BORRADOR`|`EJECUTADA`|`ANULADA`**), totales congelados,
 `asientosCount`, `motivoAnulacion?`. `@@unique([companyId, tipo, periodo])`.
 
@@ -366,7 +448,8 @@ pantalla.
 `vacacionesGeneradas`, `primaGenerada`, `journalEntryId?`, `notas?`. `@@unique([runId, employeeId])`.
 
 **`PayrollSettings`** — 1:1 con `Company`, creada perezosamente: las seis tasas, los tres factores, la escala
-del ISR (JSON en String, convención del repo) y el interruptor `provisionarPrestaciones`.
+del ISR (JSON en String, convención del repo), el interruptor `provisionarPrestaciones` y `diaPagoSemanal`
+(0 = domingo, como `Date.getDay()`; default 5 = viernes), del que sale el calendario del pago semanal.
 
 **`Company`** suma `planillaSSPatronalId`, `planillaSEPatronalId`, `planillaPatronalGastoId` y
 `planillaOtrasDeduccionesId`.
@@ -381,7 +464,7 @@ Todos cuelgan de `/api/planilla`, así que la lista blanca del rol los cubre sin
 |---|---|---|
 | GET/POST/PATCH | `/empleados` · `/empleados/:id` | Registro de empleados y saldos iniciales. No borra: desactiva |
 | POST | `/roster/preview` · `/roster/execute` | Alta masiva desde el archivo de planilla |
-| GET/PUT | `/parametros` | Tasas, escala del ISR, factores e interruptor. Los selectores de cuentas salen de acá |
+| GET/PUT | `/parametros` | Tasas, escala del ISR, factores, interruptor y **día del pago semanal**. Los selectores de cuentas y el tipo de pago salen de acá |
 | GET | `/cuentas` | Catálogo de cuentas para los selectores |
 | POST | `/corridas/preview` | Prellena el período y calcula sin escribir |
 | POST | `/corridas` | Ejecuta: corrida + ítems + asientos BORRADOR + `Transaction` |
@@ -458,6 +541,16 @@ La empresa de pruebas es **`demo-company`**. **ODESA no se toca.**
   cualquier rol que no fuera `inventario`: sin generalizarlo a `limitarRolesExclusivos`, un rol `planilla`
   habría pasado por toda la API sin que nada lo frenara. Es la primera cosa que hay que mirar si algún día se
   agrega un tercer rol restringido.
+- **La semana redondeada deja céntimos, no pesos.** `mensual × 12/52` se redondea al céntimo, así que 52
+  semanas de 281,72 suman 14.649,44 donde el contrato dice 14.649,60: **16 céntimos al año**, y lo mismo de
+  base de cotización. Es inherente a pagar un monto semanal redondeado —el mismo redondeo que hace cualquier
+  planilla— y está acotado a medio céntimo por semana. No se corrige con un residuo en la última semana del
+  año: eso cambiaría un monto que el empleado reconoce por otro que no.
+- **La semana se paga entera, sábado y domingo incluidos** (el sueldo es semanal, no por día trabajado). Un
+  ingreso a mitad de semana cobra los días que faltan sobre siete. Para pagar solo los días laborables, el
+  contador edita los días en el grid: es un dato del renglón, no una regla del motor.
+- **El período semanal que no dura 7 días avisa pero no bloquea**: el prorrateo por séptimos cobra los días
+  que sean, así que dos semanas juntas se pagan bien en una sola corrida.
 - **El neto como residuo** implica que puede diferir en un céntimo de lo que calcule el banco. Es deliberado:
   es lo que hace que el asiento cuadre sin absorber céntimos en un monto que el contador reconoce.
 - **Una transacción de Prisma por empleado**, no una para toda la corrida: el timeout interactivo es de 5

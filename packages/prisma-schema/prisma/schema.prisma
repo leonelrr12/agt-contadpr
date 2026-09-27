@@ -280,7 +280,9 @@ model Subscription {
   companyId       String
   planId          String
   status          SubscriptionStatus @default(DEMO)
-  movementsUsed   Int                @default(0)
+  /// Fraccionario: la planilla SEMANAL consume media cuota (52 corridas al año contra
+  /// 24 de la quincenal). Con un entero no habría forma de cobrar media.
+  movementsUsed   Float              @default(0)
   movementsLimit  Int                // Límite del período actual (puede diferir del plan)
   periodStart     DateTime           @default(now())
   periodEnd       DateTime
@@ -900,6 +902,12 @@ model PayrollRun {
   fechaHasta     DateTime
   fechaPago      DateTime // a mediodía local
   status         String   @default("BORRADOR") // BORRADOR | EJECUTADA | ANULADA
+  /// La corrida entera se contabilizó en UN asiento, en vez de uno por empleado.
+  /// Es el caso de la semanal: 52 corridas al año por el asiento de cada empleado
+  /// convertirían la cola de revisión del contador en el cuello de botella. Se guarda
+  /// en la fila y no se deriva de `periodicidad` porque es un hecho de cómo se armó
+  /// ESA corrida: cambiar la regla mañana no puede reinterpretar el pasado.
+  consolidado    Boolean  @default(false)
   /// Totales congelados al ejecutar: la pantalla no recalcula la corrida, la lee.
   totalBruto               Float @default(0)
   totalDeducciones         Float @default(0)
@@ -949,6 +957,10 @@ model PayrollItem {
   horasExtras    Float  @default(0)
   /// Bono, viático: NO cotiza (no lleva SS ni SE) y debita la cuenta de sueldos.
   otrosIngresos  Float  @default(0)
+  /// Descuento por ausencia o tardanza. NO es una deducción al neto: es salario no
+  /// devengado, así que ya viene restado en `sueldo` y con él bajó la base de
+  /// cotización. Se guarda aparte para poder mostrarlo en el renglón.
+  menosSueldo    Float  @default(0)
   bruto          Float  @default(0)
   ss             Float  @default(0)
   se             Float  @default(0)
@@ -1020,6 +1032,14 @@ model PayrollSettings {
   /// Apagado por defecto: los acumulados se calculan y se ven siempre, pero el
   /// asiento de provisión solo se genera si el contador lo enciende.
   provisionarPrestaciones Boolean @default(false)
+  /// Día de la semana en que se paga la nómina semanal, con el 0 = domingo de
+  /// `Date.getDay()`. Default: viernes (5), que es la semana vencida.
+  ///
+  /// Existe porque de él sale el CALENDARIO del pago semanal: cuántos pagos tiene el
+  /// mes (4 o 5) y cuál de ellos es este. Sin ese dato, el ISR del mes no cierra
+  /// exacto —el último pago se lleva el resto— y la corrida no puede saber qué
+  /// semana está pagando.
+  diaPagoSemanal Int @default(5)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
