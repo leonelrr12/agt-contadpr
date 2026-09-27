@@ -29,3 +29,8 @@ nginx.local.conf
 .aider*
 aider.sh
 hugging.sh
+# Script de arranque de Claude Code con la API key de NVIDIA en texto plano
+nvidia.sh
+
+# Datos de OCR de Tesseract: binario pesado y regenerable (lo instala el sistema)
+eng.traineddata
