@@ -83,6 +83,8 @@ model Company {
   employees          Employee[]
   payrollRuns        PayrollRun[]
   payrollItems       PayrollItem[]
+  payrollDeducciones PayrollDeduction[]
+  payrollItemDeducciones PayrollItemDeduction[]
   payrollSettings    PayrollSettings?
 }
 
@@ -129,6 +131,8 @@ model Account {
   rulesFrom    AccountingRuleEntry[]
   bankStatements BankStatement[]
   budgets      Budget[]
+  /// Cuentas por pagar de acreedores de planilla (una por acreedor).
+  deduccionesPayroll PayrollDeduction[]
 
   @@unique([code, companyId])
 }
@@ -877,6 +881,9 @@ model Employee {
 
   company Company       @relation(fields: [companyId], references: [id])
   items   PayrollItem[]
+  /// Deducciones de acreedores de este empleado (préstamos, embargos, mueblerías).
+  deducciones      PayrollDeduction[]
+  deduccionesItems PayrollItemDeduction[]
 
   @@unique([companyId, cedula])
   @@index([companyId, isActive])
@@ -929,6 +936,8 @@ model PayrollRun {
 
   company Company       @relation(fields: [companyId], references: [id])
   items   PayrollItem[]
+  /// El detalle por acreedor de esta corrida, congelado (una fila por deducción).
+  deducciones PayrollItemDeduction[]
 
   // La idempotencia de la corrida —una sola corrida VIVA por período— la impone un
   // índice único PARCIAL que vive en SQL (migración 0023): Prisma no sabe expresar
@@ -993,6 +1002,103 @@ model PayrollItem {
   @@index([companyId, employeeId]) // los acumulados por empleado
   @@index([journalEntryId])
   @@map("payroll_item")
+}
+
+/// Una deducción recurrente de un empleado a un ACREEDOR (banco, mueblería, juzgado).
+///
+/// Es el catálogo: se precarga sola en cada corrida de sueldo —igual que una plantilla
+/// recurrente— y termina por cuotas o por saldo. Antes de esto, todo lo que no era SS,
+/// SE ni ISR caía en UNA sola cuenta genérica y se tecleaba a mano en cada corrida, así
+/// que el pasivo de cada acreedor no se podía conciliar ni pagar por separado.
+///
+/// `cuentaId` es la cuenta por pagar DEL ACREEDOR. `planillaOtrasDeduccionesId` queda
+/// para lo que no tiene acreedor identificado (una deducción suelta que el contador
+/// teclea en la corrida).
+///
+/// El SALDO no se guarda: se deriva de las cuotas aplicadas en `payroll_item_deduction`
+/// —misma doctrina que los acumulados de décimo y vacaciones—, así anular una corrida
+/// devuelve la cuota sin tocar nada y el saldo no puede mentir.
+model PayrollDeduction {
+  id         String @id @default(cuid())
+  companyId  String
+  employeeId String
+  /// Texto libre: "Banco General — préstamo 1234". Viaja congelado al ítem de la corrida.
+  acreedor   String
+  cuentaId   String
+  /// FIJO (monto por cuota) | PORCENTAJE (tasa sobre sueldo + horas extras).
+  tipo       String @default("FIJO")
+  montoFijo  Float?
+  /// Tasa 0..1. La base es `sueldo + horasExtras` del período — lo mismo que cotiza
+  /// (R2/R3): el bono y el viático no son salario, así que no entran.
+  porcentaje Float?
+  /// Cuotas que FALTAN desde el corte, no las pactadas originalmente: un préstamo de
+  /// 24 cuotas con 10 pagadas se registra con `cuotas = 14` y su `saldoInicial`.
+  cuotas     Int?
+  /// Deuda total. Con esto la última cuota es el remanente y la deducción termina
+  /// sola; sin `cuotas` ni `montoTotal` corre para siempre (se avisa en pantalla).
+  montoTotal Float?
+  /// Lo que se debía al registrarla, para deudas que ya venían a medias. Manda sobre
+  /// `montoTotal` cuando está presente (mismo idioma que `Employee.decimoSaldoInicial`).
+  saldoInicial Float?
+  fechaInicio  DateTime?
+  fechaFin     DateTime?
+  /// El default correcto es el que NO cambia nada: la mayoría sigue corriendo en
+  /// diciembre y la que se suspende se marca. Al revés, una deducción suspendida por
+  /// defecto le pagaría de más al acreedor sin que nadie lo note hasta que reclame.
+  aplicaEnDiciembre Boolean @default(true)
+  isActive   Boolean @default(true)
+  notas      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company  Company                @relation(fields: [companyId], references: [id])
+  employee Employee               @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  cuenta   Account                @relation(fields: [cuentaId], references: [id], onDelete: Restrict)
+  items    PayrollItemDeduction[]
+
+  @@index([companyId, employeeId, isActive])
+  @@index([companyId, cuentaId])
+  @@map("payroll_deduction")
+}
+
+/// El detalle CONGELADO de la deducción en una corrida: una fila por deducción.
+///
+/// Cuelga de la corrida (`runId` + `employeeId`, la misma clave que `PayrollItem`) y no
+/// del ítem por una razón operatoria: el camino consolidado usa `createMany` —un solo
+/// INSERT para treinta empleados dentro de una transacción de 5 segundos— y Prisma no
+/// devuelve los ids de `createMany`. Con la misma clave, el detalle entra en un INSERT
+/// más.
+///
+/// `monto > 0` es la ÚNICA marca de "cuota aplicada": el saldo es su suma y la cuota
+/// que toca es el conteo + 1. Por eso una cuota SALTADA se guarda con `monto = 0` y
+/// `omitida = true`: queda la constancia y no mueve ni el saldo ni el calendario.
+///
+/// `acreedor` y `cuentaId` son snapshot: cambiar la cuenta del catálogo mañana no puede
+/// reescribir a dónde se acreditó ayer (misma doctrina que `PayrollItem.decimoGenerado`).
+model PayrollItemDeduction {
+  id            String  @id @default(cuid())
+  companyId     String
+  runId         String
+  employeeId    String
+  deduccionId   String
+  acreedor      String
+  cuentaId      String
+  monto         Float   @default(0)
+  omitida       Boolean @default(false)
+  /// Por qué no se descontó: "la saltó el contador" | "suspendida en diciembre".
+  motivoOmitida String?
+  cuotaNumero   Int?
+  createdAt     DateTime @default(now())
+
+  company   Company          @relation(fields: [companyId], references: [id])
+  run       PayrollRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  employee  Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  deduccion PayrollDeduction @relation(fields: [deduccionId], references: [id], onDelete: Restrict)
+
+  @@unique([runId, employeeId, deduccionId])
+  @@index([companyId, employeeId, deduccionId]) // derivar el saldo y el nº de cuota
+  @@index([companyId, cuentaId])                // el pasivo por acreedor
+  @@map("payroll_item_deduction")
 }
 
 /// Parámetros del módulo, 1:1 con la empresa. Se crea PEREZOSAMENTE con `upsert`:

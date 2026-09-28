@@ -70,7 +70,7 @@ Verificado contra el código el 25-09-2026. **Si algo no está en esta lista, no
 | Export XLSX/CSV | `services/export.ts` |
 | Salud financiera con IA (ratios, score, alertas, narrativa) | `services/salud.ts` + panel 🩺 |
 | Presupuestos + proyección de caja 3/6/12 | `budget-comparison.ts`, `cuentas-efectivo.ts`, migración `0017` |
-| **Planilla (nómina)**: registro de empleados, cálculo de SS/SE/ISR, décimo y vacaciones, aportes del patrono en tres cuentas, CSS y cuadre | `payroll-calc.ts`, `payroll-run.ts`, `planilla.html`, migraciones `0022`-`0025` — ver [`PLANILLA.md`](PLANILLA.md) |
+| **Planilla (nómina)**: registro de empleados, cálculo de SS/SE/ISR, décimo y vacaciones, aportes del patrono en tres cuentas, CSS, cuadre y **deducciones de acreedores** (préstamos, embargos, mueblerías: catálogo por empleado que se precarga solo, con cuotas y saldo que la hacen terminar, una cuenta por pagar por acreedor y su pago) | `payroll-calc.ts`, `payroll-run.ts`, `payroll-deducciones.ts`, `payroll-acreedores.ts`, `planilla.html`, migraciones `0022`-`0031` — ver [`PLANILLA.md`](PLANILLA.md) §3.11 |
 | **Inventario**: kardex con costo promedio, carga inicial por archivo, toma física, anulación y cuadre contra el mayor | `inventario.ts`, `costo-promedio.ts`, `inventario.html`, migraciones `0018`-`0020` — ver [`INVENTARIO.md`](INVENTARIO.md) |
 | Multi-tenant SaaS: planes, suscripciones, API Keys, cuotas, admin | `Plan`, `Subscription`, `ApiKey`, `routes/admin.ts` |
 | Audit log de asientos | `services/audit-log.ts` |
@@ -189,27 +189,6 @@ rentabilidad** por segmento.
 - **§7 Facturas:** **envío por email al cliente** (lo demás está: logo, correlativo, ITBMS, resolución).
 - **§8 Cierre:** ajustes sugeridos por IA (depreciación, amortización, provisiones) y **resumen del año
   con comparativa** contra el período anterior.
-- **§11 Nómina — deducciones de acreedores (bancos, mueblerías) recurrentes por empleado.** Pedido del
-  dueño (26-09). Hoy todo lo que no es SS, SE ni ISR cae en **una sola** cuenta de «otras deducciones» y se
-  carga **a mano en cada corrida**. Lo que se quiere:
-
-  - Un **catálogo de deducciones por empleado** (acreedor, monto o %, cuotas, saldo) que se **precargue solo
-    en cada corrida**, con el mismo patrón que las plantillas recurrentes — y que el contador pueda
-    saltarse una cuota puntual sin desarmar la deducción.
-  - **Una cuenta por pagar por acreedor**, no una genérica: con todo acreditado en la misma cuenta, el
-    pasivo de cada acreedor no se puede conciliar ni pagar por separado, que es justamente para lo que
-    sirve tenerlo.
-  - **`aplicaEnDiciembre` con default SÍ**: algunas se suspenden en diciembre —los descuentos de mueblería
-    suelen pactarse así—, pero la mayoría sigue corriendo, y una deducción que se salta un mes **por
-    defecto** le pagaría de más al acreedor y de menos al empleado sin que nadie lo note hasta que reclame.
-    El default correcto es el que no cambia nada, y el que se suspende se marca.
-  - **El saldo es lo que la hace terminar sola**: una deducción sin saldo que se precarga para siempre es
-    una deuda que no se extingue nunca. El préstamo y el embargo entran por acá, con la misma mecánica.
-  - Ojo con el asiento: hoy `otrasDeducciones` **acredita** la cuenta configurada en
-    `planillaOtrasDeduccionesId`. Con varias deducciones, cada una va a su propia cuenta por pagar, y el
-    renglón del ítem tiene que poder mostrar el detalle (`PayrollItem` guarda un monto por deducción, no un
-    total anónimo).
-
 - **§11 Nómina:** lo que queda **fuera** de [`PLANILLA.md`](PLANILLA.md) — liquidaciones de personal, ISR
   anual, y el registro del pago mensual del ISR retenido a la DGI (el calendario fiscal no tiene esa
   obligación).

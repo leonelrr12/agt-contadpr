@@ -22,6 +22,8 @@ import {
   type TipoCorrida,
 } from './payroll-calc';
 import { empleadosParaCorrida, acumuladosDe } from './payroll-empleados';
+import { aplicarAjustes, catalogoDe } from './payroll-acreedores';
+import { avisosDeCatalogo, sePersiste, totalAplicado, type AjusteDeduccion } from './payroll-deducciones';
 import {
   getOrCreateSettings,
   tasasDe,
@@ -48,6 +50,41 @@ import {
  *    (horas extras, días, notas), no los montos: los montos los pone el motor.
  */
 
+/**
+ * El detalle por acreedor que se persiste con los ítems, ya congelado.
+ *
+ * Se guardan las que dejaron rastro —aplicada, saltada a mano, suspendida en
+ * diciembre—; las terminadas y las desactivadas no, porque se derivan del catálogo y
+ * llenarían la tabla de filas que no dicen nada. `monto > 0` sigue siendo la marca de
+ * "cuota aplicada": por eso lo demás va en 0 con su motivo.
+ */
+function filasDeDeducciones(items: CalculoItem[], companyId: string, runId: string) {
+  return items.flatMap((item) =>
+    item.deducciones.filter(sePersiste).map((d) => ({
+      companyId,
+      runId,
+      employeeId: item.employeeId,
+      deduccionId: d.deduccionId,
+      acreedor: d.acreedor,
+      cuentaId: d.cuentaId,
+      monto: d.monto,
+      omitida: d.monto <= 0,
+      motivoOmitida: d.monto <= 0 ? d.motivo : null,
+      cuotaNumero: d.cuotaNumero,
+    })),
+  );
+}
+
+/**
+ * Un ajuste de la corrida tal como llega de la pantalla: los mismos campos del ítem,
+ * más los ajustes por deducción (saltar una cuota o cambiarle el monto). El motor no
+ * ve este último: `previsualizarCorrida` lo funde con el catálogo y le pasa a
+ * `calcularItem` las deducciones ya resueltas.
+ */
+export interface AjusteCorrida extends Omit<EntradaItem, 'deducciones'> {
+  deducciones?: AjusteDeduccion[];
+}
+
 export interface OpcionesCorrida {
   tipo: TipoCorrida;
   periodicidad: Periodicidad;
@@ -56,7 +93,7 @@ export interface OpcionesCorrida {
   fechaHasta: string;
   fechaPago: string;
   empleadoIds?: string[];
-  ajustes?: EntradaItem[];
+  ajustes?: AjusteCorrida[];
   notas?: string;
 }
 
@@ -224,7 +261,12 @@ function clavesNecesarias(
     'ssPatronalGasto', 'sePatronalGasto', 'riesgosGasto',
   ];
   if (items.some((i) => i.horasExtras > 0)) claves.push('horasExtras');
-  if (items.some((i) => i.otrasDeducciones > 0)) claves.push('otrasDeducciones');
+  // La cuenta genérica de otras deducciones se exige solo por lo que NO tiene acreedor:
+  // las deducciones del catálogo acreditan la cuenta de cada acreedor, que vive en su
+  // propia fila y no se resuelve por configuración. Antes esto era "hay otras
+  // deducciones → hace falta la cuenta"; ahora una corrida con SOLO préstamos de
+  // acreedores no la necesita.
+  if (items.some((i) => r2(i.otrasDeducciones - totalAplicado(i.deducciones)) > 0)) claves.push('otrasDeducciones');
   if (provisionar && items.some((i) => i.decimoGenerado + i.vacacionesGeneradas + i.primaGenerada > 0)) {
     claves.push('decimoPorPagar', 'vacacionesPorPagar', 'prestacionesPorPagar');
   }
@@ -310,17 +352,45 @@ export async function previsualizarCorrida(
     }
   }
 
+  // ── Deducciones de acreedores: el catálogo se precarga solo ──
+  //
+  // Es el mismo gesto que las prestaciones de arriba: el contador no tiene que
+  // acordarse de a quién le toca la cuota este período. El motor recibe las deducciones
+  // YA resueltas —el saldo que queda y las cuotas que van— pero sin monto: el monto
+  // depende de la base del período, y eso lo sabe `calcularItem`.
+  const entradas: EntradaItem[] = ajustes.map((a) => ({ ...a, deducciones: undefined }));
+  if (opts.tipo === 'SUELDO') {
+    const catalogo = await catalogoDe(prisma, companyId, {
+      empleadoIds: empleados.map((e: any) => e.id),
+      corte: fechaPago,
+    });
+    for (const emp of empleados) {
+      const delCatalogo = catalogo.get(emp.id) ?? [];
+      if (!delCatalogo.length) continue;
+      const delContador = ajustes.find((a) => a.employeeId === emp.id)?.deducciones ?? [];
+      const deducciones = aplicarAjustes(delCatalogo, delContador);
+      const entrada = entradas.find((e) => e.employeeId === emp.id);
+      if (entrada) entrada.deducciones = deducciones;
+      else entradas.push({ employeeId: emp.id, deducciones });
+      for (const d of deducciones) {
+        const aviso = avisosDeCatalogo(d);
+        if (aviso) avisos.push(`${emp.nombre} — ${d.acreedor}: ${aviso}`);
+      }
+    }
+  }
+
   const ctx: ContextoCorrida = {
     tipo: opts.tipo,
     periodicidad: opts.periodicidad,
     fechaDesde,
     fechaHasta,
+    fechaPago,
     pagoNumero,
     pagosDelMes,
     isrYaRetenidoPorEmpleado: await isrYaRetenidoEnElMes(prisma, companyId, opts.tipo, periodoMensual, empleados),
   };
 
-  const calculo = calcularCorrida(empleados, ajustes, ctx, tasas);
+  const calculo = calcularCorrida(empleados, entradas, ctx, tasas);
 
   // Días trabajados por empleado para poder prorratear sin que la pantalla lo calcule.
   // ── Avisos de la ficha de los empleados que SÍ entran ──
@@ -701,6 +771,12 @@ export async function ejecutarCorrida(
           })),
         });
 
+        // El detalle por acreedor, en el MISMO insert de lote: un round trip más por
+        // empleado no cabe en la transacción de 5 segundos.
+        await tx.payrollItemDeduction.createMany({
+          data: filasDeDeducciones(preview.items, companyId, run.id),
+        });
+
         return asiento;
       });
 
@@ -809,6 +885,12 @@ export async function ejecutarCorrida(
             journalEntryId: asiento.id,
             notas: item.notas ?? null,
           },
+        });
+
+        // El detalle por acreedor, dentro de la MISMA transacción del ítem: si el
+        // empleado falla, no puede quedar la constancia de una cuota que no se descontó.
+        await tx.payrollItemDeduction.createMany({
+          data: filasDeDeducciones([item], companyId, run.id),
         });
 
         return asiento;
@@ -1057,9 +1139,14 @@ export async function obtenerCorrida(prisma: any, companyId: string, runId: stri
       items: {
         include: { employee: { select: { id: true, nombre: true, cedula: true, tipoPago: true } } },
       },
+      // El desglose CONGELADO de las deducciones: cuelga de la CORRIDA —no del ítem,
+      // porque el camino consolidado usa `createMany`— y acá se reparte por empleado.
+      // El historial no se reinterpreta con el catálogo de hoy.
+      deducciones: { orderBy: { acreedor: 'asc' } },
     },
   });
   if (!run) return null;
+  const { deducciones, ...cabecera } = run;
 
   const estados = await estadosDeAsientos(
     prisma,
@@ -1067,11 +1154,12 @@ export async function obtenerCorrida(prisma: any, companyId: string, runId: stri
   );
 
   return {
-    ...run,
+    ...cabecera,
     items: run.items
       .map((i: any) => ({
         ...i,
         asientoStatus: i.journalEntryId ? (estados.get(i.journalEntryId) ?? null) : null,
+        deducciones: deducciones.filter((d: any) => d.employeeId === i.employeeId),
       }))
       .sort((a: any, b: any) => (a.employee?.nombre ?? '').localeCompare(b.employee?.nombre ?? '')),
   };

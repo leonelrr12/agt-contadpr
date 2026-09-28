@@ -60,6 +60,14 @@
     .preview { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; font-size: 13px; margin-top: 12px; }
     .preview .fila { display: flex; justify-content: space-between; padding: 3px 0; }
     .preview .fila.total { border-top: 1px solid #cbd5e1; margin-top: 6px; padding-top: 6px; font-weight: 700; }
+    /* Modal del desglose de deducciones: la caja vive fuera de #pl-contenido para que
+       el re-render de la pestaña no la borre. */
+    #pl-modal { position: fixed; inset: 0; background: rgba(15,23,42,0.45); z-index: 9999; display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; }
+    .pl-modal-caja { background: #fff; border-radius: 12px; padding: 20px; width: 100%; max-width: 760px; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
+    .pl-modal-caja h3 { margin: 0 0 4px 0; font-size: 16px; color: #1a1a2e; }
+    .pl-modal-caja .cerrar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+    .desglose-cuota { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .salto { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #6b7280; white-space: nowrap; }
     @media (max-width: 900px) { .form-grid, .form-grid.tres { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 600px) { .form-grid, .form-grid.tres { grid-template-columns: 1fr; } }
   </style>
@@ -76,6 +84,7 @@
   <div class="pl-tabs" id="pl-tabs">
     <button class="pl-tab" data-tab="corrida">Corrida</button>
     <button class="pl-tab" data-tab="empleados">Empleados</button>
+    <button class="pl-tab" data-tab="deducciones">Deducciones</button>
     <button class="pl-tab" data-tab="acumulados">Acumulados</button>
     <button class="pl-tab" data-tab="historial">Historial</button>
     <button class="pl-tab" data-tab="css">CSS</button>
@@ -84,8 +93,11 @@
   </div>
 
   <div id="pl-contenido"><div class="loading">Cargando…</div></div>
+
+  <!-- Fuera de #pl-contenido: `render()` reemplaza ese innerHTML y se lo llevaría puesto. -->
+  <div id="pl-modal" class="hidden"></div>
 </div>
 
-<script src="js/planilla-modulo.js?v=4"></script>
+<script src="js/planilla-modulo.js?v=5"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 import { r2, sumarMontos } from '../lib/money';
 import { resolverCuentasPlanilla } from './payroll-parametros';
-import { saldoCuentasPasivo } from './payroll-css';
+import { saldoCuentaPasivo, saldoCuentasPasivo } from './payroll-css';
 
 /**
  * Cuadre de la planilla: compara lo que las corridas dicen con lo que quedó en el
@@ -29,12 +29,27 @@ export interface ComparacionPasivo {
   diferencia: number;
 }
 
+/** Un acreedor de la planilla (banco, mueblería, juzgado) y su cuenta por pagar. */
+export interface ComparacionAcreedor extends ComparacionPasivo {
+  cuentaId: string;
+  code: string;
+  name: string;
+  /** Empleados a los que se les descontó para este acreedor. */
+  empleados: number;
+}
+
 export interface CuadrePlanilla {
   desde: string;
   hasta: string;
   corridas: { total: number; ejecutadas: number; anuladas: number; borrador: number };
   neto: { corridas: number; banco: number; diferencia: number };
   pasivos: { ss: ComparacionPasivo; se: ComparacionPasivo; isr: ComparacionPasivo };
+  /**
+   * Las deducciones de acreedores, cuenta por cuenta. Van aparte de los pasivos de la
+   * CSS porque no son un concepto fijo: cada empresa tiene los acreedores que tiene, y
+   * lo que se compara es lo retenido por la planilla contra el saldo de SU cuenta.
+   */
+  acreedores: ComparacionAcreedor[];
   asientos: Record<string, number>;
   itemsProblematicos: { empleado: string; corrida: string; periodo: string; asiento: string; estado: string }[];
   sinCorrida: { id: string; nombre: string; tipoPago: string }[];
@@ -119,6 +134,58 @@ export async function cuadrePlanilla(
     saldoCuentasPasivo(prisma, companyId, [cuentas.isr], hasta),
   ]);
 
+  // ── 2b. Las deducciones de acreedores ──
+  //
+  // Se agrupa por CUENTA y no por deducción: dos empleados pueden deberle al mismo
+  // banco y lo que se paga (y lo que tiene saldo) es la cuenta. El devengado sale del
+  // detalle congelado de las corridas vivas —no del catálogo—, así una deducción
+  // borrada o renombrada no cambia lo que ya se descontó.
+  const detalles: any[] = await prisma.payrollItemDeduction.findMany({
+    where: { companyId, run: { fechaPago: { lte: hasta } } },
+    select: { cuentaId: true, monto: true, employeeId: true, run: { select: { status: true } } },
+  });
+  // La cuenta entra en la lista aunque su corrida esté ANULADA —la deuda ya se
+  // devengó en el mayor y puede haberse pagado—, pero lo devengado solo cuenta las
+  // corridas VIVAS. Es el caso que más duele: se anula la corrida y el pago al
+  // acreedor ya salió, así que la cuenta queda en negativo y nadie lo mira.
+  const devengadoPorCuenta = new Map<string, { monto: number; empleados: Set<string> }>();
+  for (const d of detalles) {
+    const acc = devengadoPorCuenta.get(d.cuentaId) ?? { monto: 0, empleados: new Set<string>() };
+    if (d.run?.status !== 'ANULADA') {
+      acc.monto = sumarMontos(acc.monto, d.monto);
+      acc.empleados.add(d.employeeId);
+    }
+    devengadoPorCuenta.set(d.cuentaId, acc);
+  }
+
+  const idsAcreedores = [...devengadoPorCuenta.keys()];
+  const cuentasAcreedor: any[] = idsAcreedores.length
+    ? await prisma.account.findMany({
+        where: { id: { in: idsAcreedores }, companyId },
+        select: { id: true, code: true, name: true },
+      })
+    : [];
+  const nombreCuenta = new Map(cuentasAcreedor.map((c) => [c.id, c]));
+  const mayorAcreedor = new Map<string, number>();
+  for (const id of idsAcreedores) {
+    // Mismo helper que la pestaña Deducciones: el saldo que muestra una y el que
+    // compara el cuadre tienen que salir del mismo sitio.
+    mayorAcreedor.set(id, await saldoCuentaPasivo(prisma, companyId, id, hasta));
+  }
+  const acreedores: ComparacionAcreedor[] = idsAcreedores
+    .map((cuentaId) => {
+      const dev = devengadoPorCuenta.get(cuentaId)!;
+      const cuenta: any = nombreCuenta.get(cuentaId);
+      return {
+        cuentaId,
+        code: cuenta?.code ?? '',
+        name: cuenta?.name ?? '(cuenta eliminada)',
+        empleados: dev.empleados.size,
+        ...comparar(mayorAcreedor.get(cuentaId) ?? 0, dev.monto),
+      };
+    })
+    .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+
   // ── 3. Los asientos que no están vivos ──
   const estados: Record<string, number> = {};
   const itemsProblematicos: CuadrePlanilla['itemsProblematicos'] = [];
@@ -184,6 +251,19 @@ export async function cuadrePlanilla(
       avisos.push(`${etiqueta}: la cuenta por pagar quedó en negativo (${mayor.toFixed(2)}). Se pagó más de lo que se devengó.`);
     }
   }
+  for (const a of acreedores) {
+    const etiqueta = a.code ? `${a.code} ${a.name}` : a.name;
+    // Igual que los pasivos de la CSS: pagar solo puede bajar la cuenta, así que un
+    // saldo mayor que lo retenido solo se explica con un movimiento de afuera.
+    if (a.mayor > a.devengado + 0.01) {
+      avisos.push(
+        `Acreedor ${etiqueta}: la cuenta por pagar tiene ${a.mayor.toFixed(2)} y la planilla retuvo ${a.devengado.toFixed(2)} hasta la fecha. ` +
+          'Hay algo acreditado en esa cuenta que no salió de la planilla.',
+      );
+    } else if (a.mayor < -0.01) {
+      avisos.push(`Acreedor ${etiqueta}: la cuenta quedó en negativo (${a.mayor.toFixed(2)}). Se le pagó más de lo que se le retuvo.`);
+    }
+  }
   if (itemsProblematicos.length > 0) {
     avisos.push(
       `${itemsProblematicos.length} asiento(s) de planilla rechazados o anulados: su corrida sigue contando para los acumulados.`,
@@ -208,6 +288,7 @@ export async function cuadrePlanilla(
       se: comparar(seMayor, devSE),
       isr: comparar(isrMayor, devISR),
     },
+    acreedores,
     asientos: estados,
     itemsProblematicos,
     sinCorrida,

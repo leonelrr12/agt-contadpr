@@ -49,7 +49,18 @@
     return datos;
   }
 
-  const estado = { vista: 'corrida', empleados: [], parametros: null, corrida: null, ajustes: {} };
+  const estado = {
+    vista: 'corrida',
+    empleados: [],
+    parametros: null,
+    corrida: null,
+    ajustes: {},
+    deducciones: [],
+    deduccionEditando: null,
+    acreedores: [],
+    /** Empleado cuyo desglose de deducciones está abierto en el modal. */
+    desglose: null,
+  };
   let temporizador = null;
 
   // ─── Navegación ────────────────────────────────────────────────────────────
@@ -57,6 +68,7 @@
   const VISTAS = {
     corrida: vistaCorrida,
     empleados: vistaEmpleados,
+    deducciones: vistaDeducciones,
     acumulados: vistaAcumulados,
     historial: vistaHistorial,
     css: vistaCSS,
@@ -215,7 +227,10 @@
       <td class="num">${campoExtras}</td>
       <td class="num">${campoMonto}</td>
       <td class="num">${campoMenosSueldo}</td>
-      <td class="num"><input class="celda" data-edit="otrasDeducciones" data-emp="${esc(i.employeeId)}" value="${a.otrasDeducciones ?? i.otrasDeducciones}"></td>
+      <td class="num">
+        <span data-calc="otrasDeducciones-${esc(i.employeeId)}">${num(i.otrasDeducciones)}</span>
+        <button class="btn btn-secondary btn-sm" data-desglose="${esc(i.employeeId)}" title="Ver y ajustar las deducciones de este empleado">Desglose</button>
+      </td>
       ${celdasCalculadas(i)}
     </tr>`;
   }
@@ -259,12 +274,27 @@
     f.fechaPago = isoDe(pago);
   }
 
+  /**
+   * Los ajustes como los espera el servidor: las deducciones van como LISTA (acá se
+   * guardan por id, que es como las toca el desglose) y solo viaja lo que el contador
+   * tocó — el monto precargado lo pone el servidor, no la pantalla.
+   */
+  function ajustesSerializados() {
+    return Object.entries(estado.ajustes).map(([employeeId, v]) => {
+      const { deducciones, ...resto } = v;
+      const lista = Object.entries(deducciones || {})
+        .map(([deduccionId, a]) => ({ deduccionId, ...a }))
+        .filter((a) => a.omitida !== undefined || a.monto !== undefined);
+      return lista.length ? { employeeId, ...resto, deducciones: lista } : { employeeId, ...resto };
+    });
+  }
+
   async function calcular() {
     const f = leerForma();
     const cuerpo = {
       tipo: f.tipo, periodicidad: f.periodicidad,
       fechaDesde: f.fechaDesde, fechaPago: f.fechaPago,
-      ajustes: Object.entries(estado.ajustes).map(([employeeId, v]) => ({ employeeId, ...v })),
+      ajustes: ajustesSerializados(),
     };
     estado.corrida = await pedir('/corridas/preview', { method: 'POST', body: JSON.stringify(cuerpo) });
     return estado.corrida;
@@ -284,8 +314,111 @@
       set('ss', num(i.ss));
       set('se', num(i.se));
       set('isr', num(i.isr));
+      // El total de deducciones se movió al desglose: acá queda el número, que es lo que
+      // el contador mira de reojo mientras carga el resto del renglón.
+      set('otrasDeducciones', num(i.otrasDeducciones));
       set('neto', `<b>${num(i.neto)}</b>`);
     }
+    if (estado.desglose) refrescarDesglose(p);
+  }
+
+  // ─── Desglose de las deducciones de un empleado (modal) ────────────────────
+
+  /**
+   * El desglose vive en un modal porque el grid NO crece con cada acreedor: la columna
+   * «Otras deducc.» queda con el total —que es lo que se mira de reojo— y el detalle se
+   * abre a demanda.
+   *
+   * El número de cuota y el saldo vienen del SERVIDOR (el catálogo con su historial de
+   * corridas vivas); acá solo se ajusta esta cuota: saltarla o cambiarle el monto.
+   */
+  function celdaEstado(d, saltada) {
+    const aplica = d.estado === 'APLICA' && !saltada;
+    const motivo = saltada ? 'la saltaste en esta corrida' : (d.estado === 'APLICA' ? '' : d.motivo);
+    return `${motivo ? `<span class="badge ${saltada || d.estado === 'APLICA' ? 'badge-warn' : 'badge-neutral'}">${esc(motivo)}</span>` : ''}
+      ${d.aviso ? `<div class="nota">${esc(d.aviso)}</div>` : ''}`;
+  }
+
+  function filaDesglose(d) {
+    const employeeId = estado.desglose;
+    const ajuste = (estado.ajustes[employeeId]?.deducciones || {})[d.deduccionId] || {};
+    const saltada = ajuste.omitida ?? false;
+    const aplica = d.estado === 'APLICA' && !saltada;
+    // Saltada o terminada no tiene monto que editar: se apaga y se muestra en cero.
+    const monto = aplica ? (ajuste.monto ?? d.monto) : 0;
+    const cuota = d.cuotaNumero
+      ? `Cuota ${d.cuotaNumero}${d.cuotasTotales ? ` de ${d.cuotasTotales}` : ''}`
+      : '';
+    const saldo = d.saldoAntes != null ? `debe ${num(d.saldoAntes)}` : '';
+    const cuenta = (estado.catalogo || []).find((c) => c.id === d.cuentaId);
+
+    return `<tr>
+      <td>${esc(d.acreedor)}
+        <br><span class="nota">${[cuota, saldo, cuenta ? esc(cuenta.code) : ''].filter(Boolean).join(' · ')}</span></td>
+      <td data-estado="${esc(d.deduccionId)}">${celdaEstado(d, saltada)}</td>
+      <td class="num"><input class="celda" data-deduccion="${esc(d.deduccionId)}" data-emp="${esc(employeeId)}"
+        type="number" step="0.01" value="${monto}" ${aplica ? '' : 'disabled'}></td>
+      <td><label class="salto"><input type="checkbox" data-saltar="${esc(d.deduccionId)}" data-emp="${esc(employeeId)}" ${saltada ? 'checked' : ''}> Saltar</label></td>
+    </tr>`;
+  }
+
+  function htmlDesglose() {
+    const employeeId = estado.desglose;
+    const item = (estado.corrida?.items || []).find((i) => i.employeeId === employeeId);
+    const filas = (item?.deducciones || []).map(filaDesglose).join('');
+    const otras = estado.ajustes[employeeId]?.otrasDeduccionesManual ?? 0;
+
+    return `<div class="pl-modal-caja">
+      <div class="cerrar">
+        <div>
+          <h3>Deducciones de ${esc(item?.nombre || '')}</h3>
+          <div class="nota">Se precargan solas desde el catálogo. Podés cambiar el monto de esta cuota o saltarla:
+            queda la constancia en la corrida y el saldo no baja — la cuota se corre a la próxima (no la perdés ni le pagás de más al acreedor).</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" id="dg-cerrar">Cerrar</button>
+      </div>
+      <table class="data-table">
+        <thead><tr><th>Acreedor</th><th>Estado</th><th class="num">Monto</th><th></th></tr></thead>
+        <tbody>
+          ${filas || '<tr><td colspan="4" class="nota">Sin deducciones de acreedores para este empleado este período.</td></tr>'}
+          <tr>
+            <td>Otras (sin acreedor)<br><span class="nota">va a la cuenta genérica de otras deducciones</span></td>
+            <td></td>
+            <td class="num"><input class="celda" type="number" step="0.01" data-edit="otrasDeduccionesManual" data-emp="${esc(employeeId)}" value="${otras}"></td>
+            <td></td>
+          </tr>
+        </tbody>
+        <tfoot><tr><td colspan="2"><b>Total descontado</b></td>
+          <td class="num" id="dg-total"><b>${num(item?.otrasDeducciones)}</b></td><td></td></tr></tfoot>
+      </table>
+    </div>`;
+  }
+
+  function pintarDesglose() {
+    const caja = $('pl-modal');
+    caja.innerHTML = htmlDesglose();
+    caja.classList.remove('hidden');
+  }
+
+  /** Repinta solo el estado y el total: los inputs no se tocan (se perdería el foco). */
+  function refrescarDesglose(p) {
+    const item = (p.items || []).find((i) => i.employeeId === estado.desglose);
+    if (!item) return;
+    const total = $('dg-total');
+    if (total) total.innerHTML = `<b>${num(item.otrasDeducciones)}</b>`;
+    for (const d of item.deducciones || []) {
+      const celda = document.querySelector(`[data-estado="${CSS.escape(d.deduccionId)}"]`);
+      if (!celda) continue;
+      const saltada = estado.ajustes[estado.desglose]?.deducciones?.[d.deduccionId]?.omitida ?? false;
+      celda.innerHTML = celdaEstado(d, saltada);
+    }
+  }
+
+  function cerrarDesglose() {
+    estado.desglose = null;
+    const caja = $('pl-modal');
+    caja.classList.add('hidden');
+    caja.innerHTML = '';
   }
 
   /**
@@ -324,11 +457,8 @@
     else el.blur();
   });
 
-  document.addEventListener('input', (e) => {
-    const el = e.target;
-    if (!el.dataset || !el.dataset.edit) return;
-    const emp = el.dataset.emp;
-    estado.ajustes[emp] = { ...(estado.ajustes[emp] || {}), [el.dataset.edit]: Number(el.value) || 0 };
+  /** Recalcula con el debounce de siempre: mientras se teclea no se pide el cálculo. */
+  function programarCalculo() {
     clearTimeout(temporizador);
     temporizador = setTimeout(async () => {
       try {
@@ -338,6 +468,27 @@
         console.error(err);
       }
     }, 700);
+  }
+
+  /** Guarda un ajuste de UNA deducción del desglose (saltarla o cambiarle el monto). */
+  function ajustarDeduccion(employeeId, deduccionId, cambio) {
+    const ajuste = estado.ajustes[employeeId] || (estado.ajustes[employeeId] = {});
+    const deducciones = ajuste.deducciones || (ajuste.deducciones = {});
+    deducciones[deduccionId] = { ...(deducciones[deduccionId] || {}), ...cambio };
+    programarCalculo();
+  }
+
+  document.addEventListener('input', (e) => {
+    const el = e.target;
+    if (!el.dataset) return;
+    if (el.dataset.deduccion) {
+      ajustarDeduccion(el.dataset.emp, el.dataset.deduccion, { monto: Number(el.value) || 0 });
+      return;
+    }
+    if (!el.dataset.edit) return;
+    const emp = el.dataset.emp;
+    estado.ajustes[emp] = { ...(estado.ajustes[emp] || {}), [el.dataset.edit]: Number(el.value) || 0 };
+    programarCalculo();
   });
 
   document.addEventListener('change', async (e) => {
@@ -362,6 +513,15 @@
 
   document.addEventListener('click', async (e) => {
     const id = e.target.id;
+    const desglose = e.target.dataset?.desglose;
+    if (desglose) {
+      if (!estado.catalogo) estado.catalogo = await pedir('/cuentas');
+      estado.desglose = desglose;
+      pintarDesglose();
+      return;
+    }
+    // `pl-modal` es el fondo: solo llega acá si el click no cayó en la caja.
+    if (id === 'dg-cerrar' || id === 'pl-modal') { cerrarDesglose(); return; }
     if (id === 'c-calcular') {
       const btn = e.target; btn.disabled = true; btn.textContent = 'Calculando…';
       try { await calcular(); await render(); } catch (err) { alert(err.message); btn.disabled = false; btn.textContent = 'Calcular'; }
@@ -376,10 +536,11 @@
           method: 'POST',
           body: JSON.stringify({
             tipo: f.tipo, periodicidad: f.periodicidad, fechaDesde: f.fechaDesde, fechaPago: f.fechaPago,
-            ajustes: Object.entries(estado.ajustes).map(([employeeId, v]) => ({ employeeId, ...v })),
+            ajustes: ajustesSerializados(),
           }),
         });
         estado.ajustes = {}; estado.corrida = null;
+        cerrarDesglose();
         // Una corrida consolidada que falla no crea NADA: decir "0 asientos creados"
         // como si hubiera salido bien es la peor forma de reportar, porque el
         // contador se entera cuando el empleado reclama.
@@ -556,6 +717,238 @@
     }
   });
 
+  // ─── Deducciones de acreedores: catálogo y pagos ───────────────────────────
+
+  /**
+   * El catálogo (préstamos, embargos, mueblerías) y el saldo de cada acreedor.
+   *
+   * El catálogo precarga cada corrida solo; acá se da de alta y se corrige. La cuenta
+   * del acreedor se elige del catálogo contable —una por acreedor—, que es lo que
+   * permite conciliar y pagar por separado.
+   */
+  async function vistaDeducciones() {
+    if (!estado.parametros) estado.parametros = await pedir('/parametros');
+    if (!estado.catalogo) estado.catalogo = await pedir('/cuentas');
+    if (!estado.empleados.length) estado.empleados = await pedir('/empleados?incluirInactivos=true');
+    estado.deducciones = await pedir('/deducciones?incluirInactivas=true');
+    estado.acreedores = await pedir('/acreedores');
+
+    // Solo cuentas por pagar activas: el backend rechaza cualquier otra (acreditar una
+    // deducción contra un ingreso o un activo dejaría el pasivo del empleado en el aire).
+    const cuentasPago = (estado.catalogo || []).filter((c) => c.type === 'PASIVO' && c.isActive);
+    const ed = estado.deduccionEditando;
+
+    const filas = estado.deducciones.map((d) => {
+      const cuota = d.tipo === 'PORCENTAJE' ? `${pct(d.porcentaje)} del sueldo` : `${num(d.montoFijo)} fijo`;
+      const cuotas = d.cuotas == null ? `${d.cuotasAplicadas} aplicada(s)` : `${d.cuotasAplicadas} de ${d.cuotas}`;
+      const saldo = d.saldoPendiente == null ? '<span class="nota">sin tope</span>' : num(d.saldoPendiente);
+      return `<tr>
+        <td>${esc(d.empleado)}</td>
+        <td>${esc(d.acreedor)}</td>
+        <td>${d.cuenta ? esc(`${d.cuenta.code} ${d.cuenta.name}`) : '<span class="badge badge-err">cuenta eliminada</span>'}</td>
+        <td class="num">≈ ${num(d.cuotaEstimada)}<br><span class="nota">${esc(cuota)}</span></td>
+        <td class="num">${esc(cuotas)}</td>
+        <td class="num">${saldo}</td>
+        <td>${d.isActive ? '<span class="badge badge-ok">Activa</span>' : '<span class="badge badge-neutral">Inactiva</span>'}
+          ${d.aplicaEnDiciembre ? '' : '<span class="badge badge-warn">no en diciembre</span>'}
+          ${d.aviso ? `<br><span class="nota">${esc(d.aviso)}</span>` : ''}</td>
+        <td><button class="btn btn-secondary btn-sm" data-editar-ded="${esc(d.id)}">Editar</button></td>
+      </tr>`;
+    }).join('');
+
+    const esAdmin = ['admin', 'superadmin'].includes(getUser()?.role);
+    const form = `
+      <div class="card">
+        <h3>${ed ? `Editar la deducción de ${esc(ed.acreedor)}` : 'Nueva deducción de acreedor'}</h3>
+        <div class="form-grid">
+          <div><label>Empleado</label>
+            <select id="d-empleado" ${ed ? 'disabled' : ''}>
+              ${estado.empleados.filter((e) => e.isActive || ed?.employeeId === e.id)
+                .map((e) => `<option value="${esc(e.id)}" ${ed?.employeeId === e.id ? 'selected' : ''}>${esc(e.nombre)}</option>`).join('')}
+            </select></div>
+          <div><label>Acreedor</label><input id="d-acreedor" placeholder="Banco General — préstamo 1234" value="${esc(ed?.acreedor || '')}"></div>
+          <div><label>Cuenta por pagar del acreedor</label>
+            <select id="d-cuenta">
+              <option value="">— elegir —</option>
+              ${cuentasPago.map((c) => `<option value="${esc(c.id)}" ${ed?.cuentaId === c.id ? 'selected' : ''}>${esc(c.code + ' ' + c.name)}</option>`).join('')}
+            </select></div>
+          <div><label>Tipo de cuota</label>
+            <select id="d-tipo">
+              <option value="FIJO" ${ed?.tipo !== 'PORCENTAJE' ? 'selected' : ''}>Monto fijo</option>
+              <option value="PORCENTAJE" ${ed?.tipo === 'PORCENTAJE' ? 'selected' : ''}>Porcentaje del sueldo</option>
+            </select></div>
+          <div><label>Monto de la cuota</label><input id="d-monto" type="number" step="0.01" value="${ed?.montoFijo ?? ''}"></div>
+          <div><label>Porcentaje (ej. 0.10 = 10%)</label><input id="d-porcentaje" type="number" step="0.0001" value="${ed?.porcentaje ?? ''}"></div>
+          <div><label>Cuotas que faltan</label><input id="d-cuotas" type="number" step="1" value="${ed?.cuotas ?? ''}"></div>
+          <div><label>Deuda total</label><input id="d-total" type="number" step="0.01" value="${ed?.montoTotal ?? ''}"></div>
+          <div><label>Saldo inicial (lo que se debía)</label><input id="d-saldo" type="number" step="0.01" value="${ed?.saldoInicial ?? ''}"></div>
+          <div><label>Desde</label><input id="d-desde" type="date" value="${ed?.fechaInicio ? String(ed.fechaInicio).slice(0, 10) : ''}"></div>
+          <div><label>Hasta</label><input id="d-hasta" type="date" value="${ed?.fechaFin ? String(ed.fechaFin).slice(0, 10) : ''}"></div>
+          <div><label>¿Se descuenta en diciembre?</label>
+            <select id="d-diciembre">
+              <option value="si" ${ed?.aplicaEnDiciembre === false ? '' : 'selected'}>Sí (lo normal)</option>
+              <option value="no" ${ed?.aplicaEnDiciembre === false ? 'selected' : ''}>No, se suspende</option>
+            </select></div>
+        </div>
+        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" id="d-guardar">${ed ? 'Guardar cambios' : 'Crear deducción'}</button>
+          ${ed ? '<button class="btn btn-secondary" id="d-cancelar">Cancelar</button>' : ''}
+          ${ed ? `<button class="btn ${ed.isActive ? 'btn-danger' : 'btn-secondary'}" id="d-toggle">${ed.isActive ? 'Dar de baja' : 'Reactivar'}</button>` : ''}
+          ${ed && ed.cuotasAplicadas === 0 ? '<button class="btn btn-danger" id="d-eliminar">Eliminar</button>' : ''}
+        </div>
+        <p class="nota">Las <b>cuotas son las que FALTAN</b> desde el corte: un préstamo de 24 con 10 pagadas se carga con 14 y su saldo inicial.
+          El <b>saldo</b> hace que la deuda termine sola (la última cuota es el remanente); sin cuotas ni deuda total, la deducción corre para siempre y la pantalla lo avisa.
+          El <b>porcentaje</b> se aplica sobre sueldo + horas extras del período.
+          ${esAdmin ? '' : 'Para crear la cuenta por pagar de un acreedor nuevo, pedísela al administrador (Administración → Cuentas).'}</p>
+      </div>`;
+
+    const bancos = estado.parametros?.bancos || [];
+    const filasAcreedores = estado.acreedores.map((a) => `
+      <tr>
+        <td>${esc(a.code)} ${esc(a.name)}</td>
+        <td>${esc(a.empleados.join(', ') || '—')}<br><span class="nota">${esc(a.deducciones.map((d) => d.acreedor).filter((v, i, l) => l.indexOf(v) === i).join(' · '))}</span></td>
+        <td class="num">${num(a.devengado)}</td>
+        <td class="num">${num(a.pagado)}</td>
+        <td class="num"><b>${num(a.saldo)}</b></td>
+        <td><button class="btn btn-secondary btn-sm" data-pagar="${esc(a.cuentaId)}" data-saldo="${a.saldo}">Pagar</button></td>
+      </tr>`).join('');
+
+    return `
+      ${form}
+      <div class="card">
+        <h3>Catálogo (${estado.deducciones.length})</h3>
+        <table class="data-table">
+          <thead><tr><th>Empleado</th><th>Acreedor</th><th>Cuenta por pagar</th><th class="num">Cuota</th>
+            <th class="num">Cuotas</th><th class="num">Saldo</th><th>Estado</th><th></th></tr></thead>
+          <tbody>${filas || '<tr><td colspan="8" class="nota">Sin deducciones de acreedores. Cargá la primera arriba.</td></tr>'}</tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>Cuentas por pagar por acreedor</h3>
+        <table class="data-table">
+          <thead><tr><th>Cuenta</th><th>Empleados / acreedores</th><th class="num">Retenido</th>
+            <th class="num">Pagado</th><th class="num">Saldo</th><th></th></tr></thead>
+          <tbody>${filasAcreedores || '<tr><td colspan="6" class="nota">Todavía no hay cuotas descontadas.</td></tr>'}</tbody>
+        </table>
+        ${estado.acreedores.filter((a) => a.aviso).map((a) => `<div class="aviso">${esc(a.code)}: ${esc(a.aviso)}</div>`).join('')}
+        <p class="nota">El saldo sale del mayor (Σ crédito − Σ débito, incluidos los asientos en BORRADOR): es lo que de verdad se le debe a cada acreedor.</p>
+      </div>
+
+      <div class="card">
+        <h3>Registrar un pago al acreedor</h3>
+        <div class="form-grid">
+          <div><label>Cuenta del acreedor</label>
+            <select id="ad-cuenta">
+              ${estado.acreedores.map((a) => `<option value="${esc(a.cuentaId)}">${esc(a.code + ' ' + a.name)} — debe ${num(a.saldo)}</option>`).join('')}
+            </select></div>
+          <div><label>Fecha</label><input id="ad-fecha" type="date" value="${hoy()}"></div>
+          <div><label>Banco</label>
+            <select id="ad-banco">${bancos.map((b) => `<option value="${esc(b.id)}">${esc(b.code + ' ' + b.name)}</option>`).join('')}</select></div>
+          <div><label>Monto</label><input id="ad-monto" type="number" step="0.01" value=""></div>
+          <div><label>Referencia</label><input id="ad-ref" placeholder="opcional"></div>
+        </div>
+        <div style="margin-top:14px">
+          <button class="btn btn-primary" id="ad-pagar" ${estado.acreedores.length && bancos.length ? '' : 'disabled'}>Registrar el pago</button>
+        </div>
+        <p class="nota">Debita la cuenta por pagar del acreedor y acredita el banco, en BORRADOR. Si el monto supera el saldo, se pregunta antes de registrarlo.</p>
+      </div>`;
+  }
+
+  document.addEventListener('click', async (e) => {
+    const editar = e.target.dataset?.editarDed;
+    const pagar = e.target.dataset?.pagar;
+    const id = e.target.id;
+
+    if (editar) {
+      estado.deduccionEditando = estado.deducciones.find((d) => d.id === editar) || null;
+      await render();
+      return;
+    }
+    if (id === 'd-cancelar') { estado.deduccionEditando = null; await render(); return; }
+
+    if (id === 'd-guardar') {
+      const ed = estado.deduccionEditando;
+      const tipo = $('d-tipo').value;
+      const cuerpo = {
+        acreedor: $('d-acreedor').value.trim(),
+        cuentaId: $('d-cuenta').value,
+        tipo,
+        montoFijo: tipo === 'FIJO' ? Number($('d-monto').value) || null : null,
+        porcentaje: tipo === 'PORCENTAJE' ? Number($('d-porcentaje').value) || null : null,
+        cuotas: $('d-cuotas').value === '' ? null : Number($('d-cuotas').value),
+        montoTotal: $('d-total').value === '' ? null : Number($('d-total').value),
+        saldoInicial: $('d-saldo').value === '' ? null : Number($('d-saldo').value),
+        fechaInicio: $('d-desde').value || null,
+        fechaFin: $('d-hasta').value || null,
+        aplicaEnDiciembre: $('d-diciembre').value === 'si',
+      };
+      try {
+        if (ed) await pedir(`/deducciones/${ed.id}`, { method: 'PATCH', body: JSON.stringify(cuerpo) });
+        else await pedir('/deducciones', { method: 'POST', body: JSON.stringify({ ...cuerpo, employeeId: $('d-empleado').value }) });
+        estado.deduccionEditando = null;
+        await render();
+      } catch (err) { await showAlert(err.message); }
+      return;
+    }
+
+    if (id === 'd-toggle') {
+      const ed = estado.deduccionEditando;
+      try {
+        await pedir(`/deducciones/${ed.id}`, { method: 'PATCH', body: JSON.stringify({ isActive: !ed.isActive }) });
+        estado.deduccionEditando = null;
+        await render();
+      } catch (err) { await showAlert(err.message); }
+      return;
+    }
+
+    if (id === 'd-eliminar') {
+      const ed = estado.deduccionEditando;
+      if (!(await showConfirm(`¿Eliminar la deducción de ${ed.acreedor}? No tiene ninguna cuota descontada, así que no queda rastro en ninguna corrida.`))) return;
+      try {
+        await pedir(`/deducciones/${ed.id}`, { method: 'DELETE' });
+        estado.deduccionEditando = null;
+        await render();
+      } catch (err) { await showAlert(err.message); }
+      return;
+    }
+
+    if (pagar) {
+      // El botón de la fila llena el formulario de abajo: el monto arranca en el saldo,
+      // que es lo que se paga casi siempre.
+      $('ad-cuenta').value = pagar;
+      $('ad-monto').value = Number(e.target.dataset.saldo || 0).toFixed(2);
+      $('ad-monto').focus();
+      return;
+    }
+
+    if (id === 'ad-pagar') {
+      const cuerpo = {
+        cuentaId: $('ad-cuenta').value,
+        fecha: $('ad-fecha').value,
+        bancoCuentaId: $('ad-banco').value,
+        monto: Number($('ad-monto').value) || 0,
+        referencia: $('ad-ref').value.trim() || undefined,
+      };
+      const registrar = (extra) => pedir('/acreedores/pago', { method: 'POST', body: JSON.stringify({ ...cuerpo, ...extra }) });
+      try {
+        let r;
+        try {
+          r = await registrar({});
+        } catch (err) {
+          // 409 = el pago supera el saldo de la cuenta: se muestra el número y decide
+          // el contador (un anticipo, un ajuste, o el saldo está mal).
+          if (err.status !== 409) throw err;
+          if (!(await showConfirm(`${esc(err.message).replace(/\n/g, '<br>')}<br><br>¿Registrar el pago igual?`))) return;
+          r = await registrar({ confirmarExceso: true });
+        }
+        await showAlert(`Pago registrado por ${num(r.monto)} a ${r.cuenta.code} ${r.cuenta.name}. El asiento está en BORRADOR.`);
+        $('ad-monto').value = '';
+        await render();
+      } catch (err) { await showAlert(err.message); }
+    }
+  });
+
   // ─── Acumulados ────────────────────────────────────────────────────────────
 
   async function vistaAcumulados() {
@@ -590,6 +983,12 @@
 
   document.addEventListener('change', async (e) => {
     if (e.target.id === 'a-corte') { estado.corte = e.target.value; await render(); }
+    // Saltar una cuota puntual desde el desglose: no desarma la deducción —el saldo y
+    // el número de cuota no se mueven—, solo esta corrida.
+    if (e.target.dataset?.saltar) {
+      ajustarDeduccion(e.target.dataset.emp, e.target.dataset.saltar, { omitida: e.target.checked });
+      pintarDesglose();
+    }
   });
 
   // ─── Historial ─────────────────────────────────────────────────────────────
@@ -642,6 +1041,8 @@
         <td class="num">${num(i.ss)}</td>
         <td class="num">${num(i.se)}</td>
         <td class="num">${num(i.isr)}</td>
+        <td class="num">${num(i.otrasDeducciones)}
+          ${(i.deducciones || []).map((d) => `<br><span class="nota">${esc(d.acreedor)} ${d.monto > 0 ? num(d.monto) : '—'}</span>`).join('')}</td>
         <td class="num"><b>${num(i.neto)}</b></td>
         <td class="num">${num(i.ssPatronal + i.sePatronal + i.riesgosPatronal)}</td>
         <td>${i.asientoStatus ? `<span class="badge ${ESTADO_BADGE[i.asientoStatus] || 'badge-neutral'}">${esc(i.asientoStatus)}</span>` : '—'}</td>
@@ -665,6 +1066,7 @@
         <table class="data-table">
           <thead><tr><th>Empleado</th><th class="num">Días</th><th class="num">Sueldo</th><th class="num">Extras</th>
             <th class="num">Bruto</th><th class="num">SS</th><th class="num">SE</th><th class="num">ISR</th>
+            <th class="num" title="El desglose es el de esta corrida: el catálogo de hoy no reescribe el pasado">Otras deduc.</th>
             <th class="num">Neto</th><th class="num">Patronal</th><th>Asiento</th></tr></thead>
           <tbody>${filas}</tbody>
         </table>
@@ -919,6 +1321,23 @@
         </table>
         <p class="nota">Pagar solo puede bajar la cuenta, así que un saldo mayor que lo devengado solo se explica con algo acreditado por fuera del módulo.</p>
       </div>
+
+      ${c.acreedores.length ? `
+      <div class="card">
+        <h3>Deducciones de acreedores</h3>
+        <table class="data-table">
+          <thead><tr><th>Cuenta</th><th class="num">Empleados</th><th class="num">Retenido (histórico)</th>
+            <th class="num">Pagado</th><th class="num">Saldo en el mayor</th></tr></thead>
+          <tbody>${c.acreedores.map((a) => `<tr>
+            <td>${esc(a.code)} ${esc(a.name)}</td>
+            <td class="num">${a.empleados}</td>
+            <td class="num">${num(a.devengado)}</td>
+            <td class="num">${num(a.pagado)}</td>
+            <td class="num"><b>${num(a.mayor)}</b></td>
+          </tr>`).join('')}</tbody>
+        </table>
+        <p class="nota">Lo retenido sale del detalle congelado de cada corrida; el saldo, del mayor. Si difieren, alguien movió la cuenta por fuera de la planilla.</p>
+      </div>` : ''}
 
       <div class="card">
         <h3>Asientos de planilla en el período</h3>

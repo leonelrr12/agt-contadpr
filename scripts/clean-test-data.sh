@@ -42,14 +42,20 @@ if [ "$CONFIRM" != "SI" ]; then echo "Cancelado."; exit 0; fi
 #   recurring_template.lastEntryId → JournalEntry
 #   JournalLine/Transaction/bank_statement_row → JournalEntry
 #   payment_record → subscription
+#   payroll_item_deduction → payroll_run, employee y payroll_deduction
 #   payroll_item → payroll_run y → employee (el item va primero)
 #   payroll_item.journalEntryId → JournalEntry (no es FK, pero el orden hijos→padres sí importa)
 RUN_SQL=$(cat << ENDSQL
+-- Planilla: el detalle de deducciones cuelga de la corrida, el empleado y el catálogo
+-- de deducciones (FK RESTRICT), así que va antes que los tres.
+DELETE FROM payroll_item_deduction WHERE "companyId" = '${COMPANY_ID}';
+
 -- Planilla: el ítem referencia la corrida y el empleado, así que va primero.
 -- `payroll_settings` NO se toca: son las tasas y la tabla del ISR que configuró el
 -- dueño, no datos de prueba. Borrarla las devolvía a los valores del código.
 DELETE FROM payroll_item WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM payroll_run WHERE "companyId" = '${COMPANY_ID}';
+DELETE FROM payroll_deduction WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM employee WHERE "companyId" = '${COMPANY_ID}';
 
 -- Inventario: el kardex primero (FK al producto), después el catálogo

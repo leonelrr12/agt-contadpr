@@ -165,7 +165,7 @@ vacaciones. El flujo reemplaza al archivo:
    |---|---|---|
    | Ausencia de **días completos** | **Días** | El prorrateo ya baja el sueldo y la base: no hay que calcular ningún monto a mano |
    | Ausencia **parcial o tardanza** | **Menos sueldo** | Es un monto (horas × valor hora), y baja el sueldo igual que los días |
-   | Préstamo, embargo, adelanto | **Otras deducciones** | Sí es un pasivo: ese dinero se le debe a alguien |
+   | Préstamo, embargo, adelanto | **Otras deducciones** | Sí es un pasivo: ese dinero se le debe a alguien. Si tiene acreedor con nombre, va a **su** cuenta por pagar desde el catálogo (ver §3.11); la cuenta genérica queda para lo que no lo tiene |
 
    Los dos primeros **no son deducciones**: son salario que no se devengó, así que van al sueldo y con él a la
    base de la CSS. Ponerlos en «otras deducciones» acreditaría un pasivo que nadie debe —¿a quién le debería la
@@ -236,9 +236,15 @@ C  planillaISRId                isr
 C  planillaSSPatronalId         ssPatronal
 C  planillaSEPatronalId         sePatronal
 C  planillaRiesgosPatronalId    riesgosPatronal
-C  planillaOtrasDeduccionesId   otrasDeducciones   (si > 0; sin cuenta configurada, la corrida se rechaza)
+C  <cuenta del acreedor>        una línea por acreedor (ver §3.11)
+C  planillaOtrasDeduccionesId   lo que se descuenta SIN acreedor (si > 0; sin cuenta se rechaza)
 C  <banco del empleado>         neto
 ```
+
+Las deducciones con acreedor van **una línea por cuenta** y el resto —lo que el contador teclea sin acreedor—
+a la cuenta genérica. Ese resto es un **residuo** (`otrasDeducciones − Σ de las que aplican`), igual que el
+neto: es lo que garantiza que lo acreditado sume exactamente el total y el asiento siga cuadrando por
+construcción. La cuenta genérica solo se exige cuando ese resto es mayor que cero.
 
 **El gasto del patrono Y su pasivo van separados, cada uno en tres cuentas.** El pasivo del patrono es una
 decisión de catálogo: con el plan partido —`2.1.08.01` SS obrero, `2.1.08.02` SS patrono, `2.1.08.04` SE
@@ -437,6 +443,31 @@ fiscalización. La tabla arranca solo con la clase I; las demás se cargan desde
   Educativo o riesgos sobre el décimo, son dos líneas en `calcularItem` — está dicho acá para que sea una
   decisión y no un olvido.
 
+### 3.11 Las deducciones de acreedores
+
+Un préstamo del banco, una mueblería, un embargo: descuentos que se repiten todos los períodos contra **la
+misma** cuenta por pagar y que **terminan solos**. Antes había que teclearlos a mano en cada corrida y todo
+caía en una sola cuenta, así que el pasivo de cada acreedor no se podía conciliar ni pagar por separado.
+
+- **El catálogo** (`PayrollDeduction`) es por empleado y acreedor: monto fijo o porcentaje del sueldo
+  (+ horas extras, que es la base que cotiza), `cuotas`, `montoTotal`/`saldoInicial`, fechas y
+  `aplicaEnDiciembre` (**default SÍ**: la que se suspende se marca; al revés, una deducción se saltaría
+  diciembre sola y le pagaría de más al acreedor sin que nadie lo note).
+- **Se precarga sola** en cada corrida de sueldo, igual que una plantilla recurrente, y el contador puede
+  **saltar una cuota puntual** o cambiarle el monto desde el desglose. Saltarla **no la desarma**: la cuota no
+  avanza ni el saldo baja, así que la próxima corrida la vuelve a ofrecer.
+- **Termina sola** por el tope que llegue primero: las cuotas pactadas o el remanente de la deuda (la última
+  cuota es lo que queda). Sin ninguno de los dos corre para siempre, y la pantalla lo avisa.
+- **El saldo no se guarda**: se deriva de las cuotas aplicadas de las corridas vivas, igual que los acumulados
+  de décimo y vacaciones. Por eso anular una corrida devuelve la cuota sin tocar nada.
+- **`monto > 0` es la única marca de "cuota aplicada"** (`PayrollItemDeduction`): el saldo es su suma y el
+  número de cuota ese conteo + 1. Lo saltado se guarda con monto 0 y su motivo — queda la constancia.
+- **Corre solo en corridas de SUELDO**: un descuento de mueblería contra el décimo no es lo que se pactó.
+- El **pago al acreedor** debita SU cuenta por pagar contra el banco (BORRADOR), y si el monto supera el
+  saldo, pregunta antes: es la misma guardia del pago a la CSS.
+- **Nunca se suman el saldo del mayor y el del empleado**: el pasivo de un acreedor puede venir de varios
+  empleados y contarlos juntos lo duplicaría.
+
 ---
 
 ## 4. Modelo de datos
@@ -444,9 +475,10 @@ fiscalización. La tabla arranca solo con la clase I; las demás se cargan desde
 Migraciones **`0022_planilla`** (los cuatro modelos), **`0023_payroll_run_unico_parcial`** (el índice único
 que libera el período al anular), **`0024_patronal_tres_cuentas`** (el gasto del patrono en tres cuentas),
 **`0025_empleado_clase_riesgo`**, **`0026_planilla_semanal`** (el día de pago y la corrida consolidada),
-**`0027_cuota_media_semanal`**, **`0028_menos_sueldo_ausencia`** y **`0029_pasivo_patronal_tres_cuentas`**
-(el pasivo del patrono en tres cuentas, para el catálogo partido) — SQL escrito a mano, **solo DDL, cero
-backfill**.
+**`0027_cuota_media_semanal`**, **`0028_menos_sueldo_ausencia`**, **`0029_pasivo_patronal_tres_cuentas`**
+(el pasivo del patrono en tres cuentas, para el catálogo partido) y **`0031_deducciones_acreedor`** (el
+catálogo de deducciones de acreedores y su detalle por corrida) — SQL escrito a mano, **solo DDL, cero
+backfill**. (La `0030` es el default de la tasa del SS patronal.)
 
 **`Employee`** — `companyId`, `cedula?`, `nss?`, `nombre`, `cargo?`, `sueldoBase` (**siempre mensual**),
 `tipoPago` (`QUINCENAL`|`MENSUAL`), `fechaIngreso?`, `fechaSalida?`, `bancoCuentaId?`, `cuentaBanco?`,
@@ -469,6 +501,16 @@ pantalla.
 **`PayrollItem`** — `diasTrabajados`, `sueldo`, `horasExtras`, `otrosIngresos`, `bruto`, `ss`, `se`, `isr`,
 `otrasDeducciones`, `neto`, `ssPatronal`, `sePatronal`, `riesgosPatronal`, `decimoGenerado`,
 `vacacionesGeneradas`, `primaGenerada`, `journalEntryId?`, `notas?`. `@@unique([runId, employeeId])`.
+
+`otrasDeducciones` sigue siendo el TOTAL (con acreedor y sin él): el desglose por acreedor vive en
+`PayrollItemDeduction`, que **no** cuelga del ítem sino de `(runId, employeeId)` —la misma clave— porque el
+camino consolidado usa `createMany` y Prisma no devuelve sus ids. `monto > 0` es la única marca de "cuota
+aplicada"; lo saltado queda con monto 0 y `motivoOmitida`.
+
+**`PayrollDeduction`** — el catálogo: `employeeId`, `acreedor` (texto libre), `cuentaId` (la cuenta por pagar
+DE ESE acreedor), `tipo` (`FIJO`|`PORCENTAJE`), `montoFijo`/`porcentaje`, `cuotas` (**las que faltan** desde el
+corte), `montoTotal`, `saldoInicial`, `fechaInicio`/`fechaFin`, `aplicaEnDiciembre` (default true), `isActive`.
+Se desactiva, no se borra: con cuotas descontadas el detalle la referencia.
 
 **`PayrollSettings`** — 1:1 con `Company`, creada perezosamente: las seis tasas, los tres factores, la escala
 del ISR (JSON en String, convención del repo), el interruptor `provisionarPrestaciones` y `diaPagoSemanal`
@@ -496,6 +538,9 @@ Todos cuelgan de `/api/planilla`, así que la lista blanca del rol los cubre sin
 | POST | `/corridas/:id/revisar` | Aprueba o rechaza **en bloque**, con reporte por empleado |
 | GET | `/corridas/:id/export.csv` | Las columnas del archivo viejo |
 | GET | `/acumulados` · `/acumulados/:employeeId` | Décimo, vacaciones y prima por empleado |
+| GET/POST/PATCH/DELETE | `/deducciones` · `/deducciones/:id` | Catálogo de deducciones de acreedores, con el saldo derivado de cada una. Solo se borra una que nunca descontó |
+| GET | `/acreedores` | Saldo de cada cuenta por pagar de planilla: retenido, pagado y saldo del mayor |
+| POST | `/acreedores/pago` | Debita la cuenta del acreedor y acredita el banco (BORRADOR); 409 si el monto supera el saldo |
 | GET | `/css` | Calendario, montos por aporte y saldo adeudado |
 | POST | `/css/pago` · `/css/:periodo/valorar` | Registra el pago a la CSS y valoriza la obligación |
 | GET | `/cuadre` | Corridas del período contra el mayor: neto, pasivos, asientos no vivos y quién no cobró |
@@ -516,6 +561,7 @@ y **planilla**) para lo operativo, y `ROLES_PARAMETROS` (sin el rol de nómina) 
 | 5 | Página, rol y navegación | ✅ Hecho (25-09) — `planilla.html` con 6 pestañas, rol `planilla` con su barrera, y los roles en el Panel Admin |
 | 6 | Avisos y cuadre | ✅ Hecho (25-09) — avisos de higiene en la corrida y pestaña de cuadre contra el mayor |
 | 7 | Retiro de la carga por archivo y documentación | ✅ Hecho (25-09) — 410 con guía, modo 👷 Planilla fuera de Importar, `clean-test-data.sh` extendido |
+| 8 | Deducciones de acreedores (§3.11) | ✅ Hecho (28-09) — catálogo por empleado, precarga con cuotas y saldo, asiento por cuenta de acreedor, pago con su guardia y cuadre. Migración `0031` |
 
 El **retiro de la carga por archivo fue al final**, cuando el módulo ya estaba verificado. Lo que se retiró y
 lo que quedó:

@@ -27,6 +27,13 @@
  */
 
 import { r2, sumarMontos } from '../lib/money';
+import {
+  baseDeduccion,
+  resolverDeducciones,
+  totalAplicado,
+  type CuotaResuelta,
+  type DeduccionCalc,
+} from './payroll-deducciones';
 
 // ─── Tabla del ISR ───────────────────────────────────────────────────────────
 
@@ -115,6 +122,23 @@ export interface EntradaItem {
    * `diasTrabajados`, que ya prorratea.
    */
   menosSueldo?: number;
+  /**
+   * Deducciones de acreedores ya precargadas del catálogo (préstamos, embargos,
+   * mueblerías). Vienen sin resolver —con el historial de cuotas aplicadas y los
+   * ajustes del contador— porque el monto depende de la base del período, que se
+   * conoce acá adentro.
+   */
+  deducciones?: DeduccionCalc[];
+  /**
+   * Lo que se descuenta sin acreedor identificado: lo que el contador teclea en el
+   * desglose. Es lo que antes era `otrasDeducciones`.
+   */
+  otrasDeduccionesManual?: number;
+  /**
+   * @deprecated Alias de `otrasDeduccionesManual`. Se sigue aceptando porque una
+   * pantalla con caché vieja no puede perder en silencio un número que el contador
+   * tecleó — y ese número cambiaría el neto de una persona.
+   */
   otrasDeducciones?: number;
   /** Solo en corridas de DECIMO y VACACIONES: el monto a pagar de la prestación. */
   montoPrestacion?: number;
@@ -133,6 +157,12 @@ export interface ContextoCorrida {
    */
   pagoNumero: number;
   pagosDelMes: number;
+  /**
+   * Cuándo se paga. Es el ancla que usa la suspensión de diciembre de las deducciones
+   * de acreedores —"en diciembre" es cuándo se le paga al empleado, no a qué período
+   * pertenece— y coincide con el ancla que ya usa `periodoDe` en la corrida semanal.
+   */
+  fechaPago: Date;
   /**
    * ISR ya retenido en los pagos anteriores de este mes, POR EMPLEADO. Va indexado
    * y no como un número suelto porque cada quien tiene su propio sueldo: el reparto
@@ -154,6 +184,13 @@ export interface CalculoItem {
   se: number;
   isr: number;
   otrasDeducciones: number;
+  /**
+   * El desglose por acreedor de `otrasDeducciones`. `otrasDeducciones` es siempre
+   * `sumarMontos(manual, Σ de las que aplican)`: por eso lo acreditado en el asiento
+   * (una cuenta por acreedor + el resto a la genérica) suma exactamente el total, sin
+   * céntimo que absorber.
+   */
+  deducciones: CuotaResuelta[];
   /** RESIDUO: `bruto − deducciones`. Nunca se recalcula aparte. */
   neto: number;
   ssPatronal: number;
@@ -401,7 +438,10 @@ export function calcularItem(
     );
   }
 
-  const otrasDeducciones = r2(entrada.otrasDeducciones ?? 0);
+  // Lo que se descuenta SIN acreedor identificado (lo que el contador teclea en el
+  // desglose). Las deducciones del catálogo se resuelven más abajo, en la rama de
+  // SUELDO, porque su monto depende de la base del período.
+  const manual = r2(entrada.otrasDeduccionesManual ?? entrada.otrasDeducciones ?? 0);
   const notas = entrada.notas;
 
   // ── Corridas de SUELDO: el caso completo ──
@@ -449,6 +489,19 @@ export function calcularItem(
       ctx.isrYaRetenidoPorEmpleado?.[empleado.id] ?? 0,
     );
 
+    // Deducciones de acreedores: el catálogo se precargó solo y acá se decide cuáles
+    // aplican y por cuánto. La base del porcentaje es la misma que cotiza (R2/R3): el
+    // bono y el viático no son salario, así que no engordan la cuota.
+    const deducciones = resolverDeducciones(entrada.deducciones ?? [], {
+      tipo: ctx.tipo,
+      fechaPago: ctx.fechaPago,
+      base: baseDeduccion(sueldo, horasExtras),
+    });
+    for (const d of deducciones) {
+      if (d.aviso) avisos.push(`${d.acreedor}: ${d.aviso}`);
+    }
+    const otrasDeducciones = sumarMontos(manual, totalAplicado(deducciones));
+
     const bruto = sumarMontos(sueldo, horasExtras, otrosIngresos);
     // R4 — el neto es el RESIDUO. Es lo único que garantiza que el asiento cuadre
     // sin absorber céntimos en un monto que el contador reconoce.
@@ -461,7 +514,15 @@ export function calcularItem(
     const riesgosPatronal = r2(baseCotizacion * tasaRiesgos);
 
     if (neto < 0) {
-      avisos.push('las deducciones superan el bruto: el neto a pagar queda en negativo');
+      // Que el aviso diga CUÁL: con varias deducciones, "las deducciones superan el
+      // bruto" obliga a sumar a mano para saber cuál hay que corregir.
+      const culpables = deducciones
+        .filter((d) => d.estado === 'APLICA' && d.monto > 0)
+        .map((d) => `${d.acreedor} ${d.monto.toFixed(2)}`);
+      avisos.push(
+        'las deducciones superan el bruto: el neto a pagar queda en negativo' +
+          (culpables.length ? ` (${culpables.join(' · ')})` : ''),
+      );
     }
 
     return {
@@ -476,6 +537,7 @@ export function calcularItem(
       se,
       isr,
       otrasDeducciones,
+      deducciones,
       neto,
       ssPatronal,
       sePatronal,
@@ -501,6 +563,10 @@ export function calcularItem(
   // prestación ya devengada, no un sueldo.
   const ss = ctx.tipo === 'DECIMO' ? r2(monto * tasas.ssObreroDecimo) : 0;
   const se = ctx.tipo === 'DECIMO' ? r2(monto * tasas.seObreroDecimo) : 0;
+  // Las deducciones de acreedores NO corren contra una prestación: se pactan contra
+  // el sueldo. Acá solo va lo que el contador teclee a mano, como hasta ahora.
+  const deducciones: CuotaResuelta[] = [];
+  const otrasDeducciones = manual;
   const neto = r2(monto - ss - se - otrasDeducciones);
 
   // R8 — el patrono SÍ cotiza sobre la prestación, y en el décimo a una tasa menor
@@ -530,6 +596,7 @@ export function calcularItem(
     se,
     isr: 0,
     otrasDeducciones,
+    deducciones,
     neto,
     ssPatronal,
     sePatronal,
@@ -632,6 +699,36 @@ export interface LineaAsiento {
  *
  * Es pura a propósito: la invariante de cuadre se prueba en un test, no en producción.
  */
+/**
+ * El crédito de las deducciones: **una cuenta por acreedor** y el resto a la genérica.
+ *
+ * Antes era una sola línea contra `planillaOtrasDeduccionesId` y el pasivo de cada
+ * banco o mueblería quedaba revuelto en una cuenta: no se podía conciliar ni pagar por
+ * separado. Se agrupa por cuenta —dos deducciones del mismo empleado al mismo banco son
+ * una sola línea— y se suman los montos ya redondeados.
+ *
+ * El resto (lo que el contador teclea sin acreedor) es un RESIDUO, igual que el neto:
+ * `otrasDeducciones − Σ aplicadas`. Esa es la garantía de que lo acreditado suma
+ * exactamente el total y el asiento sigue cuadrando por construcción.
+ */
+function creditosDeducciones(item: CalculoItem, cuentas: CuentasPlanilla): LineaAsiento[] {
+  const porCuenta = new Map<string, number>();
+  const sumar = (accountId: string, monto: number) => {
+    porCuenta.set(accountId, sumarMontos(porCuenta.get(accountId) ?? 0, monto));
+  };
+
+  for (const d of item.deducciones) {
+    if (d.estado === 'APLICA' && d.monto > 0) sumar(d.cuentaId, d.monto);
+  }
+
+  const sinAcreedor = r2(item.otrasDeducciones - totalAplicado(item.deducciones));
+  if (sinAcreedor > 0) sumar(cuentas.otrasDeducciones, sinAcreedor);
+
+  return [...porCuenta]
+    .filter(([, monto]) => monto > 0)
+    .map(([accountId, credit]) => ({ accountId, debit: 0, credit }));
+}
+
 export function construirLineas(
   item: CalculoItem,
   tipo: TipoCorrida,
@@ -664,7 +761,7 @@ export function construirLineas(
     haber(cuentas.ss, item.ss);
     haber(cuentas.se, item.se);
     haber(cuentas.isr, item.isr);
-    haber(cuentas.otrasDeducciones, item.otrasDeducciones);
+    for (const linea of creditosDeducciones(item, cuentas)) lineas.push(linea);
     haber(cuentas.ssPatronal, item.ssPatronal);
     haber(cuentas.sePatronal, item.sePatronal);
     haber(cuentas.riesgosPatronal, item.riesgosPatronal);
@@ -700,7 +797,8 @@ export function construirLineas(
 
   haber(cuentas.ss, item.ss);
   haber(cuentas.se, item.se);
-  haber(cuentas.otrasDeducciones, item.otrasDeducciones);
+  // En una prestación la lista viene vacía: todo cae a la cuenta genérica, como antes.
+  for (const linea of creditosDeducciones(item, cuentas)) lineas.push(linea);
   haber(bancoId, item.neto);
   return lineas;
 }

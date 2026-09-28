@@ -56,11 +56,12 @@ const Q1_JUNIO: ContextoCorrida = {
   periodicidad: 'QUINCENAL',
   fechaDesde: new Date(2026, 5, 1),
   fechaHasta: new Date(2026, 5, 15),
+  fechaPago: new Date(2026, 5, 15),
   pagoNumero: 1,
   pagosDelMes: 2,
 };
 
-const Q2_JUNIO: ContextoCorrida = { ...Q1_JUNIO, fechaDesde: new Date(2026, 5, 16), fechaHasta: new Date(2026, 5, 30), pagoNumero: 2 };
+const Q2_JUNIO: ContextoCorrida = { ...Q1_JUNIO, fechaDesde: new Date(2026, 5, 16), fechaHasta: new Date(2026, 5, 30), fechaPago: new Date(2026, 5, 30), pagoNumero: 2 };
 
 /**
  * Una semana de septiembre 2026: del lunes 7 al domingo 13. Septiembre tiene cuatro
@@ -71,6 +72,7 @@ const SEMANA_SEP_CTX: ContextoCorrida = {
   periodicidad: 'SEMANAL',
   fechaDesde: new Date(2026, 8, 7),
   fechaHasta: new Date(2026, 8, 13),
+  fechaPago: new Date(2026, 8, 11), // el viernes de esa semana
   pagoNumero: 2,
   pagosDelMes: 4,
 };
@@ -167,6 +169,7 @@ describe('décimo tercer mes', () => {
     periodicidad: 'ANUAL',
     fechaDesde: new Date(2026, 0, 1),
     fechaHasta: new Date(2026, 11, 31),
+    fechaPago: new Date(2026, 11, 15), // el décimo se paga a mediados de diciembre
     pagoNumero: 1,
     pagosDelMes: 1,
   };
@@ -212,6 +215,7 @@ describe('vacaciones', () => {
     periodicidad: 'EVENTUAL',
     fechaDesde: new Date(2026, 5, 1),
     fechaHasta: new Date(2026, 5, 30),
+    fechaPago: new Date(2026, 5, 30),
     pagoNumero: 1,
     pagosDelMes: 1,
   };
@@ -259,6 +263,7 @@ describe('ISR: proyección anual ×13', () => {
       periodicidad: 'MENSUAL',
       fechaDesde: new Date(2026, 5, 1),
       fechaHasta: new Date(2026, 5, 30),
+      fechaPago: new Date(2026, 5, 30),
       pagoNumero: 1,
       pagosDelMes: 1,
     };
@@ -780,5 +785,122 @@ describe('descuento por ausencia o tardanza (R1c)', () => {
     const decimo = item(780, { montoPrestacion: 400, menosSueldo: 100 }, { ...Q1_JUNIO, tipo: 'DECIMO' });
     expect(decimo.menosSueldo).toBe(0);
     expect(decimo.bruto).toBe(400);
+  });
+});
+
+/**
+ * Deducciones de acreedores (préstamos, embargos, mueblerías) dentro del motor.
+ *
+ * Lo que se fija acá es la garantía del asiento: el total descontado es exactamente
+ * `manual + Σ de las que aplican`, y ese total se acredita repartido por cuenta de
+ * acreedor más el resto a la genérica — sin céntimo que absorber, igual que el neto.
+ */
+describe('deducciones de acreedores', () => {
+  const banco = {
+    deduccionId: 'd-banco',
+    employeeId: 'e1',
+    acreedor: 'Banco General',
+    cuentaId: 'c-banco-prestamo',
+    tipo: 'FIJO' as const,
+    montoFijo: 100,
+    saldoPendiente: 500,
+    cuotasAplicadas: 1,
+    cuotas: 12,
+    aplicaEnDiciembre: true,
+    isActive: true,
+  };
+  const muebleria = {
+    ...banco,
+    deduccionId: 'd-muebleria',
+    acreedor: 'Mueblería X',
+    cuentaId: 'c-muebleria',
+    montoFijo: 45.45,
+    tipo: 'FIJO' as const,
+    saldoPendiente: null,
+    cuotas: null,
+    cuotasAplicadas: 0,
+  };
+
+  it('el total descontado es el manual más las cuotas que aplican', () => {
+    const r = item(1220.8, { deducciones: [banco, muebleria], otrasDeduccionesManual: 20 });
+    expect(r.deducciones).toHaveLength(2);
+    expect(r.otrasDeducciones).toBe(sumarMontos(20, 100, 45.45));
+    expect(r.neto).toBe(r2(r.bruto - r.ss - r.se - r.isr - r.otrasDeducciones));
+  });
+
+  it('el alias viejo `otrasDeducciones` sigue siendo el monto sin acreedor', () => {
+    const conAlias = item(1220.8, { otrasDeducciones: 75.5 });
+    const conNombreNuevo = item(1220.8, { otrasDeduccionesManual: 75.5 });
+    expect(conAlias.otrasDeducciones).toBe(75.5);
+    expect(conAlias.neto).toBe(conNombreNuevo.neto);
+  });
+
+  it('una cuota saltada no descuenta ni consume el número de cuota', () => {
+    const r = item(1220.8, { deducciones: [{ ...banco, omitida: true }] });
+    const cuota = r.deducciones[0];
+    expect(cuota.monto).toBe(0);
+    expect(cuota.estado).toBe('OMITIDA_MANUAL');
+    expect(cuota.cuotaNumero).toBeNull();
+    expect(r.otrasDeducciones).toBe(0);
+  });
+
+  it('en una prestación no corren: el catálogo es contra el sueldo', () => {
+    const decimo = item(780, { montoPrestacion: 500, deducciones: [banco] }, { ...Q1_JUNIO, tipo: 'DECIMO' });
+    expect(decimo.deducciones).toEqual([]);
+    expect(decimo.otrasDeducciones).toBe(0);
+  });
+
+  it('el asiento acredita UNA cuenta por acreedor y el resto a la genérica', () => {
+    // 30 sin acreedor: tiene que caer en `c-otras`, la cuenta genérica.
+    const r = item(1220.8, { deducciones: [banco, muebleria], otrasDeduccionesManual: 30 });
+    const lineas = construirLineas(r, 'SUELDO', CUENTAS, 'c-banco', false);
+    const credito = (id: string) => lineas.filter((l) => l.accountId === id).reduce((s, l) => s + l.credit, 0);
+
+    expect(credito('c-banco-prestamo')).toBe(100);
+    expect(credito('c-muebleria')).toBe(45.45);
+    expect(credito('c-otras')).toBe(30);
+    expect(debitos(lineas)).toBe(creditos(lineas));
+  });
+
+  it('dos deducciones al mismo acreedor son una sola línea', () => {
+    const r = item(1220.8, { deducciones: [banco, { ...banco, deduccionId: 'd2', montoFijo: 50 }] });
+    const lineas = construirLineas(r, 'SUELDO', CUENTAS, 'c-banco', false);
+    const lineasBanco = lineas.filter((l) => l.accountId === 'c-banco-prestamo');
+    expect(lineasBanco).toHaveLength(1);
+    expect(lineasBanco[0].credit).toBe(150);
+    expect(creditos(lineas)).toBe(debitos(lineas));
+  });
+
+  it('si el acreedor usa la cuenta genérica, no se duplica la línea', () => {
+    const r = item(1220.8, { deducciones: [{ ...banco, cuentaId: CUENTAS.otrasDeducciones }], otrasDeduccionesManual: 30 });
+    const lineas = construirLineas(r, 'SUELDO', CUENTAS, 'c-banco', false);
+    const generica = lineas.filter((l) => l.accountId === 'c-otras');
+    expect(generica).toHaveLength(1);
+    expect(generica[0].credit).toBe(130);
+    expect(creditos(lineas)).toBe(debitos(lineas));
+  });
+
+  it('sin nada sin acreedor, la cuenta genérica no aparece en el asiento', () => {
+    const r = item(1220.8, { deducciones: [banco, muebleria] });
+    const lineas = construirLineas(r, 'SUELDO', CUENTAS, 'c-banco', false);
+    expect(lineas.some((l) => l.accountId === 'c-otras')).toBe(false);
+    expect(creditos(lineas)).toBe(debitos(lineas));
+  });
+
+  it('el cuadre se mantiene en la corrida consolidada', () => {
+    const items = [
+      item(1220.8, { deducciones: [banco] }, Q1_JUNIO, { id: 'e1' }),
+      item(666.66, { deducciones: [muebleria], otrasDeduccionesManual: 5.55 }, Q1_JUNIO, { id: 'e2' }),
+    ];
+    const conLineas = items.map((i) => ({ lineas: construirLineas(i, 'SUELDO', CUENTAS, 'c-banco', false) }));
+    const consolidadas = consolidarLineas(conLineas);
+    expect(debitos(consolidadas)).toBe(creditos(consolidadas));
+    expect(consolidadas.filter((l) => l.accountId === 'c-banco-prestamo')).toHaveLength(1);
+  });
+
+  it('el aviso de neto negativo nombra al acreedor', () => {
+    const r = item(1220.8, { deducciones: [{ ...banco, montoFijo: 2000, saldoPendiente: 2000 }] });
+    expect(r.neto).toBeLessThan(0);
+    expect(r.avisos.join(' ')).toMatch(/Banco General 2000\.00/);
   });
 });

@@ -33,6 +33,11 @@ import {
 } from '../services/payroll-parametros';
 import { CLASES_RIESGO, DIAS_SEMANA } from '../services/payroll-calc';
 import { resumenCSS, registrarPagoCSS, valorarCSS } from '../services/payroll-css';
+import {
+  listarDeducciones,
+  resumenAcreedores,
+  registrarPagoAcreedor,
+} from '../services/payroll-acreedores';
 import { cuadrePlanilla } from '../services/payroll-cuadre';
 import {
   createEmpleadoSchema,
@@ -43,6 +48,9 @@ import {
   anularCorridaSchema,
   revisarCorridaSchema,
   pagoCSSSchema,
+  createDeduccionSchema,
+  updateDeduccionSchema,
+  pagoAcreedorSchema,
   type UpdatePayrollSettingsInput,
 } from '../validation/schemas';
 
@@ -278,6 +286,176 @@ planillaRouter.patch(
       return;
     }
     res.json(empleado);
+  }),
+);
+
+// ─── Deducciones de acreedores (préstamos, embargos, mueblerías) ──────────────
+
+/**
+ * Normaliza el body a columnas. Las fechas llegan como 'YYYY-MM-DD' y van a mediodía
+ * local (convención del repo: medianoche se ve un día antes en el navegador).
+ *
+ * El tipo manda: una deducción FIJA no arrastra un porcentaje viejo ni al revés, así la
+ * pantalla no muestra dos valores que se contradicen.
+ */
+function datosDeDeduccion(body: any) {
+  const datos: any = {};
+  if (body.acreedor !== undefined) datos.acreedor = body.acreedor.trim();
+  if (body.cuentaId !== undefined) datos.cuentaId = body.cuentaId;
+  if (body.tipo !== undefined) {
+    datos.tipo = body.tipo;
+    datos.montoFijo = body.tipo === 'FIJO' ? body.montoFijo ?? null : null;
+    datos.porcentaje = body.tipo === 'PORCENTAJE' ? body.porcentaje ?? null : null;
+  } else {
+    if (body.montoFijo !== undefined) datos.montoFijo = body.montoFijo;
+    if (body.porcentaje !== undefined) datos.porcentaje = body.porcentaje;
+  }
+  for (const campo of ['cuotas', 'montoTotal', 'saldoInicial', 'aplicaEnDiciembre', 'isActive', 'notas'] as const) {
+    if (body[campo] !== undefined) datos[campo] = body[campo];
+  }
+  for (const campo of ['fechaInicio', 'fechaFin'] as const) {
+    if (body[campo] !== undefined) datos[campo] = body[campo] ? parseLocalDate(body[campo]) : null;
+  }
+  return datos;
+}
+
+/** Valida que el empleado y la cuenta sean de ESTA empresa (multi-tenant). */
+async function validarDeduccion(prisma: any, companyId: string, employeeId: string | undefined, cuentaId: string | undefined) {
+  if (employeeId) {
+    const empleado = await prisma.employee.findFirst({ where: { id: employeeId, companyId }, select: { id: true } });
+    if (!empleado) return 'El empleado no existe en esta empresa.';
+  }
+  if (cuentaId) {
+    const cuenta = await prisma.account.findFirst({
+      where: { id: cuentaId, companyId },
+      select: { code: true, name: true, isBlocked: true, type: true },
+    });
+    if (!cuenta) return 'La cuenta por pagar no existe en esta empresa.';
+    if (cuenta.isBlocked) {
+      return `La cuenta "${cuenta.code} ${cuenta.name}" está bloqueada: no admite movimientos nuevos.`;
+    }
+    if (cuenta.type !== 'PASIVO') {
+      // Acreditar una deducción contra un activo o un ingreso dejaría el pasivo del
+      // empleado en el aire: el descuento es plata que se le debe a un tercero.
+      return `"${cuenta.code} ${cuenta.name}" es una cuenta de ${cuenta.type.toLowerCase()}: la deducción de un acreedor necesita una cuenta por pagar (PASIVO).`;
+    }
+  }
+  return null;
+}
+
+/** GET /api/planilla/deducciones — el catálogo, con el saldo derivado de cada fila. */
+planillaRouter.get(
+  '/deducciones',
+  wrap(async (req, res) => {
+    res.json(
+      await listarDeducciones(req.prisma, req.user!.companyId, {
+        empleadoId: (req.query.empleadoId as string) || undefined,
+        incluirInactivas: req.query.incluirInactivas === 'true',
+      }),
+    );
+  }),
+);
+
+planillaRouter.post(
+  '/deducciones',
+  requireRole(...ROLES_ESCRITURA_PLANILLA),
+  validate(createDeduccionSchema),
+  wrap(async (req, res) => {
+    const companyId = req.user!.companyId;
+    const problema = await validarDeduccion(req.prisma, companyId, req.body.employeeId, req.body.cuentaId);
+    if (problema) {
+      res.status(400).json({ error: problema });
+      return;
+    }
+    const deduccion = await req.prisma.payrollDeduction.create({
+      data: { companyId, employeeId: req.body.employeeId, ...datosDeDeduccion(req.body) },
+    });
+    res.status(201).json(deduccion);
+  }),
+);
+
+planillaRouter.patch(
+  '/deducciones/:id',
+  requireRole(...ROLES_ESCRITURA_PLANILLA),
+  validate(updateDeduccionSchema),
+  wrap(async (req, res) => {
+    const companyId = req.user!.companyId;
+    const actual = await req.prisma.payrollDeduction.findFirst({
+      where: { id: req.params.id, companyId },
+      select: { id: true },
+    });
+    if (!actual) {
+      res.status(404).json({ error: 'Deducción no encontrada' });
+      return;
+    }
+    const problema = await validarDeduccion(req.prisma, companyId, undefined, req.body.cuentaId);
+    if (problema) {
+      res.status(400).json({ error: problema });
+      return;
+    }
+    const deduccion = await req.prisma.payrollDeduction.update({
+      where: { id: actual.id },
+      data: datosDeDeduccion(req.body),
+    });
+    res.json(deduccion);
+  }),
+);
+
+/**
+ * DELETE /api/planilla/deducciones/:id — solo para una carga equivocada.
+ *
+ * Si ya descontó alguna cuota NO se borra: el detalle de la corrida la referencia y,
+ * además, borrarla dejaría el pasivo del acreedor sin explicación. Ahí lo que
+ * corresponde es desactivarla.
+ */
+planillaRouter.delete(
+  '/deducciones/:id',
+  requireRole(...ROLES_ESCRITURA_PLANILLA),
+  wrap(async (req, res) => {
+    const companyId = req.user!.companyId;
+    const deduccion = await req.prisma.payrollDeduction.findFirst({
+      where: { id: req.params.id, companyId },
+      select: { id: true, _count: { select: { items: true } } },
+    });
+    if (!deduccion) {
+      res.status(404).json({ error: 'Deducción no encontrada' });
+      return;
+    }
+    if (deduccion._count.items > 0) {
+      res.status(409).json({
+        error: `Esta deducción ya se descontó en ${deduccion._count.items} corrida(s): no se puede borrar sin romper el historial. Desactivala para que deje de precargarse.`,
+      });
+      return;
+    }
+    await req.prisma.payrollDeduction.delete({ where: { id: deduccion.id } });
+    res.json({ ok: true });
+  }),
+);
+
+/** GET /api/planilla/acreedores — el saldo de cada cuenta por pagar de la planilla. */
+planillaRouter.get(
+  '/acreedores',
+  wrap(async (req, res) => {
+    res.json(await resumenAcreedores(req.prisma, req.user!.companyId));
+  }),
+);
+
+/**
+ * POST /api/planilla/acreedores/pago — debita la cuenta del acreedor y acredita el banco.
+ * El asiento nace en BORRADOR y lo aprueba el contador como cualquier otro.
+ */
+planillaRouter.post(
+  '/acreedores/pago',
+  requireRole(...ROLES_ESCRITURA_PLANILLA),
+  validate(pagoAcreedorSchema),
+  wrap(async (req, res) => {
+    const resultado = await registrarPagoAcreedor(
+      req.prisma,
+      req.user!.companyId,
+      req.user!.userId,
+      req.body,
+    );
+    res.status(201).json(resultado);
   }),
 );
 

@@ -414,7 +414,30 @@ const ajusteCorridaSchema = z.object({
   otrosIngresos: z.number().min(0).max(1e7).optional(),
   // Ausencia o tardanza: baja el sueldo y la base de cotización, no es una deducción.
   menosSueldo: z.number().min(0).max(1e7).optional(),
+  /**
+   * Lo que se descuenta SIN acreedor identificado: lo que el contador teclea en el
+   * desglose. Las deducciones del catálogo no viajan acá — las precarga el servidor y
+   * solo se ajustan (saltar una cuota o cambiarle el monto) en `deducciones`.
+   */
+  otrasDeduccionesManual: z.number().min(0).max(1e7).optional(),
+  /**
+   * @deprecated Alias de `otrasDeduccionesManual`. Se sigue aceptando porque una
+   * pantalla con caché vieja no puede perder en silencio un número tecleado — y ese
+   * número cambia el neto de una persona.
+   */
   otrasDeducciones: z.number().min(0).max(1e7).optional(),
+  /** Ajustes sobre las deducciones precargadas: saltar esta cuota o cambiarle el monto. */
+  deducciones: z
+    .array(
+      z.object({
+        deduccionId: z.string().min(1),
+        omitida: z.boolean().optional(),
+        /** Monto de esta cuota; teclear 0 es saltarla. */
+        monto: z.number().min(0).max(1e7).optional(),
+      }),
+    )
+    .max(50)
+    .optional(),
   /** Solo en corridas de DECIMO/VACACIONES: cuánto se le paga de la prestación. */
   montoPrestacion: z.number().min(0).max(1e9).optional(),
   notas: z.string().max(300).optional(),
@@ -480,6 +503,74 @@ export const pagoCSSSchema = z
     { message: 'El pago tiene que tener un monto mayor que cero', path: ['montoSSObrero'] },
   );
 export type PagoCSSInput = z.infer<typeof pagoCSSSchema>;
+
+// ── Planilla: deducciones de acreedores (préstamos, embargos, mueblerías) ──
+
+/**
+ * El catálogo. `cuotas` son las que FALTAN desde el corte, no las pactadas
+ * originalmente: un préstamo de 24 con 10 pagadas se carga con 14 y su saldo inicial.
+ */
+export const createDeduccionSchema = z
+  .object({
+    employeeId: z.string().min(1, 'Elegí el empleado'),
+    acreedor: z.string().min(1, 'El acreedor es obligatorio').max(120),
+    cuentaId: z.string().min(1, 'Elegí la cuenta por pagar del acreedor'),
+    tipo: z.enum(['FIJO', 'PORCENTAJE']),
+    montoFijo: z.number().min(0).max(1e7).nullable().optional(),
+    /** Tasa 0..1, sobre sueldo + horas extras. */
+    porcentaje: z.number().min(0).max(1).nullable().optional(),
+    cuotas: z.number().int().min(1).max(600).nullable().optional(),
+    montoTotal: z.number().min(0).max(1e9).nullable().optional(),
+    saldoInicial: z.number().min(0).max(1e9).nullable().optional(),
+    fechaInicio: isoDate.nullable().optional(),
+    fechaFin: isoDate.nullable().optional(),
+    aplicaEnDiciembre: z.boolean().default(true),
+    isActive: z.boolean().optional(),
+    notas: z.string().max(300).nullable().optional(),
+  })
+  .refine((d) => (d.tipo === 'FIJO' ? (d.montoFijo ?? 0) > 0 : (d.porcentaje ?? 0) > 0), {
+    message: 'Una deducción de monto fijo necesita su monto, y una por porcentaje, su tasa',
+  })
+  .refine((d) => d.saldoInicial == null || d.montoTotal == null || d.saldoInicial <= d.montoTotal, {
+    message: 'El saldo inicial no puede superar el monto total de la deuda',
+  });
+
+export const updateDeduccionSchema = z
+  .object({
+    acreedor: z.string().min(1).max(120).optional(),
+    cuentaId: z.string().min(1).optional(),
+    tipo: z.enum(['FIJO', 'PORCENTAJE']).optional(),
+    montoFijo: z.number().min(0).max(1e7).nullable().optional(),
+    porcentaje: z.number().min(0).max(1).nullable().optional(),
+    cuotas: z.number().int().min(1).max(600).nullable().optional(),
+    montoTotal: z.number().min(0).max(1e9).nullable().optional(),
+    saldoInicial: z.number().min(0).max(1e9).nullable().optional(),
+    fechaInicio: isoDate.nullable().optional(),
+    fechaFin: isoDate.nullable().optional(),
+    aplicaEnDiciembre: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+    notas: z.string().max(300).nullable().optional(),
+  })
+  .refine((d) => d.tipo !== 'FIJO' || d.montoFijo == null || d.montoFijo > 0, {
+    message: 'Una deducción de monto fijo necesita su monto',
+  })
+  .refine((d) => d.tipo !== 'PORCENTAJE' || d.porcentaje == null || d.porcentaje > 0, {
+    message: 'Una deducción por porcentaje necesita su tasa',
+  });
+
+export const pagoAcreedorSchema = z.object({
+  cuentaId: z.string().min(1, 'Elegí la cuenta del acreedor'),
+  fecha: isoDate,
+  bancoCuentaId: z.string().min(1, 'Elegí el banco por el que salió el pago'),
+  monto: z.number().positive().max(1e9),
+  acreedor: z.string().max(120).optional(),
+  referencia: z.string().max(100).optional(),
+  notas: z.string().max(500).optional(),
+  /** Confirma un pago que supera el saldo de la cuenta (ver `registrarPagoAcreedor`). */
+  confirmarExceso: z.boolean().optional(),
+});
+
+export type PagoAcreedorInput = z.infer<typeof pagoAcreedorSchema>;
 
 export const updatePayrollSettingsSchema = z.object({
   ssObrero: z.number().min(0).max(1).optional(),
