@@ -11,6 +11,8 @@
   <style>
     .pl-container { max-width: 1280px; margin: 0 auto; padding: 24px; }
     .pl-header h1 { font-size: 24px; color: #1a1a2e; margin: 0 0 8px 0; }
+    /* La empresa, al lado del icono: el módulo es de una sola empresa y no lo decía. */
+    .pl-header .empresa-chip { font-size: 13px; font-weight: 600; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; border-radius: 999px; padding: 3px 12px; vertical-align: middle; margin-left: 8px; }
     .pl-header p { color: #6b7280; margin: 0; font-size: 14px; }
     .pl-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 20px 0 16px 0; border-bottom: 2px solid #e5e7eb; }
     .pl-tab { padding: 8px 14px; border: none; background: none; cursor: pointer; font-size: 13px; font-weight: 600; color: #6b7280; border-bottom: 2px solid transparent; margin-bottom: -2px; }
@@ -66,7 +68,7 @@
 <body>
 <div class="pl-container">
   <div class="pl-header">
-    <h1>🧮 Planilla</h1>
+    <h1>🧮 Planilla <span class="empresa-chip" id="pl-empresa"></span></h1>
     <p>Registro de empleados, corridas de nómina y cuentas de la CSS. Los asientos nacen en BORRADOR y los aprueba el contador.</p>
     <p style="margin-top:8px"><a href="/index.html" style="color:#047857;text-decoration:none;font-size:14px">← Volver al inicio</a></p>
   </div>

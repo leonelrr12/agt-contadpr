@@ -57,6 +57,27 @@ function getToken() { return localStorage.getItem('agt_token'); }
 function getUser() { try { return JSON.parse(localStorage.getItem('agt_user')); } catch { return null; } }
 function logout() { localStorage.clear(); window.location = '/login.html'; }
 
+/**
+ * Escribe el nombre de la empresa en el encabezado de un módulo.
+ *
+ * Planilla e Inventario son pantallas de UNA sola empresa y no lo dicen en ningún
+ * lado: con más de un cliente abierto, saber en cuál estás parado no puede depender
+ * de la URL. El nombre sale del usuario guardado en el login (`agt_user`), que ya
+ * trae la empresa; si falta, se pregunta a la API en vez de dejar el hueco en blanco.
+ */
+async function pintarEmpresaEnTitulo(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = getUser()?.company?.name || '';
+  if (el.textContent) return;
+  try {
+    const res = await authFetch('/api/auth/me');
+    if (!res.ok) return;
+    const u = await res.json();
+    el.textContent = u.company?.name || '';
+  } catch { /* sin nombre antes que un error en el encabezado */ }
+}
+
 function authFetch(url, opts = {}) {
   const token = getToken();
   if (!token) { window.location = '/login.html'; return Promise.reject('No auth'); }

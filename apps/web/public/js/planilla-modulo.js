@@ -76,6 +76,8 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
+    // En qué empresa estoy parado: el encabezado lo dice antes de pedir datos.
+    pintarEmpresaEnTitulo('pl-empresa');
     const tab = new URLSearchParams(location.search).get('tab');
     if (tab && VISTAS[tab]) estado.vista = tab;
     document.querySelectorAll('#pl-tabs .pl-tab').forEach((b) => {

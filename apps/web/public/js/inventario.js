@@ -849,4 +849,6 @@ async function ejecutarCarga() {
 
 // ── Arranque ────────────────────────────────────────────────────────────────
 
+// En qué empresa estoy parado: el encabezado lo dice antes de pedir datos.
+pintarEmpresaEnTitulo('inv-empresa');
 render();

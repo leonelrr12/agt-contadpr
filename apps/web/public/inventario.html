@@ -11,6 +11,8 @@
   <style>
     .inv-container { max-width: 1200px; margin: 0 auto; padding: 24px; }
     .inv-header h1 { font-size: 24px; color: #1a1a2e; margin: 0 0 8px 0; }
+    /* La empresa, al lado del icono: el módulo es de una sola empresa y no lo decía. */
+    .inv-header .empresa-chip { font-size: 13px; font-weight: 600; background: #e3f2fd; color: #1565c0; border: 1px solid #bbdefb; border-radius: 999px; padding: 3px 12px; vertical-align: middle; margin-left: 8px; }
     .inv-header p { color: #6b7280; margin: 0; font-size: 14px; }
     .inv-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 20px 0 16px 0; border-bottom: 2px solid #e5e7eb; }
     .inv-tab { padding: 8px 14px; border: none; background: none; cursor: pointer; font-size: 13px; font-weight: 600; color: #6b7280; border-bottom: 2px solid transparent; margin-bottom: -2px; }
@@ -58,7 +60,7 @@
 <body>
 <div class="inv-container">
   <div class="inv-header">
-    <h1>📦 Inventario</h1>
+    <h1>📦 Inventario <span class="empresa-chip" id="inv-empresa"></span></h1>
     <p>Existencias de mercancía de reventa a costo promedio. Las compras entran por acá y generan su asiento; las ventas se facturan y descuentan el stock.</p>
     <p style="margin-top:8px"><a href="/index.html" style="color:#1565c0;text-decoration:none;font-size:14px">← Volver al inicio</a></p>
   </div>
@@ -76,6 +78,6 @@
   <div id="inv-contenido"><div class="loading">Cargando…</div></div>
 </div>
 
-<script src="js/inventario.js?v=7"></script>
+<script src="js/inventario.js?v=8"></script>
 </body>
 </html>
