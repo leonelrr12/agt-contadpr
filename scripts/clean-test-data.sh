@@ -68,7 +68,10 @@ DELETE FROM "Transaction" WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM "JournalLine" WHERE "journalEntryId" IN (SELECT id FROM "JournalEntry" WHERE "companyId" = '${COMPANY_ID}');
 DELETE FROM "JournalEntry" WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM payment_record WHERE "subscriptionId" IN (SELECT id FROM subscription WHERE "companyId" = '${COMPANY_ID}');
-DELETE FROM "AuditLog";
+-- El rastro, solo el de esta empresa: `AuditLog` no tiene companyId (cuelga de
+-- `userId`), así que se acota por los usuarios de la empresa. Sin el WHERE se llevaba
+-- también el de las demás — y con él, la constancia de lo que se hizo y cuándo.
+DELETE FROM "AuditLog" WHERE "userId" IN (SELECT id FROM "User" WHERE "companyId" = '${COMPANY_ID}');
 DELETE FROM client WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM supplier WHERE "companyId" = '${COMPANY_ID}';
 UPDATE subscription SET "movementsUsed" = 0 WHERE "companyId" = '${COMPANY_ID}' AND status IN ('DEMO', 'ACTIVE', 'GRANTED');
