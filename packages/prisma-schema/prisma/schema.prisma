@@ -1008,8 +1008,10 @@ model PayrollSettings {
   // Retenciones del empleado (verificadas contra los asientos ya cargados).
   ssObrero Float @default(0.0975)
   seObrero Float @default(0.0125)
-  // Aportes del patrono.
-  ssPatronal Float @default(0.1225)
+  // Aportes del patrono. El Seguro Social del patrono es 13,25% (lo aclaró el
+  // contador el 28-09) y los riesgos profesionales van APARTE, por clase: una tasa
+  // que salía como "13,25 − 12,25" dejaba el aporte un punto abajo desde el arranque.
+  ssPatronal Float @default(0.1325)
   sePatronal Float @default(0.015)
   /// Tasa general de Riesgos Profesionales: un aporte del patrono que va a su PROPIA
   /// cuenta de gasto, aparte del Seguro Social. Es la que se aplica al empleado que

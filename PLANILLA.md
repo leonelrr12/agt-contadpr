@@ -407,9 +407,9 @@ código**: si cambia la ley o cambia el cliente, se cambia ahí.
 |---|---|---|
 | `ssObrero` | 9,75% | ✓ verificado contra los 77 asientos cargados |
 | `seObrero` | 1,25% | ✓ verificado |
-| `ssPatronal` | 12,25% | el contador |
+| `ssPatronal` | 13,25% | el contador, **aclarado el 28-09**: es el Seguro Social del patrono a secas |
 | `sePatronal` | 1,50% | el contador |
-| `riesgosProfesionales` | 1,00% | **derivado**: 13,25% del patrono − 12,25% de Seguro Social. Depende de la clase de riesgo |
+| `riesgosProfesionales` | 1,00% | la tarifa de la clase I (oficina), **aparte** del Seguro Social del patrono |
 | `ssObreroDecimo` | 7,25% | ✓ verificado (cinco niveles de sueldo, exactos) |
 | `seObreroDecimo` | 0 | ✓ verificado |
 | `ssPatronalDecimo` | 10,75% | el contador. Es **menor** que el del sueldo |
@@ -427,9 +427,11 @@ fiscalización. La tabla arranca solo con la clase I; las demás se cargan desde
 
 **Dos avisos sobre esta tabla**, porque son decisiones y no descubrimientos:
 
-- El **1,00% de riesgos profesionales es una resta**, no un dato que el contador haya dictado: sale de que el
-  total del patrono es 13,25% y el Seguro Social 12,25%. Si la clase de riesgo del cliente no es la I, se
-  corrige en Parámetros.
+- El **Seguro Social del patrono es 13,25% y los riesgos profesionales van aparte**, por clase (1,00% la
+  clase I). Una versión anterior de esta tabla los presentaba como una resta —13,25% de total menos 12,25% de
+  Seguro Social— y eso dejaba el Seguro Social del patrono un punto abajo (12,25%) **sumando** el punto de
+  riesgos encima: el total daba igual, pero cada concepto caía mal en su cuenta. El contador lo aclaró el
+  28-09. Las clases II a V se cargan desde Parámetros.
 - El **décimo lleva solo Seguro Social del patrono**. El contador dio una sola tasa para el décimo (10,75%) y
   del lado del empleado el Seguro Educativo también es cero. Si resultara que el patrono sí paga Seguro
   Educativo o riesgos sobre el décimo, son dos líneas en `calcularItem` — está dicho acá para que sea una
