@@ -495,6 +495,9 @@ export function calcularItem(
     const deducciones = resolverDeducciones(entrada.deducciones ?? [], {
       tipo: ctx.tipo,
       fechaPago: ctx.fechaPago,
+      // La cuota es mensual y se reparte entre los pagos del mes (ver `cuotaDelPago`).
+      pagoNumero: ctx.pagoNumero,
+      pagosDelMes: ctx.pagosDelMes,
       base: baseDeduccion(sueldo, horasExtras),
     });
     for (const d of deducciones) {

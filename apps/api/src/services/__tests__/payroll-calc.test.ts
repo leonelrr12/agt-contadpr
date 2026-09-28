@@ -63,6 +63,16 @@ const Q1_JUNIO: ContextoCorrida = {
 
 const Q2_JUNIO: ContextoCorrida = { ...Q1_JUNIO, fechaDesde: new Date(2026, 5, 16), fechaHasta: new Date(2026, 5, 30), fechaPago: new Date(2026, 5, 30), pagoNumero: 2 };
 
+/** Junio completo, pagado una sola vez: la cuota mensual del acreedor va entera. */
+const MENSUAL_JUNIO: ContextoCorrida = {
+  ...Q1_JUNIO,
+  periodicidad: 'MENSUAL',
+  fechaHasta: new Date(2026, 5, 30),
+  fechaPago: new Date(2026, 5, 30),
+  pagoNumero: 1,
+  pagosDelMes: 1,
+};
+
 /**
  * Una semana de septiembre 2026: del lunes 7 al domingo 13. Septiembre tiene cuatro
  * viernes (4, 11, 18 y 25), así que este es el segundo pago del mes.
@@ -822,7 +832,7 @@ describe('deducciones de acreedores', () => {
   };
 
   it('el total descontado es el manual más las cuotas que aplican', () => {
-    const r = item(1220.8, { deducciones: [banco, muebleria], otrasDeduccionesManual: 20 });
+    const r = item(1220.8, { deducciones: [banco, muebleria], otrasDeduccionesManual: 20 }, MENSUAL_JUNIO);
     expect(r.deducciones).toHaveLength(2);
     expect(r.otrasDeducciones).toBe(sumarMontos(20, 100, 45.45));
     expect(r.neto).toBe(r2(r.bruto - r.ss - r.se - r.isr - r.otrasDeducciones));
@@ -836,7 +846,7 @@ describe('deducciones de acreedores', () => {
   });
 
   it('una cuota saltada no descuenta ni consume el número de cuota', () => {
-    const r = item(1220.8, { deducciones: [{ ...banco, omitida: true }] });
+    const r = item(1220.8, { deducciones: [{ ...banco, omitida: true }] }, MENSUAL_JUNIO);
     const cuota = r.deducciones[0];
     expect(cuota.monto).toBe(0);
     expect(cuota.estado).toBe('OMITIDA_MANUAL');
@@ -852,7 +862,7 @@ describe('deducciones de acreedores', () => {
 
   it('el asiento acredita UNA cuenta por acreedor y el resto a la genérica', () => {
     // 30 sin acreedor: tiene que caer en `c-otras`, la cuenta genérica.
-    const r = item(1220.8, { deducciones: [banco, muebleria], otrasDeduccionesManual: 30 });
+    const r = item(1220.8, { deducciones: [banco, muebleria], otrasDeduccionesManual: 30 }, MENSUAL_JUNIO);
     const lineas = construirLineas(r, 'SUELDO', CUENTAS, 'c-banco', false);
     const credito = (id: string) => lineas.filter((l) => l.accountId === id).reduce((s, l) => s + l.credit, 0);
 
@@ -863,7 +873,7 @@ describe('deducciones de acreedores', () => {
   });
 
   it('dos deducciones al mismo acreedor son una sola línea', () => {
-    const r = item(1220.8, { deducciones: [banco, { ...banco, deduccionId: 'd2', montoFijo: 50 }] });
+    const r = item(1220.8, { deducciones: [banco, { ...banco, deduccionId: 'd2', montoFijo: 50 }] }, MENSUAL_JUNIO);
     const lineas = construirLineas(r, 'SUELDO', CUENTAS, 'c-banco', false);
     const lineasBanco = lineas.filter((l) => l.accountId === 'c-banco-prestamo');
     expect(lineasBanco).toHaveLength(1);
@@ -872,7 +882,7 @@ describe('deducciones de acreedores', () => {
   });
 
   it('si el acreedor usa la cuenta genérica, no se duplica la línea', () => {
-    const r = item(1220.8, { deducciones: [{ ...banco, cuentaId: CUENTAS.otrasDeducciones }], otrasDeduccionesManual: 30 });
+    const r = item(1220.8, { deducciones: [{ ...banco, cuentaId: CUENTAS.otrasDeducciones }], otrasDeduccionesManual: 30 }, MENSUAL_JUNIO);
     const lineas = construirLineas(r, 'SUELDO', CUENTAS, 'c-banco', false);
     const generica = lineas.filter((l) => l.accountId === 'c-otras');
     expect(generica).toHaveLength(1);
@@ -881,7 +891,7 @@ describe('deducciones de acreedores', () => {
   });
 
   it('sin nada sin acreedor, la cuenta genérica no aparece en el asiento', () => {
-    const r = item(1220.8, { deducciones: [banco, muebleria] });
+    const r = item(1220.8, { deducciones: [banco, muebleria] }, MENSUAL_JUNIO);
     const lineas = construirLineas(r, 'SUELDO', CUENTAS, 'c-banco', false);
     expect(lineas.some((l) => l.accountId === 'c-otras')).toBe(false);
     expect(creditos(lineas)).toBe(debitos(lineas));
@@ -889,8 +899,8 @@ describe('deducciones de acreedores', () => {
 
   it('el cuadre se mantiene en la corrida consolidada', () => {
     const items = [
-      item(1220.8, { deducciones: [banco] }, Q1_JUNIO, { id: 'e1' }),
-      item(666.66, { deducciones: [muebleria], otrasDeduccionesManual: 5.55 }, Q1_JUNIO, { id: 'e2' }),
+      item(1220.8, { deducciones: [banco] }, MENSUAL_JUNIO, { id: 'e1' }),
+      item(666.66, { deducciones: [muebleria], otrasDeduccionesManual: 5.55 }, MENSUAL_JUNIO, { id: 'e2' }),
     ];
     const conLineas = items.map((i) => ({ lineas: construirLineas(i, 'SUELDO', CUENTAS, 'c-banco', false) }));
     const consolidadas = consolidarLineas(conLineas);
@@ -898,8 +908,23 @@ describe('deducciones de acreedores', () => {
     expect(consolidadas.filter((l) => l.accountId === 'c-banco-prestamo')).toHaveLength(1);
   });
 
+  it('en un pago quincenal la cuota va REPARTIDA: es mensual, no por pago', () => {
+    // Sin el reparto, el mismo préstamo le descontaba 200 al mes al quincenal y 433 al
+    // semanal. Los dos abonos son la MISMA cuota: solo el segundo la cierra.
+    const q1 = item(1220.8, { deducciones: [banco] }, Q1_JUNIO);
+    const q2 = item(1220.8, { deducciones: [{ ...banco, yaDescontadoEnElMes: 50 }] }, Q2_JUNIO);
+    expect([q1.otrasDeducciones, q2.otrasDeducciones]).toEqual([50, 50]);
+    expect(sumarMontos(q1.otrasDeducciones, q2.otrasDeducciones)).toBe(100);
+    expect([q1.deducciones[0].cierraCuota, q2.deducciones[0].cierraCuota]).toEqual([false, true]);
+    // Y el asiento sigue cuadrando en los dos abonos.
+    for (const r of [q1, q2]) {
+      const lineas = construirLineas(r, 'SUELDO', CUENTAS, 'c-banco', false);
+      expect(debitos(lineas)).toBe(creditos(lineas));
+    }
+  });
+
   it('el aviso de neto negativo nombra al acreedor', () => {
-    const r = item(1220.8, { deducciones: [{ ...banco, montoFijo: 2000, saldoPendiente: 2000 }] });
+    const r = item(1220.8, { deducciones: [{ ...banco, montoFijo: 2000, saldoPendiente: 2000 }] }, MENSUAL_JUNIO);
     expect(r.neto).toBeLessThan(0);
     expect(r.avisos.join(' ')).toMatch(/Banco General 2000\.00/);
   });

@@ -453,6 +453,12 @@ caía en una sola cuenta, así que el pasivo de cada acreedor no se podía conci
   (+ horas extras, que es la base que cotiza), `cuotas`, `montoTotal`/`saldoInicial`, fechas y
   `aplicaEnDiciembre` (**default SÍ**: la que se suspende se marca; al revés, una deducción se saltaría
   diciembre sola y le pagaría de más al acreedor sin que nadie lo note).
+- **La cuota es MENSUAL**, aunque el empleado cobre por quincena o por semana: así la pacta el banco o la
+  mueblería. Se **reparte entre los pagos del mes** con el mismo reparto del ISR (`cuotaDelPago`): los
+  intermedios llevan la división redondeada y **el último cierra** con lo que falte. Una cuota de $100 al
+  mes son $50 por quincena y ~$25 por semana — tratarla "por pago" le descontaba 4,33 cuotas al mes al que
+  cobra semanal y le acortaba el plazo a un tercio. **Una cuota se cuenta por MES**: solo la fila que cierra
+  lleva `cuotaNumero`, y es lo que cuenta el plazo (los abonos intermedios suman al saldo, no al conteo).
 - **Se precarga sola** en cada corrida de sueldo, igual que una plantilla recurrente, y el contador puede
   **saltar una cuota puntual** o cambiarle el monto desde el desglose. Saltarla **no la desarma**: la cuota no
   avanza ni el saldo baja, así que la próxima corrida la vuelve a ofrecer.
@@ -460,8 +466,9 @@ caía en una sola cuenta, así que el pasivo de cada acreedor no se podía conci
   cuota es lo que queda). Sin ninguno de los dos corre para siempre, y la pantalla lo avisa.
 - **El saldo no se guarda**: se deriva de las cuotas aplicadas de las corridas vivas, igual que los acumulados
   de décimo y vacaciones. Por eso anular una corrida devuelve la cuota sin tocar nada.
-- **`monto > 0` es la única marca de "cuota aplicada"** (`PayrollItemDeduction`): el saldo es su suma y el
-  número de cuota ese conteo + 1. Lo saltado se guarda con monto 0 y su motivo — queda la constancia.
+- **`monto > 0` es la marca del SALDO y `cuotaNumero` la del PLAZO** (`PayrollItemDeduction`): el saldo es la
+  suma de los montos y las cuotas aplicadas son las filas con `cuotaNumero` —las que cerraron su mes—. Lo
+  saltado se guarda con monto 0 y su motivo: queda la constancia y no mueve ni el saldo ni el calendario.
 - **Corre solo en corridas de SUELDO**: un descuento de mueblería contra el décimo no es lo que se pactó.
 - El **pago al acreedor** debita SU cuenta por pagar contra el banco (BORRADOR), y si el monto supera el
   saldo, pregunta antes: es la misma guardia del pago a la CSS.

@@ -346,8 +346,10 @@
     const aplica = d.estado === 'APLICA' && !saltada;
     // Saltada o terminada no tiene monto que editar: se apaga y se muestra en cero.
     const monto = aplica ? (ajuste.monto ?? d.monto) : 0;
+    // La cuota es MENSUAL: en un empleado quincenal o semanal, los pagos intermedios
+    // son abonos de la misma cuota y solo el último la cierra.
     const cuota = d.cuotaNumero
-      ? `Cuota ${d.cuotaNumero}${d.cuotasTotales ? ` de ${d.cuotasTotales}` : ''}`
+      ? `Cuota ${d.cuotaNumero}${d.cuotasTotales ? ` de ${d.cuotasTotales}` : ''}${d.cierraCuota ? '' : ' · abono del mes'}`
       : '';
     const saldo = d.saldoAntes != null ? `debe ${num(d.saldoAntes)}` : '';
     const cuenta = (estado.catalogo || []).find((c) => c.id === d.cuentaId);
@@ -799,6 +801,8 @@
         <p class="nota">Las <b>cuotas son las que FALTAN</b> desde el corte: un préstamo de 24 con 10 pagadas se carga con 14 y su saldo inicial.
           El <b>saldo</b> hace que la deuda termine sola (la última cuota es el remanente); sin cuotas ni deuda total, la deducción corre para siempre y la pantalla lo avisa.
           El <b>porcentaje</b> se aplica sobre sueldo + horas extras del período.
+          La cuota es <b>MENSUAL</b> —como la pacta el banco o la mueblería—: si el empleado cobra por quincena o por semana se reparte entre los pagos del mes
+          ($100 al mes son $50 por quincena) y <b>el último pago la cierra</b>. Una cuota se cuenta por MES, no por pago.
           ${esAdmin ? '' : 'Para crear la cuenta por pagar de un acreedor nuevo, pedísela al administrador (Administración → Cuentas).'}</p>
       </div>`;
 
@@ -818,7 +822,8 @@
       <div class="card">
         <h3>Catálogo (${estado.deducciones.length})</h3>
         <table class="data-table">
-          <thead><tr><th>Empleado</th><th>Acreedor</th><th>Cuenta por pagar</th><th class="num">Cuota</th>
+          <thead><tr><th>Empleado</th><th>Acreedor</th><th>Cuenta por pagar</th>
+            <th class="num" title="Es la cuota del MES: se reparte entre los pagos del mes si el empleado cobra quincenal o semanal">Cuota mensual</th>
             <th class="num">Cuotas</th><th class="num">Saldo</th><th>Estado</th><th></th></tr></thead>
           <tbody>${filas || '<tr><td colspan="8" class="nota">Sin deducciones de acreedores. Cargá la primera arriba.</td></tr>'}</tbody>
         </table>

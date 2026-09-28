@@ -55,8 +55,12 @@ import {
  *
  * Se guardan las que dejaron rastro —aplicada, saltada a mano, suspendida en
  * diciembre—; las terminadas y las desactivadas no, porque se derivan del catálogo y
- * llenarían la tabla de filas que no dicen nada. `monto > 0` sigue siendo la marca de
- * "cuota aplicada": por eso lo demás va en 0 con su motivo.
+ * llenarían la tabla de filas que no dicen nada. `monto > 0` sigue siendo la marca del
+ * saldo: por eso lo demás va en 0 con su motivo.
+ *
+ * `cuotaNumero` lo lleva **solo la fila que CIERRA el mes**: los abonos intermedios de
+ * un empleado quincenal o semanal son la misma cuota, y contarlos como cuotas distintas
+ * le acortaría el plazo. Es el número de cuota, no el de pagos.
  */
 function filasDeDeducciones(items: CalculoItem[], companyId: string, runId: string) {
   return items.flatMap((item) =>
@@ -70,7 +74,7 @@ function filasDeDeducciones(items: CalculoItem[], companyId: string, runId: stri
       monto: d.monto,
       omitida: d.monto <= 0,
       motivoOmitida: d.monto <= 0 ? d.motivo : null,
-      cuotaNumero: d.cuotaNumero,
+      cuotaNumero: d.cierraCuota ? d.cuotaNumero : null,
     })),
   );
 }
@@ -363,6 +367,8 @@ export async function previsualizarCorrida(
     const catalogo = await catalogoDe(prisma, companyId, {
       empleadoIds: empleados.map((e: any) => e.id),
       corte: fechaPago,
+      // Lo que ya se descontó este mes: el pago que cierra toma solo lo que falta.
+      periodoMensual,
     });
     for (const emp of empleados) {
       const delCatalogo = catalogo.get(emp.id) ?? [];

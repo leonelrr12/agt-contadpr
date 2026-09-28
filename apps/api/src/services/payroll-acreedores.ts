@@ -38,9 +38,10 @@ export interface AplicadoDeduccion {
 /**
  * Lo aplicado por deducción, al corte, de corridas VIVAS.
  *
- * `monto > 0` es la marca de "cuota aplicada" (una cuota saltada se guarda en 0), así
- * que el conteo y el saldo salen de la misma consulta. Una corrida ANULADA no cuenta:
- * por eso anular devuelve la cuota sin tocar el catálogo.
+ * El SALDO suma todos los montos; las CUOTAS se cuentan por `cuotaNumero`, que solo
+ * llevan las filas que CIERRAN su mes: un empleado quincenal paga la misma cuota en dos
+ * abonos, y contarlos como dos cuotas le acortaría el plazo a la mitad. Una corrida
+ * ANULADA no cuenta — por eso anular devuelve la cuota sin tocar el catálogo.
  */
 export async function aplicadoDe(
   prisma: any,
@@ -57,15 +58,45 @@ export async function aplicadoDe(
         ...(opts.corte ? { fechaPago: { lte: opts.corte } } : {}),
       },
     },
-    select: { deduccionId: true, monto: true },
+    select: { deduccionId: true, monto: true, cuotaNumero: true },
   });
 
   const mapa = new Map<string, AplicadoDeduccion>();
   for (const fila of filas) {
     const acumulado = mapa.get(fila.deduccionId) ?? { aplicado: 0, cuotas: 0 };
     acumulado.aplicado = sumarMontos(acumulado.aplicado, fila.monto);
-    if (fila.monto > 0) acumulado.cuotas += 1;
+    if (fila.cuotaNumero != null) acumulado.cuotas += 1;
     mapa.set(fila.deduccionId, acumulado);
+  }
+  return mapa;
+}
+
+/**
+ * Lo que ya se descontó por cada deducción en los pagos ANTERIORES del mismo mes.
+ *
+ * Es lo que necesita el pago que cierra el mes para tomar exactamente lo que falta de
+ * la cuota (`cuota − lo ya descontado`), en vez de volver a cobrarla entera. Mismo
+ * papel que `isrYaRetenidoEnElMes` en el reparto del ISR.
+ */
+export async function descontadoEnElMesDe(
+  prisma: any,
+  companyId: string,
+  opts: { empleadoIds: string[]; periodoMensual: string },
+): Promise<Map<string, number>> {
+  const mapa = new Map<string, number>();
+  if (!opts.empleadoIds.length) return mapa;
+
+  const filas = await prisma.payrollItemDeduction.findMany({
+    where: {
+      companyId,
+      employeeId: { in: opts.empleadoIds },
+      run: { periodoMensual: opts.periodoMensual, status: { not: 'ANULADA' } },
+    },
+    select: { employeeId: true, deduccionId: true, monto: true },
+  });
+  for (const f of filas) {
+    const llave = `${f.employeeId}:${f.deduccionId}`;
+    mapa.set(llave, sumarMontos(mapa.get(llave) ?? 0, f.monto));
   }
   return mapa;
 }
@@ -80,7 +111,7 @@ export async function aplicadoDe(
 export async function catalogoDe(
   prisma: any,
   companyId: string,
-  opts: { empleadoIds: string[]; corte: Date },
+  opts: { empleadoIds: string[]; corte: Date; periodoMensual: string },
 ): Promise<Map<string, DeduccionCalc[]>> {
   const porEmpleado = new Map<string, DeduccionCalc[]>();
   if (!opts.empleadoIds.length) return porEmpleado;
@@ -91,10 +122,13 @@ export async function catalogoDe(
   });
   if (!filas.length) return porEmpleado;
 
-  const aplicado = await aplicadoDe(prisma, companyId, {
-    deduccionIds: filas.map((f: any) => f.id),
-    corte: opts.corte,
-  });
+  const [aplicado, enElMes] = await Promise.all([
+    aplicadoDe(prisma, companyId, {
+      deduccionIds: filas.map((f: any) => f.id),
+      corte: opts.corte,
+    }),
+    descontadoEnElMesDe(prisma, companyId, { empleadoIds: opts.empleadoIds, periodoMensual: opts.periodoMensual }),
+  ]);
 
   for (const f of filas) {
     const hist = aplicado.get(f.id) ?? { aplicado: 0, cuotas: 0 };
@@ -109,6 +143,7 @@ export async function catalogoDe(
       cuotas: f.cuotas,
       saldoPendiente: saldoPendienteDe(topeDeuda(f), hist.aplicado),
       cuotasAplicadas: hist.cuotas,
+      yaDescontadoEnElMes: enElMes.get(`${f.employeeId}:${f.id}`) ?? 0,
       fechaInicio: f.fechaInicio,
       fechaFin: f.fechaFin,
       aplicaEnDiciembre: f.aplicaEnDiciembre,

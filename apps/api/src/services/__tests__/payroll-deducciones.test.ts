@@ -42,8 +42,15 @@ function ded(extra: Partial<DeduccionCalc> = {}): DeduccionCalc {
   };
 }
 
-const SUELDO_JUNIO = { tipo: 'SUELDO' as const, fechaPago: new Date(2026, 5, 15) };
-const DICIEMBRE = { tipo: 'SUELDO' as const, fechaPago: new Date(2026, 11, 15) };
+/**
+ * El pago MENSUAL de junio: la cuota entera en un solo pago. Es el caso base de casi
+ * todos los casos de abajo; los del reparto quincenal y semanal van al final.
+ */
+const SUELDO_JUNIO = { tipo: 'SUELDO' as const, fechaPago: new Date(2026, 5, 15), pagoNumero: 1, pagosDelMes: 1 };
+const DICIEMBRE = { ...SUELDO_JUNIO, fechaPago: new Date(2026, 11, 15) };
+/** La primera quincena de junio, y la segunda (la que cierra el mes). */
+const Q1_JUNIO = { ...SUELDO_JUNIO, pagoNumero: 1, pagosDelMes: 2 };
+const Q2_JUNIO = { ...SUELDO_JUNIO, fechaPago: new Date(2026, 5, 30), pagoNumero: 2, pagosDelMes: 2 };
 
 describe('topeDeuda / saldoPendienteDe', () => {
   it('el saldo inicial manda sobre el monto total', () => {
@@ -72,34 +79,34 @@ describe('baseDeduccion', () => {
 
 describe('montoDeCuota', () => {
   it('la cuota fija es el monto tal cual', () => {
-    expect(montoDeCuota(ded({ montoFijo: 125.5 }), 1000)).toBe(125.5);
+    expect(montoDeCuota(ded({ montoFijo: 125.5 }), 1000, SUELDO_JUNIO)).toBe(125.5);
   });
 
   it('la cuota por porcentaje va sobre la base del período', () => {
-    expect(montoDeCuota(ded({ tipo: 'PORCENTAJE', montoFijo: null, porcentaje: 0.1 }), 1234.5)).toBe(123.45);
+    expect(montoDeCuota(ded({ tipo: 'PORCENTAJE', montoFijo: null, porcentaje: 0.1 }), 1234.5, SUELDO_JUNIO)).toBe(123.45);
   });
 
   it('redondea medio-arriba en el céntimo exacto', () => {
     // 333.33 × 3% = 9.9999 → 10.00 (no 9.99)
-    expect(montoDeCuota(ded({ tipo: 'PORCENTAJE', montoFijo: null, porcentaje: 0.03 }), 333.33)).toBe(10);
+    expect(montoDeCuota(ded({ tipo: 'PORCENTAJE', montoFijo: null, porcentaje: 0.03 }), 333.33, SUELDO_JUNIO)).toBe(10);
   });
 
   it('la última cuota es el remanente, no la cuota pactada', () => {
-    expect(montoDeCuota(ded({ montoFijo: 100, saldoPendiente: 50 }), 1000)).toBe(50);
+    expect(montoDeCuota(ded({ montoFijo: 100, saldoPendiente: 50 }), 1000, SUELDO_JUNIO)).toBe(50);
   });
 
   it('sin tope, la cuota no se recorta', () => {
-    expect(montoDeCuota(ded({ montoFijo: 100, saldoPendiente: null }), 1000)).toBe(100);
+    expect(montoDeCuota(ded({ montoFijo: 100, saldoPendiente: null }), 1000, SUELDO_JUNIO)).toBe(100);
   });
 
   it('el ajuste del contador manda sobre el fijo y sobre el porcentaje', () => {
-    expect(montoDeCuota(ded({ montoAjustado: 75 }), 1000)).toBe(75);
-    expect(montoDeCuota(ded({ tipo: 'PORCENTAJE', montoFijo: null, porcentaje: 0.1, montoAjustado: 75 }), 5000)).toBe(75);
+    expect(montoDeCuota(ded({ montoAjustado: 75 }), 1000, SUELDO_JUNIO)).toBe(75);
+    expect(montoDeCuota(ded({ tipo: 'PORCENTAJE', montoFijo: null, porcentaje: 0.1, montoAjustado: 75 }), 5000, SUELDO_JUNIO)).toBe(75);
   });
 
   it('un ajuste mayor que la deuda NO se topea (es deliberado), pero se avisa', () => {
     const d = ded({ montoAjustado: 500, saldoPendiente: 200 });
-    expect(montoDeCuota(d, 1000)).toBe(500);
+    expect(montoDeCuota(d, 1000, SUELDO_JUNIO)).toBe(500);
     const [cuota] = resolverDeducciones([d], { ...SUELDO_JUNIO, base: 1000 });
     expect(cuota.aviso).toMatch(/supera lo que queda de la deuda/);
   });
@@ -111,8 +118,8 @@ describe('estadoDeCuota: el orden de evaluación es la regla', () => {
   });
 
   it('las prestaciones no llevan deducciones de acreedores', () => {
-    expect(estadoDeCuota(ded(), { tipo: 'DECIMO', fechaPago: DICIEMBRE.fechaPago })).toBe('NO_ACTIVA');
-    expect(estadoDeCuota(ded(), { tipo: 'VACACIONES', fechaPago: SUELDO_JUNIO.fechaPago })).toBe('NO_ACTIVA');
+    expect(estadoDeCuota(ded(), { ...DICIEMBRE, tipo: 'DECIMO' })).toBe('NO_ACTIVA');
+    expect(estadoDeCuota(ded(), { ...SUELDO_JUNIO, tipo: 'VACACIONES' })).toBe('NO_ACTIVA');
   });
 
   it('respeta las fechas de inicio y fin, bordes inclusive', () => {
@@ -236,5 +243,81 @@ describe('el céntimo', () => {
     expect(cuota.monto).toBe(10);
     expect(cuota.saldoDespues).toBe(0);
     expect(r2(cuota.saldoAntes! - cuota.monto)).toBe(cuota.saldoDespues);
+  });
+});
+
+/**
+ * El reparto de la cuota mensual entre los pagos del mes.
+ *
+ * Es la regla que más caro sale si se rompe: la cuota la pacta el banco POR MES, y un
+ * empleado que cobra por quincena o por semana la paga en abonos. Tratarla "por pago"
+ * —lo que hacía la primera versión— le descontaba 4,33 cuotas al mes al semanal y le
+ * acortaba el plazo a un tercio.
+ */
+describe('la cuota mensual repartida entre los pagos', () => {
+  const fija = (extra: Partial<DeduccionCalc> = {}) => ded({ montoFijo: 100, ...extra });
+  const base = 1000;
+
+  it('el pago mensual lleva la cuota entera y la cierra', () => {
+    const [c] = resolverDeducciones([fija()], { ...SUELDO_JUNIO, base });
+    expect(c.monto).toBe(100);
+    expect(c.cierraCuota).toBe(true);
+  });
+
+  it('el quincenal la parte en dos: la segunda quincena cierra', () => {
+    const [q1] = resolverDeducciones([fija()], { ...Q1_JUNIO, base });
+    const [q2] = resolverDeducciones([fija({ yaDescontadoEnElMes: 50 })], { ...Q2_JUNIO, base });
+    expect([q1.monto, q2.monto]).toEqual([50, 50]);
+    expect([q1.cierraCuota, q2.cierraCuota]).toEqual([false, true]);
+    // Los dos son la MISMA cuota: el número no se mueve entre uno y otro.
+    expect([q1.cuotaNumero, q2.cuotaNumero]).toEqual([1, 1]);
+  });
+
+  it('el semanal la parte en cuatro y solo la última la cierra', () => {
+    const cuotaSemanal = { ...SUELDO_JUNIO, pagosDelMes: 4 };
+    const montos = [1, 2, 3].map((pagoNumero) =>
+      resolverDeducciones([fija({ yaDescontadoEnElMes: 25 * (pagoNumero - 1) })], { ...cuotaSemanal, pagoNumero, base })[0],
+    );
+    const ultima = resolverDeducciones([fija({ yaDescontadoEnElMes: 75 })], { ...cuotaSemanal, pagoNumero: 4, base })[0];
+    expect(montos.map((c) => c.monto)).toEqual([25, 25, 25]);
+    expect(montos.every((c) => !c.cierraCuota)).toBe(true);
+    expect(ultima.monto).toBe(25);
+    expect(ultima.cierraCuota).toBe(true);
+  });
+
+  it('el último pago cierra el céntimo del reparto', () => {
+    const tres = { ...SUELDO_JUNIO, pagosDelMes: 3 };
+    const [p1] = resolverDeducciones([fija({ montoFijo: 100 })], { ...tres, pagoNumero: 1, base });
+    const [p3] = resolverDeducciones([fija({ yaDescontadoEnElMes: 66.66 })], { ...tres, pagoNumero: 3, base });
+    expect(p1.monto).toBe(33.33);
+    expect(p3.monto).toBe(33.34);
+    expect(r2(p1.monto * 2 + p3.monto)).toBe(100);
+  });
+
+  it('si el contador ajustó un abono, el que cierra toma lo que falta (no la cobra dos veces)', () => {
+    const [q1] = resolverDeducciones([fija({ montoAjustado: 30 })], { ...Q1_JUNIO, base });
+    const [q2] = resolverDeducciones([fija({ yaDescontadoEnElMes: 30 })], { ...Q2_JUNIO, base });
+    expect([q1.monto, q2.monto]).toEqual([30, 70]);
+    expect(r2(q1.monto + q2.monto)).toBe(100);
+  });
+
+  it('si se salta un abono, el que cierra toma la cuota completa', () => {
+    const [q2] = resolverDeducciones([fija({ yaDescontadoEnElMes: 0 })], { ...Q2_JUNIO, base });
+    expect(q2.monto).toBe(100);
+  });
+
+  it('el reparto no se pasa del remanente: la deuda termina al cerrar el mes', () => {
+    const [q1] = resolverDeducciones([fija({ saldoPendiente: 50 })], { ...Q1_JUNIO, base });
+    const [q2] = resolverDeducciones([fija({ saldoPendiente: 25, yaDescontadoEnElMes: 25 })], { ...Q2_JUNIO, base });
+    expect([q1.monto, q2.monto]).toEqual([25, 25]);
+    expect(q2.saldoDespues).toBe(0);
+  });
+
+  it('una cuota que no llega a un céntimo por pago se cierra igual al final del mes', () => {
+    // 1,00 al mes entre 4 pagos: 0,25 cada uno. Con 0,10 el intermedio redondea a 0,03.
+    const cuatro = { ...SUELDO_JUNIO, pagosDelMes: 4 };
+    const [p4] = resolverDeducciones([fija({ montoFijo: 0.1, yaDescontadoEnElMes: 0.06 })], { ...cuatro, pagoNumero: 4, base });
+    expect(p4.monto).toBe(0.04);
+    expect(p4.cierraCuota).toBe(true);
   });
 });
