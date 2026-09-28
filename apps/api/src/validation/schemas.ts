@@ -471,6 +471,8 @@ export const pagoCSSSchema = z
     notas: z.string().max(500).optional(),
     /** Marca la obligación del calendario fiscal como cumplida (por defecto, sí). */
     marcarPagada: z.boolean().optional(),
+    /** Confirma un pago que supera lo devengado del período (ver `registrarPagoCSS`). */
+    confirmarExceso: z.boolean().optional(),
   })
   .refine(
     (d) =>

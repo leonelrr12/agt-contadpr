@@ -38,7 +38,14 @@
     const texto = await res.text();
     let datos;
     try { datos = texto ? JSON.parse(texto) : {}; } catch { datos = { error: texto }; }
-    if (!res.ok) throw new Error(datos.error || `Error ${res.status}`);
+    if (!res.ok) {
+      // El código viaja en el error: hay rechazos que se resuelven preguntando (un
+      // pago que supera lo devengado se confirma y se reintenta), y sin el código la
+      // pantalla no puede distinguirlos de un error a secas.
+      const error = new Error(datos.error || `Error ${res.status}`);
+      error.status = res.status;
+      throw error;
+    }
     return datos;
   }
 
@@ -844,8 +851,21 @@
         montoISR: Number($('p-isr').value) || 0,
         referencia: $('p-ref').value.trim() || undefined,
       };
+      const registrar = (extra) => pedir('/css/pago', { method: 'POST', body: JSON.stringify({ ...cuerpo, ...extra }) });
       try {
-        const r = await pedir('/css/pago', { method: 'POST', body: JSON.stringify(cuerpo) });
+        let r;
+        try {
+          r = await registrar({});
+        } catch (err) {
+          // 409 = el pago supera lo devengado del período (o el módulo no tiene
+          // corridas de ese mes): se muestra el detalle y decide el contador.
+          if (err.status !== 409) throw err;
+          const sigue = await showConfirm(
+            `${esc(err.message).replace(/\n/g, '<br>')}<br><br>¿Registrar el pago igual?`,
+          );
+          if (!sigue) return;
+          r = await registrar({ confirmarExceso: true });
+        }
         await showAlert(`Pago registrado por ${num(r.total)}.${r.obligacionMarcada ? ' La obligación quedó marcada como cumplida.' : ''} El asiento está en BORRADOR.`);
         await render();
       } catch (err) { alert(err.message); }

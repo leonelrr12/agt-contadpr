@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ultimosMeses, saldoCuentasPasivo, lineasPagoCSS } from '../payroll-css';
+import { ultimosMeses, saldoCuentasPasivo, lineasPagoCSS, excesosDePago } from '../payroll-css';
 import type { CuentasPlanilla } from '../payroll-calc';
 import { sumarMontos } from '../../lib/money';
 
@@ -55,6 +55,42 @@ describe('saldoCuentasPasivo', () => {
   it('ignora los conceptos sin cuenta resuelta', async () => {
     const prisma = prismaCon({ 'a-obrero': 100 });
     expect(await saldoCuentasPasivo(prisma, 'c1', ['a-obrero', null, ''])).toBe(100);
+  });
+});
+
+/**
+ * La guarda que se le puso al pago el 28-09, después de que dos clics seguidos
+ * dejaran el pasivo de la CSS en -1.253,02. El registro es manual a propósito (el
+ * monto puede venir de la liquidación real), así que lo que se prueba acá es la
+ * vara: qué cuenta como exceso y qué no.
+ */
+describe('excesosDePago', () => {
+  const devengado = { ss: 254.52, ssPatronal: 345.89, riesgosPatronal: 26.1, se: 32.64, sePatronal: 39.16, isr: 28.1 };
+  const monto = (clave: keyof typeof devengado, importe: number) => ({ clave, etiqueta: clave, importe });
+
+  it('no marca nada cuando el pago es exactamente lo devengado', () => {
+    const montos = Object.entries(devengado).map(([k, v]) => monto(k as keyof typeof devengado, v));
+    expect(excesosDePago(montos, devengado)).toEqual([]);
+  });
+
+  it('marca el concepto que se paga de más, y solo ese', () => {
+    const excesos = excesosDePago([monto('ss', 254.52), monto('isr', 56.2)], devengado);
+    expect(excesos).toHaveLength(1);
+    expect(excesos[0]).toEqual({ etiqueta: 'isr', importe: 56.2, devengado: 28.1 });
+  });
+
+  it('tolera el céntimo del redondeo de los ítems', () => {
+    expect(excesosDePago([monto('ssPatronal', 345.9)], devengado)).toEqual([]);
+  });
+
+  it('con el período sin devengar, todo lo que se pague es exceso', () => {
+    const cero = { ss: 0, ssPatronal: 0, riesgosPatronal: 0, se: 0, sePatronal: 0, isr: 0 };
+    expect(excesosDePago([monto('ss', 100)], cero)).toHaveLength(1);
+  });
+
+  it('un concepto en cero no es un exceso', () => {
+    const cero = { ss: 0, ssPatronal: 0, riesgosPatronal: 0, se: 0, sePatronal: 0, isr: 0 };
+    expect(excesosDePago([monto('se', 0)], cero)).toEqual([]);
   });
 });
 

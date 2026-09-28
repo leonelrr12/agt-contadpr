@@ -334,12 +334,70 @@ export interface DatosPagoCSS {
   notas?: string;
   /** Marca la obligación del calendario como cumplida (por defecto, sí). */
   marcarPagada?: boolean;
+  /**
+   * Confirma un pago que supera lo devengado del período. Sin esto, el pago se
+   * rechaza con un 409 y el detalle: la confirmación es del usuario, no del módulo.
+   */
+  confirmarExceso?: boolean;
 }
 
 export interface ResultadoPagoCSS {
   journalEntryId: string;
   total: number;
   obligacionMarcada: boolean;
+}
+
+/** Los seis conceptos que se descargan en un pago: uno por cuenta. */
+export type ConceptoPago = 'ss' | 'ssPatronal' | 'riesgosPatronal' | 'se' | 'sePatronal' | 'isr';
+
+export interface MontoDePago {
+  clave: ConceptoPago;
+  etiqueta: string;
+  importe: number;
+}
+
+/**
+ * Los conceptos que se están pagando por más de lo devengado en el período.
+ *
+ * Es pura a propósito: la decisión de bloquear o de pedir confirmación se prueba en
+ * un test. Un céntimo de tolerancia por el redondeo de los ítems, que se suman
+ * renglón por renglón.
+ */
+export function excesosDePago(
+  montos: MontoDePago[],
+  devengado: Record<ConceptoPago, number>,
+): { etiqueta: string; importe: number; devengado: number }[] {
+  return montos
+    .filter((m) => m.importe > 0 && m.importe > devengado[m.clave] + 0.01)
+    .map((m) => ({ etiqueta: m.etiqueta, importe: m.importe, devengado: devengado[m.clave] }));
+}
+
+/**
+ * Lo devengado de un período, por concepto, sumando los ítems de sus corridas vivas.
+ *
+ * Es la vara con la que se mide un pago antes de registrarlo. `corridas` va aparte
+ * porque un período sin corridas devuelve todo en cero, y eso no es "no se devengó
+ * nada": es que el módulo no tiene de dónde sacarlo.
+ */
+async function devengadoDelPeriodo(
+  prisma: any,
+  companyId: string,
+  periodo: string,
+): Promise<Record<ConceptoPago, number> & { corridas: number }> {
+  const items: any[] = await prisma.payrollItem.findMany({
+    where: { companyId, run: { status: { not: 'ANULADA' }, periodoMensual: periodo } },
+    select: { ss: true, ssPatronal: true, riesgosPatronal: true, se: true, sePatronal: true, isr: true },
+  });
+  const suma = (campo: string) => sumarMontos(...items.map((i) => i[campo]));
+  return {
+    ss: suma('ss'),
+    ssPatronal: suma('ssPatronal'),
+    riesgosPatronal: suma('riesgosPatronal'),
+    se: suma('se'),
+    sePatronal: suma('sePatronal'),
+    isr: suma('isr'),
+    corridas: items.length,
+  };
 }
 
 /**
@@ -351,7 +409,7 @@ export interface ResultadoPagoCSS {
  * error. Es pura a propósito: el reparto se prueba en un test, no en producción.
  */
 export function lineasPagoCSS(
-  montos: { clave: keyof CuentasPlanilla; importe: number }[],
+  montos: { clave: ConceptoPago; importe: number }[],
   cuentas: CuentasPlanilla,
   bancoId: string,
 ): LineaAsiento[] {
@@ -381,7 +439,7 @@ export async function registrarPagoCSS(
   datos: DatosPagoCSS,
 ): Promise<ResultadoPagoCSS> {
   const monto = (v: number | undefined) => r2(v || 0);
-  const partes: { clave: keyof CuentasPlanilla; etiqueta: string; importe: number }[] = [
+  const partes: MontoDePago[] = [
     { clave: 'ss', etiqueta: 'Seguro Social', importe: monto(datos.montoSSObrero) },
     { clave: 'ssPatronal', etiqueta: 'Seguro Social del patrono', importe: monto(datos.montoSSPatronal) },
     { clave: 'riesgosPatronal', etiqueta: 'Riesgos Profesionales', importe: monto(datos.montoRiesgos) },
@@ -402,10 +460,54 @@ export async function registrarPagoCSS(
     throw Object.assign(new Error('El período debe venir como AAAA-MM.'), { status: 400 });
   }
 
-  const { cuentas, faltantes } = await resolverCuentasPlanilla(prisma, companyId);
+  // El formulario es un registro A MANO: no mira el saldo ni el período. Estas dos
+  // guardas son lo que evita el pago repetido —pasó el 28-09: dos asientos idénticos
+  // de 1.452,82 con tres minutos de diferencia, y el pasivo quedó en -1.253,02—.
+  //
+  // La obligación del calendario CON monto real es la constancia de un pago: la
+  // escribe `marcarObligacionCumplida` al registrarlo. El botón «Marcar» del
+  // calendario deja COMPLETED pero sin monto, así que ese caso no bloquea nada.
+  // Fuera del horizonte de 3 meses del calendario no hay obligación y esta guarda no
+  // puede ver nada: ahí la única red que queda es el cuadre.
+  const obligacion = await prisma.taxObligation.findFirst({
+    where: { companyId, type: 'CSS', period: datos.periodo },
+    select: { status: true, actualAmount: true },
+  });
+  if (obligacion?.status === 'COMPLETED' && obligacion.actualAmount != null) {
+    throw Object.assign(
+      new Error(
+        `Ya hay un pago registrado para ${etiquetaDe(datos.periodo)} por ${r2(obligacion.actualAmount).toFixed(2)}. ` +
+          'Si fue un error, anulá ese asiento y desmarcá la obligación en el calendario fiscal antes de registrar otro.',
+      ),
+      { status: 400 },
+    );
+  }
+
   // Solo se exige la cuenta de lo que realmente se está pagando: un pago sin ISR no
   // tiene por qué reclamar la cuenta del ISR.
   const conMonto = partes.filter((p) => p.importe > 0);
+
+  // Pagar más de lo devengado se puede —el monto puede venir de la liquidación real
+  // de la CSS—, pero se confirma una vez: un dígito de más no puede entrar solo.
+  if (!datos.confirmarExceso) {
+    const devengado = await devengadoDelPeriodo(prisma, companyId, datos.periodo);
+    const excesos = excesosDePago(conMonto, devengado).map(
+      (e) => `· ${e.etiqueta}: ${e.importe.toFixed(2)} contra ${e.devengado.toFixed(2)} devengado`,
+    );
+    if (excesos.length > 0) {
+      throw Object.assign(
+        new Error(
+          (devengado.corridas === 0
+            ? `El módulo no tiene corridas de ${etiquetaDe(datos.periodo)}: nada de lo que se va a pagar está devengado acá.`
+            : `El pago supera lo devengado de ${etiquetaDe(datos.periodo)}:\n${excesos.join('\n')}`) +
+            '\n\nSi el monto sale de la liquidación real de la CSS, confirmá y se registra igual.',
+        ),
+        { status: 409 },
+      );
+    }
+  }
+
+  const { cuentas, faltantes } = await resolverCuentasPlanilla(prisma, companyId);
   const sinCuenta = faltantes.filter((f) => conMonto.some((p) => p.clave === f.clave));
   if (sinCuenta.length > 0) {
     throw Object.assign(
