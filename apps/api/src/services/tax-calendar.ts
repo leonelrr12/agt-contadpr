@@ -93,18 +93,10 @@ export async function generateUpcomingObligations(
       where: { companyId, type: obl.type, period: obl.period },
     });
     if (obl.type === 'ITBMS') {
-      // Recalcular el estimado siempre (si no hay monto real) — el saldo pendiente
-      // de 2.1.05 cambia con cada asiento; el estimado viejo queda obsoleto.
-      const estimatedAmount = await estimateITBMS(prisma, companyId, obl.period);
-      if (existing) {
-        if (existing.status === 'PENDING' && existing.actualAmount == null && existing.estimatedAmount !== estimatedAmount) {
-          await prisma.taxObligation.update({
-            where: { id: existing.id },
-            data: { estimatedAmount },
-          });
-        }
-        continue;
-      }
+      // El estimado de las filas que ya existen se refresca al final, en una sola
+      // pasada que cubre también las que quedaron fuera de la ventana: el saldo de
+      // 2.1.05 cambia con cada asiento y el estimado viejo queda obsoleto.
+      if (existing) continue;
       await prisma.taxObligation.create({
         data: {
           companyId,
@@ -112,7 +104,7 @@ export async function generateUpcomingObligations(
           period: obl.period,
           label: obl.label,
           dueDate: obl.dueDate,
-          estimatedAmount,
+          estimatedAmount: await estimateITBMS(prisma, companyId, obl.period),
         },
       });
       created++;
@@ -143,6 +135,26 @@ export async function generateUpcomingObligations(
     data: { status: 'OVERDUE' },
   });
 
+  // ── Refrescar los estimados de ITBMS que quedaron FUERA de la ventana ──
+  //
+  // El estimado de ITBMS es el saldo acumulado de 2.1.05 hasta el cierre del período,
+  // y ese saldo cambia con cada asiento. Las filas vencidas —o de un mes que ya salió
+  // de la ventana de 3— se quedaban con el número del día en que se crearon: en
+  // Empresa Demo, julio y agosto seguían diciendo 382,25 y 380,57 con la empresa sin
+  // un solo asiento (28-09). Las abiertas (PENDING y OVERDUE) siguen a los libros;
+  // una COMPLETED no se toca —eso ya es historia— y un monto real tampoco: eso es lo
+  // declarado.
+  const abiertas: any[] = await prisma.taxObligation.findMany({
+    where: { companyId, type: 'ITBMS', status: { in: ['PENDING', 'OVERDUE'] }, actualAmount: null },
+    select: { id: true, period: true, estimatedAmount: true },
+  });
+  for (const obl of abiertas) {
+    const estimatedAmount = await estimateITBMS(prisma, companyId, obl.period);
+    if (obl.estimatedAmount !== estimatedAmount) {
+      await prisma.taxObligation.update({ where: { id: obl.id }, data: { estimatedAmount } });
+    }
+  }
+
   return created;
 }
 
@@ -153,6 +165,13 @@ export async function generateUpcomingObligations(
  * Saldo acumulado pendiente de la cuenta 2.1.05 (ITBMS por Pagar):
  * créditos (ventas) - débitos (compras y pagos parciales a DGI), hasta la fecha dada.
  * Refleja lo realmente adeudado, incluyendo períodos anteriores sin declarar.
+ *
+ * Cuenta los MISMOS asientos que los informes: todo menos RECHAZADO y ANULADO. Exigir
+ * CONFIRMADO dejaba el número en cero en una empresa con la contabilidad cargada y
+ * sin aprobar —ODESA tenía 819 asientos en BORRADOR y el calendario le decía que no
+ * debía ITBMS—, y contradecía al resto del sistema: el saldo de la CSS en Planilla
+ * incluye los borradores a propósito, porque **lo que se debe no depende de que el
+ * contador haya pasado por la cola de revisión**.
  */
 export async function getSaldoITBMS(prisma: any, companyId: string, upTo?: Date): Promise<number> {
   const lines = await prisma.journalLine.findMany({
@@ -160,7 +179,7 @@ export async function getSaldoITBMS(prisma: any, companyId: string, upTo?: Date)
       account: { code: '2.1.05' }, // ITBMS por Pagar
       journalEntry: {
         companyId,
-        status: 'CONFIRMADO',
+        status: { notIn: ['RECHAZADO', 'ANULADO'] },
         ...(upTo ? { date: { lte: upTo } } : {}),
       },
     },

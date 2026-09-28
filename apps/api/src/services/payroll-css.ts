@@ -37,11 +37,11 @@ export function ultimosMeses(n: number, ahora = new Date()): string[] {
  * Es lo que se acreditó al retener y al devengar el aporte patronal, menos lo que se
  * debitó al pagar.
  *
- * **Incluye los asientos en BORRADOR**, a diferencia de `getSaldoITBMS`, que exige
- * CONFIRMADO. Es deliberado: lo que se le debe a la CSS no depende de que el
- * contador haya pasado por la cola de revisión. Con el filtro de CONFIRMADO, el
- * módulo diría "no le debés nada" justo después de correr la planilla, que es
- * exactamente cuando más importa el número. Un asiento RECHAZADO sí se excluye —
+ * **Incluye los asientos en BORRADOR**, igual que `getSaldoITBMS` desde el 28-09. Es
+ * deliberado: lo que se le debe a la CSS no depende de que el contador haya pasado
+ * por la cola de revisión. Con el filtro de CONFIRMADO, el módulo diría "no le debés
+ * nada" justo después de correr la planilla, que es exactamente cuando más importa el
+ * número. Un asiento RECHAZADO sí se excluye —
  * ese nunca existió—, y una anulación se netea sola porque su reverso es un asiento
  * vigente más.
  */
