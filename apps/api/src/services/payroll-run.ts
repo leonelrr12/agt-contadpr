@@ -571,9 +571,22 @@ export interface ResultadoEjecucion {
   entryIds: string[];
 }
 
-/** Descripción del asiento cuando la corrida entera va en un solo asiento. */
-function descripcionConsolidada(tipo: TipoCorrida, cuantos: number, periodo: string): string {
-  const quienes = `${cuantos} empleado${cuantos === 1 ? '' : 's'}`;
+/**
+ * Descripción del asiento cuando la corrida entera va en un solo asiento.
+ *
+ * La consolidada NO nombra a nadie a propósito: con treinta empleados, treinta nombres
+ * en una descripción no se leen, y el detalle vive en la corrida. Pero **con uno solo
+ * se usa su nombre**: no hay nada que resumir —el neto es suyo y el asiento lleva su
+ * monto— y "1 empleado" obliga al contador a abrir la corrida para saber a quién le
+ * está aprobando el asiento, que es justo lo que la descripción tiene que decir.
+ */
+export function descripcionConsolidada(
+  tipo: TipoCorrida,
+  items: { nombre: string }[],
+  periodo: string,
+): string {
+  const quienes =
+    items.length === 1 ? items[0].nombre : `${items.length} empleado${items.length === 1 ? '' : 's'}`;
   if (tipo === 'DECIMO') return `Décimo III de ${quienes} — ${periodo}`;
   if (tipo === 'VACACIONES') return `Vacaciones de ${quienes} — ${periodo}`;
   return `Planilla de ${quienes} — ${periodo}`;
@@ -700,7 +713,7 @@ export async function ejecutarCorrida(
 
   // ── Camino consolidado: un asiento para toda la nómina ──
   if (lineasConsolidadas) {
-    const descripcion = descripcionConsolidada(preview.tipo, preview.items.length, preview.periodo);
+    const descripcion = descripcionConsolidada(preview.tipo, preview.items, preview.periodo);
     try {
       const je = await prisma.$transaction(async (tx: any) => {
         const asiento = await tx.journalEntry.create({
@@ -791,7 +804,7 @@ export async function ejecutarCorrida(
     } catch (e: any) {
       // El asiento es uno: o entra entero o no entra. No hay "la mitad de la nómina".
       errores.push({
-        empleado: descripcionConsolidada(preview.tipo, preview.items.length, preview.periodo),
+        empleado: descripcionConsolidada(preview.tipo, preview.items, preview.periodo),
         motivo: (e?.message || 'Error desconocido').slice(0, 300),
       });
     }
