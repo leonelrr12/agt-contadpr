@@ -38,12 +38,16 @@ model Company {
   planillaISRId         String?
   planillaBancoId       String?
   // Planilla (módulo): los aportes del patrono son un GASTO y su contrapartida un
-  // PASIVO, así que no alcanza una sola cuenta aunque hoy las dos apunten al mismo
+  // PASIVO, así que no alcanza una sola cuenta aunque las dos puedan apuntar al mismo
   // pasivo que el obrero (a la CSS se le paga una sola vez, pero el gasto no es el
-  // mismo que la retención). `planillaOtrasDeduccionesId` es el destino de los
-  // préstamos y embargos; sin ella, una corrida con otras deducciones se rechaza.
+  // mismo que la retención). El pasivo son TRES cuentas —SS, SE y Riesgos
+  // Profesionales—, una por concepto: sin configurar caen a la del obrero, y con el
+  // catálogo partido cada subcuenta se descarga en el pago a la CSS con su propio
+  // monto. `planillaOtrasDeduccionesId` es el destino de los préstamos y embargos;
+  // sin ella, una corrida con otras deducciones se rechaza.
   planillaSSPatronalId       String?
   planillaSEPatronalId       String?
+  planillaRiesgosPatronalId  String?
   planillaPatronalGastoId    String?
   planillaOtrasDeduccionesId String?
   // El gasto del patrono va a TRES cuentas, no a una: el Seguro Social, el Seguro

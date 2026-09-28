@@ -32,6 +32,7 @@ export const PLANILLA_FIELDS: { field: string; label: string }[] = [
   { field: 'planillaBancoId', label: 'Neto a banco' },
   { field: 'planillaSSPatronalId', label: 'Seguro Social del patrono (por pagar)' },
   { field: 'planillaSEPatronalId', label: 'Seguro Educativo del patrono (por pagar)' },
+  { field: 'planillaRiesgosPatronalId', label: 'Riesgos Profesionales del patrono (por pagar)' },
   { field: 'planillaPatronalGastoId', label: 'Gasto de aportes patronales (genérico)' },
   { field: 'planillaSSPatronalGastoId', label: 'Gasto de Seguro Social del patrono' },
   { field: 'planillaSEPatronalGastoId', label: 'Gasto de Seguro Educativo del patrono' },
@@ -60,6 +61,19 @@ export interface CuentaFaltante {
 export interface ResolucionCuentas {
   cuentas: CuentasPlanilla;
   /**
+   * Las cuentas TAL COMO ESTÁN CONFIGURADAS en `Company`, por nombre de campo:
+   * `{ planillaSueldoId: 'id' | null, … }`.
+   *
+   * Es lo que come la pantalla de Parámetros, y por una razón que costó cara: sus
+   * selectores ESCRIBEN esos campos, así que tienen que pre-seleccionarse con ellos.
+   * Con `cuentas` —que va por concepto (`sueldo`, `ss`) y con los respaldos ya
+   * aplicados— la comparación `cuentas['planillaSueldoId']` daba `undefined` siempre,
+   * la pantalla mostraba TODOS los selectores vacíos y guardar escribía ese hueco
+   * encima de la configuración: se perdían las cuentas que el contador no volvía a
+   * elegir en cada guardado.
+   */
+  configuradas: Record<string, string | null>;
+  /**
    * Cuentas sin resolver. Se devuelven con su CLAVE, no solo con la etiqueta:
    * cada tipo de corrida necesita unas distintas —una de Décimo no usa la cuenta
    * de Horas Extras— y quien ejecuta filtra por clave en vez de adivinar.
@@ -73,10 +87,15 @@ export interface ResolucionCuentas {
  * Resuelve las cuentas del asiento de planilla.
  *
  * Los aportes del patrono y las prestaciones por pagar tienen respaldo —el pasivo
- * de la CSS es el mismo que el de la retención, y las cuentas 2.1.09/2.1.10/2.1.11
- * ya están en el plan— pero **nunca se inventa una cuenta**: si no hay ni
- * configuración ni respaldo, queda en `faltantes` y la corrida se rechaza diciendo
- * cuál falta. Es la doctrina de `cuentasInventarioEnUso`.
+ * del patrono puede ser el mismo que el de la retención cuando la empresa todavía no
+ * partió su catálogo, y las cuentas 2.1.09/2.1.10/2.1.11 ya están en el plan— pero
+ * **nunca se inventa una cuenta**: si no hay ni configuración ni respaldo, queda en
+ * `faltantes` y la corrida se rechaza diciendo cuál falta. Es la doctrina de
+ * `cuentasInventarioEnUso`.
+ *
+ * El respaldo importa para el pago: `payroll-css.ts` debita las MISMAS cuentas que
+ * acá se resuelven, así que mientras el respaldo exista, la cuenta que recibe el
+ * crédito del devengo es la que se descarga al pagar.
  */
 export async function resolverCuentasPlanilla(
   prisma: any,
@@ -119,12 +138,23 @@ export async function resolverCuentasPlanilla(
   const se = cuenta('se', 'Seguro Educativo (SE)', campo('planillaSEId'));
   const isr = cuenta('isr', 'ISR', campo('planillaISRId'));
 
-  // El pasivo del patrono es el MISMO de la retención, y eso no es un problema que
-  // haya que avisar: a la CSS se le paga todo junto, en un solo pago, y el pasivo
-  // tiene que netear a cero con ese pago. Separarlo en dos cuentas obligaría a dos
-  // pagos por el mismo hecho. (El GASTO sí va separado: ver `gastoPatronal`.)
+  // El pasivo del patrono puede ser el MISMO de la retención, y cuando lo es no hay
+  // nada que avisar: a la CSS se le paga todo junto, en un solo pago, y así el
+  // pasivo netea a cero con ese pago. Con el catálogo partido cada concepto tiene su
+  // subcuenta, y el pago descarga las tres — una por una, con su monto— porque si no
+  // las subcuentas se acreditarían para siempre. (El GASTO va separado siempre: ver
+  // `gastoPatronal`.)
   const ssPatronal = cuenta('ssPatronal', 'Seguro Social del patrono', campo('planillaSSPatronalId'), ss);
   const sePatronal = cuenta('sePatronal', 'Seguro Educativo del patrono', campo('planillaSEPatronalId'), se);
+  // Los riesgos caen al pasivo del Seguro Social —es el mismo pago a la CSS— y no
+  // faltan nunca que el SS esté: sin cuenta propia, el par crédito/débito sigue
+  // cayendo en la misma cuenta que antes.
+  const riesgosPatronal = cuenta(
+    'riesgosPatronal',
+    'Riesgos Profesionales del patrono',
+    campo('planillaRiesgosPatronalId'),
+    ssPatronal || null,
+  );
   /**
    * Una de las tres cuentas de gasto del patrono, en cadena: la configurada → la del
    * catálogo por código → la genérica de aportes patronales → Sueldos (avisando).
@@ -180,6 +210,7 @@ export async function resolverCuentasPlanilla(
     otrasDeducciones: campo('planillaOtrasDeduccionesId') || '',
     ssPatronal,
     sePatronal,
+    riesgosPatronal,
     ssPatronalGasto,
     sePatronalGasto,
     riesgosGasto,
@@ -188,7 +219,9 @@ export async function resolverCuentasPlanilla(
     prestacionesPorPagar: porCodigoOFalta('prestacionesPorPagar', 'Prestaciones por Pagar', CODIGO_PRESTACIONES_POR_PAGAR),
   };
 
-  return { cuentas, faltantes, avisos };
+  const configuradas = Object.fromEntries(PLANILLA_FIELDS.map((f) => [f.field, campo(f.field)]));
+
+  return { cuentas, configuradas, faltantes, avisos };
 }
 
 // ─── Parámetros de cálculo (PayrollSettings) ─────────────────────────────────

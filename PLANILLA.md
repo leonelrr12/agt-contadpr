@@ -233,16 +233,20 @@ D  planillaRiesgosProfesionalesId  riesgosPatronal → 6.01.02.01 Riesgos Profes
 C  planillaSSId                 ss
 C  planillaSEId                 se
 C  planillaISRId                isr
-C  planillaSSPatronalId         ssPatronal + riesgosPatronal
+C  planillaSSPatronalId         ssPatronal
 C  planillaSEPatronalId         sePatronal
+C  planillaRiesgosPatronalId    riesgosPatronal
 C  planillaOtrasDeduccionesId   otrasDeducciones   (si > 0; sin cuenta configurada, la corrida se rechaza)
 C  <banco del empleado>         neto
 ```
 
-**El gasto del patrono va separado en tres cuentas; el pasivo del Seguro Social no.** Los riesgos
-profesionales comparten el pasivo con la retención y con el aporte patronal porque **a la CSS se le paga todo
-junto, en un solo pago**: separarlo en dos cuentas obligaría a dos pagos por el mismo hecho, y el pasivo no
-netearía a cero. El gasto, en cambio, sí se analiza por separado — para eso están las tres cuentas.
+**El gasto del patrono Y su pasivo van separados, cada uno en tres cuentas.** El pasivo del patrono es una
+decisión de catálogo: con el plan partido —`2.1.08.01` SS obrero, `2.1.08.02` SS patrono, `2.1.08.04` SE
+patrono, `2.1.08.06` Riesgos— cada concepto devenga en su subcuenta. **Sin configurar, las tres caen al pasivo
+del obrero** y el resultado es idéntico al del catálogo viejo: una sola cuenta por institución. Eso es lo que
+obliga a que **el pago descargue cada cuenta con su monto** (ver 3.6): a la CSS se le paga todo junto, sí,
+pero en un asiento que debita las subcuentas una por una — con un débito único a la cuenta del obrero, las
+subcuentas del patrono se acreditarían para siempre y nunca netearían a cero.
 
 Las tres se resuelven **por código del catálogo** (`6.01.02.01/.02/.03`) si no están configuradas, así que el
 módulo reparte el gasto desde el primer día sin obligar a configurar tres selectores. Si tampoco existen,
@@ -252,9 +256,11 @@ caen a la cuenta genérica de aportes patronales y, de última, a Sueldos — av
 Es la semántica que el dueño ya usa hoy: la cuenta de Décimo apunta a `2.1.10 Décimo Tercer Mes por Pagar` y
 el débito reduce el pasivo.
 
-Los aportes patronales son `D gasto / C por pagar`, así que necesitan **tres columnas nuevas** en `Company`
-(el gasto y los dos pasivos). Si falta alguna, **no se inventa una cuenta**: la corrida se rechaza diciendo
-**el nombre** de la cuenta que falta.
+Los aportes patronales son `D gasto / C por pagar`, así que necesitan **una columna en `Company` por
+concepto y por lado**: el gasto (`planillaSSPatronalGastoId`, `planillaSEPatronalGastoId`,
+`planillaRiesgosProfesionalesId`) y el pasivo (`planillaSSPatronalId`, `planillaSEPatronalId`,
+`planillaRiesgosPatronalId` — la última entró en la migración `0029`). Si falta alguna, **no se inventa una
+cuenta**: la corrida se rechaza diciendo **el nombre** de la cuenta que falta.
 
 ### 3.5 Los acumulados
 
@@ -274,8 +280,17 @@ año), todos editables.
 
 - **Parámetros** (tasas, escala del ISR, factores, interruptor de provisión) viven en la pestaña *Parámetros*
   del módulo. El rol `planilla` los **lee**; solo `admin`, `contador` y `superadmin` los editan.
-- **Cuentas contables**: siguen en Administración → ⚙️ Configuración, que es territorio del admin. La tarjeta
-  suma los selectores de aporte patronal y otras deducciones.
+- **Cuentas contables**: viven en la pestaña *Parámetros* del módulo, en tres bloques —las operativas, el
+  **pasivo del patrono** (SS, SE y Riesgos, una por concepto) y el **gasto del patrono** (los mismos tres)—.
+  Cada bloque es una sola línea de selectores. Las de gasto y las de provisión se resuelven por código del
+  catálogo cuando no están configuradas; las del pasivo caen al pasivo del obrero, y el pago de la CSS las
+  debita a donde hayan resuelto: la cuenta que recibe el crédito es la que se descarga.
+
+  **El contrato de `GET /parametros` tiene las dos vistas y no son intercambiables**: `cuentas` va por
+  concepto (`sueldo`, `ss`…) y con los respaldos ya aplicados —es lo que usan las pistas del formulario de
+  pago—; `configuradas` va por nombre de campo de `Company` (`planillaSueldoId`…) y es lo único que puede
+  pre-seleccionar un selector que **escribe** ese campo. Cruzarlos deja los selectores en blanco y el
+  guardado escribe el hueco encima: se pierden las cuentas que no se vuelvan a elegir.
 - **Pestaña CSS**: los montos por mes salen de los **ítems de las corridas**, no de los totales de la
   corrida — los totales guardan deducciones y aporte patronal sumados, y la planilla de la CSS los pide
   separados (SS obrero, SS patronal, SE obrero, SE patronal). Con eso a la vista, el contador arma el SIPE.
@@ -284,15 +299,19 @@ año), todos editables.
   cola de revisión, y con el filtro de CONFIRMADO el módulo diría "no le debés nada" justo después de correr
   la planilla. Un asiento RECHAZADO sí se excluye, y una anulación se netea sola porque su reverso es un
   asiento vigente más.
-- **Registro del pago**: `D planillaSSId (+ planillaSEId) (+ planillaISRId) / C banco`, en BORRADOR como
-  todo, y marca la obligación CSS del calendario como cumplida. El banco tiene que ser una cuenta `1.1.02.*`
-  de la empresa: acreditar el pago contra un ingreso dejaría el pasivo cerrado y el banco mal.
+- **Registro del pago**: `D <una cuenta de pasivo por concepto> / C banco`, en BORRADOR como todo, y marca la
+  obligación CSS del calendario como cumplida. El banco tiene que ser una cuenta `1.1.02.*` de la empresa:
+  acreditar el pago contra un ingreso dejaría el pasivo cerrado y el banco mal.
 
-  **Las cuatro cuentas por pagar se descargan en un solo movimiento**: el Seguro Social (con el aporte del
-  patrono y los riesgos profesionales adentro), el Seguro Educativo y el ISR retenido a los empleados. Es
-  como se paga en la práctica —la liquidación del mes deja la CxP del Seguro Social en cero— y por eso el
-  formulario tiene los tres montos y un botón que los trae del mes elegido. La descripción del asiento dice
+  **Todos los pasivos se descargan en un solo movimiento, pero con un monto POR CONCEPTO**: SS obrero, SS
+  patrono, riesgos profesionales, SE obrero, SE patrono e ISR retenido — los mismos seis conceptos que la
+  tabla de arriba muestra mes a mes, y por eso el botón que los trae del mes elegido llena los seis. Van
+  separados porque el débito tiene que caer en la subcuenta de cada uno; `lineasPagoCSS` funde en una sola
+  línea los conceptos que resuelven a la misma cuenta, así el catálogo sin partir sigue produciendo un
+  débito por institución en vez de tres líneas seguidas a la misma cuenta. La descripción del asiento dice
   lo que realmente se pagó: `Pago CSS + ISR septiembre 2026`, no un genérico "pago CSS" que oculte el ISR.
+  El monto que se le pone a la obligación del calendario es la suma de los tres conceptos de la CSS
+  —obrero, patrono y riesgos—, que es exactamente lo que calcula `valorarCSS`.
 - **Valorizar la obligación**: se le pone el monto real a la fila PENDING del calendario, con la misma regla
   que el recálculo del ITBMS —solo si está PENDING y sin monto real— y **sin crear filas fuera del horizonte
   de 3 meses**: si el período no está, se dice, no se inventa. De paso le da a la proyección de caja un ancla
@@ -422,8 +441,10 @@ fiscalización. La tabla arranca solo con la clase I; las demás se cargan desde
 
 Migraciones **`0022_planilla`** (los cuatro modelos), **`0023_payroll_run_unico_parcial`** (el índice único
 que libera el período al anular), **`0024_patronal_tres_cuentas`** (el gasto del patrono en tres cuentas),
-**`0025_empleado_clase_riesgo`** y **`0026_planilla_semanal`** (el día de pago y la corrida consolidada) —
-SQL escrito a mano, **solo DDL, cero backfill**.
+**`0025_empleado_clase_riesgo`**, **`0026_planilla_semanal`** (el día de pago y la corrida consolidada),
+**`0027_cuota_media_semanal`**, **`0028_menos_sueldo_ausencia`** y **`0029_pasivo_patronal_tres_cuentas`**
+(el pasivo del patrono en tres cuentas, para el catálogo partido) — SQL escrito a mano, **solo DDL, cero
+backfill**.
 
 **`Employee`** — `companyId`, `cedula?`, `nss?`, `nombre`, `cargo?`, `sueldoBase` (**siempre mensual**),
 `tipoPago` (`QUINCENAL`|`MENSUAL`), `fechaIngreso?`, `fechaSalida?`, `bancoCuentaId?`, `cuentaBanco?`,

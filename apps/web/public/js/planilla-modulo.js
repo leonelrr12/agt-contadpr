@@ -710,10 +710,25 @@
   async function vistaCSS() {
     const meses = estado.mesesCSS || 6;
     if (!estado.parametros) estado.parametros = await pedir('/parametros');
+    // El catálogo, para nombrar la cuenta que se debita con cada monto.
+    if (!estado.catalogo) estado.catalogo = await pedir('/cuentas');
     const r = await pedir(`/css?meses=${meses}`);
     // El botón "traer los montos del mes" lee de acá, sin volver a pedir.
     estado.cssActual = r;
     const bancos = estado.parametros.bancos || [];
+
+    // Cada monto dice a qué cuenta va: es la que se debita, y verla al lado del
+    // importe es lo que hace evidente cuándo el pasivo del patrono está cayendo en
+    // la cuenta del obrero por no estar configurado.
+    const nombreCuenta = (campo) => {
+      const id = estado.parametros?.cuentas?.[campo];
+      const c = (estado.catalogo || []).find((x) => x.id === id);
+      return c ? `${c.code} ${c.name}` : 'sin cuenta configurada';
+    };
+    const campoPago = (id, label, campo) => `
+      <div><label>${label}</label>
+        <input id="${id}" type="number" step="0.01" value="0">
+        <div class="nota" style="margin-top:2px">${esc(nombreCuenta(campo))}</div></div>`;
 
     const mesActual = isoDe(new Date()).slice(0, 7);
     const filas = r.meses.map((m) => `
@@ -723,7 +738,9 @@
         <td class="num">${num(m.ssPatronal)}</td>
         <td class="num">${num(m.riesgosPatronal)}</td>
         <td class="num"><b>${num(m.totalSS)}</b></td>
-        <td class="num">${num(m.totalSE)}</td>
+        <td class="num">${num(m.se)}</td>
+        <td class="num">${num(m.sePatronal)}</td>
+        <td class="num"><b>${num(m.totalSE)}</b></td>
         <td class="num">${num(m.isr)}</td>
         <td>${m.obligacion
           ? `<span class="badge ${m.obligacion.status === 'COMPLETED' ? 'badge-ok' : 'badge-warn'}">${esc(m.obligacion.status)}</span>
@@ -747,7 +764,8 @@
         </div>
         <table class="data-table" style="margin-top:12px">
           <thead><tr><th>Mes</th><th class="num">SS obrero</th><th class="num">SS patrono</th><th class="num">Riesgos</th>
-            <th class="num">Total SS</th><th class="num">Seg. Educativo</th><th class="num">ISR retenido</th><th>Obligación</th><th></th></tr></thead>
+            <th class="num">Total SS</th><th class="num">SE obrero</th><th class="num">SE patrono</th><th class="num">Total SE</th>
+            <th class="num">ISR retenido</th><th>Obligación</th><th></th></tr></thead>
           <tbody>${filas}</tbody>
         </table>
         <p class="nota">El saldo de arriba suma TODOS los períodos, no solo los meses que se muestran: es lo que se le debe a la CSS hoy.</p>
@@ -760,16 +778,23 @@
           <div><label>Fecha del pago</label><input type="date" id="p-fecha" value="${hoy()}"></div>
           <div><label>Banco</label>
             <select id="p-banco">${bancos.map((b) => `<option value="${esc(b.id)}">${esc(b.code + ' ' + b.name)}</option>`).join('')}</select></div>
-          <div><label>Monto Seguro Social</label><input id="p-ss" type="number" step="0.01" value="0"></div>
-          <div><label>Monto Seguro Educativo</label><input id="p-se" type="number" step="0.01" value="0"></div>
-          <div><label>Monto ISR retenido</label><input id="p-isr" type="number" step="0.01" value="0"></div>
           <div><label>Referencia</label><input id="p-ref" placeholder="opcional"></div>
+        </div>
+
+        <h3 style="margin-top:18px">Montos por concepto</h3>
+        <div class="form-grid tres">
+          ${campoPago('p-ss-obrero', 'Seguro Social obrero', 'ss')}
+          ${campoPago('p-ss-patronal', 'Seguro Social patrono', 'ssPatronal')}
+          ${campoPago('p-riesgos', 'Riesgos profesionales', 'riesgosPatronal')}
+          ${campoPago('p-se-obrero', 'Seguro Educativo obrero', 'se')}
+          ${campoPago('p-se-patronal', 'Seguro Educativo patrono', 'sePatronal')}
+          ${campoPago('p-isr', 'ISR retenido', 'isr')}
         </div>
         <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-primary" id="p-pagar" ${bancos.length ? '' : 'disabled'}>Registrar el pago</button>
           <button class="btn btn-secondary" id="p-traer">Traer los montos del mes</button>
         </div>
-        <p class="nota">Descarga las cuatro cuentas por pagar —Seguro Social (con el aporte del patrono y los riesgos), Seguro Educativo e ISR retenido— contra el banco, en BORRADOR. Marca la obligación CSS del calendario fiscal como cumplida.</p>
+        <p class="nota">Cada concepto debita SU cuenta por pagar contra el banco, en BORRADOR. Van separados porque el pasivo de la CSS puede estar partido en subcuentas —obrero, patrono y riesgos—: con un solo monto, la subcuenta del patrono se acreditaría y nunca bajaría. Marca la obligación CSS del calendario fiscal como cumplida.</p>
       </div>`;
   }
 
@@ -788,14 +813,19 @@
       return;
     }
     if (e.target.id === 'p-traer') {
-      // Prellena con lo devengado del mes elegido. El ISR que se trae es el
-      // RETENIDO, no el que la empresa paga por su propia renta: son cuentas
-      // distintas y confundirlas descuadraría el pasivo del empleado.
+      // Prellena con lo devengado del mes elegido, CONCEPTO POR CONCEPTO: los montos
+      // de la tabla de arriba son los mismos que se debitan, y así el pago descarga
+      // cada subcuenta del pasivo con lo que se acreditó en el mes. El ISR que se
+      // trae es el RETENIDO, no el que la empresa paga por su propia renta: son
+      // cuentas distintas y confundirlas descuadraría el pasivo del empleado.
       const periodo = $('p-periodo').value.trim();
       const mes = (estado.cssActual?.meses || []).find((m) => m.periodo === periodo);
       if (!mes) { alert(`No hay corridas en ${periodo}.`); return; }
-      $('p-ss').value = mes.totalSS;
-      $('p-se').value = mes.totalSE;
+      $('p-ss-obrero').value = mes.ss;
+      $('p-ss-patronal').value = mes.ssPatronal;
+      $('p-riesgos').value = mes.riesgosPatronal;
+      $('p-se-obrero').value = mes.se;
+      $('p-se-patronal').value = mes.sePatronal;
       $('p-isr').value = mes.isr;
       return;
     }
@@ -804,8 +834,11 @@
         periodo: $('p-periodo').value.trim(),
         fecha: $('p-fecha').value,
         bancoCuentaId: $('p-banco').value,
-        montoSS: Number($('p-ss').value) || 0,
-        montoSE: Number($('p-se').value) || 0,
+        montoSSObrero: Number($('p-ss-obrero').value) || 0,
+        montoSSPatronal: Number($('p-ss-patronal').value) || 0,
+        montoRiesgos: Number($('p-riesgos').value) || 0,
+        montoSEObrero: Number($('p-se-obrero').value) || 0,
+        montoSEPatronal: Number($('p-se-patronal').value) || 0,
         montoISR: Number($('p-isr').value) || 0,
         referencia: $('p-ref').value.trim() || undefined,
       };
@@ -901,17 +934,39 @@
     const r = await pedir('/parametros');
     estado.parametros = r;
     const s = r.settings;
-    const cuentas = r.cuentas;
+    // OJO: `r.cuentas` va por CONCEPTO (`sueldo`, `ss`) y con los respaldos ya
+    // aplicados; lo que estos selectores escriben son los campos de `Company`
+    // (`planillaSueldoId`). Pre-seleccionar con el primero los dejaba todos en blanco
+    // y cada guardado borraba las cuentas que no se volvieran a elegir.
+    const configuradas = r.configuradas || {};
 
     const camposCuenta = [
       ['planillaSueldoId', 'Sueldo'], ['planillaHorasExtrasId', 'Horas extras'],
       ['planillaDecimoId', 'Décimo III (pasivo)'], ['planillaVacacionesId', 'Vacaciones (pasivo)'],
       ['planillaSSId', 'Seguro Social (pasivo)'], ['planillaSEId', 'Seguro Educativo (pasivo)'],
       ['planillaISRId', 'ISR (pasivo)'], ['planillaBancoId', 'Neto a banco'],
-      ['planillaSSPatronalGastoId', 'Gasto SS patrono'], ['planillaSEPatronalGastoId', 'Gasto SE patrono'],
-      ['planillaRiesgosProfesionalesId', 'Gasto Riesgos Profesionales'],
       ['planillaOtrasDeduccionesId', 'Otras deducciones'],
     ];
+
+    // El pasivo del patrono es UNA CUENTA POR CONCEPTO: el pago a la CSS descarga
+    // cada una con su monto, así que las tres tienen que ser configurables. Sin
+    // configurar caen al pasivo del obrero (es el mismo pago), y eso se ve: el
+    // selector dice a dónde está cayendo cada uno.
+    const camposPasivoPatrono = [
+      ['planillaSSPatronalId', 'SS del patrono'], ['planillaSEPatronalId', 'SE del patrono'],
+      ['planillaRiesgosPatronalId', 'Riesgos Profesionales'],
+    ];
+    const camposGastoPatrono = [
+      ['planillaSSPatronalGastoId', 'SS del patrono'], ['planillaSEPatronalGastoId', 'SE del patrono'],
+      ['planillaRiesgosProfesionalesId', 'Riesgos Profesionales'],
+    ];
+
+    const selectorCuenta = ([campo, label]) => `
+      <div><label>${label}</label>
+        <select class="cuenta" data-campo="${campo}">
+          <option value="">— sin configurar —</option>
+          ${estado.catalogo.map((c) => `<option value="${esc(c.id)}" ${configuradas[campo] === c.id ? 'selected' : ''}>${esc(c.code + ' ' + c.name)}</option>`).join('')}
+        </select></div>`;
 
     return `
       ${avisos(r.avisos)}
@@ -971,15 +1026,15 @@
 
       <div class="card">
         <h3>Cuentas contables</h3>
-        <div class="form-grid">
-          ${camposCuenta.map(([campo, label]) => `
-            <div><label>${label}</label>
-              <select class="cuenta" data-campo="${campo}">
-                <option value="">— sin configurar —</option>
-                ${estado.catalogo.map((c) => `<option value="${esc(c.id)}" ${cuentas[campo] === c.id ? 'selected' : ''}>${esc(c.code + ' ' + c.name)}</option>`).join('')}
-              </select></div>`).join('')}
-        </div>
-        <p class="nota">Las cuentas de gasto del patrono y los pasivos de prestaciones se resuelven solas por código del catálogo cuando no están configuradas acá.</p>
+        <div class="form-grid">${camposCuenta.map(selectorCuenta).join('')}</div>
+
+        <h3 style="margin-top:18px">Pasivo del patrono (por pagar)</h3>
+        <div class="form-grid tres">${camposPasivoPatrono.map(selectorCuenta).join('')}</div>
+        <p class="nota">Una cuenta por concepto. Sin configurar caen al pasivo del obrero —a la CSS se le paga todo junto— y el pago de la pestaña CSS debita cada una con su monto: si el catálogo está partido y no las configurás, las subcuentas se acreditan y nunca bajan.</p>
+
+        <h3 style="margin-top:18px">Gasto del patrono</h3>
+        <div class="form-grid tres">${camposGastoPatrono.map(selectorCuenta).join('')}</div>
+        <p class="nota">Se resuelven solas por código del catálogo (6.01.02.01/.02/.03) cuando no están configuradas acá, y de última caen al gasto patronal genérico o a Sueldos — avisando en cada caso. Las cuentas de Décimo, Vacaciones y Prestaciones por pagar también se resuelven solas por código (2.1.10/2.1.11/2.1.09).</p>
       </div>
 
       <button class="btn btn-primary" id="t-guardar">Guardar parámetros</button>`;

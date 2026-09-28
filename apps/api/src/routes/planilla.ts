@@ -145,7 +145,12 @@ planillaRouter.get(
       // El selector del día de pago semanal: se manda la lista completa para que la
       // pantalla no tenga su propia copia de los días de la semana.
       diasSemana: DIAS_SEMANA,
+      // `cuentas` es la RESOLUCIÓN por concepto (con respaldos), y `configuradas` es
+      // lo que hay escrito en `Company` por nombre de campo. Los selectores de la
+      // pantalla escriben lo segundo: pre-seleccionarlos con lo primero los dejaba a
+      // todos en blanco y el guardado borraba la configuración.
       cuentas: resolucion.cuentas,
+      configuradas: resolucion.configuradas,
       faltantes: resolucion.faltantes,
       avisos: resolucion.avisos,
       // Cuentas donde puede caer el neto: bancos (1.1.02.*) y cajas.
@@ -215,7 +220,12 @@ planillaRouter.put(
     }
 
     const resolucion = await resolverCuentasPlanilla(req.prisma, companyId);
-    res.json({ ok: true, faltantes: resolucion.faltantes, avisos: resolucion.avisos });
+    res.json({
+      ok: true,
+      configuradas: resolucion.configuradas,
+      faltantes: resolucion.faltantes,
+      avisos: resolucion.avisos,
+    });
   }),
 );
 

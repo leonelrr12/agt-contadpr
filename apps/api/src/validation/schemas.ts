@@ -447,25 +447,36 @@ export const revisarCorridaSchema = z.object({
   notes: z.string().max(500).optional(),
 });
 
-/** Pago a la CSS: descarga el pasivo del Seguro Social y del Seguro Educativo. */
+/**
+ * Pago a la CSS: descarga el pasivo del Seguro Social (obrero, patrono y riesgos),
+ * el del Seguro Educativo y el ISR retenido, cada uno contra su cuenta.
+ *
+ * Los montos van por CONCEPTO y no sumados por institución: el catálogo puede tener
+ * el pasivo partido en subcuentas y el débito tiene que caer en la de cada uno.
+ * Un concepto que no se paga simplemente no viene (default 0).
+ */
 export const pagoCSSSchema = z
   .object({
     periodo: z.string().regex(/^\d{4}-\d{2}$/, 'El período debe venir como AAAA-MM'),
     fecha: isoDate,
     bancoCuentaId: z.string().min(1, 'Elegí el banco por el que salió el pago'),
-    montoSS: z.number().min(0).max(1e9),
-    montoSE: z.number().min(0).max(1e9).optional(),
+    montoSSObrero: z.number().min(0).max(1e9).default(0),
+    montoSSPatronal: z.number().min(0).max(1e9).default(0),
+    montoRiesgos: z.number().min(0).max(1e9).default(0),
+    montoSEObrero: z.number().min(0).max(1e9).default(0),
+    montoSEPatronal: z.number().min(0).max(1e9).default(0),
     /** ISR retenido a los empleados: se paga en el mismo movimiento que la CSS. */
-    montoISR: z.number().min(0).max(1e9).optional(),
+    montoISR: z.number().min(0).max(1e9).default(0),
     referencia: z.string().max(100).optional(),
     notas: z.string().max(500).optional(),
     /** Marca la obligación del calendario fiscal como cumplida (por defecto, sí). */
     marcarPagada: z.boolean().optional(),
   })
-  .refine((d) => d.montoSS > 0 || (d.montoSE ?? 0) > 0 || (d.montoISR ?? 0) > 0, {
-    message: 'El pago tiene que tener un monto mayor que cero',
-    path: ['montoSS'],
-  });
+  .refine(
+    (d) =>
+      d.montoSSObrero + d.montoSSPatronal + d.montoRiesgos + d.montoSEObrero + d.montoSEPatronal + d.montoISR > 0,
+    { message: 'El pago tiene que tener un monto mayor que cero', path: ['montoSSObrero'] },
+  );
 export type PagoCSSInput = z.infer<typeof pagoCSSSchema>;
 
 export const updatePayrollSettingsSchema = z.object({

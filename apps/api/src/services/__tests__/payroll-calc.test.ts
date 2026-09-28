@@ -102,6 +102,7 @@ const CUENTAS: CuentasPlanilla = {
   otrasDeducciones: 'c-otras',
   ssPatronal: 'c-ss-patronal',
   sePatronal: 'c-se-patronal',
+  riesgosPatronal: 'c-riesgos-patronal',
   ssPatronalGasto: 'c-ss-pat-gasto',
   sePatronalGasto: 'c-se-pat-gasto',
   riesgosGasto: 'c-riesgos-gasto',
@@ -447,10 +448,13 @@ describe('el asiento cuadra por construcción', () => {
     expect(gasto('c-ss-pat-gasto')).toBe(calculo.ssPatronal);
     expect(gasto('c-se-pat-gasto')).toBe(calculo.sePatronal);
     expect(gasto('c-riesgos-gasto')).toBe(calculo.riesgosPatronal);
-    // El pasivo del Seguro Social recibe también los riesgos: a la CSS se le paga
-    // todo junto, aunque el gasto se analice por separado.
-    const pasivoSS = lineas.find((l) => l.accountId === 'c-ss-patronal')!;
-    expect(pasivoSS.credit).toBe(sumarMontos(calculo.ssPatronal, calculo.riesgosPatronal));
+    // El pasivo también va por concepto: cada aporte del patrono acredita SU cuenta,
+    // y los riesgos tienen la suya (a la CSS se le paga todo junto, pero eso es el
+    // pago — ver `registrarPagoCSS`).
+    const pasivo = (id: string) => lineas.find((l) => l.accountId === id)?.credit ?? 0;
+    expect(pasivo('c-ss-patronal')).toBe(calculo.ssPatronal);
+    expect(pasivo('c-se-patronal')).toBe(calculo.sePatronal);
+    expect(pasivo('c-riesgos-patronal')).toBe(calculo.riesgosPatronal);
 
     expect(calculo.neto).toBe(r2(calculo.bruto - calculo.ss - calculo.se - calculo.isr));
     // 1% sobre la base de cotización, que es la quincena de 610,40.

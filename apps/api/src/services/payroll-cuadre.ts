@@ -1,5 +1,6 @@
 import { r2, sumarMontos } from '../lib/money';
 import { resolverCuentasPlanilla } from './payroll-parametros';
+import { saldoCuentasPasivo } from './payroll-css';
 
 /**
  * Cuadre de la planilla: compara lo que las corridas dicen con lo que quedó en el
@@ -38,19 +39,6 @@ export interface CuadrePlanilla {
   itemsProblematicos: { empleado: string; corrida: string; periodo: string; asiento: string; estado: string }[];
   sinCorrida: { id: string; nombre: string; tipoPago: string }[];
   avisos: string[];
-}
-
-/** Saldo de una cuenta de pasivo: créditos − débitos, sin RECHAZADO ni ANULADO. */
-async function saldoPasivo(prisma: any, companyId: string, accountId: string | null, hasta: Date): Promise<number> {
-  if (!accountId) return 0;
-  const agg = await prisma.journalLine.aggregate({
-    _sum: { debit: true, credit: true },
-    where: {
-      accountId,
-      journalEntry: { companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] }, date: { lte: hasta } },
-    },
-  });
-  return r2((agg._sum.credit || 0) - (agg._sum.debit || 0));
 }
 
 function comparar(mayor: number, devengado: number): ComparacionPasivo {
@@ -120,10 +108,15 @@ export async function cuadrePlanilla(
   const devSE = sumarMontos(...historicos.map((i) => i.se + i.sePatronal));
   const devISR = sumarMontos(...historicos.map((i) => i.isr));
 
+  // El pasivo de la CSS puede estar partido en subcuentas —obrero, patrono y
+  // riesgos—: el mayor de cada concepto es la suma de las suyas, contando una sola
+  // vez las que resuelven a la misma cuenta. `saldoCuentasPasivo` es el mismo helper
+  // que usa la pestaña CSS: el saldo que muestra una y el que compara el otro tienen
+  // que salir del mismo sitio o el cuadre reportaría una diferencia inventada.
   const [ssMayor, seMayor, isrMayor] = await Promise.all([
-    saldoPasivo(prisma, companyId, cuentas.ss, hasta),
-    saldoPasivo(prisma, companyId, cuentas.se, hasta),
-    saldoPasivo(prisma, companyId, cuentas.isr, hasta),
+    saldoCuentasPasivo(prisma, companyId, [cuentas.ss, cuentas.ssPatronal, cuentas.riesgosPatronal], hasta),
+    saldoCuentasPasivo(prisma, companyId, [cuentas.se, cuentas.sePatronal], hasta),
+    saldoCuentasPasivo(prisma, companyId, [cuentas.isr], hasta),
   ]);
 
   // ── 3. Los asientos que no están vivos ──

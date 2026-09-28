@@ -584,9 +584,10 @@ export function calcularCorrida(
 // ─── Asiento ─────────────────────────────────────────────────────────────────
 
 /**
- * Cuentas que necesita el asiento. Se resuelven desde `Company`; las tres de
- * "por pagar" caen a los códigos del catálogo (2.1.10, 2.1.11, 2.1.09) si no hay
- * una configurada, y `payroll-run.ts` avisa cuando eso pasa.
+ * Cuentas que necesita el asiento. Se resuelven desde `Company` —incluidos los tres
+ * pasivos del patrono, que sin configurar caen al pasivo del obrero—; las tres de
+ * prestaciones "por pagar" caen a los códigos del catálogo (2.1.10, 2.1.11, 2.1.09)
+ * si no hay una configurada, y `payroll-run.ts` avisa cuando eso pasa.
  */
 export interface CuentasPlanilla {
   sueldo: string;
@@ -600,6 +601,12 @@ export interface CuentasPlanilla {
   /** Pasivo del Seguro Social ante la CSS: recibe la retención Y el aporte patronal. */
   ssPatronal: string;
   sePatronal: string;
+  /**
+   * Pasivo de los riesgos profesionales del patrono. La CSS los cobra en el MISMO
+   * pago que el Seguro Social, pero con el catálogo partido viven en su propia
+   * subcuenta; sin configurar caen a la del Seguro Social del patrono.
+   */
+  riesgosPatronal: string;
   /** Las tres cuentas de GASTO del patrono, separadas para poder analizarlas. */
   ssPatronalGasto: string;
   sePatronalGasto: string;
@@ -647,8 +654,9 @@ export function construirLineas(
     debe(cuentas.sueldo, item.otrosIngresos);
 
     // Los aportes del patrono: gasto propio, no retención del empleado, y cada uno
-    // a su cuenta. Los riesgos profesionales comparten el PASIVO del Seguro Social
-    // —a la CSS se le paga todo junto— pero no su gasto.
+    // a su cuenta — el gasto Y el pasivo. Los riesgos profesionales se le pagan a la
+    // CSS en el mismo movimiento que el Seguro Social, pero eso es cosa del PAGO
+    // (`payroll-css.ts`): acá cada concepto devenga en su propia subcuenta.
     debe(cuentas.ssPatronalGasto, item.ssPatronal);
     debe(cuentas.sePatronalGasto, item.sePatronal);
     debe(cuentas.riesgosGasto, item.riesgosPatronal);
@@ -657,8 +665,9 @@ export function construirLineas(
     haber(cuentas.se, item.se);
     haber(cuentas.isr, item.isr);
     haber(cuentas.otrasDeducciones, item.otrasDeducciones);
-    haber(cuentas.ssPatronal, sumarMontos(item.ssPatronal, item.riesgosPatronal));
+    haber(cuentas.ssPatronal, item.ssPatronal);
     haber(cuentas.sePatronal, item.sePatronal);
+    haber(cuentas.riesgosPatronal, item.riesgosPatronal);
 
     if (provisionar) {
       const provision = sumarMontos(
@@ -685,8 +694,9 @@ export function construirLineas(
   debe(cuentas.ssPatronalGasto, item.ssPatronal);
   debe(cuentas.sePatronalGasto, item.sePatronal);
   debe(cuentas.riesgosGasto, item.riesgosPatronal);
-  haber(cuentas.ssPatronal, sumarMontos(item.ssPatronal, item.riesgosPatronal));
+  haber(cuentas.ssPatronal, item.ssPatronal);
   haber(cuentas.sePatronal, item.sePatronal);
+  haber(cuentas.riesgosPatronal, item.riesgosPatronal);
 
   haber(cuentas.ss, item.ss);
   haber(cuentas.se, item.se);

@@ -2,7 +2,8 @@ import { parseLocalDate } from '../lib/dates';
 import { r2, sumarMontos } from '../lib/money';
 import { logAudit } from './audit-log';
 import { valorarObligacion, marcarObligacionCumplida } from './tax-calendar';
-import { resolverCuentasPlanilla, PLANILLA_FIELDS } from './payroll-parametros';
+import { resolverCuentasPlanilla } from './payroll-parametros';
+import type { CuentasPlanilla, LineaAsiento } from './payroll-calc';
 
 /**
  * El lado CSS de la planilla: cuánto se le debe, cuándo vence y cómo se paga.
@@ -91,6 +92,24 @@ export interface MesCSS {
   } | null;
 }
 
+/**
+ * Saldo de VARIAS cuentas como una sola deuda.
+ *
+ * Cuenta cada cuenta una sola vez: con el catálogo sin partir, el pasivo del
+ * patrono y el de los riesgos resuelven a la MISMA cuenta que el obrero, y sumar
+ * los saldos por concepto duplicaría lo que se le debe a la CSS.
+ */
+export async function saldoCuentasPasivo(
+  prisma: any,
+  companyId: string,
+  accountIds: (string | null)[],
+  upTo?: Date,
+): Promise<number> {
+  const ids = [...new Set(accountIds.filter((id): id is string => !!id))];
+  const saldos = await Promise.all(ids.map((id) => saldoCuentaPasivo(prisma, companyId, id, upTo)));
+  return sumarMontos(...saldos);
+}
+
 export interface ResumenCSS {
   meses: MesCSS[];
   /**
@@ -99,7 +118,15 @@ export interface ResumenCSS {
    * quedó algo sin pagar de antes, y la respuesta lo dice en `avisos`.
    */
   saldo: { ss: number; se: number; isr: number; total: number; deMesesMostrados: number };
-  cuentas: { ss: any; se: any; isr: any };
+  /** Las cuentas que se descargan al pagar: el SS lleva adentro al patrono y los riesgos. */
+  cuentas: {
+    ss: any;
+    ssPatronal: any;
+    riesgosPatronal: any;
+    se: any;
+    sePatronal: any;
+    isr: any;
+  };
   avisos: string[];
 }
 
@@ -129,7 +156,7 @@ export async function resumenCSS(
     return {
       meses: [],
       saldo: { ss: 0, se: 0, isr: 0, total: 0, deMesesMostrados: 0 },
-      cuentas: { ss: null, se: null, isr: null },
+      cuentas: { ss: null, ssPatronal: null, riesgosPatronal: null, se: null, sePatronal: null, isr: null },
       avisos: ['Configura la cuenta de Seguro Social y de Seguro Educativo para ver el saldo adeudado.'],
     };
   }
@@ -194,9 +221,12 @@ export async function resumenCSS(
     }
   }
 
+  // El pasivo del Seguro Social son tres cuentas cuando el catálogo está partido
+  // (obrero, patrono y riesgos); con el catálogo viejo las tres resuelven a la misma
+  // y `saldoCuentasPasivo` la cuenta una sola vez.
   const [saldoSS, saldoSE, saldoISR] = await Promise.all([
-    saldoCuentaPasivo(prisma, companyId, cuentas.ss),
-    saldoCuentaPasivo(prisma, companyId, cuentas.se),
+    saldoCuentasPasivo(prisma, companyId, [cuentas.ss, cuentas.ssPatronal, cuentas.riesgosPatronal]),
+    saldoCuentasPasivo(prisma, companyId, [cuentas.se, cuentas.sePatronal]),
     saldoCuentaPasivo(prisma, companyId, cuentas.isr),
   ]);
 
@@ -250,7 +280,14 @@ export async function resumenCSS(
       total: sumarMontos(saldoSS, saldoSE),
       deMesesMostrados,
     },
-    cuentas: { ss: cuentas.ss || null, se: cuentas.se || null, isr: cuentas.isr || null },
+    cuentas: {
+      ss: cuentas.ss || null,
+      ssPatronal: cuentas.ssPatronal || null,
+      riesgosPatronal: cuentas.riesgosPatronal || null,
+      se: cuentas.se || null,
+      sePatronal: cuentas.sePatronal || null,
+      isr: cuentas.isr || null,
+    },
     avisos,
   };
 }
@@ -275,14 +312,24 @@ export interface DatosPagoCSS {
   periodo: string;
   fecha: string;
   bancoCuentaId: string;
-  montoSS: number;
-  montoSE?: number;
+  /**
+   * Los conceptos que se descargan, uno por cuenta. Van separados porque el catálogo
+   * puede tener el pasivo de la CSS partido en subcuentas —obrero, patrono y
+   * riesgos—: con un solo "monto SS" el débito caería entero en la cuenta del obrero
+   * y las subcuentas del patrono se acreditarían para siempre.
+   */
+  montoSSObrero: number;
+  montoSSPatronal: number;
+  /** Riesgos profesionales: la CSS los cobra en el mismo pago que el Seguro Social. */
+  montoRiesgos: number;
+  montoSEObrero: number;
+  montoSEPatronal: number;
   /**
    * ISR retenido a los empleados. Se registra acá, en el mismo movimiento que la
-   * CSS, porque así se paga en la práctica: la liquidación del mes descarga las
-   * cuatro cuentas por pagar de una vez y la CxP del Seguro Social queda en cero.
+   * CSS, porque así se paga en la práctica: la liquidación del mes descarga todas las
+   * cuentas por pagar de una vez.
    */
-  montoISR?: number;
+  montoISR: number;
   referencia?: string;
   notas?: string;
   /** Marca la obligación del calendario como cumplida (por defecto, sí). */
@@ -296,7 +343,32 @@ export interface ResultadoPagoCSS {
 }
 
 /**
- * Registra el pago a la CSS: debita los pasivos y acredita el banco.
+ * Las líneas del pago: un débito por CUENTA y el banco al crédito.
+ *
+ * Por cuenta y no por concepto: con el catálogo sin partir, el pasivo del patrono y
+ * el de los riesgos resuelven a la misma cuenta que el obrero, y dejarle al diario
+ * tres líneas seguidas a la misma cuenta es ruido que el contador va a leer como un
+ * error. Es pura a propósito: el reparto se prueba en un test, no en producción.
+ */
+export function lineasPagoCSS(
+  montos: { clave: keyof CuentasPlanilla; importe: number }[],
+  cuentas: CuentasPlanilla,
+  bancoId: string,
+): LineaAsiento[] {
+  const porCuenta = new Map<string, number>();
+  for (const { clave, importe } of montos) {
+    if (importe <= 0) continue;
+    const accountId = cuentas[clave];
+    porCuenta.set(accountId, sumarMontos(porCuenta.get(accountId) ?? 0, importe));
+  }
+  return [
+    ...[...porCuenta].map(([accountId, debit]) => ({ accountId, debit, credit: 0 })),
+    { accountId: bancoId, debit: 0, credit: sumarMontos(...porCuenta.values()) },
+  ];
+}
+
+/**
+ * Registra el pago a la CSS: debita cada pasivo con SU monto y acredita el banco.
  *
  * El asiento nace en BORRADOR, como todo en el sistema: quien lo aprueba es el
  * contador. Si se pidió marcar la obligación como cumplida y no existe la fila del
@@ -308,10 +380,20 @@ export async function registrarPagoCSS(
   userId: string,
   datos: DatosPagoCSS,
 ): Promise<ResultadoPagoCSS> {
-  const montoSS = r2(datos.montoSS || 0);
-  const montoSE = r2(datos.montoSE || 0);
-  const montoISR = r2(datos.montoISR || 0);
-  const total = sumarMontos(montoSS, montoSE, montoISR);
+  const monto = (v: number | undefined) => r2(v || 0);
+  const partes: { clave: keyof CuentasPlanilla; etiqueta: string; importe: number }[] = [
+    { clave: 'ss', etiqueta: 'Seguro Social', importe: monto(datos.montoSSObrero) },
+    { clave: 'ssPatronal', etiqueta: 'Seguro Social del patrono', importe: monto(datos.montoSSPatronal) },
+    { clave: 'riesgosPatronal', etiqueta: 'Riesgos Profesionales', importe: monto(datos.montoRiesgos) },
+    { clave: 'se', etiqueta: 'Seguro Educativo', importe: monto(datos.montoSEObrero) },
+    { clave: 'sePatronal', etiqueta: 'Seguro Educativo del patrono', importe: monto(datos.montoSEPatronal) },
+    { clave: 'isr', etiqueta: 'ISR retenido', importe: monto(datos.montoISR) },
+  ];
+  const total = sumarMontos(...partes.map((p) => p.importe));
+  // Lo que se le paga a la CSS: la retención, el aporte del patrono y los riesgos.
+  // Es el mismo monto que `valorarCSS` le pone a la obligación del calendario.
+  const montoSS = sumarMontos(monto(datos.montoSSObrero), monto(datos.montoSSPatronal), monto(datos.montoRiesgos));
+  const montoSE = sumarMontos(monto(datos.montoSEObrero), monto(datos.montoSEPatronal));
 
   if (total <= 0) {
     throw Object.assign(new Error('El pago tiene que tener un monto mayor que cero.'), { status: 400 });
@@ -321,10 +403,10 @@ export async function registrarPagoCSS(
   }
 
   const { cuentas, faltantes } = await resolverCuentasPlanilla(prisma, companyId);
-  const necesita: string[] = ['ss'];
-  if (montoSE > 0) necesita.push('se');
-  if (montoISR > 0) necesita.push('isr');
-  const sinCuenta = faltantes.filter((f) => necesita.includes(f.clave));
+  // Solo se exige la cuenta de lo que realmente se está pagando: un pago sin ISR no
+  // tiene por qué reclamar la cuenta del ISR.
+  const conMonto = partes.filter((p) => p.importe > 0);
+  const sinCuenta = faltantes.filter((f) => conMonto.some((p) => p.clave === f.clave));
   if (sinCuenta.length > 0) {
     throw Object.assign(
       new Error(`Configura la cuenta de ${sinCuenta.map((f) => f.etiqueta).join(', ')} antes de registrar el pago.`),
@@ -348,16 +430,11 @@ export async function registrarPagoCSS(
     );
   }
 
-  const lineas = [
-    ...(montoSS > 0 ? [{ accountId: cuentas.ss, debit: montoSS, credit: 0 }] : []),
-    ...(montoSE > 0 ? [{ accountId: cuentas.se, debit: montoSE, credit: 0 }] : []),
-    ...(montoISR > 0 ? [{ accountId: cuentas.isr, debit: montoISR, credit: 0 }] : []),
-    { accountId: banco.id, debit: 0, credit: total },
-  ];
+  const lineas = lineasPagoCSS(conMonto, cuentas, banco.id);
 
   // La descripción nombra lo que realmente se está pagando: un mes con ISR no es
   // "un pago a la CSS", y quien lea el diario tiene que poder saberlo sin abrirlo.
-  const concepto = ['CSS', ...(montoISR > 0 ? ['ISR'] : [])].join(' + ');
+  const concepto = ['CSS', ...(monto(datos.montoISR) > 0 ? ['ISR'] : [])].join(' + ');
   const periodo = datos.periodo;
   const asiento = await prisma.journalEntry.create({
     data: {
@@ -380,7 +457,18 @@ export async function registrarPagoCSS(
     action: 'PLANILLA_PAGO_CSS',
     entity: 'JournalEntry',
     entityId: asiento.id,
-    after: { periodo, montoSS, montoSE, montoISR, total, banco: banco.code, obligacionMarcada },
+    after: {
+      periodo,
+      // El desglose por concepto es lo que hace auditable un pago repartido en
+      // subcuentas: los agregados solos no dicen contra qué cuenta fue cada monto.
+      montos: Object.fromEntries(partes.map((p) => [p.clave, p.importe])),
+      montoSS,
+      montoSE,
+      montoISR: monto(datos.montoISR),
+      total,
+      banco: banco.code,
+      obligacionMarcada,
+    },
   });
 
   return { journalEntryId: asiento.id, total, obligacionMarcada };
@@ -388,8 +476,3 @@ export async function registrarPagoCSS(
 
 /** Etiqueta del período para la descripción del asiento. Exportada para la UI. */
 export const etiquetaPeriodo = etiquetaDe;
-
-/** Los mismos campos de cuenta que Administración → Configuración. */
-export const CAMPOS_CUENTA_CSS = PLANILLA_FIELDS.filter((f) =>
-  ['planillaSSId', 'planillaSEId', 'planillaISRId'].includes(f.field),
-);

@@ -220,7 +220,8 @@ function clavesNecesarias(
 
   const claves: (keyof CuentasPlanilla)[] = [
     'sueldo', 'ss', 'se', 'isr',
-    'ssPatronal', 'sePatronal', 'ssPatronalGasto', 'sePatronalGasto', 'riesgosGasto',
+    'ssPatronal', 'sePatronal', 'riesgosPatronal',
+    'ssPatronalGasto', 'sePatronalGasto', 'riesgosGasto',
   ];
   if (items.some((i) => i.horasExtras > 0)) claves.push('horasExtras');
   if (items.some((i) => i.otrasDeducciones > 0)) claves.push('otrasDeducciones');
