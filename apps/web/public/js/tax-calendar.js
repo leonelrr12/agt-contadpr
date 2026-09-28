@@ -46,7 +46,10 @@ async function loadTaxCalendarInline() {
             ${o.estimatedAmount ? `<span style="font-size:13px;font-weight:700;color:#1a1a2e">$${o.estimatedAmount.toFixed(2)}</span>` : ''}
           </div>
         </div>
-        ${o.status !== 'COMPLETED' ? `<button class="btn-sm" onclick="markTaxObligationComplete('${o.id}')" style="padding:4px 10px;font-size:11px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✅ Marcar</button>` : '<span style="font-size:11px;color:#059669;font-weight:600">✅ Completado</span>'}
+        ${o.status !== 'COMPLETED'
+          ? `<button class="btn-sm" onclick="markTaxObligationComplete('${o.id}')" style="padding:4px 10px;font-size:11px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✅ Marcar</button>`
+          : `<span style="font-size:11px;color:#059669;font-weight:600">✅ Completado</span>
+             <button class="btn-sm" onclick="unmarkTaxObligation('${o.id}')" title="La devuelve a pendiente y borra el monto real registrado" style="padding:4px 10px;font-size:11px;background:#e5e7eb;color:#374151;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">↩ Desmarcar</button>`}
       </div>`;
     }
 
@@ -99,6 +102,26 @@ async function markTaxObligationComplete(id) {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'COMPLETED' }),
+    });
+    if (res.ok) { loadTaxCalendarInline(); }
+  } catch (e) { /* ignore */ }
+}
+
+/**
+ * Devuelve una obligación a PENDING y borra el monto real.
+ *
+ * El monto real solo lo escribe un pago registrado, así que desmarcar es "esto no se
+ * pagó": si quedara, `valorarObligacion` se negaría a recalcular el estimado (esa
+ * guarda existe para no pisar un pago de verdad) y la fila quedaría pendiente con un
+ * número que nadie pagó. Se pregunta antes porque borra ese registro.
+ */
+async function unmarkTaxObligation(id) {
+  if (!confirm('¿Devolver esta obligación a pendiente? Se borra el monto real registrado, si lo hay.')) return;
+  try {
+    const res = await authFetch(`${API_URL}/tax-calendar/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'PENDING', actualAmount: null }),
     });
     if (res.ok) { loadTaxCalendarInline(); }
   } catch (e) { /* ignore */ }
