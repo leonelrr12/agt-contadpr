@@ -24,26 +24,222 @@ async function getEntryAccounts(extraEntries = []) {
   return lista.filter(a => a.isActive).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
 }
 
+/* ── Selección del contenido al entrar a un campo con el mouse ──
+ * Con Tab el navegador resalta todo el contenido del campo; con click deja el
+ * caret donde se apuntó. Se iguala: al tomar el foco por click se resalta todo.
+ * El mouseup que sigue al click colapsaría esa selección, así que se cancela
+ * UNA sola vez —la del click que dio el foco—: si el campo ya estaba enfocado,
+ * el click se comporta normal (caret, arrastrar para seleccionar un trozo). */
+function selectAllOnClickFocus(el) {
+  const tipo = (el.type || 'text').toLowerCase();
+  // Los campos sin texto (fecha) ya se comportan bien solos: su "contenido" son
+  // segmentos nativos que el navegador resalta al click, y el picker manda.
+  if (!['text', 'search', 'number', 'password', 'email', 'tel', 'url'].includes(tipo)) return;
+  // El contenido se resalta al tomar el foco por cualquier vía (mouse, Tab,
+  // Enter). La bandera se arma en mousedown y no en focus porque el mouseup
+  // que hay que cancelar es el del click que ENFOCA —el que colapsaría la
+  // selección recién hecha—: si el campo ya estaba enfocado, el click se
+  // comporta normal (caret donde se apuntó, arrastrar para seleccionar).
+  let clickEnfoca = false;
+  el.addEventListener('mousedown', () => { clickEnfoca = document.activeElement !== el; });
+  el.addEventListener('focus', () => { try { el.select(); } catch (e) { /* sin selección soportada: no es crítico */ } });
+  el.addEventListener('mouseup', e => {
+    if (!clickEnfoca) return;
+    e.preventDefault();
+    clickEnfoca = false;
+  });
+  el.addEventListener('blur', () => { clickEnfoca = false; });
+}
+
+/* ── Combo de cuentas: escribir código o nombre y elegir de la lista ──
+ * Sustituye al <select> (había que bajar a ojo una lista de cientos). La caja
+ * se cuelga de <body> en position:fixed porque dentro del modal el overflow-y
+ * la recortaría. Solo hay una lista abierta a la vez. */
+const ENTRY_ACC_MAX_FILAS = 100; // filas pintadas de golpe; el resto, afinando la búsqueda
+let _entryAccCombo = null;       // { box, input, accounts, actualId, onPick, items, idx, onScroll }
+
+function entryAccLabel(a) { return `${a.code} — ${a.name}`; }
+
+/** Términos de búsqueda: sin mayúsculas ni tildes ("viatico" → "Viático") y sin
+ *  el guión largo que separa código y nombre, para que la etiqueta completa
+ *  ("1.1.01 — Caja") se encuentre a sí misma. */
+function entryAccTerms(q) {
+  return normalizeSearch(q).replace(/[—–]/g, ' ').split(/\s+/).filter(Boolean);
+}
+
+/** Cuentas que casan con lo tecleado: todas las palabras deben aparecer, en el
+ *  código o en el nombre ("banco general" exige ambas). */
+function entryAccFiltrar(accounts, q) {
+  const terms = entryAccTerms(q);
+  if (!terms.length) return accounts;
+  return accounts.filter(a => {
+    const hay = normalizeSearch(`${a.code} ${a.name}`);
+    return terms.every(t => hay.includes(t));
+  });
+}
+
+function closeEntryAccCombo() {
+  if (!_entryAccCombo) return;
+  window.removeEventListener('scroll', _entryAccCombo.onScroll, true);
+  window.removeEventListener('resize', closeEntryAccCombo);
+  _entryAccCombo.box.remove();
+  _entryAccCombo = null;
+}
+
+/** Abre la lista bajo el campo (encima, si abajo no cabe). */
+function openEntryAccCombo(input, accounts, actualId, onPick) {
+  closeEntryAccCombo();
+  const box = document.createElement('div');
+  box.className = 'entry-acc-combo';
+  const r = input.getBoundingClientRect();
+  const abajo = window.innerHeight - r.bottom - 10;
+  box.style.left = `${r.left}px`;
+  box.style.width = `${r.width}px`;
+  if (abajo >= 140 || abajo >= r.top) {
+    box.style.top = `${r.bottom + 2}px`;
+    box.style.maxHeight = `${Math.max(120, Math.min(260, abajo))}px`;
+  } else {
+    box.style.bottom = `${window.innerHeight - r.top + 2}px`;
+    box.style.maxHeight = `${Math.max(120, Math.min(260, r.top - 10))}px`;
+  }
+  document.body.appendChild(box);
+
+  // mousedown (no click): el campo conserva el foco y la lista no se cierra
+  // por el blur antes de que el navegador registre el click.
+  box.addEventListener('mousedown', e => {
+    const el = e.target.closest('.entry-acc-item');
+    e.preventDefault();
+    if (el && _entryAccCombo && _entryAccCombo.box === box) pickEntryAccItem(el);
+  });
+
+  const st = { box, input, accounts, actualId, onPick, items: [], idx: -1, onScroll: null };
+  // Al hacer scroll la caja quedaría flotando lejos del campo: se cierra. El
+  // scroll interno de la propia lista no cuenta.
+  st.onScroll = e => { if (!st.box.contains(e.target)) closeEntryAccCombo(); };
+  _entryAccCombo = st;
+  window.addEventListener('scroll', st.onScroll, true);
+  window.addEventListener('resize', closeEntryAccCombo);
+}
+
+/** Repinta la lista del combo abierto. `q` es lo tecleado: vacío = catálogo
+ *  completo con la cuenta de la línea marcada; con texto, filtrado y con la
+ *  primera coincidencia lista para Enter. */
+function renderEntryAccCombo(q) {
+  const st = _entryAccCombo;
+  if (!st) return;
+  const filtradas = entryAccFiltrar(st.accounts, q || '');
+  const visibles = filtradas.slice(0, ENTRY_ACC_MAX_FILAS);
+  let html = visibles.map(a => `<div class="entry-acc-item${a.id === st.actualId ? ' actual' : ''}" data-id="${a.id}"><span class="entry-acc-code">${escapeHtml(a.code)}</span><span class="entry-acc-name">${escapeHtml(a.name)}</span></div>`).join('');
+  if (filtradas.length > visibles.length) html += `<div class="entry-acc-mas">${filtradas.length - visibles.length} cuenta(s) más — afina la búsqueda</div>`;
+  st.box.innerHTML = html || '<div class="entry-acc-vacio">Sin cuentas que coincidan</div>';
+  st.items = [...st.box.querySelectorAll('.entry-acc-item')];
+  st.idx = entryAccTerms(q || '').length
+    ? (st.items.length ? 0 : -1)
+    : st.items.findIndex(el => el.dataset.id === st.actualId);
+  st.items.forEach((el, j) => el.classList.toggle('sel', j === st.idx));
+  if (st.idx >= 0) st.items[st.idx].scrollIntoView({ block: 'nearest' });
+}
+
+function pickEntryAccItem(el) {
+  const st = _entryAccCombo;
+  if (!st || !el) return;
+  const acc = st.accounts.find(a => a.id === el.dataset.id);
+  if (acc) st.onPick(acc);
+  closeEntryAccCombo();
+}
+
 // entry-modals.js (11/14) — modales de edición/corrección de asientos
 /* ── Maquinaria compartida de líneas editables (edit/create de asientos) ── */
 // Expone en window: <ns>Lines, <ns>UpdateLine, <ns>RemoveLine, <ns>AddLine, <ns>UpdateBalance
 // para los onchange/onclick inline del modal. Retorna helpers para el flujo de guardado.
-function setupEntryLines({ tbody, balanceEl, saveBtn, activeAccounts, namespace, initialLines }) {
+function setupEntryLines({ tbody, balanceEl, saveBtn, activeAccounts, namespace, initialLines, focusCuentaAlAgregar = false }) {
   const lines = initialLines.slice();
   if (lines.length < 2) lines.push({ accountId: '', debit: 0, credit: 0 });
 
+  /** Texto que debe mostrar el campo de cuenta: la cuenta de la línea, o vacío.
+   *  Se aplica al SALIR del campo (blur/Esc/Tab), no mientras se teclea: así lo
+   *  que se ve es siempre lo que se va a guardar. */
+  function displayAccount(i) {
+    const acc = activeAccounts.find(a => a.id === lines[i].accountId);
+    return acc ? entryAccLabel(acc) : '';
+  }
+
+  /** Despliega (o refresca) la lista de cuentas de la línea `i`. */
+  function abrirComboCuenta(input, i, tecleando) {
+    if (tecleando) {
+      // Teclear el código exacto ya deja la cuenta puesta: Tab y a otra cosa.
+      const t = normalizeSearch(input.value.trim());
+      const exacta = activeAccounts.find(a => normalizeSearch(a.code) === t);
+      if (exacta) { lines[i].accountId = exacta.id; updateBalance(); }
+    }
+    // Misma caja mientras sea el mismo campo: si no, cada tecla cerraría y
+    // reabriría la lista (parpadeo).
+    if (_entryAccCombo && _entryAccCombo.input === input) {
+      _entryAccCombo.actualId = lines[i].accountId;
+      renderEntryAccCombo(tecleando ? input.value : '');
+      return;
+    }
+    openEntryAccCombo(input, activeAccounts, lines[i].accountId, acc => {
+      lines[i].accountId = acc.id;
+      input.value = entryAccLabel(acc);
+      updateBalance();
+    });
+    renderEntryAccCombo(tecleando ? input.value : '');
+  }
+
+  /** Conecta el campo de cuenta de una fila (input con búsqueda, no <select>). */
+  function wireAccountInput(input, i) {
+    selectAllOnClickFocus(input);
+    input.addEventListener('focus', () => abrirComboCuenta(input, i, false));
+    input.addEventListener('input', () => abrirComboCuenta(input, i, true));
+    input.addEventListener('blur', () => { closeEntryAccCombo(); input.value = displayAccount(i); });
+    input.addEventListener('keydown', e => {
+      const st = (_entryAccCombo && _entryAccCombo.input === input) ? _entryAccCombo : null;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!st) { abrirComboCuenta(input, i, true); return; }
+        const n = st.items.length;
+        if (!n) return;
+        // Desde abajo del todo, ↓ vuelve arriba; desde -1 (nada resaltado),
+        // ↓ entra por la primera y ↑ por la última.
+        st.idx = e.key === 'ArrowDown' ? (st.idx + 1) % n : (st.idx <= 0 ? n - 1 : st.idx - 1);
+        st.items.forEach((el, j) => el.classList.toggle('sel', j === st.idx));
+        st.items[st.idx].scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Enter') {
+        if (!st) return;
+        e.preventDefault();
+        pickEntryAccItem(st.items[st.idx]);
+      } else if (e.key === 'Escape') {
+        if (!st) return;
+        e.preventDefault();
+        e.stopPropagation(); // el Esc es para cerrar la lista, no el modal
+        input.value = displayAccount(i);
+        closeEntryAccCombo();
+      } else if (e.key === 'Tab') {
+        // Se va a otro campo: la cuenta tecleada se resuelve y el texto se
+        // pone canónico antes de que el foco se mueva.
+        closeEntryAccCombo();
+        input.value = displayAccount(i);
+      }
+    });
+  }
+
   function renderLines() {
+    closeEntryAccCombo(); // las filas se rehacen: una lista abierta quedaría huérfana
     tbody.innerHTML = lines.map((l, i) => `<tr>
       <td style="padding:4px 4px">
-        <select onchange="${namespace}UpdateLine(${i},'accountId',this.value)" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;box-sizing:border-box">
-          <option value="">— Seleccionar cuenta —</option>
-          ${activeAccounts.map(a => `<option value="${a.id}" ${a.id === l.accountId ? 'selected' : ''}>${escapeHtml(a.code)} — ${escapeHtml(a.name)}</option>`).join('')}
-        </select>
+        <input type="text" class="entry-acc-input" data-line="${i}" value="${escapeHtml(displayAccount(i))}" placeholder="Cuenta: código o nombre" autocomplete="off" spellcheck="false" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;box-sizing:border-box">
       </td>
       <td style="padding:4px 4px"><input type="number" step="0.01" min="0" value="${l.debit || ''}" onchange="${namespace}UpdateLine(${i},'debit',parseFloat(this.value)||0)" onfocus="if(this.value==='0')this.value=''" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;text-align:right;box-sizing:border-box"></td>
       <td style="padding:4px 4px"><input type="number" step="0.01" min="0" value="${l.credit || ''}" onchange="${namespace}UpdateLine(${i},'credit',parseFloat(this.value)||0)" onfocus="if(this.value==='0')this.value=''" style="width:100%;padding:6px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;text-align:right;box-sizing:border-box"></td>
-      <td style="padding:4px 2px;text-align:center">${lines.length > 2 ? `<button onclick="${namespace}RemoveLine(${i})" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px" title="Eliminar línea">🗑️</button>` : ''}</td>
+      <td style="padding:4px 2px;text-align:center">${lines.length > 2 ? `<button class="entry-del-line" onclick="${namespace}RemoveLine(${i})" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px" title="Eliminar línea">🗑️</button>` : ''}</td>
     </tr>`).join('');
+    // El click entra a los campos resaltando su contenido; la cuenta además
+    // despliega la lista de cuentas.
+    tbody.querySelectorAll('input').forEach(el => {
+      if (el.classList.contains('entry-acc-input')) wireAccountInput(el, Number(el.dataset.line));
+      else selectAllOnClickFocus(el);
+    });
     updateBalance();
   }
 
@@ -81,6 +277,13 @@ function setupEntryLines({ tbody, balanceEl, saveBtn, activeAccounts, namespace,
   window[namespace + 'AddLine'] = function() {
     window[namespace + 'Lines'].push({ accountId: '', debit: 0, credit: 0 });
     renderLines();
+    // El cursor va a la cuenta de la línea recién creada, no se queda en el
+    // botón: el flujo es teclear la cuenta y seguir con Enter. Solo lo pide el
+    // Asiento Manual (en el modal de Editar se navega con Tab/click).
+    if (focusCuentaAlAgregar) {
+      const nueva = tbody.querySelector('tr:last-child .entry-acc-input');
+      if (nueva) nueva.focus();
+    }
   };
 
   renderLines();
@@ -145,6 +348,10 @@ async function showEditEntryModal(entryId) {
     </div>
   </div>`;
   document.body.appendChild(overlay);
+
+  // Fecha y Descripción: con click se resalta el contenido, igual que con Tab.
+  // (Los campos de cada línea se conectan al pintarse, en setupEntryLines.)
+  overlay.querySelectorAll('input').forEach(selectAllOnClickFocus);
 
   // Referencias
   const tbody = overlay.querySelector('#edit-entry-lines-tbody');
@@ -308,6 +515,33 @@ async function showCreateEntryModal(originalEntry, originalEntryId, mode) {
   </div>`;
   document.body.appendChild(overlay);
 
+  // Fecha y Descripción: con click se resalta el contenido, igual que con Tab.
+  // (Los campos de cada línea se conectan al pintarse, en setupEntryLines.)
+  overlay.querySelectorAll('input').forEach(selectAllOnClickFocus);
+
+  // Enter avanza al campo siguiente, como Tab — pero sobre el 🗑️ NO borra la
+  // línea: lo salta y sigue con la de abajo. Los botones de acción (Agregar
+  // línea, Cancelar, Guardar) sí se activan con Enter, como cualquier botón.
+  // Solo en este modal: el de Editar se navega con Tab/click.
+  overlay.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.defaultPrevented) return; // el combo de cuentas ya lo usó para elegir
+    const el = e.target;
+    const esBasura = el.classList.contains('entry-del-line');
+    if (!esBasura) {
+      if (el.tagName === 'BUTTON') return;               // botón normal: Enter lo activa
+      if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return; // eso no es "avanzar"
+    }
+    const campos = [...overlay.querySelectorAll('input, button')].filter(c => !c.disabled && c.offsetParent !== null);
+    const i = campos.indexOf(el);
+    if (i === -1) return;
+    // El 🗑️ queda fuera de la secuencia: se sigue con el campo que venga
+    // después de él, que es la cuenta de la línea de abajo.
+    e.preventDefault(); // sin esto el 🗑️ recibiría su click y borraría la línea
+    let j = i + 1;
+    while (campos[j] && campos[j].classList.contains('entry-del-line')) j++;
+    if (campos[j]) campos[j].focus();
+  });
+
   const tbody = overlay.querySelector('#create-entry-lines-tbody');
   const balanceEl = overlay.querySelector('#create-entry-balance');
   const saveBtn = overlay.querySelector('#create-entry-save');
@@ -320,6 +554,7 @@ async function showCreateEntryModal(originalEntry, originalEntryId, mode) {
     activeAccounts,
     namespace: 'createEntry',
     initialLines,
+    focusCuentaAlAgregar: true, // al agregar línea, el cursor va a su cuenta
   });
 
   // Bloquear la pantalla mientras el modal esté abierto: solo se cierra
