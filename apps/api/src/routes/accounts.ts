@@ -5,9 +5,25 @@ import { createAccountSchema, updateAccountSchema } from '../validation/schemas'
 
 export const accountsRouter = Router();
 
+/**
+ * Express 4 NO enruta los rechazos de un handler `async` al middleware de errores:
+ * un throw acá adentro no llega a nadie —el log queda con un `unhandledRejection` y
+ * la petición se queda **sin respuesta, colgada para siempre**—. Todo handler de este
+ * router va envuelto; es el mismo ayudante que usa el módulo de Planilla.
+ */
+const wrap =
+  (fn: (req: any, res: any) => Promise<void>) => async (req: any, res: any) => {
+    try {
+      await fn(req, res);
+    } catch (e: any) {
+      console.error('[Cuentas]', e?.message);
+      res.status(e?.status || 500).json({ error: e?.message || 'Error al procesar la operación de cuentas' });
+    }
+  };
+
 // ?anexo=true → solo cuentas que llevan Anexo DGI (selector del informe Anexos-DGI)
 // ?excludeBlocked=true → oculta cuentas bloqueadas (selectores de asientos)
-accountsRouter.get('/', async (req, res) => {
+accountsRouter.get('/', wrap(async (req, res) => {
   const accounts = await req.prisma.account.findMany({
     where: {
       companyId: req.user!.companyId,
@@ -18,27 +34,27 @@ accountsRouter.get('/', async (req, res) => {
     orderBy: { code: 'asc' },
   });
   res.json(accounts);
-});
+}));
 
-accountsRouter.get('/tree', async (req, res) => {
+accountsRouter.get('/tree', wrap(async (req, res) => {
   const accounts = await req.prisma.account.findMany({
     where: { companyId: req.user!.companyId, parentId: null },
     include: { children: { include: { children: true } } },
     orderBy: { code: 'asc' },
   });
   res.json(accounts);
-});
+}));
 
-accountsRouter.get('/:id', async (req, res) => {
+accountsRouter.get('/:id', wrap(async (req, res) => {
   const account = await req.prisma.account.findFirst({
     where: { id: req.params.id, companyId: req.user!.companyId },
     include: { children: true },
   });
   if (!account) { res.status(404).json({ error: 'Account not found' }); return; }
   res.json(account);
-});
+}));
 
-accountsRouter.post('/', requireRole('admin', 'superadmin'), validate(createAccountSchema), async (req, res) => {
+accountsRouter.post('/', requireRole('admin', 'superadmin'), validate(createAccountSchema), wrap(async (req, res) => {
   const { code, name, type, parentId, requiresAnexo, isBlocked } = req.body;
   const companyId = req.user!.companyId;
   if (parentId) {
@@ -48,13 +64,24 @@ accountsRouter.post('/', requireRole('admin', 'superadmin'), validate(createAcco
     });
     if (!parent) { res.status(400).json({ error: 'Cuenta padre no encontrada' }); return; }
   }
-  const account = await req.prisma.account.create({
-    data: { code, name, type, parentId, requiresAnexo, isBlocked, companyId },
-  });
-  res.status(201).json(account);
-});
+  try {
+    const account = await req.prisma.account.create({
+      data: { code, name, type, parentId, requiresAnexo, isBlocked, companyId },
+    });
+    res.status(201).json(account);
+  } catch (e: any) {
+    // El índice único es (code, companyId): repetir un código no es un error del
+    // servidor, es un dato que el usuario tiene que corregir — y decirlo es la
+    // diferencia entre eso y una pantalla que gira para siempre.
+    if (e?.code === 'P2002') {
+      res.status(400).json({ error: `Ya existe una cuenta con el código ${code} en esta empresa.` });
+      return;
+    }
+    throw e;
+  }
+}));
 
-accountsRouter.put('/:id', requireRole('admin', 'superadmin'), validate(updateAccountSchema), async (req, res) => {
+accountsRouter.put('/:id', requireRole('admin', 'superadmin'), validate(updateAccountSchema), wrap(async (req, res) => {
   const { name, isActive, requiresAnexo, isBlocked } = req.body;
   // updateMany (no update) para incluir companyId: evita editar cuentas de otra empresa
   const { count } = await req.prisma.account.updateMany({
@@ -69,4 +96,4 @@ accountsRouter.put('/:id', requireRole('admin', 'superadmin'), validate(updateAc
   if (!count) { res.status(404).json({ error: 'Account not found' }); return; }
   const account = await req.prisma.account.findUnique({ where: { id: req.params.id } });
   res.json(account);
-});
+}));
