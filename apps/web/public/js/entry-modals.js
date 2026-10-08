@@ -759,6 +759,9 @@ async function showEntryDrawer(entryId, accountId) {
       <span style="display:inline-flex;align-items:center;gap:5px;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:999px;padding:3px 10px;font-size:11.5px;font-weight:600">${o.icon || '🏷'} ${escapeHtml(o.label || 'Origen')}</span>
       ${o.detail ? `<div style="font-size:11.5px;color:#6b7280;margin-top:4px">${escapeHtml(o.detail)}</div>` : ''}
       ${concepto ? `<div style="font-size:11.5px;color:#6b7280;margin-top:4px">Concepto: <strong style="color:#374151">${escapeHtml(concepto)}</strong></div>` : ''}
+      ${o.link && o.link.type === 'url'
+        ? `<a href="${escapeHtml(o.link.url)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;padding:5px 12px;font-size:11.5px;background:#fff;color:#1565c0;border:1px solid #1565c0;border-radius:6px;text-decoration:none">🧾 Ver factura en la DGI ↗</a>`
+        : ''}
       ${o.link && o.link.type === 'invoice' && typeof downloadFacturaPdf === 'function'
         ? `<button onclick="downloadFacturaPdf('${o.link.id}')" style="margin-top:6px;padding:5px 12px;font-size:11.5px;background:#fff;color:#1565c0;border:1px solid #1565c0;border-radius:6px;cursor:pointer">📄 Ver PDF de la factura</button>`
         : ''}

@@ -172,6 +172,25 @@ function cancelCuentaForm() {
 /* ── Administración: Conceptos ── */
 let conceptosCache = [];
 
+/**
+ * Campo de palabras clave del concepto. Son las que usa el clasificador para
+ * reconocer el concepto en una factura ("ferretería" → Materia prima) y es lo
+ * único que se ajusta sin tocar código, por eso vive acá y no en la programación.
+ */
+function keywordsFieldHtml(keywords) {
+  const valor = (Array.isArray(keywords) ? keywords : []).join(', ');
+  return `<div style="grid-column:1/-1">
+    <label>Palabras clave <span style="font-weight:400;color:#6b7280">— con estas palabras se reconoce el concepto en una factura (separadas por coma)</span></label>
+    <input type="text" id="concepto-keywords" value="${escapeHtml(valor)}" placeholder="Ej: ferretería, materiales, insumos" style="width:100%;padding:8px;border:1px solid #d0d5dd;border-radius:6px">
+  </div>`;
+}
+
+/** Del input (texto separado por coma) al array que espera la API. */
+function leerKeywordsDelForm() {
+  const raw = document.getElementById('concepto-keywords')?.value || '';
+  return raw.split(',').map(k => k.trim()).filter(Boolean);
+}
+
 async function loadPanelConceptosAdmin() {
   const el = document.getElementById('conceptos-admin-content');
   try {
@@ -239,6 +258,7 @@ async function showCrearConcepto() {
           <option value="">— Selecciona —</option>
           ${cuentas.map(a => cuentaOptionHtml(a)).join('')}
         </select></div>
+        ${keywordsFieldHtml([])}
       </div>
       <div style="margin-top:10px">
         <button class="btn-primary" onclick="saveConcepto()">💾 Guardar</button>
@@ -266,6 +286,7 @@ async function editConcepto(id) {
           <option value="true" ${c.isActive ? 'selected' : ''}>✅ Sí</option>
           <option value="false" ${!c.isActive ? 'selected' : ''}>❌ No</option>
         </select></div>
+        ${keywordsFieldHtml(c.keywords)}
       </div>
       <input type="hidden" id="concepto-id" value="${c.id}">
       <div style="margin-top:10px">
@@ -281,6 +302,7 @@ async function saveConcepto() {
   const name = document.getElementById('concepto-name')?.value?.trim();
   const accountId = document.getElementById('concepto-account')?.value;
   const isActive = document.getElementById('concepto-active')?.value;
+  const keywords = leerKeywordsDelForm();
 
   if (!name) { await showAlert('Nombre requerido'); return; }
 
@@ -290,14 +312,14 @@ async function saveConcepto() {
       res = await authFetch(`${API_URL}/concepts/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, accountId: accountId || undefined, isActive: isActive === 'true' }),
+        body: JSON.stringify({ name, accountId: accountId || undefined, isActive: isActive === 'true', keywords }),
       });
     } else {
       if (!accountId) { await showAlert('Selecciona una cuenta contable'); return; }
       res = await authFetch(`${API_URL}/concepts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, accountId }),
+        body: JSON.stringify({ name, accountId, keywords }),
       });
     }
     if (!res.ok) { const e = await res.json(); await showAlert(e.error || 'Error'); return; }

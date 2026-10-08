@@ -68,6 +68,7 @@
         <button class="nav-link" data-view="panel-taxcalendar" id="nav-taxcalendar-link">📅 Calendario Fiscal</button>
         <button class="nav-link" data-view="panel-salud" id="nav-salud-link">🩺 Salud Financiera</button>
         <button class="nav-link" data-view="panel-whatsapp" id="nav-whatsapp-link">📱 WhatsApp</button>
+        <button class="nav-link" data-view="panel-reembolsos" id="nav-reembolsos-link">💵 Reembolsos</button>
         <button class="nav-link" data-view="panel-admin" id="nav-admin-link" style="display:none">⚙️ Panel Admin</button>
         <a class="nav-link" href="/inventario.html" id="nav-inventario-link" style="display:none">📦 Inventario</a>
         <a class="nav-link" href="/planilla.html" id="nav-planilla-link" style="display:none">🧮 Planilla</a>
@@ -309,6 +310,19 @@
 
       <!-- Panel de Calendario Fiscal -->
       <!-- Panel de Salud Financiera -->
+      <div id="panel-reembolsos-content" class="hidden" style="padding:24px;max-width:1100px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+          <div>
+            <h2 style="margin:0;color:#1a1a2e">💵 Reembolsos a trabajadores</h2>
+            <p style="margin:4px 0 0 0;color:#6b7280;font-size:13px">Lo que cada trabajador adelantó de su bolsillo, identificado por su celular. Pagar aprueba sus asientos y genera el pago contra el banco.</p>
+          </div>
+          <button class="btn-secondary" onclick="loadPanelReembolsos()" style="padding:10px 20px;font-size:14px">🔄 Actualizar</button>
+        </div>
+        <div id="reembolsos-inline-list">
+          <div style="text-align:center;padding:32px;color:#6b7280">Cargando reembolsos...</div>
+        </div>
+      </div>
+
       <div id="panel-salud-content" class="hidden" style="padding:24px;max-width:1000px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
           <div>
@@ -608,11 +622,11 @@
   <script src="js/capture.js?v=74"></script>
   <script src="js/capture-qr.js?v=74"></script>
   <script src="js/chat.js?v=76"></script>
-  <script src="js/router.js?v=77"></script>
-  <script src="js/admin.js?v=89"></script>
+  <script src="js/router.js?v=78"></script>
+  <script src="js/admin.js?v=90"></script>
   <script src="js/init.js?v=75"></script>
   <script src="js/panels-sidebar.js?v=74"></script>
-  <script src="js/import.js?v=94"></script>
+  <script src="js/import.js?v=95"></script>
   <script src="js/carga-inicial.js?v=3"></script>
   <script src="js/auxiliares-revision.js?v=80"></script>
   <script src="js/entry-modals.js?v=85"></script>
@@ -620,6 +634,7 @@
   <script src="js/presupuestos.js?v=1"></script>
   <script src="js/tax-calendar.js?v=74"></script>
   <script src="js/salud.js?v=74"></script>
+  <script src="js/reembolsos.js?v=2"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="js/facturas.js?v=80"></script>
 </body>

@@ -10,6 +10,7 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
     function hideAllPanels() {
       ['panel-recurring-content','panel-import-content',
        'panel-conciliacion-content','panel-taxcalendar-content','panel-salud-content','panel-whatsapp-content',
+       'panel-reembolsos-content',
        'panel-auxiliares-content','panel-revision-content',
        'panel-informes-content','panel-admin-content','panel-facturas-content'].forEach(id => {
         const el = document.getElementById(id); if (el) el.classList.add('hidden');
@@ -41,6 +42,7 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
     if (view === 'panel-informes') { hideAllPanels(); loadPanelInformes(); return; }
     if (view === 'panel-facturas') { hideAllPanels(); loadPanelFacturas(); return; }
     if (view === 'panel-whatsapp') { hideAllPanels(); loadPanelWhatsApp(); return; }
+    if (view === 'panel-reembolsos') { hideAllPanels(); document.getElementById('panel-reembolsos-content').classList.remove('hidden'); loadPanelReembolsos(); return; }
 
     // Admin panel — inline con tabs
     if (view === 'panel-admin') {
