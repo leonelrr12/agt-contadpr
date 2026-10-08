@@ -10,7 +10,7 @@ function importMode() {
 }
 
 const IMPORT_MODE_HINTS = {
-  transacciones: 'Sube el CSV/Excel con tus transacciones históricas. La IA clasificará cada concepto. En Gastos/Compras, la columna "Estado" (Contado/Crédito) define el pago: "Crédito" carga a Proveedores y exige Nº de factura; Contado/sin estado sale del banco indicado en la columna "Banco/Cuenta" (opcional) o del banco por defecto de Configuración.',
+  transacciones: 'Sube el CSV/Excel con tus transacciones históricas. La IA clasificará cada concepto. En Gastos/Compras, la columna "Estado" (Contado/Crédito) define el pago: "Crédito" carga a Proveedores y exige Nº de factura; Contado/sin estado sale del banco indicado en la columna "Banco/Cuenta" (opcional) o del banco por defecto de Configuración. En esa columna escribe el nombre o el código de una cuenta de banco o caja (ej. "Banco General" o "1.1.02.01"; también "1.1.02.01 Banco General") — la columna "Banco" del preview muestra la cuenta que usará cada fila.',
   cobros: 'Pagos/abonos a facturas: columnas Cliente, Fecha de Pago, Cuenta (banco), Factura # y TOTAL. Las filas SIN "Fecha de Pago" y "Cuenta" son facturas aún no pagadas: quedan ⏳ pendientes y se omiten. Puedes re-subir el mismo archivo: los pagos ya aplicados no se duplican (se omiten).',
 };
 
@@ -253,7 +253,7 @@ function renderImportInlinePreview() {
     }
 
     const thead = document.getElementById('import-inline-thead');
-    thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Pago</th><th>Ref</th><th>RUC</th><th>Concepto</th><th>Cuenta</th><th>Conf</th><th></th></tr>';
+    thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Pago</th><th title="Cuenta de banco/caja de la que sale (o entra) el dinero: la del archivo, o el banco por defecto si no viene o no se reconoce">Banco</th><th>Ref</th><th>RUC</th><th>Concepto</th><th>Cuenta</th><th>Conf</th><th></th></tr>';
     let html = '';
     previewRows.forEach((r, i) => {
       const conf = r.classification;
@@ -283,10 +283,30 @@ function renderImportInlinePreview() {
         ? '<span style="color:#1565c0;font-size:11px;font-weight:600" title="Las compras ya no debitan inventario. Si es mercancía de reventa, cargala desde el módulo de Inventario para que quede en el kardex con su cantidad y su costo; si es materia prima o un insumo, va a gasto y está bien así.">📦 Sin kardex</span>'
         : '';
 
+      // Cuenta de banco/caja que quedará en el asiento (la misma cadena que la
+      // ejecución). En rojo si el valor del Excel no está en el catálogo: se
+      // usará la cuenta de respaldo y hay que corregir el archivo.
+      let bancoHtml = '—';
+      const b = r.bank;
+      if (b) {
+        const cuentaTxt = `${escapeHtml(b.name || 'Bancos')}${b.code ? ` <span style="color:#9ca3af;font-size:10px">(${escapeHtml(b.code)})</span>` : ''}`;
+        if (b.unresolved) {
+          const respaldo = b.source === 'generico' ? 'la cuenta bancaria genérica' : 'el banco por defecto de Configuración';
+          bancoHtml = `<span style="color:#dc2626;font-size:11px;font-weight:600" title="El valor de la columna Banco/Cuenta no está en el catálogo de cuentas: se usará ${respaldo}">⚠️ «${escapeHtml(b.unresolved)}» no reconocido</span><br><span style="font-size:10px;color:#6b7280">→ ${cuentaTxt}</span>`;
+        } else if (b.source === 'archivo') {
+          bancoHtml = `<span style="color:#065f46;font-size:11px">${cuentaTxt}</span>`;
+        } else if (b.source === 'default') {
+          bancoHtml = `${cuentaTxt}<br><span style="color:#9ca3af;font-size:10px">por defecto</span>`;
+        } else {
+          bancoHtml = `${cuentaTxt}<br><span style="color:#b45309;font-size:10px">genérico (sin banco por defecto)</span>`;
+        }
+      }
+
       html += `<tr${rowCls}>
         <td>${i+1}</td><td>${r.date||'—'}</td><td>${escapeHtml(r.description||'')}</td>
         <td>${montoHtml}</td>
         <td>${pagoHtml}</td>
+        <td>${bancoHtml}</td>
         <td>${escapeHtml(r.reference||'')}</td><td>${escapeHtml(r.ruc||'')}</td>
         <td>${escapeHtml(r.concept||'')}</td>
         <td>${conf?escapeHtml(conf.concept):'—'}</td>

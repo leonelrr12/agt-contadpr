@@ -66,3 +66,39 @@ describe('parseImportFile — el Concepto manda sobre el Detalle', () => {
       .toEqual(['VENTA']);
   });
 });
+
+/**
+ * Columna de banco/caja del archivo ("Banco/Cuenta"): el gasto/compras al
+ * contado sale de esa cuenta. Un encabezado que no se reconoce deja todo al
+ * banco por defecto en silencio, así que la detección se fija con tests.
+ */
+describe('parseImportFile — columna Banco/Cuenta', () => {
+  async function mappingDe(header: string) {
+    const csv = `Fecha,Detalle,Monto,${header},Estado\n01/10/2026,Compra papeleria,100.00,Banco General,Contado\n`;
+    const parsed = await parseImportFile(Buffer.from(csv, 'utf8'), 'x.csv');
+    return parsed.detectedMapping;
+  }
+
+  it.each(['Cuenta', 'CUENTA', 'Banco', 'Banco/Cuenta', 'Cuenta Contable'])(
+    'reconoce "%s" como columna de banco',
+    async (h) => {
+      const m = await mappingDe(h);
+      expect(m.bankCol).toBe(h);
+      expect(m.stateCol).toBe('Estado');
+    },
+  );
+
+  it.each(['Cta. Banco', 'N° Cuenta', 'No. Cuenta'])(
+    'no confunde "%s" (nº de cuenta o abreviatura) con la cuenta de banco',
+    async (h) => {
+      expect((await mappingDe(h)).bankCol).toBeNull();
+    },
+  );
+
+  it('el valor de la celda llega crudo a la fila para resolverlo contra el catálogo', async () => {
+    const csv = 'Fecha,Detalle,Monto,Cuenta,Estado\n01/10/2026,Compra papeleria,100.00,1.1.02.01 Banco General,Contado\n';
+    const parsed = await parseImportFile(Buffer.from(csv, 'utf8'), 'x.csv');
+    expect(parsed.rows[0].bankName).toBe('1.1.02.01 Banco General');
+    expect(parsed.rows[0].state).toBe('Contado');
+  });
+});

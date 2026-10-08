@@ -65,8 +65,10 @@ export function filterPayoutAccounts(accounts: CompanyAccount[]): CompanyAccount
 
 /**
  * Resuelve la cuenta de destino desde el texto del archivo:
- * 1. coincidencia exacta con código/alias/nombre (sin acentos ni símbolos),
- * 2. tolerante a typos ("Bnaco General" → "Banco General"): por tokens con
+ * 1. código del catálogo embebido en la celda ("1.1.02.01 Banco General",
+ *    "1.1.02.01 - Banco General"): el código explícito manda,
+ * 2. coincidencia exacta con código/alias/nombre (sin acentos ni símbolos),
+ * 3. tolerante a typos ("Bnaco General" → "Banco General"): por tokens con
  *    distancia de edición ≤ 1 en palabras de ≥ 4 letras, cobertura completa
  *    de ambos lados y menor distancia total.
  */
@@ -74,6 +76,15 @@ export function resolveAccount(accounts: CompanyAccount[], raw: string | null): 
   if (!raw) return null;
   const input = raw.trim();
   if (!input) return null;
+
+  // 0) Código dentro del texto ("1.1.02.01 Banco General"): antes no resolvía
+  //    —el texto completo no es ni código ni nombre— y la fila caía en
+  //    silencio al banco por defecto. Es el formato natural de un Excel.
+  for (const tok of input.match(/\d+(?:[.\-]\d+)+/g) || []) {
+    const digits = tok.replace(/\D/g, '');
+    const byCode = accounts.find(a => a.code.replace(/\D/g, '') === digits);
+    if (byCode) return byCode;
+  }
 
   // 1) Exacta: código, alias o nombre, normalizados (sin acentos ni símbolos)
   const want = wordKey(input).replace(/\s+/g, '');

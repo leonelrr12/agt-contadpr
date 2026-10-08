@@ -166,6 +166,23 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
     const importIndex = await buildImportIndex(req.prisma, req.user!.companyId);
     const omitidas = marcarOmitidas(allRows, importIndex);
 
+    // Banco que usará cada fila, con la MISMA cadena que /execute-all: el
+    // archivo (resuelto contra el catálogo) → banco por defecto → alias
+    // 'banco-general'. Sin mostrarlo, un valor no reconocido cae en silencio al
+    // banco por defecto y el usuario se entera al ver el asiento ya creado.
+    const company: any = await req.prisma.company.findUnique({
+      where: { id: req.user!.companyId },
+      select: { bancoDefaultId: true },
+    });
+    const bancoDefaultId: string | null = company?.bancoDefaultId || null;
+    const cuentasEmpresa = await loadCompanyAccounts(req.prisma, req.user!.companyId);
+    const previewPayoutCache: { accounts: CobroAccount[] | null } = {
+      accounts: filterPayoutAccounts(cuentasEmpresa),
+    };
+    // Cuenta a la que apunta el alias 'banco-general': donde termina la línea
+    // si no hay cuenta del archivo ni banco por defecto.
+    const bancoGenerico = cuentasEmpresa.find(a => (a.aliases || []).includes('banco-general')) || null;
+
     const previewRows = [];
     const conceptColName = parsed.detectedMapping.conceptCol;
     // Muestra: 20 filas por defecto; `?limit=all` para ver el archivo completo.
@@ -179,11 +196,33 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
       // "Concepto"; si no, null (la cuenta clasificada va en la columna "Cuenta").
       const rawConcept = conceptColName ? (parsed.rows[i]._raw[conceptColName]?.trim() || null) : null;
       const classification = rowConceptForClassify(row) ? classifications[i] : null;
+
+      // Cuenta de banco que quedará en el asiento (null = la columna no aplica
+      // a esta fila: crédito, efectivo, venta…). `unresolved` = el valor del
+      // archivo no está en el catálogo y se usará la cuenta de respaldo.
+      let bank: { code: string | null; name: string; source: string; unresolved: string | null } | null = null;
+      if (filaUsaBancoDelArchivo(row)) {
+        const rawBanco = (row.bankName || '').trim();
+        const payout = await resolveImportPayoutAccount(
+          req.prisma, req.user!.companyId, rawBanco || null, bancoDefaultId, previewPayoutCache,
+        );
+        const unresolved = rawBanco && !resolveAccount(previewPayoutCache.accounts || [], rawBanco)
+          ? rawBanco : null;
+        const cuenta = payout || bancoGenerico;
+        bank = {
+          code: cuenta?.code || null,
+          name: cuenta?.name || 'Bancos',
+          source: payout ? (rawBanco && !unresolved ? 'archivo' : 'default') : 'generico',
+          unresolved,
+        };
+      }
+
       previewRows.push({
         ...row,
         missing: missingRowFields(row, flags.get(classification?.accountId || '')),
         concept: rawConcept,
         omitida: omitidas[i],
+        bank,
         classification: classification ? {
           concept: classification.concept,
           accountId: classification.accountId,
@@ -277,6 +316,20 @@ function estadoToPaymentMethod(raw: string | null | undefined): string | null {
 /** ¿El pago de esta fila sale de una cuenta bancaria (crédito a banco en el asiento)? */
 function pagoSaleDelBanco(paymentMethod: string | null): boolean {
   return !paymentMethod || BANK_PAID_METHODS.has(paymentMethod);
+}
+
+/**
+ * ¿Esta fila toma la cuenta de la columna "Banco/Cuenta" del archivo?
+ * Gastos/Compras cuyo pago sale del banco (contado/transferencia/cheque/débito)
+ * y cobros recibidos (el dinero entra al banco). Crédito (Proveedores),
+ * tarjeta, caja/efectivo y los demás tipos no la usan.
+ * Única fuente de la regla: la usan la ejecución Y el preview (el preview
+ * muestra la cuenta que quedará en el asiento; si divergieran, mentiría).
+ */
+function filaUsaBancoDelArchivo(row: ImportRow): boolean {
+  const typeNorm = (row.type || '').toUpperCase();
+  if (typeNorm === 'GASTO' || typeNorm === 'COMPRA') return pagoSaleDelBanco(row.paymentMethod ?? null);
+  return typeNorm === 'COBRO_CLIENTE' && row.paymentMethod !== 'EFECTIVO';
 }
 
 function r2(n: number): number { return Math.round(n * 100) / 100; }
@@ -678,38 +731,36 @@ async function executeImportRows(
       const classification = { concept: classifiedConcept, accountId, confidence: classConfidence };
       const entry = accountant.generateEntry(dialog, classification);
 
-      // Gastos/Compras al contado: el dinero sale de la cuenta bancaria que
-      // indica la fila (columna "Banco/Cuenta") o del banco por defecto de la
-      // empresa. Sin ninguna, se deja el alias 'banco-general' como siempre.
-      // Crédito (Proveedores), tarjeta de crédito, caja/efectivo y otros tipos
-      // no se tocan: solo la línea genérica de banco del agente.
+      // Cuenta de banco de la fila (columna "Banco/Cuenta") cuando aplica:
+      // gastos/compras que salen del banco y cobros que entran. Crédito
+      // (Proveedores), tarjeta, caja/efectivo y los demás tipos no se tocan.
       const typeNorm = (row.type || '').toUpperCase();
-      if ((typeNorm === 'GASTO' || typeNorm === 'COMPRA') && pagoSaleDelBanco(row.paymentMethod ?? null)) {
+      if (filaUsaBancoDelArchivo(row)) {
         const payout = await resolveImportPayoutAccount(
           prisma, companyId, row.bankName || null, bancoDefaultId, payoutCache,
         );
-        if (payout) {
+        if (typeNorm === 'COBRO_CLIENTE') {
+          // Cobro recibido: el dinero ENTRA a la cuenta del archivo (columna
+          // "Banco/Cuenta") o al banco por defecto. El agente lo manda a Caja por
+          // defecto — y sin banco en el archivo ni banco por defecto configurado,
+          // la cuenta bancaria genérica: un cobro no es dinero en caja.
+          const destino = payout?.id || 'banco-general';
+          const nombre = payout?.name || 'Bancos';
+          for (const l of entry.debit) {
+            if (l.accountId === 'caja') {
+              l.accountId = destino;
+              l.name = nombre;
+            }
+          }
+        } else if (payout) {
+          // Gastos/Compras al contado: el dinero SALE de la cuenta bancaria que
+          // indica la fila o del banco por defecto de la empresa. Sin ninguna,
+          // se deja el alias 'banco-general' como siempre.
           for (const l of entry.credit) {
             if (l.accountId === 'banco-general') {
               l.accountId = payout.id;
               l.name = payout.name;
             }
-          }
-        }
-      } else if (typeNorm === 'COBRO_CLIENTE' && row.paymentMethod !== 'EFECTIVO') {
-        // Cobro recibido: el dinero ENTRA a la cuenta del archivo (columna
-        // "Banco/Cuenta") o al banco por defecto. El agente lo manda a Caja por
-        // defecto — y sin banco en el archivo ni banco por defecto configurado,
-        // la cuenta bancaria genérica: un cobro no es dinero en caja.
-        const payout = await resolveImportPayoutAccount(
-          prisma, companyId, row.bankName || null, bancoDefaultId, payoutCache,
-        );
-        const destino = payout?.id || 'banco-general';
-        const nombre = payout?.name || 'Bancos';
-        for (const l of entry.debit) {
-          if (l.accountId === 'caja') {
-            l.accountId = destino;
-            l.name = nombre;
           }
         }
       }
