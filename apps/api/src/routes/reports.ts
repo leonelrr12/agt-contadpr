@@ -147,7 +147,7 @@ async function buildProveedoresReport(prisma: any, companyId: string, startDate?
  *   corrección y netea al original desde ese mes en adelante. Excluirlo borraba el
  *   ajuste del período en que se hizo.
  */
-async function buildAnexosDgiReport(
+export async function buildAnexosDgiReport(
   prisma: any,
   companyId: string,
   opts: {
@@ -182,7 +182,9 @@ async function buildAnexosDgiReport(
 
   const txs = await prisma.transaction.findMany({
     where,
-    select: { id: true, date: true, amount: true, metadata: true, journalEntryId: true, type: true },
+    // description/concept son columnas de la transacción, no de la metadata: el
+    // "Detalle" del anexo sale de ahí (ver abajo).
+    select: { id: true, date: true, amount: true, metadata: true, journalEntryId: true, type: true, description: true, concept: true },
     orderBy: { date: 'asc' },
   });
 
@@ -213,7 +215,11 @@ async function buildAnexosDgiReport(
     t.detalle.push({
       transactionId: tx.id,
       fecha: tx.date,
-      detalle: m.concepto || m.description || null,
+      // El Detalle es el del MOVIMIENTO — la columna "Detalle" del archivo maestro
+      // o lo que se escribió en el chat—, y vive en la columna description, no en
+      // la metadata (ahí no hay ninguna clave de texto). El concepto clasificado
+      // entra solo si no hay descripción.
+      detalle: tx.description || tx.concept || null,
       factura,
       monto,
     });
