@@ -86,6 +86,9 @@ model Company {
   payrollDeducciones PayrollDeduction[]
   payrollItemDeducciones PayrollItemDeduction[]
   payrollSettings    PayrollSettings?
+  workerAccounts     WorkerAccount[]
+  expenseClaims      ExpenseClaim[]
+  reimbursements     Reimbursement[]
 }
 
 model User {
@@ -107,6 +110,7 @@ model User {
   reviewedEntries JournalEntry[] @relation("ReviewedEntries")
   auditLogs      AuditLog[]
   recurringTemplates RecurringTemplate[]
+  reimbursementsPaid Reimbursement[] @relation("ReimbursementsPaid")
 }
 
 model Account {
@@ -204,6 +208,8 @@ model JournalEntry {
   transactions Transaction[]
   recurringTemplates RecurringTemplate[]
   bankStatementRows  BankStatementRow[]
+  /// Factura de un trabajador que este asiento saldó (reembolso), si vino de ahí.
+  expenseClaim ExpenseClaim?
 }
 
 model JournalLine {
@@ -389,6 +395,8 @@ model Supplier {
 
   company       Company   @relation(fields: [companyId], references: [id])
   bills         Bill[]
+  /// Trabajadores por honorarios: facturan su trabajo Y adelantan compras.
+  workerAccounts WorkerAccount[]
 
   @@unique([companyId, name])
   @@unique([companyId, taxIdHash])
@@ -665,9 +673,16 @@ model WhatsAppLink {
   updatedAt   DateTime  @updatedAt
 
   company     Company?  @relation(fields: [companyId], references: [id])
+  /// Si el celular es de un TRABAJADOR que adelanta compras, apunta a su cuenta.
+  /// Null = el número opera la empresa (comportamiento de siempre). Es la ÚNICA
+  /// marca que distingue los dos modos: con esto, cada gasto que confirme ese
+  /// celular nace como factura por reembolsar; sin esto, es un gasto de la empresa.
+  workerAccountId String?
+  workerAccount   WorkerAccount? @relation(fields: [workerAccountId], references: [id])
 
   @@index([companyId])
   @@index([phoneNumber])
+  @@index([workerAccountId])
   @@map("whatsapp_link")
 }
 
@@ -884,6 +899,8 @@ model Employee {
   /// Deducciones de acreedores de este empleado (préstamos, embargos, mueblerías).
   deducciones      PayrollDeduction[]
   deduccionesItems PayrollItemDeduction[]
+  /// Cuentas de trabajador (reembolsos) que apuntan a este empleado de planilla.
+  workerAccounts   WorkerAccount[]
 
   @@unique([companyId, cedula])
   @@index([companyId, isActive])
@@ -1157,4 +1174,137 @@ model PayrollSettings {
 
   company Company @relation(fields: [companyId], references: [id])
   @@map("payroll_settings")
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Reembolsos a trabajadores
+//
+// El trabajador adelanta de su bolsillo compras de la operación (insumos,
+// comida, materia prima), las facturas llegan por WhatsApp desde SU celular, y
+// la empresa le devuelve el dinero. No tiene usuario en el sistema: su
+// identidad es el número desde el que escribe.
+//
+// Contabilidad (decidida con el dueño): la factura se registra al recibirla
+// contra un PASIVO, no contra el banco — el dinero todavía no salió.
+//
+//     al llegar la factura:  DR Gasto/Compra   CR 2.1.02.02 Reembolsos Empleados por Pagar
+//     al pagar (N facturas): DR 2.1.02.02      CR Banco
+//
+// Por eso el trabajador es el ACREEDOR y "cuánto me deben" (/viaticos) es el
+// saldo de sus facturas sin pagar.
+//
+// Dos ejes de estado que NO se mezclan: el asiento tiene el suyo
+// (BORRADOR/CONFIRMADO/RECHAZADO = validez contable) y la factura el del
+// reembolso (PENDIENTE/PAGADO = tesorería). Un gasto puede estar aprobado y
+// todavía sin pagar, que es justo lo que el panel tiene que mostrar.
+// ══════════════════════════════════════════════════════════════════════════
+
+/// El trabajador y su celular. Se crea desde el panel (o por API) ANTES de que
+/// el número empiece a mandar facturas: el webhook resuelve por
+/// `whatsapp_link.workerAccountId`, así que un celular sin cuenta sigue operando
+/// como la empresa, no como trabajador.
+model WorkerAccount {
+  id          String  @id @default(cuid())
+  companyId   String
+  /// Tal como lo manda el gateway: "50761234567". Es la llave con la que el
+  /// webhook reconoce quién escribe.
+  phoneNumber String
+  nombre      String
+  /// Enlaces OPCIONALES y solo de trazabilidad: en planilla o por honorarios.
+  /// La contabilidad del reembolso es idéntica en los dos casos — el trabajador
+  /// es el acreedor por lo que puso de su bolsillo, sin importar cómo se le paga
+  /// su trabajo (y por eso el pago del reembolso no se mezcla con el de sus
+  /// honorarios, que lleva su propia retención).
+  employeeId  String?
+  supplierId  String?
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company  Company   @relation(fields: [companyId], references: [id])
+  employee Employee? @relation(fields: [employeeId], references: [id])
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
+  links    WhatsAppLink[]
+  claims   ExpenseClaim[]
+  reimbursements Reimbursement[]
+
+  @@unique([companyId, phoneNumber])
+  @@index([companyId, isActive])
+  @@map("worker_account")
+}
+
+/// Factura RECIBIDA: el registro durable de todo documento que entró por
+/// WhatsApp con datos propios (URL del CUTE, XML oficial de la DGI, RUC, número,
+/// fecha y total), para poder listarlo o consultarlo después sin depender de que
+/// el visor de la DGI siga sirviéndola.
+///
+/// Cumple dos papeles según tenga o no `workerId`:
+///  · con trabajador → además es un REEMBOLSO: lo que él adelantó de su bolsillo
+///    y la empresa le debe (el saldo que responde /viaticos);
+///  · sin trabajador → es una factura de la EMPRESA, y solo se archiva.
+model ExpenseClaim {
+  id             String    @id @default(cuid())
+  companyId      String
+  /// Null = factura de la EMPRESA: se registra para poder consultarla después
+  /// (con su URL del CUTE y su XML), pero no hay a quién reembolsar. Con
+  /// `workerId`, además es un reembolso pendiente de ese trabajador.
+  workerId       String?
+  /// Enlace del QR de la factura electrónica (CUTE). Null si llegó como PDF sin URL.
+  dgiUrl         String?
+  /// XML oficial que la DGI embebe en el visor del CUTE: es el documento legal
+  /// (~10-25 KB; Postgres lo comprime). El PDF es solo su representación.
+  dgiXml         String?
+  proveedor      String?
+  rucEmisor      String?
+  numeroFactura  String?
+  fecha          DateTime
+  total          Float
+  itbms          Float     @default(0)
+  /// RUC+número+fecha+total; si falta alguno, la URL. Evita que la MISMA factura
+  /// entre dos veces, la mande quien la mande. Null = no se pudo identificar
+  /// (Postgres deja convivir varios NULL en el unique).
+  dedupeKey      String?
+  /// @unique: un asiento salda UNA factura, y así lo garantiza la BD.
+  journalEntryId String?   @unique
+  /// PENDIENTE = el trabajador todavía no cobró; PAGADO lo marca el reembolso.
+  /// El estado contable (BORRADOR/CONFIRMADO/RECHAZADO) vive en el asiento, no acá:
+  /// son dos ejes distintos y el panel muestra los dos.
+  status         String    @default("PENDIENTE")
+  reimbursementId String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  company        Company        @relation(fields: [companyId], references: [id])
+  worker         WorkerAccount? @relation(fields: [workerId], references: [id])
+  journalEntry   JournalEntry?  @relation(fields: [journalEntryId], references: [id])
+  reimbursement  Reimbursement? @relation(fields: [reimbursementId], references: [id])
+
+  @@unique([companyId, dedupeKey])
+  @@index([companyId, status])
+  @@index([companyId, workerId, status])
+  @@map("expense_claim")
+}
+
+/// Un pago de reembolso: agrupa las facturas que se le pagaron al trabajador de
+/// una sola vez. La cuenta bancaria no se guarda acá — vive en las líneas del
+/// asiento, que es el registro contable real.
+model Reimbursement {
+  id             String   @id @default(cuid())
+  companyId      String
+  workerId       String
+  monto          Float
+  fecha          DateTime
+  journalEntryId String?
+  paidById       String?
+  paidAt         DateTime @default(now())
+  notas          String?
+  createdAt      DateTime @default(now())
+
+  company  Company       @relation(fields: [companyId], references: [id])
+  worker   WorkerAccount @relation(fields: [workerId], references: [id])
+  paidBy   User?         @relation("ReimbursementsPaid", fields: [paidById], references: [id])
+  claims   ExpenseClaim[]
+
+  @@index([companyId, workerId])
+  @@map("reimbursement")
 }
