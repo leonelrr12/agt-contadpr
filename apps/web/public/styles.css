@@ -1192,10 +1192,18 @@ body {
 
 /* La base aplica a CUALQUIER tabla dentro de un panel, no solo a las que llevan
    la clase: todas las tablas de los paneles son listados, y así una vista nueva
-   nace bien sin que nadie tenga que acordarse de la clase. Los modismos de
-   abajo (dos líneas, píldoras, alineación) sí son opt-in por celda. */
-:is(.grilla, #main > div[id^="panel-"] table) { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; }
-:is(.grilla, #main > div[id^="panel-"] table) th {
+   nace bien sin que nadie tenga que acordarse de la clase. Los modismos de abajo
+   (dos líneas, píldoras, alineación) sí son opt-in por celda.
+
+   Planilla, Inventario, Conciliación y el modal de Planilla entran explícitamente
+   porque son páginas aparte, fuera de <main>. Tenían su propia `.data-table` embebida que
+   hacía lo mismo con otros valores (encabezado en minúscula, filas más
+   apretadas): se alinearon a esta grilla y **se borraron esas reglas duplicadas**
+   el 08-10-2026, para que haya UNA sola definición de tabla en la app. Lo que sí
+   era propio de esas páginas —`.data-table input.celda`, las celdas editables—
+   se quedó. */
+:is(.grilla, #main > div[id^="panel-"] table, #pl-contenido table, #inv-contenido table, #pl-modal table, #step-detail table) { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; }
+:is(.grilla, #main > div[id^="panel-"] table, #pl-contenido table, #inv-contenido table, #pl-modal table, #step-detail table) th {
   text-align: left; padding: 8px 12px;
   font-size: 11px; font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.04em;
@@ -1203,12 +1211,12 @@ body {
   border-bottom: 1px solid #e2e4e8;
   white-space: nowrap;
 }
-:is(.grilla, #main > div[id^="panel-"] table) td { padding: 10px 12px; border-bottom: 1px solid #e2e4e8; vertical-align: top; }
-:is(.grilla, #main > div[id^="panel-"] table) tbody tr:hover td { background: #f9fafb; }
-:is(.grilla, #main > div[id^="panel-"] table) tbody tr:last-child td { border-bottom: none; }
+:is(.grilla, #main > div[id^="panel-"] table, #pl-contenido table, #inv-contenido table, #pl-modal table, #step-detail table) td { padding: 10px 12px; border-bottom: 1px solid #e2e4e8; vertical-align: top; }
+:is(.grilla, #main > div[id^="panel-"] table, #pl-contenido table, #inv-contenido table, #pl-modal table, #step-detail table) tbody tr:hover td { background: #f9fafb; }
+:is(.grilla, #main > div[id^="panel-"] table, #pl-contenido table, #inv-contenido table, #pl-modal table, #step-detail table) tbody tr:last-child td { border-bottom: none; }
 /* Montos y fechas: alineados a la derecha y sin bailar entre filas */
-:is(.grilla, #main > div[id^="panel-"]) .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-:is(.grilla, #main > div[id^="panel-"]) .acciones { text-align: right; white-space: nowrap; }
+:is(.grilla, #main > div[id^="panel-"], #pl-contenido, #inv-contenido, #pl-modal, #step-detail) .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+:is(.grilla, #main > div[id^="panel-"], #pl-contenido, #inv-contenido, #pl-modal, #step-detail) .acciones { text-align: right; white-space: nowrap; }
 
 /* Celda de dos líneas: el texto largo se corta con puntos suspensivos y se lee
    completo con el `title` al pasar el mouse (si no, un proveedor largo desarma
