@@ -15,10 +15,19 @@ let _reembFacturas = [];
 let _reembSeleccion = new Set();
 let _reembCuentasPago = null;
 
-const REEMB_ESTADO = {
-  PENDIENTE: { texto: 'Pendiente', color: '#92400e', bg: '#fffbeb' },
-  PAGADO: { texto: 'Pagado', color: '#059669', bg: '#ecfdf5' },
+/** Estado CONTABLE del asiento, en píldora. El estado del REEMBOLSO (pendiente o
+ *  pagado) es el otro eje y va en la segunda línea de la celda "De quién": son
+ *  dos cosas distintas y el panel las muestra juntas a propósito. */
+const REEMB_ASIENTO = {
+  CONFIRMADO: '<span class="pildora pildora-ok">Aprobado</span>',
+  BORRADOR: '<span class="pildora pildora-alerta">Borrador</span>',
+  RECHAZADO: '<span class="pildora pildora-error">Rechazado</span>',
 };
+
+/** Píldora del estado contable, con su caso "sin asiento". */
+function reembPillAsiento(estado) {
+  return REEMB_ASIENTO[estado] || '<span class="pildora pildora-neutra">Sin asiento</span>';
+}
 
 function reembMoney(n) {
   return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -47,9 +56,9 @@ function reembPuedePagar() {
   return ['admin', 'contador', 'superadmin'].includes(getUser()?.role);
 }
 
-/** El contenedor donde pintan todas las vistas del panel (bajo las pestañas). */
+/** El contenedor que scrollea (las pestañas quedan fijas arriba, en el HTML). */
 function reembEl() {
-  return document.getElementById('reemb-tab-content') || document.getElementById('reembolsos-inline-list');
+  return document.getElementById('reembolsos-inline-list');
 }
 
 /* ── Entrada del panel ── */
@@ -57,19 +66,21 @@ async function loadPanelReembolsos(tab) {
   if (tab) _reembTab = tab;
   _reembDetalle = null;
   _reembSeleccion = new Set();
-  document.getElementById('reembolsos-inline-list').innerHTML = `
-    <div style="display:flex;gap:4px;border-bottom:1px solid #e5e7eb;margin-bottom:16px">
-      ${reembTabBtn('trabajadores', '👷 Trabajadores')}
-      ${reembTabBtn('facturas', '🧾 Facturas recibidas')}
-    </div>
-    <div id="reemb-tab-content"><div style="text-align:center;padding:32px;color:#6b7280">Cargando...</div></div>`;
+  reembPintarTabs();
+  reembEl().innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Cargando...</div>';
   if (_reembTab === 'facturas') await reembCargarFacturas();
   else await reembCargarTrabajadores();
 }
 
-function reembTabBtn(id, texto) {
-  const activo = _reembTab === id;
-  return `<button onclick="loadPanelReembolsos('${id}')" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:${activo ? '#1a1a2e' : '#6b7280'};border-bottom:2px solid ${activo ? '#1565c0' : 'transparent'};margin-bottom:-2px">${texto}</button>`;
+/** Marca la pestaña activa (el estilo vive en el HTML, como los tabs de Admin). */
+function reembPintarTabs() {
+  for (const [id, valor] of [['reemb-tab-trabajadores', 'trabajadores'], ['reemb-tab-facturas', 'facturas']]) {
+    const b = document.getElementById(id);
+    if (!b) continue;
+    const activo = _reembTab === valor;
+    b.style.color = activo ? '#1a1a2e' : '#6b7280';
+    b.style.borderBottomColor = activo ? '#1565c0' : 'transparent';
+  }
 }
 
 async function reembCargarTrabajadores() {
@@ -131,22 +142,31 @@ function reembPintarFacturas() {
     return;
   }
 
-  html += '<table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Nº</th><th>RUC</th><th style="text-align:right">Total</th><th>De quién</th><th>Asiento</th><th>Factura</th></tr></thead><tbody>';
+  // El RUC se fue a la segunda línea del proveedor: mismo dato, una columna
+  // menos, y se lee como una ficha en vez de como una fila de base de datos.
+  html += `<table class="grilla"><thead><tr>
+      <th>Fecha</th><th>Proveedor</th><th>Nº</th><th class="num">Total</th>
+      <th>De quién</th><th>Asiento</th><th class="acciones">Factura</th>
+    </tr></thead><tbody>`;
   for (const x of _reembFacturas) {
-    const est = x.journalEntry?.status;
-    const asiento = est === 'CONFIRMADO' ? '<span style="color:#059669">✓</span>'
-      : est === 'RECHAZADO' ? '<span style="color:#dc2626">✗</span>'
-      : `<span style="color:#92400e">●</span>`;
+    const ruc = x.rucEmisor ? `RUC ${x.rucEmisor}` : '';
+    const deQuien = x.worker
+      ? `<div class="grilla-principal" title="${escapeHtml(x.worker.nombre)}">${escapeHtml(x.worker.nombre)}</div>
+         <div class="grilla-secundario">${x.status === 'PAGADO' ? 'reembolsada' : 'por reembolsar'}</div>`
+      : '<span class="grilla-secundario">Empresa</span>';
     html += `<tr>
-      <td>${reembFechaCorta(x.fecha)}</td>
-      <td>${escapeHtml(x.proveedor || '—')}</td>
+      <td style="white-space:nowrap">${reembFechaCorta(x.fecha)}</td>
+      <td class="grilla-2l">
+        <div class="grilla-principal" title="${escapeHtml(x.proveedor || '')}">${escapeHtml(x.proveedor || '—')}</div>
+        <div class="grilla-secundario" title="${escapeHtml(ruc)}">${escapeHtml(ruc) || '&nbsp;'}</div>
+      </td>
       <td class="cuenta-code">${escapeHtml(x.numeroFactura || '—')}</td>
-      <td class="cuenta-code">${escapeHtml(x.rucEmisor || '—')}</td>
-      <td style="text-align:right">${reembMoney(x.total)}</td>
-      <td>${x.worker ? escapeHtml(x.worker.nombre) : '<span style="color:#6b7280">Empresa</span>'}
-        ${x.status === 'PAGADO' ? ' <span style="font-size:11px;color:#059669">pagada</span>' : ''}</td>
-      <td style="text-align:center">${asiento}</td>
-      <td>${x.dgiUrl ? `<a href="${escapeHtml(x.dgiUrl)}" target="_blank" rel="noopener">Ver ↗</a>` : '<span style="color:#9ca3af">sin URL</span>'}</td>
+      <td class="num">${reembMoney(x.total)}</td>
+      <td>${deQuien}</td>
+      <td>${reembPillAsiento(x.journalEntry?.status)}</td>
+      <td class="acciones">${x.dgiUrl
+        ? `<a href="${escapeHtml(x.dgiUrl)}" target="_blank" rel="noopener">Ver ↗</a>`
+        : '<span class="grilla-secundario">sin URL</span>'}</td>
     </tr>`;
   }
   el.innerHTML = html + '</tbody></table>';
@@ -228,17 +248,21 @@ function reembPintarTrabajadores() {
     return;
   }
 
-  let html = reembAltaHtml() + '<table><thead><tr><th>Trabajador</th><th>Celular</th><th style="text-align:right">Pendiente</th><th style="text-align:center">Facturas</th><th></th></tr></thead><tbody>';
+  let html = reembAltaHtml() + '<table class="grilla"><thead><tr><th>Trabajador</th><th>Celular</th><th class="num">Pendiente</th><th>WhatsApp</th><th class="acciones"></th></tr></thead><tbody>';
   for (const t of _reembTrabajadores) {
     const pendientes = Number(t.saldoPendiente || 0);
-    html += `<tr${t.isActive ? '' : ' style="opacity:.5"'}>
-      <td><strong>${escapeHtml(t.nombre)}</strong>${t.isActive ? '' : ' <span style="font-size:11px;color:#6b7280">(inactivo)</span>'}
-        ${t.employee ? `<div style="font-size:11px;color:#6b7280">Planilla: ${escapeHtml(t.employee.nombre)}</div>` : ''}
-        ${t.supplier ? `<div style="font-size:11px;color:#6b7280">Honorarios: ${escapeHtml(t.supplier.name)}</div>` : ''}</td>
+    // Planilla/Honorarios bajan a la segunda línea: es contexto, no una columna.
+    const contexto = t.employee ? `Planilla: ${escapeHtml(t.employee.nombre)}`
+      : t.supplier ? `Honorarios: ${escapeHtml(t.supplier.name)}` : '';
+    html += `<tr${t.isActive ? '' : ' style="opacity:.55"'}>
+      <td class="grilla-2l">
+        <div class="grilla-principal" title="${escapeHtml(t.nombre)}">${escapeHtml(t.nombre)}${t.isActive ? '' : ' (inactivo)'}</div>
+        <div class="grilla-secundario">${contexto || '&nbsp;'}</div>
+      </td>
       <td class="cuenta-code">${reembCelular(t.phoneNumber)}</td>
-      <td style="text-align:right;font-weight:${pendientes > 0 ? '700' : '400'};color:${pendientes > 0 ? '#92400e' : '#6b7280'}">${reembMoney(pendientes)}</td>
-      <td style="text-align:center">${(t.links || []).length ? '📱' : '—'}</td>
-      <td><button class="btn-sm" onclick="reembolsosVerDetalle('${t.id}')">Ver detalle</button></td>
+      <td class="num" style="font-weight:${pendientes > 0 ? '700' : '400'};color:${pendientes > 0 ? '#92400e' : '#6b7280'}">${reembMoney(pendientes)}</td>
+      <td>${(t.links || []).length ? '<span class="pildora pildora-ok">Vinculado</span>' : '<span class="pildora pildora-neutra">Sin vincular</span>'}</td>
+      <td class="acciones"><button class="btn-sm" onclick="reembolsosVerDetalle('${t.id}')">Ver detalle</button></td>
     </tr>`;
   }
   el.innerHTML = html + '</tbody></table>';
@@ -293,23 +317,19 @@ function reembPintarDetalle() {
 
   // ── Pendientes (seleccionables) ──
   if (pendientes.length) {
-    html += `<table><thead><tr>
+    html += `<table class="grilla"><thead><tr>
         <th style="width:28px"></th><th>Fecha</th><th>Proveedor</th><th>Nº factura</th>
-        <th style="text-align:right">Total</th><th>Asiento</th><th>Factura DGI</th>
+        <th class="num">Total</th><th>Asiento</th><th class="acciones">Factura DGI</th>
       </tr></thead><tbody>`;
     for (const f of pendientes) {
-      const est = f.journalEntry?.status;
-      const asiento = est === 'CONFIRMADO'
-        ? '<span style="color:#059669">✓ Aprobado</span>'
-        : `<span style="color:#92400e">● ${escapeHtml(est || 'sin asiento')}</span>`;
       html += `<tr>
         <td><input type="checkbox" ${reembPuedePagar() ? '' : 'disabled'} onchange="reembMarcar('${f.id}', this.checked)" ${_reembSeleccion.has(f.id) ? 'checked' : ''}></td>
         <td>${reembFechaCorta(f.fecha)}</td>
         <td>${escapeHtml(f.proveedor || '—')}</td>
         <td class="cuenta-code">${escapeHtml(f.numeroFactura || '—')}</td>
-        <td style="text-align:right">${reembMoney(f.total)}</td>
-        <td style="font-size:12px">${asiento}</td>
-        <td>${f.dgiUrl ? `<a href="${escapeHtml(f.dgiUrl)}" target="_blank" rel="noopener">Ver factura ↗</a>` : '<span style="color:#9ca3af">sin URL</span>'}</td>
+        <td class="num">${reembMoney(f.total)}</td>
+        <td>${reembPillAsiento(f.journalEntry?.status)}</td>
+        <td class="acciones">${f.dgiUrl ? `<a href="${escapeHtml(f.dgiUrl)}" target="_blank" rel="noopener">Ver ↗</a>` : '<span class="grilla-secundario">sin URL</span>'}</td>
       </tr>`;
     }
     html += '</tbody></table>';
@@ -331,13 +351,13 @@ function reembPintarDetalle() {
   // ── Historial de pagos ──
   if (pagadas.length) {
     html += `<h4 style="margin:24px 0 8px 0;color:#1a1a2e">Pagos hechos</h4>
-      <table><thead><tr><th>Fecha</th><th>Proveedor</th><th style="text-align:right">Total</th><th>Pago</th></tr></thead><tbody>`;
+      <table class="grilla"><thead><tr><th>Fecha</th><th>Proveedor</th><th class="num">Total</th><th>Pago</th></tr></thead><tbody>`;
     for (const f of pagadas) {
       html += `<tr style="opacity:.75">
         <td>${reembFechaCorta(f.fecha)}</td>
         <td>${escapeHtml(f.proveedor || '—')}</td>
-        <td style="text-align:right">${reembMoney(f.total)}</td>
-        <td style="font-size:12px;color:#059669">✓ ${f.reimbursement ? reembFechaCorta(f.reimbursement.fecha) : 'pagado'}</td>
+        <td class="num">${reembMoney(f.total)}</td>
+        <td><span class="pildora pildora-ok">${f.reimbursement ? reembFechaCorta(f.reimbursement.fecha) : 'pagado'}</span></td>
       </tr>`;
     }
     html += '</tbody></table>';

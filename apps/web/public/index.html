@@ -28,7 +28,7 @@
   <meta name="twitter:description" content="Agente contable con IA para Panamá. Facturas, asientos y reportes automatizados.">
   <meta name="twitter:image" content="https://contador507.com/Logo2.png?v=2">
 
-  <link rel="stylesheet" href="styles.css?v=33">
+  <link rel="stylesheet" href="styles.css?v=35">
 </head>
 <body>
   <div id="app">
@@ -310,13 +310,17 @@
 
       <!-- Panel de Calendario Fiscal -->
       <!-- Panel de Salud Financiera -->
-      <div id="panel-reembolsos-content" class="hidden" style="padding:24px;max-width:1100px">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+      <div id="panel-reembolsos-content" class="hidden panel-datos">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
           <div>
             <h2 style="margin:0;color:#1a1a2e">💵 Reembolsos a trabajadores</h2>
             <p style="margin:4px 0 0 0;color:#6b7280;font-size:13px">Lo que cada trabajador adelantó de su bolsillo, identificado por su celular. Pagar aprueba sus asientos y genera el pago contra el banco.</p>
           </div>
           <button class="btn-secondary" onclick="loadPanelReembolsos()" style="padding:10px 20px;font-size:14px">🔄 Actualizar</button>
+        </div>
+        <div style="display:flex;gap:4px;border-bottom:1px solid #e5e7eb">
+          <button id="reemb-tab-trabajadores" onclick="loadPanelReembolsos('trabajadores')" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#1a1a2e;border-bottom:2px solid #1565c0;margin-bottom:-2px">👷 Trabajadores</button>
+          <button id="reemb-tab-facturas" onclick="loadPanelReembolsos('facturas')" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🧾 Facturas recibidas</button>
         </div>
         <div id="reembolsos-inline-list">
           <div style="text-align:center;padding:32px;color:#6b7280">Cargando reembolsos...</div>
@@ -634,7 +638,7 @@
   <script src="js/presupuestos.js?v=1"></script>
   <script src="js/tax-calendar.js?v=74"></script>
   <script src="js/salud.js?v=74"></script>
-  <script src="js/reembolsos.js?v=2"></script>
+  <script src="js/reembolsos.js?v=3"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="js/facturas.js?v=80"></script>
 </body>

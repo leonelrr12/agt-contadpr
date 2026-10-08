@@ -98,7 +98,8 @@ body {
 #panel-salud-content:not(.hidden),
 #panel-whatsapp-content:not(.hidden),
 #panel-admin-content:not(.hidden),
-#panel-facturas-content:not(.hidden) {
+#panel-facturas-content:not(.hidden),
+#panel-reembolsos-content:not(.hidden) {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -119,6 +120,7 @@ body {
 #conceptos-admin-content,
 #config-content,
 #aux-sidebar-content,
+#reembolsos-inline-list,
 #facturas-lista-content,
 #facturas-config-content {
   flex: 1;
@@ -1231,3 +1233,66 @@ body {
 }
 .entry-acc-name { color: #4b5563; }
 .entry-acc-vacio, .entry-acc-mas { padding: 8px; color: #6b7280; font-size: 11.5px; text-align: center; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Grilla de datos
+   Tablas de listado. pilotada en 💵 Reembolsos (Facturas recibidas).
+
+   Dos decisiones que vienen de la referencia (etax2) y valen la pena:
+    · **Celdas de DOS LÍNEAS**: el dato arriba (medio, oscuro) y su contexto
+      abajo en 12px gris. Es lo que más información mete sin agregar columnas
+      (proveedor + RUC; nombre + celular).
+    · **Estados en píldora con punto**, en minúscula natural: se leen de un
+      golpe, a diferencia del texto en mayúsculas. A 12px: por debajo se lee
+      chico.
+   Los encabezados se quedan en mayúsculas (decisión del dueño) — son el
+   carácter de "sistema contable" que él quiere conservar.
+
+   OJO: las reglas `.panel-body …` de más arriba NO estilizan nada: esa clase no
+   existe en ningún HTML ni JS. Esto es lo que estiliza las tablas de verdad.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Panel de DATOS: ocupa todo el ancho (las grillas ganan con el espacio). */
+.panel-datos { padding: 24px; max-width: none; }
+/* Los formularios de adentro NO se estiran: uno de 1600px se lee y se llena mal. */
+.panel-datos .admin-form-card { max-width: 900px; }
+
+/* La base aplica a CUALQUIER tabla dentro de un panel, no solo a las que llevan
+   la clase: todas las tablas de los paneles son listados, y así una vista nueva
+   nace bien sin que nadie tenga que acordarse de la clase. Los modismos de
+   abajo (dos líneas, píldoras, alineación) sí son opt-in por celda. */
+:is(.grilla, #main > div[id^="panel-"] table) { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; }
+:is(.grilla, #main > div[id^="panel-"] table) th {
+  text-align: left; padding: 8px 12px;
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  color: #6b7280; background: #f9fafb;
+  border-bottom: 1px solid #e2e4e8;
+  white-space: nowrap;
+}
+:is(.grilla, #main > div[id^="panel-"] table) td { padding: 10px 12px; border-bottom: 1px solid #e2e4e8; vertical-align: top; }
+:is(.grilla, #main > div[id^="panel-"] table) tbody tr:hover td { background: #f9fafb; }
+:is(.grilla, #main > div[id^="panel-"] table) tbody tr:last-child td { border-bottom: none; }
+/* Montos y fechas: alineados a la derecha y sin bailar entre filas */
+:is(.grilla, #main > div[id^="panel-"]) .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+:is(.grilla, #main > div[id^="panel-"]) .acciones { text-align: right; white-space: nowrap; }
+
+/* Celda de dos líneas: el texto largo se corta con puntos suspensivos y se lee
+   completo con el `title` al pasar el mouse (si no, un proveedor largo desarma
+   la grilla entera). */
+.grilla-2l { max-width: 17rem; }
+.grilla-2l > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grilla-principal { font-weight: 500; color: #1a1a2e; }
+.grilla-secundario { font-size: 12px; color: #6b7280; }
+
+/* Estado en píldora con punto */
+.pildora {
+  display: inline-flex; align-items: center; gap: 6px;
+  white-space: nowrap; border-radius: 999px; padding: 2px 9px;
+  font-size: 12px; font-weight: 500;
+}
+.pildora::before { content: ''; width: 5px; height: 5px; border-radius: 999px; background: currentColor; flex: 0 0 auto; }
+.pildora-ok { background: #e8f5e9; color: #2e7d32; }
+.pildora-alerta { background: #fff3e0; color: #e65100; }
+.pildora-error { background: #ffebee; color: #c62828; }
+.pildora-neutra { background: #f3f4f6; color: #6b7280; }
