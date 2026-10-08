@@ -351,78 +351,19 @@ body {
   color: #1a1a2e; border-bottom-color: #1a1a2e;
 }
 
-.panel-body {
-  flex: 1; overflow-y: auto; padding: 16px 20px;
-}
 
 .panel-tab { display: none; }
 .panel-tab.active { display: block; }
 
-.panel-body table {
-  width: 100%; border-collapse: collapse;
-  background: #fff; border-radius: 6px;
-  overflow: hidden; font-size: 13px;
-}
 
-.panel-body th {
-  text-align: left; padding: 8px 10px;
-  font-size: 11px; font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.04em;
-  color: #6b7280; background: #f9fafb;
-  border-bottom: 1px solid #e2e4e8;
-}
 
-.panel-body td {
-  padding: 8px 10px;
-  border-bottom: 1px solid #e2e4e8;
-}
 
-.panel-body tr:last-child td { border-bottom: none; }
-.panel-body tr:hover td { background: #f9fafb; }
 
-.panel-body .debit { color: #2e7d32; font-weight: 600; }
-.panel-body .credit { color: #c62828; font-weight: 600; }
-.panel-body .tag {
-  display: inline-block; font-size: 10px; font-weight: 600;
-  padding: 2px 6px; border-radius: 3px; text-transform: uppercase;
-}
-.panel-body .tag-conf { background: #e8f5e9; color: #2e7d32; }
-.panel-body .tag-draft { background: #fff3e0; color: #e65100; }
-.panel-body .tag-rejected { background: #ffebee; color: #c62828; }
-.panel-body .tag-void { background: #f3e5f5; color: #6a1b9a; }
-.panel-body .empty {
-  text-align: center; padding: 32px; color: #6b7280; font-size: 13px;
-}
 
-.panel-body .summary-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 16px;
-}
 
-.panel-body .card {
-  background: #fff; border-radius: 6px;
-  padding: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.06);
-}
 
-.panel-body .card h3 {
-  font-size: 11px; font-weight: 600;
-  color: #6b7280; margin-bottom: 2px;
-  text-transform: uppercase; letter-spacing: 0.04em;
-}
 
-.panel-body .card .value { font-size: 22px; font-weight: 700; }
-.panel-body .card .value.pos { color: #2e7d32; }
-.panel-body .card .value.neg { color: #c62828; }
 
-.panel-body .line-item {
-  display: flex; justify-content: space-between;
-  padding: 4px 0; font-size: 13px;
-  border-bottom: 1px dashed #e2e4e8;
-}
-.panel-body .line-item:last-child { border-bottom: none; }
-.panel-body .line-item .amt { font-weight: 600; }
 
 /* Confirm dialog */
 #confirm-overlay {
@@ -897,12 +838,6 @@ body {
   #reports-panel { width: 100vw; right: -100vw; height: 100dvh; }
   #reports-panel.open { right: 0; }
 
-  .panel-body { padding: 12px; }
-  .panel-body table { font-size: 13px; }
-  .panel-body th, .panel-body td { padding: 8px 10px; }
-  .panel-body .summary-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
-  .panel-body .card { padding: 12px; }
-  .panel-body .card .value { font-size: 20px; }
 
   .panel-tabs { padding: 0 12px; }
   .panel-tabs button { padding: 12px 14px; font-size: 13px; }
@@ -939,10 +874,7 @@ body {
   .message { padding: 12px 14px; font-size: 15px; max-width: 98%; }
   .quick-btn { font-size: 14px; padding: 12px 10px; }
   #input-area { padding: 10px 12px; }
-  .panel-body .summary-grid { grid-template-columns: 1fr; }
   .panel-tabs button { padding: 10px 8px; font-size: 12px; }
-  .panel-body table { font-size: 12px; }
-  .panel-body th, .panel-body td { padding: 6px 8px; }
 }
 
 /* ── Classification Box ── */
@@ -1145,16 +1077,15 @@ body {
   .dash-grid { gap: 16px; }
   .dash-summary { gap: 12px; }
   #reports-panel { width: 580px; right: -600px; }
-  #reports-panel .panel-body { padding: 20px 28px; }
-  .panel-body .summary-grid { gap: 14px; }
-  .panel-body .card { padding: 16px 18px; }
-  .panel-body .line-item { padding: 8px 4px; }
   /* Paneles inline tipo Recurrente — margen lateral en desktop */
   #panel-informes-content,
   #panel-auxiliares-content,
   #panel-revision-content { padding-left: 32px !important; padding-right: 32px !important; }
 }
-/* ── Estilos para reportes inline (sin scope .panel-body) ── */
+/* ── Estilos para reportes inline ──
+   Nacieron con el prefijo `.panel-body`, que no existe en ningún HTML: se les
+   quitó para que aplicaran. Las reglas muertas de ese prefijo se borraron el
+   08-10-2026 (ver la nota en la grilla, más abajo). */
 .summary-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1248,8 +1179,10 @@ body {
    Los encabezados se quedan en mayúsculas (decisión del dueño) — son el
    carácter de "sistema contable" que él quiere conservar.
 
-   OJO: las reglas `.panel-body …` de más arriba NO estilizan nada: esa clase no
-   existe en ningún HTML ni JS. Esto es lo que estiliza las tablas de verdad.
+   Nota: hasta el 08-10-2026 había ~40 líneas bajo `.panel-body` que NO
+   estilizaban nada (esa clase no existe en ningún HTML ni JS) y se veían las
+   tablas con los estilos del navegador. Se borraron: si ese prefijo vuelve a
+   aparecer, es una regla que no se va a aplicar.
    ══════════════════════════════════════════════════════════════════════════ */
 
 /* Panel de DATOS: ocupa todo el ancho (las grillas ganan con el espacio). */
