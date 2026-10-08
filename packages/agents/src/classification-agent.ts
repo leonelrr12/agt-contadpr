@@ -199,15 +199,20 @@ export const KEYWORD_MAP: Record<string, string[]> = {
   torta: ['Refrigerios', 'Alimentación', 'Alimentacion'],
   galleta: ['Refrigerios', 'Alimentación', 'Alimentacion'],
   dona: ['Refrigerios', 'Alimentación', 'Alimentacion'],
-  // Limpieza y hogar
-  detergente: ['Suministros de Limpieza', 'Suministros de Oficina', 'Papelería y Útiles'],
-  jabón: ['Suministros de Limpieza', 'Suministros de Oficina'],
-  jabon: ['Suministros de Limpieza', 'Suministros de Oficina'],
-  cloro: ['Suministros de Limpieza', 'Suministros de Oficina'],
-  desinfectante: ['Suministros de Limpieza', 'Suministros de Oficina'],
-  escoba: ['Suministros de Limpieza', 'Suministros de Oficina'],
-  trapeador: ['Suministros de Limpieza', 'Suministros de Oficina'],
-  bolsa: ['Suministros de Limpieza', 'Suministros de Oficina'],
+  // Limpieza y hogar. El nombre del ARTÍCULO va primero: las empresas que dan de
+  // alta el concepto del artículo —ODESA tiene Jabón, Cloro, Detergente, Escoba y
+  // Bolsa → 6.01.22— lo resuelven exacto, y las que no (Empresa Demo) caen a la
+  // bolsa genérica porque el gate descarta los nombres que no existen en su
+  // catálogo. Sin el artículo, una compra de limpieza en ODESA terminaba en
+  // Papelería y Útiles o en Gastos Varios.
+  detergente: ['Detergente', 'Suministros de Limpieza', 'Suministros de Oficina', 'Papelería y Útiles'],
+  jabón: ['Jabón', 'Suministros de Limpieza', 'Suministros de Oficina'],
+  jabon: ['Jabón', 'Suministros de Limpieza', 'Suministros de Oficina'],
+  cloro: ['Cloro', 'Suministros de Limpieza', 'Suministros de Oficina'],
+  desinfectante: ['Desinfectante', 'Suministros de Limpieza', 'Suministros de Oficina'],
+  escoba: ['Escoba', 'Suministros de Limpieza', 'Suministros de Oficina'],
+  trapeador: ['Trapeador', 'Suministros de Limpieza', 'Suministros de Oficina'],
+  bolsa: ['Bolsa', 'Suministros de Limpieza', 'Suministros de Oficina'],
   // Ferretería / repuestos / materia prima.
   // 'Repuestos y Accesorios' va PRIMERO a propósito: el match por substring agarra
   // el concepto 'Mantenimiento' del nombre propuesto antes de probar el segundo

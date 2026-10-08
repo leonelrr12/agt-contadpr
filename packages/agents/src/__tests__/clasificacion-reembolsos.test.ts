@@ -92,6 +92,24 @@ describe('el proveedor apunta a un rubro que la empresa no tiene: deciden los í
     expect(conceptoDelMapa('farmacia', conMedicamentos)).toBe('Medicamentos');
   });
 
+  it('los conceptos de artículo de la empresa ganan a la bolsa genérica', () => {
+    // ODESA da de alta el concepto del artículo (Jabón, Cloro, Detergente, Escoba,
+    // Bolsa → 6.01.22); el mapa los lista primero y resuelven exacto.
+    const odesa = ['Jabón', 'Cloro', 'Detergente', 'Escoba', 'Bolsa'].map((n) => ({
+      name: n, accountId: `acct-${n}`, confidence: 0.9, keywords: '[]',
+    }));
+    for (const [palabra, concepto] of [
+      ['jabón', 'Jabón'], ['jabon', 'Jabón'], ['cloro', 'Cloro'],
+      ['detergente', 'Detergente'], ['escoba', 'Escoba'], ['bolsa', 'Bolsa'],
+    ] as const) {
+      expect(conceptoDelMapa(palabra, odesa)).toBe(concepto);
+    }
+    // Y la empresa que no tiene el artículo sigue cayendo a la bolsa genérica.
+    const demo = [{ name: 'Suministros de Limpieza', accountId: 'acct-limpieza', confidence: 0.9, keywords: '[]' }];
+    expect(conceptoDelMapa('jabón', demo)).toBe('Suministros de Limpieza');
+    expect(conceptoDelMapa('detergente', demo)).toBe('Suministros de Limpieza');
+  });
+
   it('el ítem decide: JABÓN termina en Suministros de Limpieza', async () => {
     const propuesto = conceptoDelMapa('jabón', conLimpieza) ?? conceptoDelMapa('jabon', conLimpieza);
     expect(propuesto).toBe('Suministros de Limpieza');
