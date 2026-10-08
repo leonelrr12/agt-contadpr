@@ -21,15 +21,20 @@ export const updateAccountSchema = z.object({
 });
 
 // ── Concepts ──
+// `keywords`: palabras que identifican el concepto en una factura ("ferretería",
+// "materiales"). Las usa el clasificador — es lo único que el contador ajusta sin
+// tocar código, y por eso se configuran desde Administración → Conceptos.
 export const createConceptSchema = z.object({
   name: z.string().min(1, 'Nombre del concepto requerido'),
   accountId: z.string().min(1, 'ID de cuenta requerido'),
+  keywords: z.array(z.string()).optional(),
 });
 
 export const updateConceptSchema = z.object({
   name: z.string().min(1).optional(),
   accountId: z.string().min(1).optional(),
   isActive: z.boolean().optional(),
+  keywords: z.array(z.string()).optional(),
 });
 
 // ── Transactions ──

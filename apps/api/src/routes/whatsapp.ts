@@ -183,6 +183,11 @@ async function handleWebhook(req: any, res: any): Promise<void> {
       if (/^(batch|qr2)$/i.test(messageText.trim())) {
         endBatch(sessionKey);
         startBatch(sessionKey, req.prisma, st.link);
+        if (st.link?.workerAccountId) {
+          setBatchMetodoPago(sessionKey, 'reembolso');
+          await sendWhatsAppMessage(replyChatId, '📦 *Carga de facturas reiniciada*\n\nEnvía las URLs del CUTE o los PDFs. Escribe *fin* cuando termines.');
+          return res.sendStatus(200);
+        }
         await sendWhatsAppMessage(replyChatId, '📦 *Modo batch reiniciado*\n\nElige el método de pago:\n  1. 💵 Efectivo\n  2. 💳 Tarjeta Crédito\n  3. 💳 Tarjeta Débito\n  4. 📋 Crédito\n  5. 🏦 Transferencia\n  6. 📄 Cheque');
         return res.sendStatus(200);
       }
@@ -216,6 +221,13 @@ async function handleWebhook(req: any, res: any): Promise<void> {
         return res.sendStatus(200);
       }
       startBatch(sessionKey, req.prisma, batchLink);
+      // El trabajador no elige método de pago: él siempre pagó de su bolsillo, y
+      // "tarjeta de crédito" acreditaría la tarjeta de la EMPRESA.
+      if (batchLink.workerAccountId) {
+        setBatchMetodoPago(sessionKey, 'reembolso');
+        await sendWhatsAppMessage(replyChatId, '📦 *Carga de facturas activada*\n\nEnvía las URLs del CUTE o los PDFs de las facturas que pagaste. Escribe *fin* cuando termines.');
+        return res.sendStatus(200);
+      }
       await sendWhatsAppMessage(replyChatId, '📦 *Modo batch activado*\n\nElige el método de pago:\n  1. 💵 Efectivo\n  2. 💳 Tarjeta Crédito\n  3. 💳 Tarjeta Débito\n  4. 📋 Crédito\n  5. 🏦 Transferencia\n  6. 📄 Cheque');
       return res.sendStatus(200);
     }

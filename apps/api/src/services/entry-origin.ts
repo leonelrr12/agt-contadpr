@@ -13,8 +13,12 @@ export interface EntryOrigin {
   icon: string;
   label: string;
   detail?: string;
-  /** Documento origen abrible desde la UI (hoy solo la factura tiene PDF). */
-  link?: { type: 'invoice'; id: string; label: string };
+  /**
+   * Documento origen abrible desde la UI: la factura emitida tiene PDF propio
+   * (`invoice`) y la recibida vive en el visor de la DGI (`url`, el enlace del
+   * CUTE que mandó el trabajador o subió la empresa).
+   */
+  link?: { type: 'invoice'; id: string; label: string } | { type: 'url'; url: string; label: string };
 }
 
 /** Etiquetas legibles de Transaction.type (lo que el usuario ve en el chat/importador). */
@@ -200,6 +204,31 @@ export async function resolveEntryOrigin(
       ]
         .filter(Boolean)
         .join(' · '),
+    };
+  }
+
+  // Factura RECIBIDA (la del trabajador que adelantó, o una de la empresa): el
+  // documento con su URL del CUTE. Va antes que el rastro de la Transaction
+  // porque es más específico y más útil — el contador quiere abrir la factura.
+  const claim = await prisma.expenseClaim.findFirst({
+    where: { journalEntryId: entry.id, companyId },
+    select: {
+      proveedor: true, numeroFactura: true, dgiUrl: true, total: true,
+      worker: { select: { nombre: true } },
+    },
+  });
+  if (claim) {
+    return {
+      kind: 'FACTURA_RECIBIDA',
+      icon: '🧾',
+      label: claim.worker ? 'Factura de trabajador' : 'Factura recibida',
+      detail: [
+        claim.proveedor,
+        claim.numeroFactura ? `Nº ${claim.numeroFactura}` : null,
+        claim.worker?.nombre,
+        fmt(claim.total),
+      ].filter(Boolean).join(' · '),
+      link: claim.dgiUrl ? { type: 'url', url: claim.dgiUrl, label: 'factura DGI' } : undefined,
     };
   }
 

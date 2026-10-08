@@ -17,6 +17,13 @@ interface WaSession {
   pendingResult: any | null;
   entityMatches: any[] | null;
   originalInput: string | null;
+  /**
+   * Datos de la factura extraída (URL del CUTE, XML, proveedor, RUC, número…)
+   * mientras se confirma el asiento. Viaja en la sesión y NO en el diálogo
+   * porque el orquestador reconstruye el diálogo y perdería los campos que no
+   * conoce; acá se lee al confirmar, que es cuando nace el reclamo de reembolso.
+   */
+  pendingFactura: Record<string, any> | null;
   state: WaState;
   lastActivity: number;
 }
@@ -69,7 +76,7 @@ export function createSession(chatId: string, phoneNumber: string): WaSession {
   const s: WaSession = {
     chatId, phoneNumber,
     dialogContext: null, pendingResult: null, entityMatches: null,
-    originalInput: null, state: 'idle', lastActivity: Date.now(),
+    originalInput: null, pendingFactura: null, state: 'idle', lastActivity: Date.now(),
   };
   sessions.set(chatId, s);
   return s;
@@ -123,6 +130,19 @@ export function getOriginalInput(chatId: string): string | null {
   return s?.originalInput || null;
 }
 
+export function setPendingFactura(chatId: string, factura: Record<string, any> | null): void {
+  const s = sessions.get(chatId);
+  if (!s) return;
+  s.pendingFactura = factura;
+  s.lastActivity = Date.now();
+  persistSessions();
+}
+
+export function getPendingFactura(chatId: string): Record<string, any> | null {
+  const s = sessions.get(chatId);
+  return s?.pendingFactura || null;
+}
+
 export function setAwaitingCategory(chatId: string): void {
   const s = sessions.get(chatId);
   if (!s) return;
@@ -145,6 +165,7 @@ export function clearSession(chatId: string): void {
   s.dialogContext = null;
   s.pendingResult = null;
   s.entityMatches = null;
+  s.pendingFactura = null;
   s.state = 'idle';
   s.lastActivity = Date.now();
   persistSessions();

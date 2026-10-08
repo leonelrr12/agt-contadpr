@@ -15,10 +15,21 @@ import {
   setAwaitingCategory,
   setOriginalInput,
   getOriginalInput,
+  setPendingFactura,
+  getPendingFactura,
   resetSession,
 } from './wa-session-store';
+import {
+  buildDedupeKey,
+  buscarFacturaDuplicada,
+  registrarFacturaRecibida,
+  saldoPendiente,
+  avisoDuplicado,
+  TIPOS_FACTURA_RECIBIDA,
+  type FacturaExtraida,
+} from './reembolsos';
 import { extractFromPDF } from './pdf-extractor';
-import { KEYWORD_MAP } from '@agt-contador/agents';
+import { KEYWORD_MAP, conceptoPorKeywords } from '@agt-contador/agents';
 
 const OPENWA_URL = process.env.OPENWA_API_URL || 'http://localhost:2785';
 const OPENWA_KEY = process.env.OPENWA_API_KEY || '';
@@ -106,6 +117,9 @@ export async function processWhatsAppDgiUrl(
 
     let buffer = Buffer.from(await response.arrayBuffer());
     const headStr = buffer.slice(0, 500).toString();
+    // El visor de la DGI embebe el XML OFICIAL de la factura en un input oculto:
+    // es el documento legal y viaja con el reembolso (el PDF solo lo representa).
+    let dgiXml: string | null = null;
 
     // Detectar visor web DGI y descargar el PDF real.
     // OJO: el form con facturaXML aparece lejos del inicio del HTML (~byte 25k),
@@ -120,12 +134,12 @@ export async function processWhatsAppDgiUrl(
       if (html.includes('facturaXML') && html.includes('DescargarFacturaPDF')) {
         const match = html.match(/id="facturaXML"[^>]*value="([^"]*)"/);
         if (match?.[1]) {
-          const facturaXML = match[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+          dgiXml = match[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
           const baseUrl = new URL(qrUrl);
           const pdfRes = await fetch(`${baseUrl.protocol}//${baseUrl.host}/Consultas/DescargarFacturaPDF`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', Referer: qrUrl, 'User-Agent': UA },
-            body: `facturaXML=${encodeURIComponent(facturaXML)}`,
+            body: `facturaXML=${encodeURIComponent(dgiXml)}`,
             signal: AbortSignal.timeout(60000),
           });
           if (pdfRes.ok) buffer = Buffer.from(await pdfRes.arrayBuffer());
@@ -133,8 +147,12 @@ export async function processWhatsAppDgiUrl(
       }
     }
 
-    // Procesar como PDF normal
-    return await processWhatsAppPDF(prisma, phoneNumber, chatId, 'data:application/pdf;base64,' + buffer.toString('base64'));
+    // Procesar como PDF normal, arrastrando el enlace del CUTE y su XML
+    return await processWhatsAppPDF(
+      prisma, phoneNumber, chatId,
+      'data:application/pdf;base64,' + buffer.toString('base64'),
+      { dgiUrl: qrUrl, dgiXml },
+    );
   } catch (err: any) {
     console.error('[WhatsApp] QR process error:', err.message);
     return '❌ Error al procesar el QR. Intenta con una foto más clara del código.';
@@ -150,6 +168,8 @@ export async function processWhatsAppPDF(
   phoneNumber: string,
   chatId: string,
   pdfUrl: string,
+  /** Enlace del CUTE y su XML cuando la factura llegó por URL de la DGI. */
+  origen?: { dgiUrl?: string | null; dgiXml?: string | null },
 ): Promise<string | null> {
   try {
     const pdfRes = await fetch(pdfUrl);
@@ -161,6 +181,27 @@ export async function processWhatsAppPDF(
     if (!pdfData.total && !pdfData.provider) {
       return `📄 No pude extraer datos del PDF (texto: ${(pdfData.text || '').substring(0, 100)}...). ¿Podrías describir la factura? Ej: "factura ENSA por $45.67"`;
     }
+
+    // Lo que se guarda con el reembolso. Se arma ANTES del diálogo para poder
+    // cortar acá mismo si la factura ya está reclamada: no tiene sentido hacerle
+    // contestar categoría y forma de pago a alguien que va a recibir un "ya está".
+    const factura: FacturaExtraida = {
+      dgiUrl: origen?.dgiUrl || null,
+      dgiXml: origen?.dgiXml || null,
+      proveedor: pdfData.provider || null,
+      ruc: pdfData.ruc || null,
+      numeroFactura: pdfData.invoiceNumber || null,
+      fecha: pdfData.date || null,
+      total: pdfData.total ?? null,
+      itbms: pdfData.itbms ?? null,
+    };
+
+    const link = await prisma.whatsAppLink.findFirst({
+      where: { phoneNumber, verifiedAt: { not: null }, isActive: true },
+    });
+
+    const duplicado = await buscarFacturaDuplicada(prisma, link?.companyId, buildDedupeKey(factura));
+    if (duplicado) return avisoDuplicado(duplicado);
 
     // Extraer items para mostrar en resumen
     const items = extractInvoiceItems(pdfData.text);
@@ -193,20 +234,21 @@ export async function processWhatsAppPDF(
     ocrContext.source = 'pdf';
     if (items.length > 0) ocrContext.items = items;
     // Pre-clasificar concepto para usarlo en el asiento
-    const classifiedConcept = classifyByKeywords(itemsDesc || pdfData.provider || '');
+    const classifiedConcept = await classifyByKeywords(prisma, link?.companyId, pdfData.provider, itemsDesc);
     if (classifiedConcept) ocrContext.concept = classifiedConcept;
 
     const context = { messages: [], extractedData: ocrContext };
-    const link = await prisma.whatsAppLink.findFirst({
-      where: { phoneNumber, verifiedAt: { not: null }, isActive: true },
-    });
 
     // Asegurar que la sesión existe antes de guardar contexto
     if (!getSession(chatId)) createSession(chatId, phoneNumber);
+    setPendingFactura(chatId, factura);
 
     // Delegar a processWithOrchestrator para manejo unificado de missing fields
     setOriginalInput(chatId, syntheticInput);
-    const reply = await processWithOrchestrator(prisma, chatId, link, syntheticInput, context);
+    const reply = await autoResolverPreguntasDeTrabajador(
+      prisma, link, phoneNumber, chatId,
+      await processWithOrchestrator(prisma, chatId, link, syntheticInput, context),
+    );
 
     // Mostrar concepto pre-clasificado en el resumen
     if (classifiedConcept) baseParts.push(`📂 *Concepto*: ${classifiedConcept}`);
@@ -278,8 +320,17 @@ export async function processWhatsAppMessage(
   }
 
   // ── Comandos de consulta ──
-  if (/^(saldo|balance|banco|cuenta)\b/i.test(text)) {
+  if (/^\/?(saldo|balance|banco|cuenta)\b/i.test(text)) {
+    // El celular de un trabajador no ve las cuentas de la empresa.
+    if (link.workerAccountId) {
+      return '🔒 El saldo de la empresa no está disponible desde tu número.\n\n💵 Escribe */viaticos* para ver lo que se te debe.';
+    }
     return await handleBalanceQuery(prisma, link.companyId, text);
+  }
+  // Con y sin tilde: la palabra se escribe de las dos formas y el comando no
+  // puede fallar en silencio por un acento.
+  if (/^\/?vi[aá]ticos\b/i.test(text)) {
+    return await handleViaticos(prisma, link);
   }
 
   // ── Determinar intención del mensaje ──
@@ -340,11 +391,17 @@ export async function processWhatsAppMessage(
   if (!isTransactionText(text)) {
     return null; // Silencioso: el mensaje no parece una transacción
   }
+  // Transacción escrita a mano: no hay factura que arrastrar. Se limpia la de un
+  // PDF anterior para que no se le pegue a este gasto (la sesión es por chat).
+  setPendingFactura(chatId, null);
   const context: any = {};
   if (hasCtx && !conceptSelected) {
     context.extractedData = ctx;
   }
-  return await processWithOrchestrator(prisma, chatId, link, text, context);
+  return await autoResolverPreguntasDeTrabajador(
+    prisma, link, phoneNumber, chatId,
+    await processWithOrchestrator(prisma, chatId, link, text, context),
+  );
 }
 
 /**
@@ -382,6 +439,7 @@ async function processWithOrchestrator(
     companyId: link.companyId,
     userId: await resolveWhatsAppUserId(prisma, link.companyId),
     deepseekApiKey: process.env.DEEPSEEK_API_KEY,
+    paymentMethodForzado: link.workerAccountId ? 'REEMBOLSO' : undefined,
   });
 
   try {
@@ -459,7 +517,7 @@ async function processWithOrchestrator(
       // 3. Nada falta → ejecutar orquestador para obtener confirmación con asiento contable
       if (missing.length === 0) {
         const { OrchestratorAgent: OA2 } = await import('@agt-contador/agents');
-        const o2 = new OA2({ prisma, companyId: link.companyId, userId: await resolveWhatsAppUserId(prisma, link.companyId), deepseekApiKey: process.env.DEEPSEEK_API_KEY });
+        const o2 = new OA2({ prisma, companyId: link.companyId, userId: await resolveWhatsAppUserId(prisma, link.companyId), deepseekApiKey: process.env.DEEPSEEK_API_KEY, paymentMethodForzado: link.workerAccountId ? 'REEMBOLSO' : undefined });
         const r2 = await o2.process(text, { messages: [], extractedData: dialogData });
         if (r2.needsConfirmation && r2.prompt) { setPendingResult(chatId, r2.result); return r2.prompt; }
         // Si el orquestador pide categoría pero ya tenemos concepto, ignorar y usar el resultado actual
@@ -505,8 +563,120 @@ function parsePaymentMethodReply(text: string): string | null {
     '4': 'CREDITO', 'credito': 'CREDITO', 'crédito': 'CREDITO',
     '5': 'TRANSFERENCIA', 'transferencia': 'TRANSFERENCIA', 'banco': 'TRANSFERENCIA', 'ach': 'TRANSFERENCIA',
     '6': 'CHEQUE', 'cheque': 'CHEQUE',
+    // No es una opción del menú: la usa el flujo del trabajador para contestarse
+    // sola la pregunta del pago (él siempre pagó de su bolsillo).
+    'reembolso': 'REEMBOLSO',
   };
   return map[lower] || null;
+}
+
+/**
+ * `/viaticos` — lo que la empresa le debe al trabajador por las facturas que
+ * adelantó. Es la consulta que el trabajador puede hacer en cualquier momento, y
+ * la única de saldo que tiene sentido desde su celular.
+ */
+async function handleViaticos(prisma: any, link: any): Promise<string> {
+  if (!link?.workerAccountId) {
+    return '🤖 */viaticos* es para los trabajadores que adelantan compras. Este número opera la empresa; usa *saldo* para ver las cuentas bancarias.';
+  }
+
+  const saldo = await saldoPendiente(prisma, link.companyId, link.workerAccountId);
+  const facturas = await prisma.expenseClaim.findMany({
+    where: {
+      companyId: link.companyId,
+      workerId: link.workerAccountId,
+      status: 'PENDIENTE',
+      OR: [{ journalEntryId: null }, { journalEntry: { status: { not: 'RECHAZADO' } } }],
+    },
+    orderBy: [{ fecha: 'desc' }, { createdAt: 'desc' }],
+    take: 8,
+    select: { fecha: true, proveedor: true, total: true },
+  });
+
+  if (facturas.length === 0) {
+    return '💵 *No tienes facturas pendientes de reembolso.*\n\nEnvía la URL del CUTE o el PDF de una factura y la registro a tu nombre.';
+  }
+
+  const lineas = facturas.map((f: any) => {
+    const dia = new Date(f.fecha).toLocaleDateString('es-PA', { day: '2-digit', month: '2-digit' });
+    const proveedor = String(f.proveedor || 'Factura').substring(0, 22);
+    return `• ${dia} ${proveedor} — $${Number(f.total).toFixed(2)}`;
+  });
+
+  const resto = facturas.length >= 8 ? '\n_…y más_' : '';
+  return `💵 *Pendiente de reembolso: $${saldo.toFixed(2)}*\n\n${lineas.join('\n')}${resto}\n\n_Cuando el contador te pague, el saldo baja solo._`;
+}
+
+/**
+ * Un trabajador no tiene que contestar las dos preguntas del flujo: su compra
+ * siempre es un gasto que pagó de su bolsillo, así que "¿Gasto o Inventario?" y
+ * "¿cómo se pagó?" no tienen opciones válidas para él — elegir "tarjeta de
+ * crédito" acreditaría la tarjeta de la EMPRESA. Se contestan solas, con el mismo
+ * mecanismo que ya usa el modo batch.
+ */
+async function autoResolverPreguntasDeTrabajador(
+  prisma: any,
+  link: any,
+  phoneNumber: string,
+  chatId: string,
+  reply: string | null,
+): Promise<string | null> {
+  if (!link?.workerAccountId) return reply;
+  let out = reply;
+  for (let i = 0; i < 4; i++) {
+    const s = getSession(chatId);
+    if (s?.state === 'awaiting_category') { out = await processWhatsAppMessage(prisma, phoneNumber, chatId, '1'); continue; }
+    if (s?.state === 'awaiting_payment') { out = await processWhatsAppMessage(prisma, phoneNumber, chatId, 'reembolso'); continue; }
+    break;
+  }
+  return out;
+}
+
+/**
+ * Registra la factura que se acaba de confirmar. TODA factura recibida queda
+ * archivada con su URL del CUTE y su XML — así se puede consultar después,
+ * aunque no haya reembolso de por medio (las de la propia empresa).
+ *
+ * Devuelve el texto que se agrega a la respuesta. El saldo solo se anuncia
+ * cuando el celular es de un trabajador: para la empresa no hay nada que deber.
+ */
+async function registrarFacturaSiAplica(
+  prisma: any,
+  link: any,
+  pending: any,
+  saved: any,
+  factura: FacturaExtraida | null,
+): Promise<string> {
+  if (!saved?.journalEntry || !link?.companyId) return '';
+  const workerId: string | null = link.workerAccountId || null;
+  try {
+    // Un gasto dictado no trae factura, pero el diálogo sí sabe dónde y cuándo:
+    // sin esto el panel mostraría "Factura" en vez del proveedor.
+    const datos = factura || {
+      proveedor: pending?.dialog?.provider || null,
+      fecha: pending?.dialog?.date || null,
+    };
+    const { creado, claim, duplicado } = await registrarFacturaRecibida(prisma, {
+      companyId: link.companyId,
+      workerId,
+      journalEntry: saved.journalEntry,
+      tipo: pending?.dialog?.type,
+      factura: datos,
+    });
+    if (!creado) {
+      // Duplicada: el asiento ya se creó, así que se avisa para que el contador
+      // lo revise y lo anule — no se borra solo.
+      return duplicado ? `\n\n${avisoDuplicado(duplicado)}` : '';
+    }
+    if (!workerId) return '';
+    const saldo = await saldoPendiente(prisma, link.companyId, workerId);
+    return `\n\n🧾 *Factura registrada para reembolso* — $${Number(claim?.total || 0).toFixed(2)}\n📊 *Pendiente de reembolso: $${saldo.toFixed(2)}*`;
+  } catch (err: any) {
+    // El registro no puede tumbar la confirmación del asiento: se anota el error
+    // y el contador lo ve en el panel.
+    console.error('[WhatsApp] Error registrando la factura:', err.message);
+    return '\n\n⚠️ La factura quedó sin registrar en el archivo. Avísale al contador.';
+  }
 }
 
 /** Confirma y guarda la transacción pendiente, retorna resumen. */
@@ -523,6 +693,14 @@ async function handleConfirm(
     userId: await resolveWhatsAppUserId(prisma, link.companyId),
     deepseekApiKey: process.env.DEEPSEEK_API_KEY,
   });
+
+  // Un celular de trabajador solo registra lo que él pagó de su bolsillo: si el
+  // diálogo terminó en una venta o un cobro, no se confirma nada.
+  const tipoDialogo = waSession.pendingResult?.dialog?.type;
+  if (link.workerAccountId && tipoDialogo && !TIPOS_FACTURA_RECIBIDA.has(tipoDialogo)) {
+    resetSession(chatId);
+    return `❌ Desde tu número solo se registran *compras y gastos* que pagaste de tu bolsillo.\n\nPara otra cosa, avísale al contador.`;
+  }
 
   try {
     const saved = await orchestrator.confirm(waSession.pendingResult);
@@ -542,6 +720,8 @@ async function handleConfirm(
       response += `\n${labels[saved.autoCreated.type] || saved.autoCreated.type}: *${saved.autoCreated.name}*`;
     }
 
+    response += await registrarFacturaSiAplica(prisma, link, waSession.pendingResult, saved, getPendingFactura(chatId));
+
     // Incrementar contador de movimientos de la suscripción
     await prisma.subscription.updateMany({
       where: { companyId: link.companyId, status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] } },
@@ -549,7 +729,7 @@ async function handleConfirm(
     }).catch(() => {});
 
     const s = getSession(chatId);
-    if (s) { s.pendingResult = null; s.dialogContext = null; s.originalInput = null; }
+    if (s) { s.pendingResult = null; s.dialogContext = null; s.originalInput = null; s.pendingFactura = null; }
     return response;
   } catch (err: any) {
     console.error('[WhatsApp] Confirm error:', err.message);
@@ -608,9 +788,52 @@ function isTransactionText(text: string): boolean {
 }
 
 /** Clasifica un texto usando el KEYWORD_MAP del classification-agent (misma lógica). */
-function classifyByKeywords(text: string): string | null {
+/**
+ * Concepto propuesto para una factura a partir de su texto.
+ *
+ * El PROVEEDOR se evalúa antes que los ítems: identifica el rubro mejor que una
+ * línea suelta — una factura del IDAAN con "AGUA POTABLE" entre los primeros
+ * ítems no es agua embotellada, y una ferretería es materia prima aunque el ítem
+ * no diga cuál. Dentro de cada texto, primero las palabras que la empresa
+ * configuró en sus conceptos y después el mapa del código.
+ */
+async function classifyByKeywords(
+  prisma: any,
+  companyId: string | null | undefined,
+  proveedor: string | null | undefined,
+  itemsDesc: string,
+): Promise<string | null> {
+  return (
+    (await conceptoPorTexto(prisma, companyId, proveedor)) ||
+    (await conceptoPorTexto(prisma, companyId, itemsDesc))
+  );
+}
+
+async function conceptoPorTexto(
+  prisma: any,
+  companyId: string | null | undefined,
+  text: string | null | undefined,
+): Promise<string | null> {
   if (!text) return null;
   const words = text.toLowerCase().split(/\s+/).filter(w => w.length >= 2);
+  if (words.length === 0) return null;
+
+  // 1. Palabras que la empresa configuró en el concepto (Administración → Conceptos)
+  if (companyId) {
+    try {
+      const concepts = await prisma.concept.findMany({
+        where: { companyId, isActive: true },
+        select: { name: true, keywords: true },
+      });
+      const hit = conceptoPorKeywords(concepts, words);
+      if (hit) return hit.name;
+    } catch (err: any) {
+      // Configuración ilegible no puede tumbar la carga de la factura.
+      console.error('[WhatsApp] Error leyendo keywords de conceptos:', err.message);
+    }
+  }
+
+  // 2. El mapa del código
   for (const word of words) {
     const candidates = KEYWORD_MAP[word];
     if (candidates && candidates.length > 0) return candidates[0];
@@ -731,6 +954,8 @@ export interface BatchItem {
   url: string;
   pending?: any;    // pendingResult del orquestador (para confirmar al final)
   resumen?: string; // prompt de confirmación (para el detalle del cuadro)
+  /** Factura extraída (URL del CUTE, XML, RUC, número…) para el reembolso. */
+  factura?: FacturaExtraida | null;
   error?: string;
 }
 
@@ -808,8 +1033,14 @@ async function processBatchQueue(sessionKey: string): Promise<void> {
           }
 
           const s = getSession(sessionKey);
-          if (s?.pendingResult) { item.pending = s.pendingResult; item.resumen = reply || ''; item.error = undefined; }
-          else item.error = (reply || '').substring(0, 150);
+          if (s?.pendingResult) {
+            item.pending = s.pendingResult;
+            item.resumen = reply || '';
+            // La factura viaja con el ítem: la sesión se resetea al final del
+            // ciclo y con ella se perdería el enlace del CUTE y su XML.
+            item.factura = s.pendingFactura || null;
+            item.error = undefined;
+          } else item.error = (reply || '').substring(0, 150);
           break; // éxito (o error definitivo del flujo) → sin reintento
         } catch (e: any) {
           console.error('[Batch] error item:', e.message);
@@ -873,7 +1104,12 @@ export async function confirmBatch(sessionKey: string): Promise<string> {
     });
     for (const item of pendientes) {
       try {
-        await orchestrator.confirm(item.pending);
+        const tipo = item.pending?.dialog?.type;
+        if (st.link?.workerAccountId && tipo && !TIPOS_FACTURA_RECIBIDA.has(tipo)) {
+          throw new Error(`desde un celular de trabajador no se registra ${tipo}`);
+        }
+        const saved = await orchestrator.confirm(item.pending);
+        await registrarFacturaSiAplica(st.prisma, st.link, item.pending, saved, item.factura || null);
         await st.prisma.subscription.updateMany({
           where: { companyId: st.link.companyId, status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] } },
           data: { movementsUsed: { increment: 1 } },
@@ -889,6 +1125,15 @@ export async function confirmBatch(sessionKey: string): Promise<string> {
   return ok > 0
     ? `✅ *${ok} factura(s) registradas* como BORRADOR${err > 0 ? ` (${err} con error)` : ''}. Revisa en el panel → Revisión.`
     : '❌ No se registró ninguna factura.';
+}
+
+/** Id del trabajador dado de alta con ese celular, o null si no hay ninguno. */
+async function resolverWorkerDeCelular(prisma: any, companyId: string, phoneNumber: string): Promise<string | null> {
+  const trabajador = await prisma.workerAccount.findFirst({
+    where: { companyId, phoneNumber, isActive: true },
+    select: { id: true },
+  });
+  return trabajador?.id || null;
 }
 
 /**
@@ -921,6 +1166,10 @@ export async function verifyCode(
       isActive: true,
       code: null,
       codeExpires: null,
+      // Si el celular ya está registrado como trabajador de esta empresa, el
+      // vínculo nace siendo de reembolsos: el admin lo dio de alta ANTES y no
+      // tiene que volver a engancharlo a mano.
+      workerAccountId: await resolverWorkerDeCelular(prisma, companyId, phoneNumber),
     },
   });
 

@@ -92,6 +92,11 @@ journalRouter.post('/:id/review', requireRole('admin', 'contador', 'superadmin')
           data: { status: 'RECHAZADA' },
         });
 
+        // Reembolsos: el reclamo se cae con el asiento. Dejarlo sería peor que
+        // perderlo — la factura quedaría como pendiente de pago Y el índice de
+        // deduplicación le impediría al trabajador volver a mandarla corregida.
+        await tx.expenseClaim.deleteMany({ where: { journalEntryId: entry.id } });
+
         // Cobros: el asiento es provisional — al rechazarlo se REVIERTEN sus
         // efectos sobre la factura (InvoicePayment, retención y paidAmount),
         // para que CxC vuelva al estado real y la carga pueda rehacerse.
