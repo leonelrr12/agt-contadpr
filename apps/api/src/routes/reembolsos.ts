@@ -104,11 +104,22 @@ reembolsosRouter.patch('/trabajadores/:id', requireRole('admin', 'contador', 'su
 
   try {
     const actualizado = await req.prisma.workerAccount.update({ where: { id: actual.id }, data });
-    // Cambió el celular: el vínculo viejo se suelta y se engancha el nuevo.
+
+    // Cambió el celular: el vínculo viejo se suelta (el nuevo se engancha abajo).
     if (data.phoneNumber && data.phoneNumber !== actual.phoneNumber) {
       await req.prisma.whatsAppLink.updateMany({ where: { workerAccountId: actual.id }, data: { workerAccountId: null } });
-      await engancharLink(req.prisma, companyId, data.phoneNumber, actual.id);
     }
+
+    // Desactivar DEVUELVE EL CELULAR A LA EMPRESA. Sin esto, el número seguiría
+    // apuntando a un trabajador inactivo y sus gastos seguirían naciendo como
+    // reembolso — con el agravante de que ya no aparece en la lista para notarlo.
+    // Reactivar lo vuelve a enganchar, así que desactivar es reversible desde el panel.
+    if (data.isActive === false) {
+      await req.prisma.whatsAppLink.updateMany({ where: { workerAccountId: actual.id }, data: { workerAccountId: null } });
+    } else if (actualizado.isActive) {
+      await engancharLink(req.prisma, companyId, actualizado.phoneNumber, actual.id);
+    }
+
     res.json(actualizado);
   } catch (e: any) {
     if (e?.code === 'P2002') { res.status(409).json({ error: 'Ese celular ya está asignado a otro trabajador' }); return; }

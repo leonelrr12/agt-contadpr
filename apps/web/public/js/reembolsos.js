@@ -191,48 +191,70 @@ function reembLimpiarFiltros() {
 function reembAltaHtml() {
   if (!reembPuedePagar()) return '';
   return `<div style="margin-bottom:14px">
-    <button class="btn-primary" onclick="reembolsosFormAlta()" style="padding:8px 16px;font-size:13px">➕ Nuevo trabajador</button>
+    <button class="btn-primary" onclick="reembolsosFormTrabajador()" style="padding:8px 16px;font-size:13px">➕ Nuevo trabajador</button>
     <div id="reemb-alta-form" class="hidden" style="margin-top:12px"></div>
   </div>`;
 }
 
-function reembolsosFormAlta() {
+/**
+ * Formulario de trabajador: alta (sin id) o edición.
+ *
+ * Desactivar es la forma de DEVOLVER EL CELULAR A LA EMPRESA: el backend le suelta
+ * el vínculo, así que ese número deja de operar como trabajador y vuelve a ser un
+ * celular de la empresa. Reactivar lo vuelve a enganchar, así que es reversible.
+ */
+function reembolsosFormTrabajador(id) {
+  const t = id ? _reembTrabajadores.find(x => x.id === id) : null;
   const form = document.getElementById('reemb-alta-form');
   form.classList.remove('hidden');
   form.innerHTML = `
     <div class="admin-form-card">
-      <h4 style="margin:0 0 4px 0">Nuevo trabajador</h4>
+      <h4 style="margin:0 0 4px 0">${t ? 'Editar trabajador' : 'Nuevo trabajador'}</h4>
       <p style="margin:0 0 12px 0;font-size:12px;color:#6b7280">
         Su identidad es el <strong>celular</strong>. Cuando ese número esté vinculado a WhatsApp y mande una factura,
-        el gasto nace a su nombre. Si el número todavía no está vinculado, se engancha solo al verificarlo.
+        el gasto nace a su nombre.${t ? '' : ' Si el número todavía no está vinculado, se engancha solo al verificarlo.'}
       </p>
       <div class="form-grid">
-        <div><label>Nombre</label><input type="text" id="reemb-nombre" placeholder="Ej: Juan Pérez"></div>
-        <div><label>Celular</label><input type="text" id="reemb-celular" placeholder="Ej: 50761234567"></div>
+        <div><label>Nombre</label><input type="text" id="reemb-nombre" value="${t ? escapeHtml(t.nombre) : ''}" placeholder="Ej: Juan Pérez"></div>
+        <div><label>Celular</label><input type="text" id="reemb-celular" value="${t ? escapeHtml(t.phoneNumber) : ''}" placeholder="Ej: 50761234567"></div>
+        ${t ? `<div><label>Estado</label><select id="reemb-activo">
+          <option value="true" ${t.isActive ? 'selected' : ''}>Activo</option>
+          <option value="false" ${!t.isActive ? 'selected' : ''}>Inactivo — el celular vuelve a la empresa</option>
+        </select></div>` : ''}
       </div>
       <div style="margin-top:12px;display:flex;gap:8px">
-        <button class="btn-primary" onclick="reembolsosGuardarTrabajador()">💾 Guardar</button>
+        <button class="btn-primary" onclick="reembolsosGuardarTrabajador(${t ? `'${t.id}'` : ''})">💾 Guardar</button>
         <button class="btn-secondary" onclick="document.getElementById('reemb-alta-form').classList.add('hidden')">Cancelar</button>
       </div>
     </div>`;
+  form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-async function reembolsosGuardarTrabajador() {
+async function reembolsosGuardarTrabajador(id) {
   const nombre = document.getElementById('reemb-nombre')?.value?.trim();
   const phoneNumber = document.getElementById('reemb-celular')?.value?.trim();
+  const activo = document.getElementById('reemb-activo')?.value;
   if (!nombre) { await showAlert('El nombre es requerido'); return; }
   if (String(phoneNumber || '').replace(/\D/g, '').length < 8) { await showAlert('El celular es requerido (ej. 50761234567)'); return; }
+
+  const body = { nombre, phoneNumber };
+  if (activo !== undefined) body.isActive = activo === 'true';
+
   try {
-    const res = await authFetch(`${API_URL}/reembolsos/trabajadores`, {
-      method: 'POST',
+    const res = await authFetch(`${API_URL}/reembolsos/trabajadores${id ? '/' + id : ''}`, {
+      method: id ? 'PATCH' : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nombre, phoneNumber }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) { await showAlert(data.error || 'No se pudo guardar'); return; }
-    await showAlert(data.celularEnlazado
-      ? `✅ ${nombre} registrado con su celular ya vinculado: sus facturas caerán a su nombre.`
-      : `✅ ${nombre} registrado. Falta que ese celular se vincule a WhatsApp (envía HOLA y verifica el código): ahí se engancha solo.`);
+    if (body.isActive === false) {
+      await showAlert(`✅ ${nombre} quedó inactivo: su celular volvió a operar como la empresa.`);
+    } else if (!id) {
+      await showAlert(data.celularEnlazado
+        ? `✅ ${nombre} registrado con su celular ya vinculado: sus facturas caerán a su nombre.`
+        : `✅ ${nombre} registrado. Falta que ese celular se vincule a WhatsApp (envía HOLA y verifica el código): ahí se engancha solo.`);
+    }
     loadPanelReembolsos();
   } catch { await showAlert('Error de conexión'); }
 }
@@ -262,7 +284,10 @@ function reembPintarTrabajadores() {
       <td class="cuenta-code">${reembCelular(t.phoneNumber)}</td>
       <td class="num" style="font-weight:${pendientes > 0 ? '700' : '400'};color:${pendientes > 0 ? '#92400e' : '#6b7280'}">${reembMoney(pendientes)}</td>
       <td>${(t.links || []).length ? '<span class="pildora pildora-ok">Vinculado</span>' : '<span class="pildora pildora-neutra">Sin vincular</span>'}</td>
-      <td class="acciones"><button class="btn-sm" onclick="reembolsosVerDetalle('${t.id}')">Ver detalle</button></td>
+      <td class="acciones">
+        <button class="btn-sm" onclick="reembolsosVerDetalle('${t.id}')">Ver detalle</button>
+        <button class="btn-sm" onclick="reembolsosFormTrabajador('${t.id}')" title="Editar o desactivar">✏️</button>
+      </td>
     </tr>`;
   }
   el.innerHTML = html + '</tbody></table>';
