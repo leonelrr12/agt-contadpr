@@ -1,39 +1,9 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { extractFromPDF } from '../services/pdf-extractor';
-import { KEYWORD_MAP } from '@agt-contador/agents';
+import { quickClassify } from '../services/pre-clasificador';
 
 export const facturaRouter = Router();
-
-async function quickClassify(text: string, prisma?: any): Promise<string | null> {
-  if (!text) return null;
-  const ignore = new Set(['itbms','total','subtotal','neto','exento','gravado','impuesto','pagado',
-    'vuelto','efectivo','página','pagina','fecha','emisión','emision','ruc','dv','dirección',
-    'direccion','teléfono','telefono','correo','electrónica','electronica','comprobante','auxiliar',
-    'operación','operacion','interna','factura','número','numero','cufe','protocolo','autorización',
-    'autorizacion','pac','punto','facturación','facturacion','cliente','receptor','consumidor','final',
-    'cédula','cedula','pasaporte','descripción','descripcion','cantidad','unidad','unitario','descuento',
-    'monto','valor','item','desglose','base','forma','pago','caja','bancos','banco','general','local','planta','baja']);
-  const words = text.toLowerCase().split(/\s+/).filter(w => w.length >= 2 && !ignore.has(w));
-
-  // 1. Buscar en DB (keywords aprendidos)
-  if (prisma) {
-    for (const word of words) {
-      const concept = await prisma.concept.findFirst({
-        where: { keywords: { contains: word }, isActive: true },
-        select: { name: true },
-      }).catch(() => null);
-      if (concept) return concept.name;
-    }
-  }
-
-  // 2. Buscar en KEYWORD_MAP estático
-  for (const word of words) {
-    const candidates = KEYWORD_MAP[word];
-    if (candidates && candidates.length > 0) return candidates[0];
-  }
-  return null;
-}
 
 /** Guarda items clasificados en el concepto para aprendizaje futuro. */
 async function learnItems(prisma: any, companyId: string, items: string[], conceptName: string) {
@@ -76,7 +46,8 @@ facturaRouter.post('/extract', upload.single('pdf'), async (req, res) => {
 
   try {
     const result = await extractFromPDF(req.file.buffer, req.prisma);
-    const concept = await quickClassify(result.text, req.prisma) || await quickClassify(result.provider || '');
+    const concept = await quickClassify(result.text, req.prisma, req.user!.companyId)
+      || await quickClassify(result.provider || '', req.prisma, req.user!.companyId);
     res.json({ ...result, concept });
   } catch (error: any) {
     console.error('[Factura] Error:', error);
@@ -154,7 +125,8 @@ facturaRouter.post('/extract-url', async (req, res) => {
     }
 
     const result = await extractFromPDF(buffer, req.prisma);
-    const concept = await quickClassify(result.text, req.prisma) || await quickClassify(result.provider || '');
+    const concept = await quickClassify(result.text, req.prisma, req.user!.companyId)
+      || await quickClassify(result.provider || '', req.prisma, req.user!.companyId);
     res.json({ ...result, concept });
   } catch (error: any) {
     if (error.code === 'ERR_INVALID_URL') {

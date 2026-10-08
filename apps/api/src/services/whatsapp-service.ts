@@ -29,7 +29,7 @@ import {
   type FacturaExtraida,
 } from './reembolsos';
 import { extractFromPDF } from './pdf-extractor';
-import { KEYWORD_MAP, conceptoPorKeywords } from '@agt-contador/agents';
+import { conceptoDelMapa, conceptoPorKeywords } from '@agt-contador/agents';
 
 const OPENWA_URL = process.env.OPENWA_API_URL || 'http://localhost:2785';
 const OPENWA_KEY = process.env.OPENWA_API_KEY || '';
@@ -803,9 +803,10 @@ async function classifyByKeywords(
   proveedor: string | null | undefined,
   itemsDesc: string,
 ): Promise<string | null> {
+  const tipo = 'GASTO'; // lo que trae el PDF: ocrContext.type
   return (
-    (await conceptoPorTexto(prisma, companyId, proveedor)) ||
-    (await conceptoPorTexto(prisma, companyId, itemsDesc))
+    (await conceptoPorTexto(prisma, companyId, proveedor, tipo)) ||
+    (await conceptoPorTexto(prisma, companyId, itemsDesc, tipo))
   );
 }
 
@@ -813,30 +814,38 @@ async function conceptoPorTexto(
   prisma: any,
   companyId: string | null | undefined,
   text: string | null | undefined,
+  tipo: string,
 ): Promise<string | null> {
   if (!text) return null;
   const words = text.toLowerCase().split(/\s+/).filter(w => w.length >= 2);
   if (words.length === 0) return null;
 
-  // 1. Palabras que la empresa configuró en el concepto (Administración → Conceptos)
+  // Catálogo de la empresa: es contra esto que se valida lo que propone el mapa.
+  // Si la lectura falla queda en null y se propone sin validar (como antes) en
+  // vez de tumbar la carga de la factura.
+  let catalogo: any[] | null = null;
   if (companyId) {
     try {
       const concepts = await prisma.concept.findMany({
         where: { companyId, isActive: true },
-        select: { name: true, keywords: true },
+        include: { account: true },
       });
+      catalogo = concepts;
+      // 1. Palabras que la empresa configuró en el concepto (Administración → Conceptos)
       const hit = conceptoPorKeywords(concepts, words);
       if (hit) return hit.name;
     } catch (err: any) {
-      // Configuración ilegible no puede tumbar la carga de la factura.
+      catalogo = null;
       console.error('[WhatsApp] Error leyendo keywords de conceptos:', err.message);
     }
   }
 
-  // 2. El mapa del código
+  // 2. El mapa del código: solo candidatos que NOMBRAN a un concepto del
+  //    catálogo, para que un proveedor de un rubro que la empresa no tiene no se
+  //    quede con la propuesta (el llamador pasa entonces a los ítems).
   for (const word of words) {
-    const candidates = KEYWORD_MAP[word];
-    if (candidates && candidates.length > 0) return candidates[0];
+    const propuesto = conceptoDelMapa(word, catalogo, tipo);
+    if (propuesto) return propuesto;
   }
   return null;
 }

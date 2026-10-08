@@ -314,8 +314,11 @@ export const KEYWORD_MAP: Record<string, string[]> = {
   cortesía: ['Gastos de Representación', 'Gastos de Representacion'],
   cortesia: ['Gastos de Representación', 'Gastos de Representacion'],
   // Comisiones
-  comisión: ['Comisiones Bancarias', 'Comisiones Bancarias', 'Comisiones'],
-  comision: ['Comisiones Bancarias', 'Comisiones Bancarias', 'Comisiones'],
+  // 'Comisión' (el nombre que usan los catálogos reales) va al final: sin él la
+  // propuesta 'Comisiones Bancarias' solo llegaba al concepto por el prefijo
+  // 'comi' de la cascada.
+  comisión: ['Comisiones Bancarias', 'Comisiones Bancarias', 'Comisiones', 'Comisión'],
+  comision: ['Comisiones Bancarias', 'Comisiones Bancarias', 'Comisiones', 'Comisión'],
   transferencia: ['Comisiones Bancarias', 'Comisiones Bancarias'],
   ach: ['Comisiones Bancarias', 'Comisiones Bancarias'],
   // ITBMS / impuestos
@@ -383,6 +386,186 @@ const ALIAS_GENERICA: Record<string, { nombre: string; alias?: string }> = {
   PAGO_PRESTAMO: { nombre: 'Préstamos Bancarios LP', alias: 'prestamos-lp' },
 };
 
+/**
+ * Cuentas que contradicen la dirección del movimiento: un gasto/compra no
+ * puede caer en una cuenta de INGRESO (el concepto "Servicios" de la 4.01.02
+ * capturaba "Paga Servicios profesionales" y el asiento DEBITABA una cuenta
+ * de ventas) ni una venta en una de GASTO/COSTO. Activo, Pasivo y Patrimonio
+ * quedan libres: comprar un equipo o recibir un préstamo son válidos en las
+ * dos direcciones. Una cuenta sin tipo no se descarta.
+ */
+function conceptosCompatibles(allConcepts: any[], transactionType?: string): any[] {
+  const tipo = (transactionType || '').toUpperCase();
+  const esGasto = TIPOS_GASTO.has(tipo);
+  const esIngreso = TIPOS_INGRESO.has(tipo);
+  if (!esGasto && !esIngreso) return allConcepts;
+  const excluidas = esGasto ? CUENTAS_INGRESO : CUENTAS_GASTO;
+  return allConcepts.filter((c: any) => {
+    const tipoCuenta = (c?.account?.type || '').toUpperCase();
+    return !tipoCuenta || !excluidas.has(tipoCuenta);
+  });
+}
+
+/** Pasos 1-4 del clasificador, sin BD (catálogo ya cargado). Devuelve null
+ *  cuando el nombre no resuelve a ningún concepto del catálogo y toca caer a
+ *  la cuenta genérica por tipo. */
+function matchConcepto(allConcepts: any[], conceptName: string, transactionType?: string): ClassificationResult | null {
+  if (allConcepts.length === 0) return null;
+
+  const lowerName = conceptName.toLowerCase().trim();
+  // Solo conceptos cuya cuenta no contradiga la dirección del movimiento
+  const candidatos = conceptosCompatibles(allConcepts, transactionType);
+
+  // 1. Match exacto (case-insensitive)
+  const exactMatch = candidatos.find((c: any) => c.name.toLowerCase() === lowerName);
+  if (exactMatch) {
+    return {
+      concept: exactMatch.name,
+      accountId: exactMatch.accountId,
+      confidence: exactMatch.confidence,
+    };
+  }
+
+  // 1.5 Palabras clave que la EMPRESA configuró en el concepto. Van antes que las
+  //     heurísticas porque son lo único que el contador ajusta sin código: si
+  //     puso "ferretería" en Materia prima, eso manda sobre el prefijo y el mapa.
+  const porKeywords = conceptoPorKeywords(candidatos, lowerName.split(/\s+/).filter(w => w.length >= 3));
+  if (porKeywords) {
+    return {
+      concept: porKeywords.name,
+      accountId: porKeywords.accountId,
+      confidence: Math.max(porKeywords.confidence * 0.9, 0.8),
+    };
+  }
+
+  // 2. Concepto de BD como substring en el texto de entrada
+  //    Ej: input="Factura de electricidad ENSA julio" → matchea concepto "Electricidad"
+  const substringMatch = candidatos
+    .filter((c: any) => lowerName.includes(c.name.toLowerCase()))
+    .sort((a: any, b: any) => b.name.length - a.name.length)[0];
+  if (substringMatch) {
+    return {
+      concept: substringMatch.name,
+      accountId: substringMatch.accountId,
+      confidence: Math.max(substringMatch.confidence, 0.85),
+    };
+  }
+
+  // 3. Palabras significativas del input que aparecen en nombres de conceptos
+  const stopWords = new Set([
+    'de', 'la', 'el', 'los', 'las', 'del', 'para', 'por', 'con', 'sin',
+    'una', 'un', 'y', 'e', 'o', 'a', 'en', 'al', 'su', 'que', 'es',
+    'pago', 'pagar', 'pague', 'compra', 'comprar', 'comprado',
+    'factura', 'facturado', 'recibo', 'mes', 'julio', 'junio', 'enero',
+    'febrero', 'marzo', 'abril', 'mayo', 'agosto', 'septiembre', 'octubre',
+    'noviembre', 'diciembre', '2024', '2025', '2026', '2027',
+  ]);
+  const inputWords = lowerName.split(/\s+/).filter(w => w.length >= 3 && !stopWords.has(w));
+
+  if (inputWords.length > 0) {
+    // 3a. Buscar conceptos que contengan alguna de las palabras del input
+    const wordMatches = candidatos
+      .map((c: any) => {
+        const conceptLower = c.name.toLowerCase();
+        const matchedWords = inputWords.filter(w => new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(conceptLower));
+        return { concept: c, matchedWords };
+      })
+      .filter((m: { concept: any; matchedWords: string[] }) => m.matchedWords.length > 0)
+      .sort((a: { concept: any; matchedWords: string[] }, b: { concept: any; matchedWords: string[] }) => {
+        if (b.matchedWords.length !== a.matchedWords.length) return b.matchedWords.length - a.matchedWords.length;
+        return b.concept.name.length - a.concept.name.length;
+      });
+
+    if (wordMatches.length > 0) {
+      const best = wordMatches[0];
+      const confidence = Math.max(best.concept.confidence * 0.85, 0.7);
+      return {
+        concept: best.concept.name,
+        accountId: best.concept.accountId,
+        confidence,
+      };
+    }
+
+    // 3b. Keyword matching: buscar palabras clave → concepto en BD
+    for (const word of inputWords) {
+      const candidates = KEYWORD_MAP[word];
+      if (candidates) {
+        for (const candidateName of candidates) {
+          const concept = candidatos.find((c: any) => c.name.toLowerCase() === candidateName.toLowerCase());
+          if (concept) {
+            return {
+              concept: concept.name,
+              accountId: concept.accountId,
+              confidence: Math.max(concept.confidence * 0.85, 0.75),
+            };
+          }
+        }
+      }
+    }
+  }
+
+  // 4. Match por prefijo (4 caracteres) — solo si el input es corto (probablemente un nombre de concepto)
+  //    Si es una descripción larga (>20 chars), es poco probable que el prefijo sea útil
+  if (lowerName.length <= 20) {
+    const prefix = conceptName.substring(0, 4).toLowerCase();
+    const partialMatch = candidatos
+      .filter((c: any) => c.name.toLowerCase().includes(prefix))
+      .sort((a: any, b: any) => b.confidence - a.confidence)[0];
+
+    if (partialMatch) {
+      return {
+        concept: partialMatch.name,
+        accountId: partialMatch.accountId,
+        confidence: partialMatch.confidence * 0.7,
+      };
+    }
+  }
+
+  // 5. Sin match: lo resuelve el llamador con la cuenta genérica por tipo
+  return null;
+}
+
+/**
+ * ¿La propuesta NOMBRA a algún concepto del catálogo? Exacto, o el nombre del
+ * concepto contenido en la propuesta ('Papelería y Útiles' nombra a
+ * 'Papelería'; 'Salarios' nombra a 'Salario').
+ *
+ * Quedan fuera a propósito las coincidencias flojas de la cascada —palabra
+ * suelta o prefijo—: 'Suministros de Oficina' no "nombra" a 'Útiles de
+ * oficina' solo por compartir 'oficina', y proponerlo mandaría una compra de
+ * limpieza a Papelería en una empresa sin 'Suministros de Limpieza'.
+ */
+function nombraAConcepto(catalogo: any[], nombre: string, transactionType?: string): boolean {
+  const lower = nombre.toLowerCase().trim();
+  return conceptosCompatibles(catalogo, transactionType).some(
+    (c: any) => c.name.toLowerCase() === lower || lower.includes(c.name.toLowerCase()),
+  );
+}
+
+/**
+ * Concepto que el mapa propone para una palabra del texto: el primer candidato
+ * que nombra a un concepto del catálogo de la empresa.
+ *
+ * El caso que lo motivó: "FARMACIA EL PUEBLO" propone 'Medicamentos' —el primer
+ * candidato de `farmacia`— en una empresa que no tiene ese rubro. El nombre no
+ * resolvía a ninguna cuenta, el gasto terminaba en Gastos Varios y el ítem que
+ * sí tenía cuenta ("JABÓN" → Suministros de Limpieza) nunca se miraba. Con el
+ * catálogo se descarta ese candidato y el llamador pasa al texto siguiente.
+ *
+ * Sin catálogo (teléfono sin vincular, lectura que falló) se conserva el
+ * primer candidato: no hay contra qué validar.
+ */
+export function conceptoDelMapa(
+  palabra: string,
+  catalogo?: any[] | null,
+  transactionType?: string,
+): string | null {
+  const candidatos = KEYWORD_MAP[palabra];
+  if (!candidatos || candidatos.length === 0) return null;
+  if (!catalogo) return candidatos[0];
+  return candidatos.find((c) => nombraAConcepto(catalogo, c, transactionType)) ?? null;
+}
+
 export interface ClassificationAgentConfig {
   prisma: PrismaLike;
   companyId: string;
@@ -442,7 +625,7 @@ export class ClassificationAgent {
     let accounts: any[] | null = null;
     const out: ClassificationResult[] = [];
     for (const item of items) {
-      const match = this.matchConcept(allConcepts, item.concept, item.type);
+      const match = matchConcepto(allConcepts, item.concept, item.type);
       if (match) { out.push(match); continue; }
       if (!accounts) accounts = await this.loadAccounts();
       out.push(this.genericByType(accounts, item.concept, item.type));
@@ -452,148 +635,10 @@ export class ClassificationAgent {
 
   async classify(conceptName: string, transactionType?: string): Promise<ClassificationResult> {
     const allConcepts = await this.loadConcepts();
-    const match = this.matchConcept(allConcepts, conceptName, transactionType);
+    const match = matchConcepto(allConcepts, conceptName, transactionType);
     if (match) return match;
     // Sin match (o sin conceptos en BD): cuenta genérica por tipo
     return this.genericByType(await this.loadAccounts(), conceptName, transactionType);
-  }
-
-  /**
-   * Cuentas que contradicen la dirección del movimiento: un gasto/compra no
-   * puede caer en una cuenta de INGRESO (el concepto "Servicios" de la 4.01.02
-   * capturaba "Paga Servicios profesionales" y el asiento DEBITABA una cuenta
-   * de ventas) ni una venta en una de GASTO/COSTO. Activo, Pasivo y Patrimonio
-   * quedan libres: comprar un equipo o recibir un préstamo son válidos en las
-   * dos direcciones. Una cuenta sin tipo no se descarta.
-   */
-  private conceptosCompatibles(allConcepts: any[], transactionType?: string): any[] {
-    const tipo = (transactionType || '').toUpperCase();
-    const esGasto = TIPOS_GASTO.has(tipo);
-    const esIngreso = TIPOS_INGRESO.has(tipo);
-    if (!esGasto && !esIngreso) return allConcepts;
-    const excluidas = esGasto ? CUENTAS_INGRESO : CUENTAS_GASTO;
-    return allConcepts.filter((c: any) => {
-      const tipoCuenta = (c?.account?.type || '').toUpperCase();
-      return !tipoCuenta || !excluidas.has(tipoCuenta);
-    });
-  }
-
-  /** Pasos 1-4 del clasificador, sin BD. Devuelve null cuando no hay match y
-   *  toca caer a la cuenta genérica por tipo. */
-  private matchConcept(allConcepts: any[], conceptName: string, transactionType?: string): ClassificationResult | null {
-    if (allConcepts.length === 0) return null;
-
-    const lowerName = conceptName.toLowerCase().trim();
-    // Solo conceptos cuya cuenta no contradiga la dirección del movimiento
-    const candidatos = this.conceptosCompatibles(allConcepts, transactionType);
-
-    // 1. Match exacto (case-insensitive)
-    const exactMatch = candidatos.find((c: any) => c.name.toLowerCase() === lowerName);
-    if (exactMatch) {
-      return {
-        concept: exactMatch.name,
-        accountId: exactMatch.accountId,
-        confidence: exactMatch.confidence,
-      };
-    }
-
-    // 1.5 Palabras clave que la EMPRESA configuró en el concepto. Van antes que las
-    //     heurísticas porque son lo único que el contador ajusta sin código: si
-    //     puso "ferretería" en Materia prima, eso manda sobre el prefijo y el mapa.
-    const porKeywords = conceptoPorKeywords(candidatos, lowerName.split(/\s+/).filter(w => w.length >= 3));
-    if (porKeywords) {
-      return {
-        concept: porKeywords.name,
-        accountId: porKeywords.accountId,
-        confidence: Math.max(porKeywords.confidence * 0.9, 0.8),
-      };
-    }
-
-    // 2. Concepto de BD como substring en el texto de entrada
-    //    Ej: input="Factura de electricidad ENSA julio" → matchea concepto "Electricidad"
-    const substringMatch = candidatos
-      .filter((c: any) => lowerName.includes(c.name.toLowerCase()))
-      .sort((a: any, b: any) => b.name.length - a.name.length)[0];
-    if (substringMatch) {
-      return {
-        concept: substringMatch.name,
-        accountId: substringMatch.accountId,
-        confidence: Math.max(substringMatch.confidence, 0.85),
-      };
-    }
-
-    // 3. Palabras significativas del input que aparecen en nombres de conceptos
-    const stopWords = new Set([
-      'de', 'la', 'el', 'los', 'las', 'del', 'para', 'por', 'con', 'sin',
-      'una', 'un', 'y', 'e', 'o', 'a', 'en', 'al', 'su', 'que', 'es',
-      'pago', 'pagar', 'pague', 'compra', 'comprar', 'comprado',
-      'factura', 'facturado', 'recibo', 'mes', 'julio', 'junio', 'enero',
-      'febrero', 'marzo', 'abril', 'mayo', 'agosto', 'septiembre', 'octubre',
-      'noviembre', 'diciembre', '2024', '2025', '2026', '2027',
-    ]);
-    const inputWords = lowerName.split(/\s+/).filter(w => w.length >= 3 && !stopWords.has(w));
-
-    if (inputWords.length > 0) {
-      // 3a. Buscar conceptos que contengan alguna de las palabras del input
-      const wordMatches = candidatos
-        .map((c: any) => {
-          const conceptLower = c.name.toLowerCase();
-          const matchedWords = inputWords.filter(w => new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(conceptLower));
-          return { concept: c, matchedWords };
-        })
-        .filter((m: { concept: any; matchedWords: string[] }) => m.matchedWords.length > 0)
-        .sort((a: { concept: any; matchedWords: string[] }, b: { concept: any; matchedWords: string[] }) => {
-          if (b.matchedWords.length !== a.matchedWords.length) return b.matchedWords.length - a.matchedWords.length;
-          return b.concept.name.length - a.concept.name.length;
-        });
-
-      if (wordMatches.length > 0) {
-        const best = wordMatches[0];
-        const confidence = Math.max(best.concept.confidence * 0.85, 0.7);
-        return {
-          concept: best.concept.name,
-          accountId: best.concept.accountId,
-          confidence,
-        };
-      }
-
-      // 3b. Keyword matching: buscar palabras clave → concepto en BD
-      for (const word of inputWords) {
-        const candidates = KEYWORD_MAP[word];
-        if (candidates) {
-          for (const candidateName of candidates) {
-            const concept = candidatos.find((c: any) => c.name.toLowerCase() === candidateName.toLowerCase());
-            if (concept) {
-              return {
-                concept: concept.name,
-                accountId: concept.accountId,
-                confidence: Math.max(concept.confidence * 0.85, 0.75),
-              };
-            }
-          }
-        }
-      }
-    }
-
-    // 4. Match por prefijo (4 caracteres) — solo si el input es corto (probablemente un nombre de concepto)
-    //    Si es una descripción larga (>20 chars), es poco probable que el prefijo sea útil
-    if (lowerName.length <= 20) {
-      const prefix = conceptName.substring(0, 4).toLowerCase();
-      const partialMatch = candidatos
-        .filter((c: any) => c.name.toLowerCase().includes(prefix))
-        .sort((a: any, b: any) => b.confidence - a.confidence)[0];
-
-      if (partialMatch) {
-        return {
-          concept: partialMatch.name,
-          accountId: partialMatch.accountId,
-          confidence: partialMatch.confidence * 0.7,
-        };
-      }
-    }
-
-    // 5. Sin match: lo resuelve el llamador con la cuenta genérica por tipo
-    return null;
   }
 
   async learn(conceptName: string, accountId: string): Promise<void> {
