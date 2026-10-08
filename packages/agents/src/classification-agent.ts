@@ -45,10 +45,18 @@ export const KEYWORD_MAP: Record<string, string[]> = {
   'cable': ['Internet y Comunicaciones', 'Internet', 'Internet y comunicaciones'],
   'más móvil': ['Internet y Comunicaciones', 'Internet', 'Teléfono', 'Telefono'],
   'mas movil': ['Internet y Comunicaciones', 'Internet', 'Teléfono', 'Telefono'],
-  // Agua
-  agua: ['Agua', 'Agua'],
-  idaan: ['Agua', 'Agua'],
-  acueducto: ['Agua', 'Agua'],
+  // Agua. La palabra suelta `agua` en una factura de tienda es agua EMBOTELLADA:
+  // el recibo del acueducto se reconoce por el PROVEEDOR (IDAAN/Acueducto), y por
+  // eso el clasificador evalúa el nombre del proveedor antes que los ítems — si
+  // no, una factura del IDAAN con "AGUA POTABLE" entre los primeros ítems caía
+  // en la cuenta de la embotellada.
+  agua: ['Agua Embotellada'],
+  botellon: ['Agua Embotellada'],
+  botellón: ['Agua Embotellada'],
+  hielo: ['Agua Embotellada'],
+  idaan: ['IDAAN'],
+  acueducto: ['Acueducto'],
+  alcantarillado: ['Alcantarillado'],
   // Alquiler
   alquiler: ['Alquiler', 'Alquiler', 'Renta'],
   renta: ['Alquiler', 'Alquiler', 'Renta'],
@@ -200,11 +208,35 @@ export const KEYWORD_MAP: Record<string, string[]> = {
   escoba: ['Suministros de Limpieza', 'Suministros de Oficina'],
   trapeador: ['Suministros de Limpieza', 'Suministros de Oficina'],
   bolsa: ['Suministros de Limpieza', 'Suministros de Oficina'],
-  // Ferretería / repuestos
-  tornillo: ['Mantenimiento y Reparaciones', 'Repuestos y Accesorios'],
-  repuesto: ['Mantenimiento y Reparaciones', 'Repuestos y Accesorios'],
-  herramienta: ['Mantenimiento y Reparaciones', 'Repuestos y Accesorios'],
-  pintura: ['Mantenimiento y Reparaciones', 'Repuestos y Accesorios'],
+  // Ferretería / repuestos / materia prima.
+  // 'Repuestos y Accesorios' va PRIMERO a propósito: el match por substring agarra
+  // el concepto 'Mantenimiento' del nombre propuesto antes de probar el segundo
+  // candidato, y estos repuestos son para el trabajo en el cliente (costo directo),
+  // no mantenimiento de las instalaciones de la empresa.
+  tornillo: ['Repuestos y Accesorios', 'Mantenimiento y Reparaciones'],
+  tornillos: ['Repuestos y Accesorios', 'Mantenimiento y Reparaciones'],
+  repuesto: ['Repuestos y Accesorios', 'Mantenimiento y Reparaciones'],
+  repuestos: ['Repuestos y Accesorios', 'Mantenimiento y Reparaciones'],
+  herramienta: ['Repuestos y Accesorios', 'Mantenimiento y Reparaciones'],
+  herramientas: ['Repuestos y Accesorios', 'Mantenimiento y Reparaciones'],
+  pintura: ['Repuestos y Accesorios', 'Mantenimiento y Reparaciones'],
+  pinturas: ['Repuestos y Accesorios', 'Mantenimiento y Reparaciones'],
+  // El plural importa: el clasificador compara palabra por palabra, así que
+  // "compré clavos y tornillos" no encontraba la clave en singular.
+  clavo: ['Repuestos y Accesorios', 'Mantenimiento y Reparaciones'],
+  clavos: ['Repuestos y Accesorios', 'Mantenimiento y Reparaciones'],
+  perno: ['Repuestos y Accesorios', 'Mantenimiento y Reparaciones'],
+  pernos: ['Repuestos y Accesorios', 'Mantenimiento y Reparaciones'],
+  tuerca: ['Repuestos y Accesorios', 'Mantenimiento y Reparaciones'],
+  tuercas: ['Repuestos y Accesorios', 'Mantenimiento y Reparaciones'],
+  // El proveedor manda: una ferretería o un distribuidor de materiales es materia
+  // prima aunque el ítem suelto no diga cuál.
+  ferreteria: ['Materia prima'],
+  ferretería: ['Materia prima'],
+  materiales: ['Materia prima'],
+  material: ['Materia prima'],
+  insumos: ['Materia prima'],
+  insumo: ['Materia prima'],
   // Medicinas / farmacia
   medicamento: ['Medicamentos', 'Gastos Médicos'],
   medicina: ['Medicamentos', 'Gastos Médicos'],
@@ -294,6 +326,31 @@ export const KEYWORD_MAP: Record<string, string[]> = {
   depreciación: ['Depreciaciones', 'Depreciación'],
   depreciacion: ['Depreciaciones', 'Depreciación'],
 };
+
+/**
+ * Palabras que la EMPRESA configuró en el concepto (`Concept.keywords`, editable
+ * en Administración → Conceptos). Es la única parte del clasificador que el
+ * contador puede ajustar sin tocar código, y por eso gana a las heurísticas: si
+ * la empresa dijo que "ferretería" es Materia prima, eso es lo que vale.
+ */
+export function keywordsDe(concept: any): string[] {
+  try {
+    const raw = typeof concept?.keywords === 'string' ? JSON.parse(concept.keywords) : concept?.keywords;
+    return Array.isArray(raw) ? raw.map((k: any) => String(k).toLowerCase().trim()).filter(Boolean) : [];
+  } catch {
+    return []; // keywords corruptas: se ignora la fila, no se tumba la clasificación
+  }
+}
+
+/** Primer concepto cuyas palabras configuradas incluyan alguna de las dadas. */
+export function conceptoPorKeywords(concepts: any[], words: string[]): any | null {
+  if (!concepts?.length || !words?.length) return null;
+  for (const w of words) {
+    const hit = concepts.find((c: any) => keywordsDe(c).includes(w));
+    if (hit) return hit;
+  }
+  return null;
+}
 
 // Dirección del movimiento ↔ tipo de cuenta. Un gasto no se clasifica a una
 // cuenta de INGRESO ni una venta a una de GASTO/COSTO; ACTIVO/PASIVO/
@@ -437,6 +494,18 @@ export class ClassificationAgent {
         concept: exactMatch.name,
         accountId: exactMatch.accountId,
         confidence: exactMatch.confidence,
+      };
+    }
+
+    // 1.5 Palabras clave que la EMPRESA configuró en el concepto. Van antes que las
+    //     heurísticas porque son lo único que el contador ajusta sin código: si
+    //     puso "ferretería" en Materia prima, eso manda sobre el prefijo y el mapa.
+    const porKeywords = conceptoPorKeywords(candidatos, lowerName.split(/\s+/).filter(w => w.length >= 3));
+    if (porKeywords) {
+      return {
+        concept: porKeywords.name,
+        accountId: porKeywords.accountId,
+        confidence: Math.max(porKeywords.confidence * 0.9, 0.8),
       };
     }
 

@@ -473,3 +473,76 @@ describe('AccountingAgent', () => {
     });
   });
 });
+
+/**
+ * Reembolsos: cuando el que pagó fue un TRABAJADOR de su bolsillo, el acreedor
+ * es él. Ninguno de los métodos de pago del menú sirve — 'TARJETA_CREDITO'
+ * acreditaría la tarjeta de la EMPRESA y 'CREDITO' crearía una cuenta por pagar
+ * al proveedor (que ya cobró) —, así que el flujo del trabajador manda
+ * 'REEMBOLSO' y la contrapartida es la cuenta por pagar al empleado.
+ */
+describe('AccountingAgent — contrapartida de reembolso', () => {
+  const stubConCuenta = (account: any) => ({
+    ...basePrismaStub(),
+    company: { findUnique: async () => ({ declaraITBMS: true }) },
+    account: { findMany: async () => [account] },
+  });
+
+  const clasificacion: ClassificationResult = { concept: 'Materia prima', accountId: 'costo-id', confidence: 0.9 };
+  // Factura que llegó por PDF/URL del CUTE: `source` hace que el monto YA sea el
+  // total (con ITBMS), que es como llegan SIEMPRE las compras de un trabajador.
+  const dialog = {
+    type: 'GASTO', amount: 107, currency: 'USD', description: 'Ferretería', concept: 'Materia prima',
+    paymentMethod: 'REEMBOLSO', date: '2026-10-08', confidence: 0.9, source: 'pdf',
+    missingFields: [], suggestedResponse: '', provider: 'FERRETERÍA CENTRAL', itbmsAmount: 7,
+  } as DialogResult;
+
+  it('acredita la cuenta por pagar al trabajador, no el banco ni la tarjeta', async () => {
+    const agent = new AccountingAgent(
+      stubConCuenta({ code: '2.1.02.02', id: 'reembolsos-id', aliases: ['reembolsos-empleados'] }) as any,
+      'odesa',
+    );
+    await agent.init();
+    const entry = agent.generateEntry(dialog, clasificacion);
+    expect(entry.credit).toHaveLength(1);
+    expect(entry.credit[0].accountId).toBe('reembolsos-id');
+    expect(entry.credit[0].amount).toBe(107);
+  });
+
+  it('sin alias configurado cae al código 2.1.02.02 (catálogos cargados a mano)', async () => {
+    const agent = new AccountingAgent(
+      stubConCuenta({ code: '2.1.02.02', id: 'reembolsos-id', aliases: [] }) as any,
+      'odesa',
+    );
+    await agent.init();
+    expect(agent.generateEntry(dialog, clasificacion).credit[0].accountId).toBe('reembolsos-id');
+  });
+
+  it('sin la cuenta, el error dice cuál falta en vez de reventar con un alias', async () => {
+    const agent = new AccountingAgent(stubConCuenta({ code: '1.1.01', id: 'caja-id', aliases: ['caja'] }) as any, 'odesa');
+    await agent.init();
+    expect(() => agent.generateEntry(dialog, clasificacion)).toThrow(/2\.1\.02\.02/);
+  });
+
+  it('el ITBMS del trabajador va al crédito fiscal igual que en cualquier gasto', async () => {
+    const agent = new AccountingAgent(
+      stubConCuenta({ code: '2.1.02.02', id: 'reembolsos-id', aliases: [] }) as any,
+      'odesa',
+    );
+    await agent.init();
+    const entry = agent.generateEntry(dialog, clasificacion);
+    // El monto de la factura ya es el total: el débito se separa neto + ITBMS.
+    expect(entry.debit.map((d: any) => d.amount)).toEqual([100, 7]);
+    expect(entry.credit[0].amount).toBe(107);
+  });
+
+  it('un gasto dictado (sin factura) no lleva ITBMS y acredita el monto completo', async () => {
+    const agent = new AccountingAgent(
+      stubConCuenta({ code: '2.1.02.02', id: 'reembolsos-id', aliases: [] }) as any,
+      'odesa',
+    );
+    await agent.init();
+    const entry = agent.generateEntry({ ...dialog, amount: 25, itbmsAmount: undefined, source: undefined } as any, clasificacion);
+    expect(entry.credit[0].amount).toBe(25);
+  });
+});

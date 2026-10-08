@@ -67,7 +67,19 @@ export class OrchestratorAgent {
   private companyId: string;
   private userId: string;
 
-  constructor(config: ClassificationAgentConfig & { userId: string }) {
+  /**
+   * Método de pago que se IMPONE al diálogo antes de armar el asiento.
+   *
+   * Existe por los reembolsos: cuando el que pagó fue un trabajador de su
+   * bolsillo, la contrapartida es la cuenta por pagar a él y ningún método del
+   * menú sirve. No alcanza con contestar la pregunta de pago — el modelo suele
+   * rellenarla solo ("compré clavos" → EFECTIVO) y entonces nunca se pregunta.
+   * Forzarlo acá, antes de `generateEntry`, es lo único que garantiza que el
+   * asiento salga con el acreedor correcto.
+   */
+  private paymentMethodForzado?: string;
+
+  constructor(config: ClassificationAgentConfig & { userId: string; paymentMethodForzado?: string }) {
     if (!config.userId) {
       throw new Error('OrchestratorAgent: userId es requerido (FK createdById en asiento/transacción)');
     }
@@ -77,6 +89,7 @@ export class OrchestratorAgent {
     this.prisma = config.prisma;
     this.companyId = config.companyId;
     this.userId = config.userId;
+    this.paymentMethodForzado = config.paymentMethodForzado;
   }
 
   async process(input: string, context?: DialogContext): Promise<{
@@ -167,6 +180,7 @@ export class OrchestratorAgent {
     }
 
     await this.accountingAgent.init();
+    if (this.paymentMethodForzado) dialog.paymentMethod = this.paymentMethodForzado;
     const raw = this.accountingAgent.generateEntry(dialog, classification);
     // Banco mencionado / default configurado / 1.1.02.01 → línea con código
     await this.aplicarBancoMencionado(dialog, raw);

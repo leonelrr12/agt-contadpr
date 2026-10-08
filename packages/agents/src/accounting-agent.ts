@@ -51,6 +51,23 @@ export class AccountingAgent {
     throw new Error(`Cuenta contable no encontrada: "${alias}"`);
   }
 
+  /**
+   * Cuenta por pagar al trabajador que adelantó la compra (reembolsos).
+   *
+   * Se busca por alias y, si la empresa no lo tiene configurado, por el código
+   * estándar del catálogo: el módulo es nuevo y los catálogos cargados a mano
+   * (como el de ODESA) traen la cuenta con su código pero sin alias. Si tampoco
+   * está el código, `resolveAlias` falla nombrando la cuenta que falta, que es
+   * justo lo que el contador necesita saber.
+   */
+  private cuentaReembolso(): string {
+    try {
+      return this.resolveAlias('reembolsos-empleados');
+    } catch {
+      return this.resolveAlias('2.1.02.02');
+    }
+  }
+
   generateEntry(dialog: DialogResult, classification: ClassificationResult): AccountingEntry {
     const entry: AccountingEntry = {
       debit: [],
@@ -83,7 +100,11 @@ export class AccountingAgent {
           entry.debit.push({ accountId: 'itbms-por-pagar', name: 'ITBMS por Pagar', amount: dialog.itbmsAmount! });
           entry.description = `${dialog.description || dialog.concept} — $${dialog.amount.toFixed(2)} + ITBMS $${dialog.itbmsAmount!.toFixed(2)}`;
         }
-        if (dialog.paymentMethod === 'TARJETA_CREDITO') {
+        if (dialog.paymentMethod === 'REEMBOLSO') {
+          // Lo pagó un trabajador de su bolsillo: el acreedor es ÉL, no el banco
+          // ni la tarjeta de la empresa. El dinero todavía no salió.
+          entry.credit.push({ accountId: this.cuentaReembolso(), name: 'Reembolsos Empleados por Pagar', amount: totalAmount });
+        } else if (dialog.paymentMethod === 'TARJETA_CREDITO') {
           entry.credit.push({ accountId: 'tarjeta-credito', name: 'Tarjetas de Crédito', amount: totalAmount });
         } else if (dialog.paymentMethod === 'CREDITO') {
           entry.credit.push({ accountId: 'proveedores', name: 'Proveedores', amount: totalAmount });
@@ -130,7 +151,9 @@ export class AccountingAgent {
           entry.debit.push({ accountId: cuentaCompra, name: classification.concept, amount: r2(netAmount + itbmsAmount) });
         }
         const totalAmount = r2(netAmount + itbmsAmount);
-        if (dialog.paymentMethod === 'TARJETA_CREDITO') {
+        if (dialog.paymentMethod === 'REEMBOLSO') {
+          entry.credit.push({ accountId: this.cuentaReembolso(), name: 'Reembolsos Empleados por Pagar', amount: totalAmount });
+        } else if (dialog.paymentMethod === 'TARJETA_CREDITO') {
           entry.credit.push({ accountId: 'tarjeta-credito', name: 'Tarjetas de Crédito', amount: totalAmount });
         } else if (dialog.paymentMethod === 'EFECTIVO') {
           entry.credit.push({ accountId: 'caja', name: 'Caja', amount: totalAmount });
