@@ -144,6 +144,28 @@
     .legal-pie { text-align: center; margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e4e8; font-size: 12px; color: #6b7280; line-height: 1.5; }
     .legal-pie a { color: #6b7280; text-decoration: none; }
     .legal-pie a:hover { color: #1565c0; text-decoration: underline; }
+    /* Móvil: la tarjeta ocupa TODA la pantalla. Antes se veía como una tarjeta
+       chica flotando en el centro (el layout de escritorio con 420px de tope).
+       `100dvh` en vez de `100vh` para que el alto siga a la barra del navegador
+       del celular, y sin centrado vertical: el contenido crece hacia abajo (con
+       el alta abierta el centrado dejaría el formulario cortado arriba). */
+    @media (max-width: 600px) {
+      body { padding: 0; align-items: stretch; }
+      .login-card {
+        max-width: none;
+        min-height: 100dvh;
+        border-radius: 0;
+        box-shadow: none;
+        padding: 40px 22px 32px;
+      }
+      .login-card h1 { font-size: 22px; }
+      .login-card .subtitle { font-size: 13px; margin-bottom: 20px; }
+      .form-group label { font-size: 14px; }
+      /* Campos a 16px: con menos, iOS hace zoom solo al enfocar el campo */
+      .form-group input, .btn { font-size: 16px; }
+      .form-group input { padding: 12px 14px; }
+      .pw-toggle { width: 38px; height: 38px; }
+    }
   </style>
 </head>
 <body>
