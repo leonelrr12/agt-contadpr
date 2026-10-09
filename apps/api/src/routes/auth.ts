@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { generateToken, requireAuth } from '../middleware/auth';
 import { sendEmail, APP_URL } from '../services/mailer';
 import { bloqueoRestante, registrarFallo, limpiarFallos } from '../services/login-guard';
+import { TERMS_VERSION } from '../lib/terms';
 
 export const authRouter = Router();
 
@@ -78,14 +79,21 @@ authRouter.post('/login', async (req, res) => {
 
 /**
  * POST /api/auth/register
- * Body: { name, email, password, companyName, companyTaxId }
- * Registra una nueva empresa + usuario admin.
+ * Body: { name, email, password, companyName, companyTaxId, acceptedTerms }
+ * Registra una nueva empresa + usuario admin. `acceptedTerms` es obligatorio: la
+ * casilla del formulario es del navegador, pero la constancia la exige el servidor
+ * (y queda registrada con la versión vigente en `lib/terms.ts`).
  */
 authRouter.post('/register', async (req, res) => {
-  const { name, email, password, companyName, companyTaxId } = req.body;
+  const { name, email, password, companyName, companyTaxId, acceptedTerms } = req.body;
 
   if (!name || !email || !password || !companyName) {
     res.status(400).json({ error: 'Nombre, email, contraseña y nombre de empresa son requeridos' });
+    return;
+  }
+
+  if (acceptedTerms !== true) {
+    res.status(400).json({ error: 'Debes aceptar los Términos y Condiciones y la Política de Privacidad' });
     return;
   }
 
@@ -186,6 +194,9 @@ authRouter.post('/register', async (req, res) => {
         password: hashed,
         role: 'admin',
         companyId: company.id,
+        // Evidencia de la aceptación (ver lib/terms.ts)
+        termsVersion: TERMS_VERSION,
+        termsAcceptedAt: new Date(),
       },
     });
 

@@ -362,6 +362,8 @@
             password: document.getElementById('reg-password').value,
             companyName: document.getElementById('reg-company').value,
             companyTaxId: document.getElementById('reg-taxid').value || undefined,
+            // La API exige la constancia y guarda la versión aceptada (lib/terms.ts)
+            acceptedTerms: document.getElementById('reg-terms').checked,
           }),
         });
         const data = await res.json();

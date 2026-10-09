@@ -100,6 +100,11 @@ model User {
   companyId String
   isActive  Boolean  @default(true)
   emailVerified DateTime?
+  /// Evidencia de la aceptación de los Términos y Condiciones: versión aceptada y
+  /// cuándo. La versión vigente vive en `apps/api/src/lib/terms.ts`; si cambia el
+  /// texto, se sube ahí y las cuentas viejas quedan con la versión anterior.
+  termsVersion    String?
+  termsAcceptedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
