@@ -102,6 +102,16 @@ const authLimiter = rateLimit({
   message: { error: 'Demasiadas solicitudes. Intente de nuevo en 1 minuto.' },
 });
 
+// Rate limiting del login por IP (anti fuerza bruta). El freno por CUENTA —el que
+// aguanta intentos repartidos entre varias IPs— vive en services/login-guard.ts.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos de inicio de sesión. Intente de nuevo en 15 minutos.' },
+});
+
 // Rate limiting para procesamiento pesado (OCR / PDF)
 const heavyLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minuto
@@ -130,6 +140,7 @@ process.on('uncaughtException', (error) => {
 // Aplica rate limiting por ruta (antes de los routers)
 app.use('/api/', generalLimiter);
 app.use('/api/auth/forgot-password', authLimiter);
+app.use('/api/auth/login', loginLimiter);
 app.use('/api/import', heavyLimiter);
 app.use('/api/reconcile', heavyLimiter);
 app.use('/api/orchestrate', llmLimiter);

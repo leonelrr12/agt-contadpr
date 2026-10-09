@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { generateToken, requireAuth } from '../middleware/auth';
 import { sendEmail, APP_URL } from '../services/mailer';
+import { bloqueoRestante, registrarFallo, limpiarFallos } from '../services/login-guard';
 
 export const authRouter = Router();
 
@@ -23,21 +24,33 @@ authRouter.post('/login', async (req, res) => {
     return;
   }
 
+  // Freno por cuenta (services/login-guard.ts): no revela si el email existe.
+  const bloqueo = bloqueoRestante(email);
+  if (bloqueo > 0) {
+    const min = Math.ceil(bloqueo / 60000);
+    res.status(429).json({ error: `Demasiados intentos fallidos. Intenta de nuevo en ${min} minuto${min === 1 ? '' : 's'}.` });
+    return;
+  }
+
   const user = await req.prisma.user.findUnique({
     where: { email },
     include: { company: true },
   });
 
   if (!user || !user.isActive) {
+    registrarFallo(email); // también cuenta: así no se puede sondear qué correos existen
     res.status(401).json({ error: 'Credenciales inválidas' });
     return;
   }
 
   const valid = await bcrypt.compare(password, user.password);
   if (!valid) {
+    registrarFallo(email);
     res.status(401).json({ error: 'Credenciales inválidas' });
     return;
   }
+
+  limpiarFallos(email);
 
   const token = generateToken({
     userId: user.id,
