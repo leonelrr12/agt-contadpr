@@ -59,6 +59,11 @@ document.addEventListener('DOMContentLoaded', () => {
   if (user) {
     document.getElementById('sidebar-user-name').textContent = user.name;
     document.getElementById('sidebar-user-company').textContent = user.company?.name || '';
+    // Iniciales del avatar (el nombre ya viene resuelto por la API)
+    const avatar = document.getElementById('sidebar-user-avatar');
+    if (avatar) {
+      avatar.textContent = (user.name || '').trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('').toUpperCase() || '·';
+    }
 
     // Mostrar panel de administración solo a admins/contadores de la empresa
     if (user.role === 'admin' || user.role === 'contador' || user.role === 'superadmin') {
@@ -77,6 +82,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (user.role === 'superadmin') {
       document.getElementById('nav-saas-link').style.display = 'block';
     }
+    // Con la visibilidad por rol ya aplicada, los grupos que quedaron sin
+    // opciones (p. ej. Administración para un contador) no deben mostrarse.
+    actualizarGruposNav();
   }
 
   // Cargar info de suscripción

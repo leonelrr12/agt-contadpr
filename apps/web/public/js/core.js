@@ -97,6 +97,65 @@ function askPassword(msg) {
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
 }
+
+// ── Sidebar: colapsar (escritorio) y grupos del menú ──
+// El ancho y el modo icono viven en styles.css (@media min-width 769px); acá solo
+// se recuerda la preferencia. En móvil nada de esto aplica: ahí manda el drawer.
+const SIDEBAR_COLAPSADA_KEY = 'c507-sidebar-colapsada';
+const NAV_GRUPOS_KEY = 'c507-nav-grupos';
+
+function aplicarSidebarColapsada() {
+  const app = document.getElementById('app');
+  if (!app) return;
+  const colapsada = localStorage.getItem(SIDEBAR_COLAPSADA_KEY) === '1';
+  app.classList.toggle('sidebar-collapsed', colapsada);
+  const btn = document.getElementById('sidebar-collapse-btn');
+  if (btn) {
+    const txt = colapsada ? 'Expandir menú' : 'Colapsar menú';
+    btn.title = txt;
+    btn.setAttribute('aria-label', txt);
+  }
+}
+
+function toggleSidebarCollapsed() {
+  const app = document.getElementById('app');
+  if (!app) return;
+  app.classList.toggle('sidebar-collapsed');
+  localStorage.setItem(SIDEBAR_COLAPSADA_KEY, app.classList.contains('sidebar-collapsed') ? '1' : '0');
+  aplicarSidebarColapsada(); // sincroniza el tooltip del botón
+}
+
+function leerGruposNav() {
+  try { return JSON.parse(localStorage.getItem(NAV_GRUPOS_KEY) || '{}') || {}; } catch (e) { return {}; }
+}
+
+function aplicarGruposNav() {
+  const guardados = leerGruposNav();
+  document.querySelectorAll('#sidebar-nav .nav-group').forEach(g => {
+    g.classList.toggle('collapsed', guardados[g.dataset.group] === false);
+  });
+}
+
+function toggleNavGroup(head) {
+  const grupo = head.closest('.nav-group');
+  if (!grupo) return;
+  grupo.classList.toggle('collapsed');
+  const guardados = leerGruposNav();
+  guardados[grupo.dataset.group] = !grupo.classList.contains('collapsed');
+  localStorage.setItem(NAV_GRUPOS_KEY, JSON.stringify(guardados));
+}
+
+/** Oculta los grupos sin ninguna opción visible (p. ej. Administración para un rol sin acceso).
+ *  Se llama después de aplicar la visibilidad por rol (init.js) y al revelar add-ons. */
+function actualizarGruposNav() {
+  document.querySelectorAll('#sidebar-nav .nav-group').forEach(g => {
+    const visible = Array.from(g.querySelectorAll('.nav-link')).some(l => l.style.display !== 'none');
+    g.style.display = visible ? '' : 'none';
+  });
+}
+
+aplicarSidebarColapsada();
+aplicarGruposNav();
 // Cerrar el drawer al hacer clic en cualquier opción del menú
 document.addEventListener('click', function(e) {
   const sidebar = document.getElementById('sidebar');
@@ -120,6 +179,7 @@ async function loadSubscriptionInfo() {
     if (window.userAddons.includes('facturas-pdf')) {
       const navFacturas = document.getElementById('nav-facturas-link');
       if (navFacturas) navFacturas.style.display = 'block';
+      actualizarGruposNav();
     }
 
     // Mostrar el indicador

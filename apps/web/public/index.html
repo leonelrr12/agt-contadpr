@@ -17,7 +17,7 @@
   <meta property="og:description" content="Agente contable impulsado por IA para Panamá. Registra transacciones, procesa facturas con OCR y genera reportes financieros automáticamente.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://contador507.com">
-  <meta property="og:image" content="https://contador507.com/Logo2.png?v=2">
+  <meta property="og:image" content="https://contador507.com/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:locale" content="es_PA">
@@ -26,20 +26,58 @@
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Contador507 — Contabilidad Inteligente">
   <meta name="twitter:description" content="Agente contable con IA para Panamá. Facturas, asientos y reportes automatizados.">
-  <meta name="twitter:image" content="https://contador507.com/Logo2.png?v=2">
+  <meta name="twitter:image" content="https://contador507.com/og-image.png">
 
-  <link rel="stylesheet" href="styles.css?v=36">
+  <link rel="stylesheet" href="styles.css?v=38">
 </head>
 <body>
+  <!-- Sprite de iconos del menú (stroke heredado de .nav-ico en styles.css) -->
+  <svg class="icon-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="ic-chat" viewBox="0 0 24 24"><path d="M4.5 5.25h15A2.25 2.25 0 0 1 21.75 7.5v7.5a2.25 2.25 0 0 1-2.25 2.25H10.5L5.25 21v-3.75H4.5A2.25 2.25 0 0 1 2.25 15V7.5A2.25 2.25 0 0 1 4.5 5.25Z"/></symbol>
+    <symbol id="ic-import" viewBox="0 0 24 24"><path d="M12 3.75v9m0 0 3.75-3.75M12 12.75 8.25 9M4.5 16.5v1.5a2.25 2.25 0 0 0 2.25 2.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-1.5"/></symbol>
+    <symbol id="ic-refresh" viewBox="0 0 24 24"><path d="M20.25 12a8.25 8.25 0 1 1-2.42-5.83M20.25 4.5v4.5h-4.5"/></symbol>
+    <symbol id="ic-search" viewBox="0 0 24 24"><path d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z"/></symbol>
+    <symbol id="ic-bank" viewBox="0 0 24 24"><path d="M3.75 9.75 12 4.5l8.25 5.25M5.25 9.75v7.5m4.5-7.5v7.5m4.5-7.5v7.5m4.5-7.5v7.5M3 20.25h18"/></symbol>
+    <symbol id="ic-chart" viewBox="0 0 24 24"><path d="M4.5 19.5v-6m5.25 6V8.25m5.25 11.25V4.5m5.25 15V10.5M2.25 21h19.5"/></symbol>
+    <symbol id="ic-book" viewBox="0 0 24 24"><path d="M9 7.5h6M9 12h6M9 16.5h3M6.75 3h10.5A2.25 2.25 0 0 1 19.5 5.25v13.5A2.25 2.25 0 0 1 17.25 21H6.75A2.25 2.25 0 0 1 4.5 18.75V5.25A2.25 2.25 0 0 1 6.75 3Z"/></symbol>
+    <symbol id="ic-calendar" viewBox="0 0 24 24"><path d="M6.75 4.5V2.25m10.5 2.25V2.25M3.75 8.25h16.5M4.5 5.25h15A1.5 1.5 0 0 1 21 6.75v12A1.5 1.5 0 0 1 19.5 20.25h-15A1.5 1.5 0 0 1 3 18.75v-12A1.5 1.5 0 0 1 4.5 5.25Z"/></symbol>
+    <symbol id="ic-health" viewBox="0 0 24 24"><path d="M2.25 12h4.5l2.25-6 3 12 2.25-6h7.5"/></symbol>
+    <symbol id="ic-receipt" viewBox="0 0 24 24"><path d="M5.25 3.75h13.5v16.5l-2.25-1.5-2.25 1.5-2.25-1.5-2.25 1.5-2.25-1.5-2.25 1.5-2.25-1.5V3.75ZM9 8.25h6M9 12h6M9 15.75h3"/></symbol>
+    <symbol id="ic-box" viewBox="0 0 24 24"><path d="M21 8.25 12 3 3 8.25m18 0-9 5.25m9-5.25v7.5L12 21m0-7.5L3 8.25m9 5.25V21M3 8.25v7.5L12 21"/></symbol>
+    <symbol id="ic-calc" viewBox="0 0 24 24"><path d="M6.75 3h10.5A2.25 2.25 0 0 1 19.5 5.25v13.5A2.25 2.25 0 0 1 17.25 21H6.75A2.25 2.25 0 0 1 4.5 18.75V5.25A2.25 2.25 0 0 1 6.75 3ZM8.25 7.5h7.5M8.25 12h.008M12 12h.008M15.75 12h.008M8.25 15.75h.008M12 15.75h.008M15.75 15.75h.008"/></symbol>
+    <symbol id="ic-money" viewBox="0 0 24 24"><path d="M2.25 7.5h19.5v9H2.25zM12 14.25a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5ZM5.25 10.5h.008M18.75 13.5h.008"/></symbol>
+    <symbol id="ic-phone" viewBox="0 0 24 24"><path d="M7.5 3h9A1.5 1.5 0 0 1 18 4.5v15A1.5 1.5 0 0 1 16.5 21h-9A1.5 1.5 0 0 1 6 19.5v-15A1.5 1.5 0 0 1 7.5 3Zm3 15h3"/></symbol>
+    <symbol id="ic-gear" viewBox="0 0 24 24"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></symbol>
+    <symbol id="ic-monitor" viewBox="0 0 24 24"><path d="M3.75 5.25h16.5A1.5 1.5 0 0 1 21.75 6.75v9A1.5 1.5 0 0 1 20.25 17.25H3.75A1.5 1.5 0 0 1 2.25 15.75v-9A1.5 1.5 0 0 1 3.75 5.25ZM8.25 20.25h7.5M12 17.25v3"/></symbol>
+    <symbol id="ic-logout" viewBox="0 0 24 24"><path d="M15.75 9V5.25A1.5 1.5 0 0 0 14.25 3.75H5.25A1.5 1.5 0 0 0 3.75 5.25v13.5a1.5 1.5 0 0 0 1.5 1.5h9a1.5 1.5 0 0 0 1.5-1.5V15M12 12h9m0 0-3-3m3 3-3 3"/></symbol>
+    <symbol id="ic-collapse" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h16"/></symbol>
+    <symbol id="ic-chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  </svg>
+
   <div id="app">
     <aside id="sidebar">
+      <!-- Cabecera: logo (se vuelve marca al colapsar) + botón de colapsar (escritorio) -->
       <div class="sidebar-header">
-        <img src="/Logo2.png" alt="Contador507" class="sidebar-logo">
+        <!-- Marca en texto: el banner (Logo2.png) a este tamaño es ilegible y pesa 1,4 MB -->
+        <a href="/" class="sidebar-brand" aria-label="Contador507 — ir al inicio">
+          <span class="sidebar-brand-name">Contador<span class="sidebar-brand-507">507</span></span>
+          <span class="sidebar-brand-tag">Contabilidad · Panamá</span>
+        </a>
+        <span class="sidebar-mark" aria-hidden="true">507</span>
+        <button type="button" id="sidebar-collapse-btn" class="sidebar-collapse-btn" onclick="toggleSidebarCollapsed()" title="Colapsar menú" aria-label="Colapsar menú">
+          <svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-collapse"></use></svg>
+        </button>
       </div>
-      <div id="sidebar-user" style="display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;gap:2px 12px;border-bottom:1px solid rgba(255,255,255,0.1);margin-bottom:4px;align-items:center">
-        <div style="font-size:15px;font-weight:700;color:#fff" id="sidebar-user-name">—</div>
-        <div style="font-size:14px;color:#94a3b8" id="sidebar-user-company">—</div>
-        <button onclick="logout()" class="sidebar-logout-btn" style="grid-row:1/span 2;grid-column:2;padding:10px 16px;font-size:14px;font-weight:600;white-space:nowrap;background:#ef4444;color:#fff;border:none;border-radius:6px;cursor:pointer">🚪 Salir</button>
+      <!-- Usuario: fila compacta. En escritorio se ancla al pie (order + margin-top) -->
+      <div id="sidebar-user">
+        <span class="sb-avatar" id="sidebar-user-avatar">—</span>
+        <span class="sb-user-info">
+          <span id="sidebar-user-name">—</span>
+          <span id="sidebar-user-company">—</span>
+        </span>
+        <button type="button" onclick="logout()" class="sb-logout" title="Salir" aria-label="Salir">
+          <svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-logout"></use></svg>
+        </button>
       </div>
       <button class="hamburger-btn" onclick="toggleSidebar()" aria-label="Menú">☰</button>
       <!-- Indicador de suscripción -->
@@ -57,22 +95,57 @@
         </div>
       </div>
       <nav id="sidebar-nav">
-        <button class="nav-link active" data-view="chat">💬 Chat</button>
-        <button class="nav-link" data-view="panel-import" id="nav-import-link">📥 Importar</button>
-        <button class="nav-link" data-view="panel-recurring" id="nav-recurring-link">🔄 Recurrentes</button>
-        <button class="nav-link" data-view="panel-revision" id="nav-revision-link">🔍 Revisión</button>
-        <button class="nav-link" data-view="panel-conciliacion" id="nav-conciliacion-link">🏦 Conciliar</button>
-        <button class="nav-link" data-view="panel-informes" id="nav-informes-link">📊 Informes</button>
-        <button class="nav-link" data-view="panel-facturas" id="nav-facturas-link" style="display:none">🧾 Facturas</button>
-        <button class="nav-link" data-view="panel-auxiliares" id="nav-auxiliares-link">📒 Auxiliares</button>
-        <button class="nav-link" data-view="panel-taxcalendar" id="nav-taxcalendar-link">📅 Calendario Fiscal</button>
-        <button class="nav-link" data-view="panel-salud" id="nav-salud-link">🩺 Salud Financiera</button>
-        <button class="nav-link" data-view="panel-whatsapp" id="nav-whatsapp-link">📱 WhatsApp</button>
-        <button class="nav-link" data-view="panel-reembolsos" id="nav-reembolsos-link">💵 Reembolsos</button>
-        <button class="nav-link" data-view="panel-admin" id="nav-admin-link" style="display:none">⚙️ Panel Admin</button>
-        <a class="nav-link" href="/inventario.html" id="nav-inventario-link" style="display:none">📦 Inventario</a>
-        <a class="nav-link" href="/planilla.html" id="nav-planilla-link" style="display:none">🧮 Planilla</a>
-        <a class="nav-link" href="/admin.html" id="nav-saas-link" style="display:none">🖥️ SaaS Admin</a>
+        <div class="nav-group" data-group="dia">
+          <button type="button" class="nav-group-head" onclick="toggleNavGroup(this)">
+            <span class="nav-group-label">Día a día</span>
+            <svg class="nav-group-chev" viewBox="0 0 24 24"><use href="#ic-chev"></use></svg>
+          </button>
+          <div class="nav-group-body">
+            <button class="nav-link active" data-view="chat" title="Chat"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-chat"></use></svg><span class="nav-label">Chat</span></button>
+            <button class="nav-link" data-view="panel-import" id="nav-import-link" title="Importar"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-import"></use></svg><span class="nav-label">Importar</span></button>
+            <button class="nav-link" data-view="panel-recurring" id="nav-recurring-link" title="Recurrentes"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-refresh"></use></svg><span class="nav-label">Recurrentes</span></button>
+            <button class="nav-link" data-view="panel-revision" id="nav-revision-link" title="Revisión"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-search"></use></svg><span class="nav-label">Revisión</span></button>
+            <button class="nav-link" data-view="panel-conciliacion" id="nav-conciliacion-link" title="Conciliar"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-bank"></use></svg><span class="nav-label">Conciliar</span></button>
+          </div>
+        </div>
+
+        <div class="nav-group" data-group="informes">
+          <button type="button" class="nav-group-head" onclick="toggleNavGroup(this)">
+            <span class="nav-group-label">Informes</span>
+            <svg class="nav-group-chev" viewBox="0 0 24 24"><use href="#ic-chev"></use></svg>
+          </button>
+          <div class="nav-group-body">
+            <button class="nav-link" data-view="panel-informes" id="nav-informes-link" title="Informes"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-chart"></use></svg><span class="nav-label">Informes</span></button>
+            <button class="nav-link" data-view="panel-auxiliares" id="nav-auxiliares-link" title="Auxiliares"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-book"></use></svg><span class="nav-label">Auxiliares</span></button>
+            <button class="nav-link" data-view="panel-taxcalendar" id="nav-taxcalendar-link" title="Calendario Fiscal"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-calendar"></use></svg><span class="nav-label">Calendario Fiscal</span></button>
+            <button class="nav-link" data-view="panel-salud" id="nav-salud-link" title="Salud Financiera"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-health"></use></svg><span class="nav-label">Salud Financiera</span></button>
+          </div>
+        </div>
+
+        <div class="nav-group" data-group="operacion">
+          <button type="button" class="nav-group-head" onclick="toggleNavGroup(this)">
+            <span class="nav-group-label">Operación</span>
+            <svg class="nav-group-chev" viewBox="0 0 24 24"><use href="#ic-chev"></use></svg>
+          </button>
+          <div class="nav-group-body">
+            <button class="nav-link" data-view="panel-facturas" id="nav-facturas-link" style="display:none" title="Facturas"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-receipt"></use></svg><span class="nav-label">Facturas</span></button>
+            <a class="nav-link" href="/inventario.html" id="nav-inventario-link" style="display:none" title="Inventario"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-box"></use></svg><span class="nav-label">Inventario</span></a>
+            <a class="nav-link" href="/planilla.html" id="nav-planilla-link" style="display:none" title="Planilla"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-calc"></use></svg><span class="nav-label">Planilla</span></a>
+            <button class="nav-link" data-view="panel-reembolsos" id="nav-reembolsos-link" title="Reembolsos"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-money"></use></svg><span class="nav-label">Reembolsos</span></button>
+            <button class="nav-link" data-view="panel-whatsapp" id="nav-whatsapp-link" title="WhatsApp"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-phone"></use></svg><span class="nav-label">WhatsApp</span></button>
+          </div>
+        </div>
+
+        <div class="nav-group" data-group="admin">
+          <button type="button" class="nav-group-head" onclick="toggleNavGroup(this)">
+            <span class="nav-group-label">Administración</span>
+            <svg class="nav-group-chev" viewBox="0 0 24 24"><use href="#ic-chev"></use></svg>
+          </button>
+          <div class="nav-group-body">
+            <button class="nav-link" data-view="panel-admin" id="nav-admin-link" style="display:none" title="Panel Admin"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-gear"></use></svg><span class="nav-label">Panel Admin</span></button>
+            <a class="nav-link" href="/admin.html" id="nav-saas-link" style="display:none" title="SaaS Admin"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-monitor"></use></svg><span class="nav-label">SaaS Admin</span></a>
+          </div>
+        </div>
       </nav>
     </aside>
 
@@ -622,13 +695,13 @@
 
   <script src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="js/core.js?v=79"></script>
+  <script src="js/core.js?v=80"></script>
   <script src="js/capture.js?v=74"></script>
   <script src="js/capture-qr.js?v=74"></script>
   <script src="js/chat.js?v=76"></script>
   <script src="js/router.js?v=78"></script>
   <script src="js/admin.js?v=90"></script>
-  <script src="js/init.js?v=75"></script>
+  <script src="js/init.js?v=76"></script>
   <script src="js/panels-sidebar.js?v=74"></script>
   <script src="js/import.js?v=95"></script>
   <script src="js/carga-inicial.js?v=3"></script>
