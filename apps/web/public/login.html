@@ -141,6 +141,11 @@
     .register-fields { display: none; }
     .register-fields.show { display: block; }
     #register-btn { margin-top: 12px; }
+    /* Casilla de términos del alta: el `required` la vuelve obligatoria y el
+       navegador no dispara el submit (ni el onsubmit) hasta que esté marcada. */
+    .terms { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 12px; font-size: 13px; color: #374151; line-height: 1.45; }
+    .terms input { flex: 0 0 auto; width: 16px; height: 16px; margin-top: 2px; accent-color: #1565c0; cursor: pointer; }
+    .terms a { color: #1565c0; }
     .legal-pie { text-align: center; margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e4e8; font-size: 12px; color: #6b7280; line-height: 1.5; }
     .legal-pie a { color: #6b7280; text-decoration: none; }
     .legal-pie a:hover { color: #1565c0; text-decoration: underline; }
@@ -229,6 +234,10 @@
           <label for="reg-taxid">RUC (opcional)</label>
           <input type="text" id="reg-taxid" placeholder="##-#####-##">
         </div>
+        <label class="terms" for="reg-terms">
+          <input type="checkbox" id="reg-terms" required>
+          <span>Acepto los <a href="/terminos-y-condiciones.html" target="_blank" rel="noopener">Términos y Condiciones</a> y la <a href="/politica-de-privacidad.html" target="_blank" rel="noopener">Política de Privacidad</a>.</span>
+        </label>
         <button type="submit" class="btn" id="register-submit-btn">Crear Empresa y Comenzar</button>
       </form>
     </div>
