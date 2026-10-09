@@ -489,6 +489,17 @@ async function processWithOrchestrator(
         missing.length = 0;
         const rest = (dialogData.missingFields || []).filter((m: string) => m !== 'concept_category' && m !== 'concept');
         missing.push(...rest);
+      }
+      // La marca va FUERA del if y solo cuando el concepto viene del CONTEXTO
+      // (factura por PDF/URL con concepto pre-clasificado) o ya estaba marcado.
+      // Con el concepto pre-clasificado el diálogo no lista `concept` entre los
+      // faltantes, el bloque de arriba no corría y la marca quedaba en false: el
+      // flujo mostraba igual el selector Gasto/Inventario y su respuesta PISABA
+      // el concepto con "GASTO" — la factura de cafetería del 09-10 terminaba en
+      // Gastos Varios aunque el pre-clasificador propusiera Refrigerios.
+      // No se marca por `dialogData.concept` a secas: una factura donde el gate
+      // NO acertó conserva la pregunta (y su opción de Inventario).
+      if ((context as any)?.extractedData?.concept || (dialogData as any)._conceptSelected) {
         (dialogData as any)._conceptSelected = true;
       }
 
