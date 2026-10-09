@@ -99,6 +99,27 @@
     .nav-links { display: flex; gap: 16px; }
     .nav-links a { color: #64748b; font-size: 14px; font-weight: 500; text-decoration: none; padding: 4px 0; border-bottom: 2px solid transparent; }
     .nav-links a:hover, .nav-links a.active { color: #1e293b; border-bottom-color: var(--primary); }
+
+    /* Móvil: la cabecera envuelve (logo + navegación + salir no caben en una fila),
+       los paneles y las tarjetas de clave se apilan, y los campos van a 16px —
+       con menos, iOS hace zoom al enfocar. */
+    @media (max-width: 600px) {
+      .header { flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
+      .header > div { gap: 14px !important; min-width: 0; }
+      .nav-links { gap: 12px; flex-wrap: wrap; }
+      .nav-links a { font-size: 13px; }
+      .header-actions { margin-left: auto; }
+      .header-actions a { margin-left: 0 !important; padding: 7px 14px; }
+      .container { margin: 14px auto; padding: 0 14px; }
+      .panel { padding: 20px 16px; border-radius: 12px; }
+      .panel h2 { font-size: 18px; }
+      .form-inline { flex-direction: column; align-items: stretch; gap: 8px; }
+      .form-inline input { font-size: 16px; }
+      .key-card { flex-direction: column; align-items: flex-start; gap: 10px; }
+      .key-meta span { margin-right: 12px; }
+      .reveal-box { padding: 16px; }
+      .reveal-box .key-full { font-size: 13px; }
+    }
   </style>
   <script src="js/shared.js?v=1"></script>
 </head>
