@@ -34,7 +34,11 @@ function authFetch(url, options = {}) {
       localStorage.removeItem('agt_token');
       localStorage.removeItem('agt_user');
       window.location.href = '/login.html';
+      return;
     }
+    // Aviso de (re)aceptación de los Términos: reusa esta misma respuesta, sin
+    // pedir /auth/me dos veces (ver js/terminos.js).
+    if (window.verificarTerminos) window.verificarTerminos(await res.json());
   } catch { /* red caída: dejar pasar — el SPA mostrará los errores de conexión */ }
 })();
 

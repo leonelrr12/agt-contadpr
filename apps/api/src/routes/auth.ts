@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { generateToken, requireAuth } from '../middleware/auth';
 import { sendEmail, APP_URL } from '../services/mailer';
 import { bloqueoRestante, registrarFallo, limpiarFallos } from '../services/login-guard';
-import { TERMS_VERSION } from '../lib/terms';
+import { TERMS_VERSION, necesitaAceptar } from '../lib/terms';
 
 export const authRouter = Router();
 
@@ -279,6 +279,36 @@ authRouter.get('/me', requireAuth, async (req, res) => {
       id: user.company.id,
       name: user.company.name,
       taxId: user.company.taxId,
+    },
+    // Estado de la aceptación de los Términos: el front lo usa para mostrar el
+    // aviso de re-aceptación sin una consulta extra (ver js/terminos.js).
+    terms: {
+      currentVersion: TERMS_VERSION,
+      acceptedVersion: user.termsVersion || null,
+      acceptedAt: user.termsAcceptedAt || null,
+      needsAcceptance: necesitaAceptar(user.termsVersion),
+    },
+  });
+});
+
+/**
+ * POST /api/auth/accept-terms
+ * Registra la aceptación de la versión VIGENTE (la del servidor: lo que mande el
+ * cliente se ignora) y devuelve el estado actualizado. Lo llama el aviso de
+ * re-aceptación que ve una cuenta cuya constancia quedó vieja o no existe.
+ */
+authRouter.post('/accept-terms', requireAuth, async (req, res) => {
+  const user = await req.prisma.user.update({
+    where: { id: req.user!.userId },
+    data: { termsVersion: TERMS_VERSION, termsAcceptedAt: new Date() },
+  });
+
+  res.json({
+    terms: {
+      currentVersion: TERMS_VERSION,
+      acceptedVersion: user.termsVersion,
+      acceptedAt: user.termsAcceptedAt,
+      needsAcceptance: false,
     },
   });
 });
