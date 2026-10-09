@@ -1,6 +1,10 @@
 #!/bin/bash
 # Limpiar todos los datos contables y de clientes/proveedores de UNA empresa
+# Borra además el detalle de prueba de los módulos: planilla (corridas, ítems,
+# deducciones), inventario (solo el kardex) y reembolsos (reclamos y pagos).
 # Mantiene: empresa, usuarios, cuentas, conceptos, planes, suscripciones,
+#          los catálogos de personas e inventario —empleados, trabajadores y
+#          productos— (el stock del producto SÍ se pone en 0: ver inventario),
 #          las cuentas contables de la empresa (los planilla*Id viven en Company)
 #          y los PARÁMETROS de planilla: tasas, tabla del ISR, factores, día de pago.
 #
@@ -28,8 +32,10 @@ fi
 
 echo "🧹 Limpiando datos de: $EXISTS ($COMPANY_ID)"
 echo "   Esto borrará TODOS los asientos, transacciones, facturas y cobros,"
-echo "   conciliaciones, plantillas recurrentes, clientes y proveedores de esta empresa."
-echo "   La empresa, usuarios, cuentas, conceptos y parámetros de planilla se mantienen intactos."
+echo "   conciliaciones, plantillas recurrentes, clientes, proveedores, planilla,"
+echo "   inventario y reembolsos (facturas recibidas y pagos)."
+echo "   La empresa, usuarios, cuentas, conceptos, empleados, trabajadores, productos"
+echo "   y parámetros de planilla se mantienen intactos."
 echo ""
 read -p "¿Continuar? (escribe 'SI' en mayúsculas): " CONFIRM
 if [ "$CONFIRM" != "SI" ]; then echo "Cancelado."; exit 0; fi
@@ -42,26 +48,36 @@ if [ "$CONFIRM" != "SI" ]; then echo "Cancelado."; exit 0; fi
 #   recurring_template.lastEntryId → JournalEntry
 #   JournalLine/Transaction/bank_statement_row → JournalEntry
 #   payment_record → subscription
-#   payroll_item_deduction → payroll_run, employee y payroll_deduction
-#   payroll_item → payroll_run y → employee (el item va primero)
+#   payroll_item_deduction → payroll_run y payroll_deduction
+#   payroll_item → payroll_run
 #   payroll_item.journalEntryId → JournalEntry (no es FK, pero el orden hijos→padres sí importa)
+#   expense_claim → reimbursement (el reclamo referencia al pago)
 RUN_SQL=$(cat << ENDSQL
--- Planilla: el detalle de deducciones cuelga de la corrida, el empleado y el catálogo
--- de deducciones (FK RESTRICT), así que va antes que los tres.
+-- Planilla: el detalle de deducciones cuelga de la corrida y del catálogo de
+-- deducciones (FK RESTRICT), así que va antes que los dos.
 DELETE FROM payroll_item_deduction WHERE "companyId" = '${COMPANY_ID}';
 
--- Planilla: el ítem referencia la corrida y el empleado, así que va primero.
--- `payroll_settings` NO se toca: son las tasas y la tabla del ISR que configuró el
--- dueño, no datos de prueba. Borrarla las devolvía a los valores del código.
+-- Planilla: el ítem referencia la corrida, así que va primero.
+-- NO se toca `employee`: el alta de la persona es catálogo, no un movimiento de
+-- prueba. `payroll_settings` tampoco: son las tasas y la tabla del ISR que
+-- configuró el dueño, y borrarlas las devolvía a los valores del código.
 DELETE FROM payroll_item WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM payroll_run WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM payroll_deduction WHERE "companyId" = '${COMPANY_ID}';
-DELETE FROM employee WHERE "companyId" = '${COMPANY_ID}';
 
--- Inventario: el kardex primero (FK al producto), después el catálogo
+-- Inventario: se borra el kardex y se CONSERVA el catálogo de productos. Los
+-- saldos del producto (stockActual/stockValor/costoPromedio) son un caché del
+-- último movimiento, así que sin kardex van a 0: si no, el producto mostraría un
+-- stock que ya no existe y el cuadre del inventario lo reportaría.
 DELETE FROM inventory_movement WHERE "companyId" = '${COMPANY_ID}';
-DELETE FROM invoice_item WHERE "productId" IN (SELECT id FROM inventory_product WHERE "companyId" = '${COMPANY_ID}');
-DELETE FROM inventory_product WHERE "companyId" = '${COMPANY_ID}';
+UPDATE inventory_product SET "stockActual" = 0, "stockValor" = 0, "costoPromedio" = 0 WHERE "companyId" = '${COMPANY_ID}';
+
+-- Reembolsos: se borran las facturas recibidas (reclamos) y los pagos. El
+-- TRABAJADOR se conserva: es el alta del celular, no un movimiento — y con él
+-- queda su vínculo en whatsapp_link, así que ese celular sigue operando como
+-- trabajador. El reclamo va primero: referencia al pago.
+DELETE FROM expense_claim WHERE "companyId" = '${COMPANY_ID}';
+DELETE FROM reimbursement WHERE "companyId" = '${COMPANY_ID}';
 
 DELETE FROM invoice_item WHERE "invoiceId" IN (SELECT id FROM invoice WHERE "companyId" = '${COMPANY_ID}');
 DELETE FROM invoice_payment WHERE "invoiceId" IN (SELECT id FROM invoice WHERE "companyId" = '${COMPANY_ID}');
@@ -96,6 +112,20 @@ SELECT 'Transacciones' as dato, COUNT(*)::text as valor FROM \"Transaction\" WHE
 UNION ALL SELECT 'Asientos', COUNT(*)::text FROM \"JournalEntry\" WHERE \"companyId\" = '$COMPANY_ID'
 UNION ALL SELECT 'Clientes', COUNT(*)::text FROM client WHERE \"companyId\" = '$COMPANY_ID'
 UNION ALL SELECT 'Proveedores', COUNT(*)::text FROM supplier WHERE \"companyId\" = '$COMPANY_ID'
+UNION ALL SELECT 'Facturas recibidas', COUNT(*)::text FROM expense_claim WHERE \"companyId\" = '$COMPANY_ID'
+UNION ALL SELECT 'Reembolsos', COUNT(*)::text FROM reimbursement WHERE \"companyId\" = '$COMPANY_ID'
+UNION ALL SELECT 'Movimientos de kardex', COUNT(*)::text FROM inventory_movement WHERE \"companyId\" = '$COMPANY_ID'
+ORDER BY 1;
+" 2>/dev/null
+
+# Empleados, trabajadores y productos son catálogo: sobreviven a propósito (el
+# stock del producto se pone en 0). Que se vea, por la misma razón que las tasas.
+echo ""
+echo "♻️  Catálogos conservados:"
+docker exec agt-contador-db-1 psql -U contador -d agt_contador -c "
+SELECT 'Empleados' as catalogo, COUNT(*)::text as filas FROM employee WHERE \"companyId\" = '$COMPANY_ID'
+UNION ALL SELECT 'Trabajadores', COUNT(*)::text FROM worker_account WHERE \"companyId\" = '$COMPANY_ID'
+UNION ALL SELECT 'Productos de inventario', COUNT(*)::text || ' (stock en 0)' FROM inventory_product WHERE \"companyId\" = '$COMPANY_ID'
 ORDER BY 1;
 " 2>/dev/null
 
