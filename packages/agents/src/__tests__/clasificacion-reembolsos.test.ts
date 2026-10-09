@@ -143,6 +143,47 @@ describe('el proveedor apunta a un rubro que la empresa no tiene: deciden los í
   });
 });
 
+/**
+ * Factura de cafetería (09-10): "Cappuccino Lg" + "Muffin Blueberry" de VORTEX
+ * INVESTMENT S.A., un proveedor que no dice el rubro. Ninguna palabra del ítem
+ * estaba en el mapa, así que el gasto caía a Gastos Varios aunque Empresa Demo
+ * tenga Refrigerios.
+ */
+describe('cafetería: deciden los ítems cuando el proveedor no dice el rubro', () => {
+  const conRefrigerios = [
+    { name: 'Refrigerios', accountId: 'acct-refrigerios', confidence: 0.9, keywords: '[]' },
+  ];
+
+  it('el ítem de café propone Refrigerios', () => {
+    expect(conceptoDelMapa('cappuccino', conRefrigerios)).toBe('Refrigerios');
+    expect(conceptoDelMapa('muffin', conRefrigerios)).toBe('Refrigerios');
+  });
+
+  it('la empresa que dio de alta el artículo lo resuelve exacto', () => {
+    const conArticulo = [
+      { name: 'Cappuccino', accountId: 'acct-cap', confidence: 0.9, keywords: '[]' },
+    ];
+    expect(conceptoDelMapa('cappuccino', conArticulo)).toBe('Cappuccino');
+  });
+
+  it('sin Refrigerios en el catálogo no propone nada (suspenso, no una cuenta inventada)', () => {
+    const sinRubro = [{ name: 'Papelería', accountId: 'acct-pap', confidence: 0.9, keywords: '[]' }];
+    expect(conceptoDelMapa('cappuccino', sinRubro)).toBeNull();
+  });
+
+  it('el ítem termina en Refrigerios y no en Gastos Varios', async () => {
+    const catalogoDemo = [
+      ...conRefrigerios,
+      { name: 'Gastos Varios', accountId: 'acct-varios', confidence: 0.9, keywords: '[]' },
+    ];
+    const propuesto = conceptoDelMapa('cappuccino', catalogoDemo) ?? conceptoDelMapa('muffin', catalogoDemo);
+    expect(propuesto).toBe('Refrigerios');
+    const r = await agente(catalogoDemo).classify(propuesto!, 'GASTO');
+    expect(r.concept).toBe('Refrigerios');
+    expect(r.accountId).toBe('acct-refrigerios');
+  });
+});
+
 describe('palabras configuradas por la empresa (Concept.keywords)', () => {
   const concepts = [
     {

@@ -199,6 +199,29 @@ export const KEYWORD_MAP: Record<string, string[]> = {
   torta: ['Refrigerios', 'Alimentación', 'Alimentacion'],
   galleta: ['Refrigerios', 'Alimentación', 'Alimentacion'],
   dona: ['Refrigerios', 'Alimentación', 'Alimentacion'],
+  // Cafetería y panadería fina. Son los artículos que traen las facturas de café
+  // ("Cappuccino Lg", "Muffin Blueberry"): sin ellos, una factura de cafetería
+  // cuyo PROVEEDOR no dice el rubro caía a Gastos Varios aunque la empresa tenga
+  // Refrigerios. El artículo va primero, como en limpieza, para la empresa que
+  // dé de alta su propio concepto.
+  cappuccino: ['Cappuccino', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  capuchino: ['Cappuccino', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  latte: ['Latte', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  espresso: ['Espresso', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  expreso: ['Espresso', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  americano: ['Americano', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  mocha: ['Mocha', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  macchiato: ['Macchiato', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  frappe: ['Frappé', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  frappé: ['Frappé', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  muffin: ['Muffin', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  croissant: ['Croissant', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  bagel: ['Bagel', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  brownie: ['Brownie', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  cheesecake: ['Cheesecake', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  donut: ['Donut', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  cafetería: ['Cafetería', 'Refrigerios', 'Alimentación', 'Alimentacion'],
+  cafeteria: ['Cafetería', 'Refrigerios', 'Alimentación', 'Alimentacion'],
   // Limpieza y hogar. El nombre del ARTÍCULO va primero: las empresas que dan de
   // alta el concepto del artículo —ODESA tiene Jabón, Cloro, Detergente, Escoba y
   // Bolsa → 6.01.22— lo resuelven exacto, y las que no (Empresa Demo) caen a la
