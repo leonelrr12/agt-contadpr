@@ -105,7 +105,7 @@ reconcileRouter.post('/upload', upload.single('file'), async (req, res) => {
     });
 
     // Ejecutar auto-matching
-    const matches = await autoMatch(statement.id, req.prisma, req.user!.companyId);
+    const matches = await autoMatch(statement.id, req.prisma, req.user!.companyId, bankAccountId);
 
     // Buscar partidas de libro no conciliadas
     const unmatchedBooks = await findUnmatchedBookEntries(
@@ -198,6 +198,7 @@ async function detalleDeExtracto(prisma: any, companyId: string, statementId: st
 async function soltarAsientosRepetidos(
   prisma: any,
   rows: any[],
+  bankAccountId: string,
 ): Promise<{ liberadas: number; bloqueadas: Set<string> }> {
   const porAsiento = new Map<string, any[]>();
   for (const r of rows) {
@@ -205,14 +206,16 @@ async function soltarAsientosRepetidos(
     porAsiento.set(r.matchedEntryId, [...(porAsiento.get(r.matchedEntryId) || []), r]);
   }
 
-  const compartidos = [...porAsiento.entries()].filter(([, filas]) => filas.length > 1);
   const bloqueadas = new Set<string>();
-  if (!compartidos.length) return { liberadas: 0, bloqueadas };
+  if (!porAsiento.size) return { liberadas: 0, bloqueadas };
 
+  // Líneas que el asiento tiene EN LA CUENTA DEL EXTRACTO: cero significa que el
+  // emparejamiento es cruzado (el asiento salió de otro banco o quedó en "Por
+  // Clasificar"), y en ese caso ninguna fila puede quedarse con él.
   const lineas = await prisma.journalLine.findMany({
     where: {
-      journalEntryId: { in: compartidos.map(([id]) => id) },
-      account: { code: { startsWith: '1.1.02' } },
+      journalEntryId: { in: [...porAsiento.keys()] },
+      accountId: bankAccountId,
     },
     select: { journalEntryId: true },
   });
@@ -222,9 +225,9 @@ async function soltarAsientosRepetidos(
   }
 
   let liberadas = 0;
-  for (const [entryId, filas] of compartidos) {
-    const disponibles = lineasPorAsiento.get(entryId) || 1;
-    if (filas.length <= disponibles) continue;
+  for (const [entryId, filas] of porAsiento) {
+    const disponibles = lineasPorAsiento.get(entryId) || 0;
+    if (filas.length <= disponibles) continue; // todas las filas tienen su línea
 
     const orden = [...filas].sort((a, b) =>
       (Number(b.matchConfidence) || 0) - (Number(a.matchConfidence) || 0) ||
@@ -294,8 +297,8 @@ reconcileRouter.post('/:id/rematch', requireRole('admin', 'contador', 'superadmi
   if (!statement) { res.status(404).json({ error: 'Extracto no encontrado' }); return; }
 
   try {
-    const { liberadas, bloqueadas } = await soltarAsientosRepetidos(req.prisma, statement.rows);
-    const matches = await autoMatch(statement.id, req.prisma, req.user!.companyId, bloqueadas);
+    const { liberadas, bloqueadas } = await soltarAsientosRepetidos(req.prisma, statement.rows, statement.bankAccountId);
+    const matches = await autoMatch(statement.id, req.prisma, req.user!.companyId, statement.bankAccountId, bloqueadas);
     const detalle = await detalleDeExtracto(req.prisma, req.user!.companyId, statement.id);
 
     res.json({

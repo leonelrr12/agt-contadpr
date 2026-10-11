@@ -50,14 +50,17 @@ const prisma = {
     },
   },
   // Un solo asiento en el libro: el pago de $10 del 01-ene en la cuenta de banco
-  journalLine: { findMany: async () => lineasLibro },
+  journalLine: {
+    findMany: async ({ where }: any = {}) =>
+      lineasLibro.filter(l => !where?.accountId || l.accountId === where.accountId),
+  },
   journalEntry: { findMany: async () => [] },
 };
 
 /** Asientos del libro que ve el matcher (cada test puede cambiarlos). */
 let lineasLibro: any[] = [];
 const lineaDe = (entryId: string, credit: number, dia = '2026-01-01') => ({
-  id: `jl-${entryId}`, debit: 0, credit,
+  id: `jl-${entryId}`, journalEntryId: entryId, accountId: 'acc-banco', debit: 0, credit,
   journalEntry: { id: entryId, date: new Date(`${dia}T12:00:00`), description: 'YAPPY BG A KARLA ISABEL ROMERO GOMEZ' },
   account: { code: '1.1.02.01', name: 'Banco General' },
 });
@@ -193,5 +196,31 @@ describe('POST /reconcile/:id/rematch — volver a conciliar sin volver a subir'
     const res = await fetch(`${base}/ajeno/rematch`, { method: 'POST' });
     expect(res.status).toBe(404);
     (prisma.bankStatement as any).findFirst = original;
+  });
+});
+
+/**
+ * Con dos bancos propios, el mismo monto el mismo día existe en los dos. Acá el
+ * asiento del extracto (8829-7) se lo había llevado el asiento de la 2810-1 y la
+ * fila quedaba apuntando al banco equivocado mientras el asiento correcto
+ * aparecía como "sin conciliar (libros)".
+ */
+describe('POST /reconcile/:id/rematch — suelta los emparejamientos cruzados', () => {
+  it('la fila vuelve a su asiento de la cuenta del extracto', async () => {
+    filas = [
+      { id: 'y1', date: new Date('2026-01-15T12:00:00'), description: 'YAPPY BG A JOEL ARTURO KELLYS', reference: '1', debit: 15, credit: 0, balance: 0, status: 'MATCHED', matchedEntryId: 'je-2810', matchConfidence: 0.9 },
+    ];
+    lineasLibro = [
+      { id: 'jl-2810', journalEntryId: 'je-2810', accountId: 'acc-2810', debit: 0, credit: 15, journalEntry: { id: 'je-2810', date: new Date('2026-01-15T12:00:00'), description: 'YAPPY BG A JOEL ARTURO KELLYS' }, account: { code: '1.1.02.02', name: 'Banco General SOCIEDAD ANONIMA - 2810-1' } },
+      { id: 'jl-8829', journalEntryId: 'je-8829', accountId: 'acc-banco', debit: 0, credit: 15, journalEntry: { id: 'je-8829', date: new Date('2026-01-15T12:00:00'), description: 'YAPPY BG A JOEL ARTURO KELLYS POR Neithan Blis' }, account: { code: '1.1.02.01', name: 'Banco General ODESA Natural - 8829-7' } },
+    ];
+
+    const res = await fetch(`${base}/bs1/rematch`, { method: 'POST' });
+    const body: any = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.rematch.liberadas).toBe(1);
+    expect(filas[0].matchedEntryId).toBe('je-8829');
+    expect(body.summary.matched).toBe(1);
   });
 });

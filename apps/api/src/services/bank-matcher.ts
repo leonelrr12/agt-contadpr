@@ -47,13 +47,15 @@ function daysBetween(d1: Date, d2: Date): number {
 }
 
 /**
- * Encuentra el mejor match para una fila de extracto bancario contra los asientos registrados.
- * Busca en todas las cuentas de banco (código empieza con 1.1.02).
+ * Encuentra el mejor match para una fila de extracto bancario contra los asientos
+ * registrados EN LA CUENTA DEL EXTRACTO.
  */
 async function findBestMatch(
   row: ParsedRow,
   prisma: any,
   companyId: string,
+  /** Cuenta del extracto: solo sus líneas pueden sustentar una fila. */
+  bankAccountId: string,
   /**
    * Lo que ya está conciliado. La unidad es la LÍNEA del asiento, no el asiento:
    * un asiento puede tener dos líneas de banco (dos transferencias cargadas
@@ -71,7 +73,13 @@ async function findBestMatch(
   const rowDate = new Date(row.date);
   const tolerance = 0.02; // 2 centavos de tolerancia
 
-  // Buscar asientos que afectan cuentas de banco (1.1.02.*) en un rango de ±5 días
+  // Buscar líneas de la CUENTA DEL EXTRACTO en un rango de ±5 días.
+  //
+  // Es la cuenta del extracto, no cualquier 1.1.02.*: con dos bancos propios hay
+  // montos repetidos y el matcher se llevaba el asiento del OTRO banco (mismo
+  // monto y misma fecha), dejando huérfano el de la cuenta correcta — y el
+  // contador veía como "sin conciliar" un movimiento que sí estaba registrado
+  // (los $15 y $60 de enero en la 8829-7, que se los llevó la 2810-1).
   const startDate = new Date(rowDate);
   startDate.setDate(startDate.getDate() - 5);
   const endDate = new Date(rowDate);
@@ -79,10 +87,7 @@ async function findBestMatch(
 
   const bankLines = await prisma.journalLine.findMany({
     where: {
-      account: {
-        code: { startsWith: '1.1.02' },
-        companyId,
-      },
+      accountId: bankAccountId,
       journalEntry: {
         companyId,
         status: { notIn: ['RECHAZADO', 'ANULADO'] },
@@ -159,6 +164,8 @@ export async function autoMatch(
   statementId: string,
   prisma: any,
   companyId: string,
+  /** Cuenta del extracto que se está conciliando. */
+  bankAccountId: string,
   /** Asientos que NO deben usarse en esta corrida (los que acaban de soltar filas sobrantes). */
   entradasBloqueadas: Set<string> = new Set(),
 ): Promise<MatchResult[]> {
@@ -199,7 +206,7 @@ export async function autoMatch(
       _raw: {},
     };
 
-    const match = await findBestMatch(parsed, prisma, companyId, ocupados);
+    const match = await findBestMatch(parsed, prisma, companyId, bankAccountId, ocupados);
 
     if (match) {
       // Actualizar la fila con el match

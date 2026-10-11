@@ -46,7 +46,7 @@ function prismaDeMatching() {
 describe('autoMatch — un asiento por fila', () => {
   it('dos movimientos idénticos se reparten los dos asientos (no el mismo dos veces)', async () => {
     const prisma = prismaDeMatching();
-    const matches = await autoMatch('bs1', prisma as any, 'odesa');
+    const matches = await autoMatch('bs1', prisma as any, 'odesa', 'acc-8829');
 
     expect(matches).toHaveLength(2);
     expect(new Set(matches.map(m => m.entryId)).size).toBe(2); // asientos distintos
@@ -61,7 +61,7 @@ describe('autoMatch — un asiento por fila', () => {
     prisma.bankStatementRow.findMany = async ({ where }: any) =>
       where.status === 'UNMATCHED' ? filasExtracto() : [{ matchedEntryId: 'je-A' }];
 
-    const matches = await autoMatch('bs1', prisma as any, 'odesa');
+    const matches = await autoMatch('bs1', prisma as any, 'odesa', 'acc-8829');
 
     expect(matches).toHaveLength(1);
     expect(matches[0].entryId).toBe('je-B');
@@ -136,7 +136,7 @@ describe('autoMatch — un asiento con dos líneas de banco sostiene dos filas',
     ];
     const prisma = prismaCon(lineas);
 
-    const matches = await autoMatch('bs1', prisma as any, 'odesa');
+    const matches = await autoMatch('bs1', prisma as any, 'odesa', 'acc-8829');
 
     expect(matches).toHaveLength(2);
     expect(matches.map(m => m.entryId)).toEqual(['je-T', 'je-T']);
@@ -156,7 +156,7 @@ describe('autoMatch — un asiento con dos líneas de banco sostiene dos filas',
     ];
     const prisma = prismaCon(lineas, dosIguales);
 
-    const matches = await autoMatch('bs1', prisma as any, 'odesa');
+    const matches = await autoMatch('bs1', prisma as any, 'odesa', 'acc-8829');
 
     // Hay una sola línea de $5.000 en el libro: sustenta UNA fila, no las dos
     expect(matches).toHaveLength(1);
@@ -169,9 +169,44 @@ describe('autoMatch — un asiento con dos líneas de banco sostiene dos filas',
     ];
     const prisma = prismaCon(lineas);
 
-    const matches = await autoMatch('bs1', prisma as any, 'odesa', new Set(['je-T']));
+    const matches = await autoMatch('bs1', prisma as any, 'odesa', 'acc-8829', new Set(['je-T']));
 
     expect(matches).toHaveLength(0);
     expect(prisma.updates).toHaveLength(0);
+  });
+});
+
+/**
+ * Con dos bancos propios hay montos repetidos el mismo día. El 13-ene el
+ * extracto de la 8829-7 traía $15 y el matcher se llevó el asiento de $15 de la
+ * 2810-1 (mismo monto, tres días antes), dejando huérfano el asiento correcto de
+ * la 8829-7: el contador veía como "sin conciliar" un movimiento registrado.
+ */
+describe('autoMatch — solo la cuenta del extracto', () => {
+  it('no se lleva el asiento del otro banco con el mismo monto y fecha', async () => {
+    const filas = [
+      { id: 'y1', date: fecha('2026-01-15'), description: 'YAPPY BG A JOEL ARTURO KELLYS', reference: '1', debit: 15, credit: 0, balance: 0, status: 'UNMATCHED', matchedEntryId: null },
+    ];
+    // El del otro banco va PRIMERO: sin el filtro por cuenta, se lo lleva él
+    const lineas = [
+      { id: 'jl-otro', journalEntryId: 'je-2810', accountId: 'acc-2810', debit: 0, credit: 15, journalEntry: { id: 'je-2810', date: fecha('2026-01-15'), description: 'YAPPY BG A JOEL ARTURO KELLYS' }, account: { code: '1.1.02.02', name: 'Banco General SOCIEDAD ANONIMA - 2810-1' } },
+      { id: 'jl-propio', journalEntryId: 'je-8829', accountId: 'acc-8829', debit: 0, credit: 15, journalEntry: { id: 'je-8829', date: fecha('2026-01-15'), description: 'YAPPY BG A JOEL ARTURO KELLYS POR Neithan Blis' }, account: { code: '1.1.02.01', name: 'Banco General ODESA Natural - 8829-7' } },
+    ];
+    const updates: any[] = [];
+    const prisma = {
+      bankStatementRow: {
+        findMany: async ({ where }: any) => (where.status === 'UNMATCHED' ? filas : []),
+        update: async ({ where, data }: any) => { updates.push({ id: where.id, matchedEntryId: data.matchedEntryId }); return data; },
+      },
+      journalLine: {
+        findMany: async ({ where }: any = {}) => lineas.filter(l => !where.accountId || l.accountId === where.accountId),
+      },
+    };
+
+    const matches = await autoMatch('bs1', prisma as any, 'odesa', 'acc-8829');
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0].entryId).toBe('je-8829');
+    expect(updates).toEqual([{ id: 'y1', matchedEntryId: 'je-8829' }]);
   });
 });
