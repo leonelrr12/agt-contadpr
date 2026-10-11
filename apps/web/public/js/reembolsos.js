@@ -363,8 +363,9 @@ function reembPintarDetalle() {
       html += `<div id="reemb-pago-bloque" style="margin-top:16px">
         <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
           <label style="font-size:13px;display:flex;align-items:center;gap:6px">
-            <input type="checkbox" onchange="reembMarcarTodo(this.checked)"> Seleccionar todas
+            <input type="checkbox" id="reemb-check-todas" onchange="reembMarcarTodo(this.checked)"> Seleccionar todas
           </label>
+          <button id="reemb-quitar-sel" class="btn-sm hidden" onclick="reembMarcarTodo(false)">Quitar selección</button>
           <button class="btn-primary" onclick="reembolsosAbrirPago()">💵 Reembolsar seleccionadas</button>
           <span id="reemb-total-sel" style="font-size:13px;color:#6b7280"></span>
         </div>
@@ -408,10 +409,24 @@ function reembTotalSeleccionado() {
   return _reembDetalle.facturas.filter(f => ids.has(f.id)).reduce((a, f) => a + Number(f.total || 0), 0);
 }
 
+/** Sincroniza el bloque de pago con la selección real: la casilla "Seleccionar
+ *  todas" se pinta marcada cuando están todas, a medias cuando hay algunas (así
+ *  desmarcarla quita la selección, que era lo que faltaba), y "Quitar selección"
+ *  aparece solo cuando hay algo que quitar. */
 function reembActualizarTotal() {
   const span = document.getElementById('reemb-total-sel');
-  if (!span) return;
+  const todas = document.getElementById('reemb-check-todas');
+  const quitar = document.getElementById('reemb-quitar-sel');
   const n = _reembSeleccion.size;
+  const pendientes = (_reembDetalle?.facturas || []).filter(f => f.status === 'PENDIENTE').length;
+
+  if (todas) {
+    todas.checked = pendientes > 0 && n === pendientes;
+    todas.indeterminate = n > 0 && n < pendientes;
+  }
+  if (quitar) quitar.classList.toggle('hidden', n === 0);
+
+  if (!span) return;
   span.textContent = n ? `${n} factura(s) seleccionada(s) — ${reembMoney(reembTotalSeleccionado())}` : 'Ninguna factura seleccionada';
 }
 
