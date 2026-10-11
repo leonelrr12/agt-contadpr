@@ -374,25 +374,7 @@
         </div>
       </div>
 
-      <!-- Panel de Conciliación -->
-      <div id="panel-conciliacion-content" class="hidden" style="padding:24px;max-width:900px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-          <div>
-            <h2 style="margin:0;color:#1a1a2e">🏦 Conciliación Bancaria</h2>
-            <p style="margin:4px 0 0 0;color:#6b7280;font-size:13px">Sube un extracto bancario y concilia contra tus asientos contables</p>
-          </div>
-          <button class="btn-primary" onclick="showConciliacionUpload()" style="padding:10px 20px;font-size:14px">+ Subir extracto</button>
-        </div>
-        <div id="conciliacion-inline-list">
-          <div style="text-align:center;padding:32px;color:#6b7280">Cargando extractos...</div>
-        </div>
-        <div id="conciliacion-inline-upload" class="hidden" style="border:2px dashed #d0d5dd;border-radius:12px;padding:32px 24px;text-align:center;background:#f9fafb;cursor:pointer;margin-bottom:16px">
-          <div style="font-size:36px;margin-bottom:8px">🏦</div>
-          <h3 style="margin:0 0 8px 0">Arrastra tu extracto (CSV/PDF)</h3>
-          <p style="margin:0;color:#6b7280;font-size:13px">Formatos aceptados: CSV, PDF del banco</p>
-          <input type="file" id="conciliacion-inline-file" accept=".csv,.pdf" style="display:none">
-        </div>
-      </div>
+      <!-- Conciliación ya no tiene panel interno: el menú abre /conciliacion.html -->
 
       <!-- Panel de Calendario Fiscal -->
       <!-- Panel de Salud Financiera -->
@@ -713,11 +695,11 @@
   <script src="js/capture.js?v=74"></script>
   <script src="js/capture-qr.js?v=74"></script>
   <script src="js/chat.js?v=76"></script>
-  <script src="js/router.js?v=78"></script>
+  <script src="js/router.js?v=79"></script>
   <script src="js/admin.js?v=90"></script>
   <script src="js/init.js?v=76"></script>
   <script src="js/panels-sidebar.js?v=74"></script>
-  <script src="js/import.js?v=95"></script>
+  <script src="js/import.js?v=97"></script>
   <script src="js/carga-inicial.js?v=3"></script>
   <script src="js/auxiliares-revision.js?v=80"></script>
   <script src="js/entry-modals.js?v=85"></script>
@@ -725,7 +707,7 @@
   <script src="js/presupuestos.js?v=1"></script>
   <script src="js/tax-calendar.js?v=74"></script>
   <script src="js/salud.js?v=74"></script>
-  <script src="js/reembolsos.js?v=4"></script>
+  <script src="js/reembolsos.js?v=5"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="js/facturas.js?v=80"></script>
 </body>
