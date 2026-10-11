@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseImportFile } from '../csv-parser';
+import { parseImportFile, debitCreditDeFila } from '../csv-parser';
 
 /**
  * El tipo de cada fila decide el asiento (una VENTA acredita la cuenta de
@@ -100,5 +100,56 @@ describe('parseImportFile — columna Banco/Cuenta', () => {
     const parsed = await parseImportFile(Buffer.from(csv, 'utf8'), 'x.csv');
     expect(parsed.rows[0].bankName).toBe('1.1.02.01 Banco General');
     expect(parsed.rows[0].state).toBe('Contado');
+  });
+});
+
+/**
+ * Extracto bancario del Banco General (11-10). Dos cosas lo dejaban inservible:
+ * la fecha con el mes en letras ("01-ene-2026") no se reconocía y TODAS las
+ * filas se caían al guardar, y el monto venía en una sola columna con signo
+ * ("- $ 10,00" = sale de la cuenta) sin columnas de débito/crédito, así que el
+ * conciliador no tenía contra qué comparar.
+ */
+describe('parseImportFile — extracto del banco: fecha en letras y monto con signo', () => {
+  const EXTRACTO = [
+    ',Fecha,Referencia,Descripción,Monto,Saldo total',
+    ',01-ene-2026,1,YAPPY BG A KARLA ISABEL ROMERO GOMEZ," - $ 10,00","$ 55.039,36"',
+    ',02-ene-2026,1,YAPPY BG A ANIBAL ENRIQUE BARRIA DE LA CRUZ," - $ 22,00","$ 54.997,36"',
+    ',15-sep-2026,2,DEPOSITO CLIENTE ACME,"$ 1.500,00","$ 56.497,36"',
+  ].join('\n');
+
+  const parsear = () => parseImportFile(Buffer.from(EXTRACTO, 'utf8'), 'ENERO.csv');
+
+  it('lee las fechas con el mes en letras', async () => {
+    const { rows } = await parsear();
+    expect(rows.map(r => r.date)).toEqual(['2026-01-01', '2026-01-02', '2026-09-15']);
+  });
+
+  it('el monto negativo es débito (sale del banco) y el positivo es crédito', async () => {
+    const { rows } = await parsear();
+    expect(rows.map(r => debitCreditDeFila(r))).toEqual([
+      { debit: 10, credit: 0 },
+      { debit: 22, credit: 0 },
+      { debit: 0, credit: 1500 },
+    ]);
+  });
+
+  it('lee el saldo y la descripción de cada fila', async () => {
+    const { rows } = await parsear();
+    expect(rows[0].balance).toBe(55039.36);
+    expect(rows[0].description).toBe('YAPPY BG A KARLA ISABEL ROMERO GOMEZ');
+    expect(rows[0].reference).toBe('1');
+  });
+
+  it('un mes que no existe no inventa fecha', async () => {
+    const csv = 'Fecha,Descripción,Monto\n01-xxx-2026,Algo," - $ 5,00"\n';
+    const { rows } = await parseImportFile(Buffer.from(csv, 'utf8'), 'x.csv');
+    expect(rows[0].date).toBeNull();
+  });
+
+  it('con columnas de débito y crédito propias, el monto con signo no las pisa', async () => {
+    const csv = 'Fecha,Descripción,Débito,Crédito\n01/03/2026,Retiro,25.00,\n';
+    const { rows } = await parseImportFile(Buffer.from(csv, 'utf8'), 'x.csv');
+    expect(debitCreditDeFila(rows[0])).toEqual({ debit: 25, credit: 0 });
   });
 });

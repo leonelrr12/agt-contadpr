@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { validate } from '../middleware/validate';
+import { requireRole } from '../middleware/auth';
 import { requireQuota, incrementUsage } from '../middleware/quota';
-import { parseImportFile, type ParsedRow } from '../services/csv-parser';
+import { parseImportFile, debitCreditDeFila, type ParsedRow } from '../services/csv-parser';
 import { autoMatch, findUnmatchedBookEntries } from '../services/bank-matcher';
 import { reconcileMatchSchema, reconcileCreateEntrySchema } from '../validation/schemas';
 import { ClassificationAgent, AccountingAgent } from '@agt-contador/agents';
@@ -52,13 +53,26 @@ reconcileRouter.post('/upload', upload.single('file'), async (req, res) => {
 
     const parsed = await parseImportFile(req.file.buffer, req.file.originalname);
 
+    // Un extracto sin ninguna partida con fecha es un archivo que NO supimos
+    // leer, no una conciliación vacía: se avisa y no se guarda nada. Antes se
+    // aceptaba en silencio y el extracto quedaba en la lista con 0 filas y sin
+    // nada que conciliar (pasó el 11-10 con dos cargas del ENERO).
+    const filas = parsed.rows.filter(r => r.date);
+    if (filas.length === 0) {
+      res.status(400).json({
+        error: parsed.rows.length === 0
+          ? 'El archivo no trae ninguna fila de datos. ¿Es el extracto correcto?'
+          : `No se pudo leer la fecha de ninguna de las ${parsed.rows.length} filas del archivo, así que no hay nada que conciliar. Revisá la columna de Fecha: se aceptan 01/01/2026, 2026-01-01 y 01-ene-2026.`,
+      });
+      return;
+    }
+
     // Determinar fechas del extracto
-    const dates = parsed.rows
+    const dates = filas
       .map(r => r.date)
-      .filter(Boolean)
       .sort() as string[];
-    const statementStart = dates.length > 0 ? new Date(dates[0]) : null;
-    const statementEnd = dates.length > 0 ? new Date(dates[dates.length - 1]) : null;
+    const statementStart = new Date(dates[0]);
+    const statementEnd = new Date(dates[dates.length - 1]);
 
     const openingBalance = parsed.rows[0]?.balance ?? 0;
     const closingBalance = parsed.rows[parsed.rows.length - 1]?.balance ?? 0;
@@ -74,14 +88,15 @@ reconcileRouter.post('/upload', upload.single('file'), async (req, res) => {
         openingBalance,
         closingBalance,
         rows: {
-          create: parsed.rows
-            .filter(r => r.date)
+          create: filas
             .map(r => ({
               date: parseLocalDate(r.date!),
               description: r.description || 'Sin descripción',
               reference: r.reference || null,
-              debit: r.debit || 0,
-              credit: r.credit || 0,
+              // El extracto puede traer débito/crédito o una sola columna de
+              // monto con signo (ver debitCreditDeFila): el conciliador necesita
+              // los dos lados para comparar contra el libro.
+              ...debitCreditDeFila(r),
               balance: r.balance || null,
             })),
         },
@@ -96,24 +111,24 @@ reconcileRouter.post('/upload', upload.single('file'), async (req, res) => {
     const unmatchedBooks = await findUnmatchedBookEntries(
       req.prisma,
       req.user!.companyId,
+      bankAccountId,
       statementStart || undefined,
       statementEnd || undefined,
     );
 
-    const matchedRows = statement.rows.filter(r => r.status === 'MATCHED').length;
-    const unmatchedRows = statement.rows.length - matchedRows;
+    // Se relee el extracto para responder el MISMO cuerpo que GET /:id —el
+    // frente usa un solo render para los tres—: las filas que devolvió el create
+    // son de ANTES del auto-matching (todas UNMATCHED y sin el asiento
+    // vinculado, así que el resumen decía "0 conciliados" aunque hubiera
+    // matches), y sin `unmatchedBooks` el render reventaba con "Cannot read
+    // properties of undefined (reading 'length')".
+    const detalle = await detalleDeExtracto(req.prisma, req.user!.companyId, statement.id);
 
     res.status(201).json({
-      statement: {
-        ...statement,
-        rows: statement.rows,
-      },
+      ...(detalle ?? { statement, unmatchedBooks, summary: { total: statement.rows.length, matched: 0, unmatched: statement.rows.length, unmatchedBookCount: unmatchedBooks.length } }),
       summary: {
-        total: statement.rows.length,
-        matched: matchedRows,
-        unmatched: unmatchedRows,
+        ...(detalle?.summary ?? { total: statement.rows.length, matched: 0, unmatched: statement.rows.length, unmatchedBookCount: unmatchedBooks.length }),
         matches,
-        unmatchedBookCount: unmatchedBooks.length,
       },
     });
   } catch (error: any) {
@@ -124,6 +139,110 @@ reconcileRouter.post('/upload', upload.single('file'), async (req, res) => {
     });
   }
 });
+
+/**
+ * Detalle de un extracto: sus filas con el asiento vinculado, los asientos del
+ * libro sin conciliar de esa cuenta, y el resumen.
+ *
+ * Lo comparten el GET, la subida y el "volver a conciliar": el frente tiene un
+ * solo render, así que el cuerpo tiene que ser siempre el mismo.
+ */
+async function detalleDeExtracto(prisma: any, companyId: string, statementId: string): Promise<any | null> {
+  const statement = await prisma.bankStatement.findFirst({
+    where: { id: statementId, companyId },
+    include: {
+      bankAccount: { select: { code: true, name: true } },
+      rows: {
+        include: { matchedEntry: { select: { id: true, date: true, description: true, status: true } } },
+        orderBy: { date: 'asc' },
+      },
+    },
+  });
+  if (!statement) return null;
+
+  const unmatchedBooks = await findUnmatchedBookEntries(
+    prisma,
+    companyId,
+    statement.bankAccountId,
+    statement.statementStart || undefined,
+    statement.statementEnd || undefined,
+  );
+
+  const filas: any[] = statement.rows;
+  const matched = filas.filter(r => r.status === 'MATCHED').length;
+
+  return {
+    statement,
+    unmatchedBooks,
+    summary: {
+      total: filas.length,
+      matched,
+      unmatched: filas.length - matched,
+      unmatchedBookCount: unmatchedBooks.length,
+    },
+  };
+}
+
+/**
+ * Suelta las filas que quedaron de MÁS sobre un mismo asiento.
+ *
+ * El matcher viejo le daba el mismo asiento a varias filas cuando los
+ * movimientos eran idénticos, y el asiento gemelo quedaba "sin conciliar
+ * (libros)" para siempre. Pero compartir asiento no siempre es un error: un
+ * asiento con dos líneas de banco (dos transferencias cargadas juntas) sostiene
+ * legítimamente dos filas. Así que se mira cuántas líneas de banco tiene el
+ * asiento: si alcanzan para todas las filas, se dejan; si no, las sobrantes
+ * vuelven a UNMATCHED — y ese asiento queda bloqueado para que el matcher no se
+ * lo vuelva a dar a la fila liberada (su línea ya la usa otra fila).
+ */
+async function soltarAsientosRepetidos(
+  prisma: any,
+  rows: any[],
+): Promise<{ liberadas: number; bloqueadas: Set<string> }> {
+  const porAsiento = new Map<string, any[]>();
+  for (const r of rows) {
+    if (r.status !== 'MATCHED' || !r.matchedEntryId) continue;
+    porAsiento.set(r.matchedEntryId, [...(porAsiento.get(r.matchedEntryId) || []), r]);
+  }
+
+  const compartidos = [...porAsiento.entries()].filter(([, filas]) => filas.length > 1);
+  const bloqueadas = new Set<string>();
+  if (!compartidos.length) return { liberadas: 0, bloqueadas };
+
+  const lineas = await prisma.journalLine.findMany({
+    where: {
+      journalEntryId: { in: compartidos.map(([id]) => id) },
+      account: { code: { startsWith: '1.1.02' } },
+    },
+    select: { journalEntryId: true },
+  });
+  const lineasPorAsiento = new Map<string, number>();
+  for (const l of lineas) {
+    lineasPorAsiento.set(l.journalEntryId, (lineasPorAsiento.get(l.journalEntryId) || 0) + 1);
+  }
+
+  let liberadas = 0;
+  for (const [entryId, filas] of compartidos) {
+    const disponibles = lineasPorAsiento.get(entryId) || 1;
+    if (filas.length <= disponibles) continue;
+
+    const orden = [...filas].sort((a, b) =>
+      (Number(b.matchConfidence) || 0) - (Number(a.matchConfidence) || 0) ||
+      new Date(a.date).getTime() - new Date(b.date).getTime() ||
+      String(a.id).localeCompare(String(b.id)),
+    );
+    for (const sobra of orden.slice(disponibles)) {
+      await prisma.bankStatementRow.update({
+        where: { id: sobra.id },
+        data: { status: 'UNMATCHED', matchedEntryId: null, matchConfidence: null },
+      });
+      liberadas++;
+    }
+    bloqueadas.add(entryId);
+  }
+
+  return { liberadas, bloqueadas };
+}
 
 /**
  * GET /api/reconcile — listar statements previos
@@ -153,42 +272,41 @@ reconcileRouter.get('/', async (req, res) => {
  * GET /api/reconcile/:id — detalle del statement con filas y unmatched books
  */
 reconcileRouter.get('/:id', async (req, res) => {
+  const detalle = await detalleDeExtracto(req.prisma, req.user!.companyId, req.params.id);
+  if (!detalle) { res.status(404).json({ error: 'Extracto no encontrado' }); return; }
+  res.json(detalle);
+});
+
+/**
+ * POST /api/reconcile/:id/rematch — volver a conciliar sin borrar ni subir otra vez.
+ *
+ * Existe porque el matching corre UNA sola vez, en la subida: cuando se corrige
+ * un criterio del matcher, cuando el contador registra asientos que faltaban o
+ * cuando quedaron emparejamientos repetidos, el extracto ya cargado se quedaba
+ * con la foto vieja. Suelta los asientos repetidos y vuelve a correr el matcher
+ * sobre las filas que quedaron sin conciliar.
+ */
+reconcileRouter.post('/:id/rematch', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
   const statement = await req.prisma.bankStatement.findFirst({
     where: { id: req.params.id, companyId: req.user!.companyId },
-    include: {
-      bankAccount: { select: { code: true, name: true } },
-      rows: {
-        include: {
-          matchedEntry: {
-            select: { id: true, date: true, description: true, status: true },
-          },
-        },
-        orderBy: { date: 'asc' },
-      },
-    },
+    include: { rows: true },
   });
-
   if (!statement) { res.status(404).json({ error: 'Extracto no encontrado' }); return; }
 
-  const unmatchedBooks = await findUnmatchedBookEntries(
-    req.prisma,
-    req.user!.companyId,
-    (statement as any).statementStart || undefined,
-    (statement as any).statementEnd || undefined,
-  );
+  try {
+    const { liberadas, bloqueadas } = await soltarAsientosRepetidos(req.prisma, statement.rows);
+    const matches = await autoMatch(statement.id, req.prisma, req.user!.companyId, bloqueadas);
+    const detalle = await detalleDeExtracto(req.prisma, req.user!.companyId, statement.id);
 
-  const matched = (statement as any).rows.filter((r: any) => r.status === 'MATCHED').length;
-
-  res.json({
-    statement,
-    unmatchedBooks,
-    summary: {
-      total: (statement as any).rows.length,
-      matched,
-      unmatched: (statement as any).rows.length - matched,
-      unmatchedBookCount: unmatchedBooks.length,
-    },
-  });
+    res.json({
+      ...detalle,
+      summary: { ...detalle.summary, matches },
+      rematch: { liberadas, nuevas: matches.length },
+    });
+  } catch (error: any) {
+    console.error('[Reconcile] Rematch error:', error);
+    res.status(400).json({ error: error.message || 'No se pudo volver a conciliar' });
+  }
 });
 
 /**

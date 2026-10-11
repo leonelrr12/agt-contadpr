@@ -24,6 +24,22 @@ export interface ParsedRow {
   _raw: Record<string, string>;
 }
 
+/**
+ * Débito/crédito de una fila de extracto bancario.
+ *
+ * Muchos bancos exportan UNA sola columna de monto con signo ("Monto": -10,00
+ * es dinero que SALE de la cuenta) en vez de columnas de débito y crédito. El
+ * conciliador compara la SALIDA del extracto contra el crédito del libro, así
+ * que sin esta conversión las filas quedan en 0/0 y no matchea nada.
+ */
+export function debitCreditDeFila(row: ParsedRow): { debit: number; credit: number } {
+  const debit = Number(row.debit) || 0;
+  const credit = Number(row.credit) || 0;
+  if (debit || credit) return { debit, credit };
+  const monto = Number(row.amount) || 0;
+  return monto < 0 ? { debit: Math.abs(monto), credit: 0 } : { debit: 0, credit: monto };
+}
+
 export interface ColumnMapping {
   dateCol: string | null;
   descriptionCol: string | null;
@@ -92,10 +108,33 @@ function detectDelimiter(firstLine: string): string {
   return ',';
 }
 
+/** Meses en letras, como los exporta el banco ("01-ene-2026"). Se compara por
+ *  las tres primeras letras, así que "enero" y "septiembre" entran solos. */
+const MESES_ES: Record<string, number> = {
+  ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6,
+  jul: 7, ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12,
+};
+
 function parseDate(raw: string): string | null {
   if (!raw) return null;
   // Formatos: DD/MM/YYYY (Panamá), MM/DD/YYYY, YYYY-MM-DD, DD-MM-YYYY
   // Prioridad: DD/MM/YYYY (formato Panamá). Si mes > 12, intentar MM/DD/YYYY.
+  // El mes también puede venir en letras: "01-ene-2026" (Banco General). Sin
+  // esto la fecha quedaba null y el extracto se guardaba SIN filas (0 filas).
+  const mesLetras = raw.match(/^(\d{1,2})[\/\- ]([a-záéíóúüñ]{3,})\.?[\/\- ](\d{2,4})$/i);
+  if (mesLetras) {
+    const mes = MESES_ES[mesLetras[2].toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').slice(0, 3)];
+    if (mes) {
+      const dia = parseInt(mesLetras[1]);
+      let anio = parseInt(mesLetras[3]);
+      if (anio < 100) anio += 2000;
+      const d = new Date(anio, mes - 1, dia);
+      if (!isNaN(d.getTime()) && d.getMonth() === mes - 1 && d.getDate() === dia) {
+        return d.toISOString().split('T')[0];
+      }
+    }
+    return null; // mes en letras que no reconocemos: no inventar fecha
+  }
   const ddmmyyyy = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   if (ddmmyyyy) {
     const p1 = parseInt(ddmmyyyy[1]); // posible día o mes

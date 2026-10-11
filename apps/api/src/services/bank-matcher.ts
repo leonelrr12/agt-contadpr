@@ -54,7 +54,15 @@ async function findBestMatch(
   row: ParsedRow,
   prisma: any,
   companyId: string,
-): Promise<{ entryId: string; confidence: number; matchType: MatchResult['matchType'] } | null> {
+  /**
+   * Lo que ya está conciliado. La unidad es la LÍNEA del asiento, no el asiento:
+   * un asiento puede tener dos líneas de banco (dos transferencias cargadas
+   * juntas) y entonces sostiene legítimamente dos filas del extracto; lo que no
+   * puede repetirse es la misma línea —eso es un movimiento contado dos veces—.
+   * `entradas` viene de los extractos anteriores, que solo guardan el asiento.
+   */
+  ocupados: { lineas: Set<string>; entradas: Set<string> } = { lineas: new Set(), entradas: new Set() },
+): Promise<{ entryId: string; lineId: string; confidence: number; matchType: MatchResult['matchType'] } | null> {
   if (!row.date || (!row.debit && !row.credit)) return null;
 
   const amount = row.debit || row.credit || 0;
@@ -89,9 +97,15 @@ async function findBestMatch(
     },
   });
 
-  let bestMatch: { entryId: string; confidence: number; matchType: MatchResult['matchType'] } | null = null;
+  let bestMatch: { entryId: string; lineId: string; confidence: number; matchType: MatchResult['matchType'] } | null = null;
 
   for (const line of bankLines) {
+    // Línea ya usada por otra fila (o asiento ya conciliado en otro extracto):
+    // se salta. Sin esto, dos movimientos idénticos del extracto se llevaban la
+    // MISMA línea —el mismo movimiento contado dos veces— y el asiento gemelo
+    // quedaba "sin conciliar (libros)" para siempre (dos YAPPY de $11,50).
+    if (ocupados.lineas.has(line.id) || ocupados.entradas.has(line.journalEntry.id)) continue;
+
     // En el extracto: debit = salida del banco (se corresponde con credit en libros)
     // En el extracto: credit = entrada al banco (se corresponde con debit en libros)
     const bookAmount = row.debit && row.debit > 0 ? line.credit : line.debit;
@@ -125,7 +139,7 @@ async function findBestMatch(
     }
 
     if (!bestMatch || confidence > bestMatch.confidence) {
-      bestMatch = { entryId: line.journalEntry.id, confidence, matchType };
+      bestMatch = { entryId: line.journalEntry.id, lineId: line.id, confidence, matchType };
     }
   }
 
@@ -145,10 +159,25 @@ export async function autoMatch(
   statementId: string,
   prisma: any,
   companyId: string,
+  /** Asientos que NO deben usarse en esta corrida (los que acaban de soltar filas sobrantes). */
+  entradasBloqueadas: Set<string> = new Set(),
 ): Promise<MatchResult[]> {
   const rows = await prisma.bankStatementRow.findMany({
     where: { statementId, status: 'UNMATCHED' },
   });
+
+  // Asientos ya conciliados en OTROS extractos: no se reutilizan. Los de este
+  // mismo extracto quedan fuera a propósito —sus filas pueden compartir un
+  // asiento mientras cada una use una línea distinta (dos transferencias
+  // cargadas en un solo asiento)— y el reparto fino lo hace `ocupados.lineas`.
+  const yaConciliados = await prisma.bankStatementRow.findMany({
+    where: { status: 'MATCHED', matchedEntryId: { not: null }, statementId: { not: statementId } },
+    select: { matchedEntryId: true },
+  });
+  const ocupados = {
+    lineas: new Set<string>(),
+    entradas: new Set<string>([...yaConciliados.map((r: any) => r.matchedEntryId), ...entradasBloqueadas]),
+  };
 
   const matches: MatchResult[] = [];
 
@@ -170,7 +199,7 @@ export async function autoMatch(
       _raw: {},
     };
 
-    const match = await findBestMatch(parsed, prisma, companyId);
+    const match = await findBestMatch(parsed, prisma, companyId, ocupados);
 
     if (match) {
       // Actualizar la fila con el match
@@ -182,6 +211,7 @@ export async function autoMatch(
           matchConfidence: match.confidence,
         },
       });
+      ocupados.lineas.add(match.lineId);
 
       matches.push({ rowId: row.id, entryId: match.entryId, confidence: match.confidence, matchType: match.matchType });
     }
@@ -191,12 +221,18 @@ export async function autoMatch(
 }
 
 /**
- * Encuentra asientos de libro NO conciliados (en cuentas de banco,
- * en el rango del extracto, que no están matcheados a ninguna fila).
+ * Encuentra asientos de libro NO conciliados de la cuenta del extracto, en su
+ * rango de fechas.
+ *
+ * La cuenta es la DEL EXTRACTO a propósito: antes se listaban los asientos de
+ * TODAS las cuentas 1.1.02.* y el contador veía como "sin conciliar" el
+ * alquiler, la planilla o la letra del carro que salieron de OTRO banco (84
+ * asientos para un extracto de enero que solo tenía 9 suyos).
  */
 export async function findUnmatchedBookEntries(
   prisma: any,
   companyId: string,
+  bankAccountId: string,
   statementStart?: Date,
   statementEnd?: Date,
 ): Promise<any[]> {
@@ -214,7 +250,7 @@ export async function findUnmatchedBookEntries(
   const where: any = {
     companyId,
     status: { notIn: ['RECHAZADO', 'ANULADO'] },
-    lines: { some: { account: { code: { startsWith: '1.1.02' } } } },
+    lines: { some: { accountId: bankAccountId } },
   };
   if (Object.keys(dateFilter).length > 0) where.date = dateFilter;
 
@@ -223,7 +259,7 @@ export async function findUnmatchedBookEntries(
     include: {
       lines: {
         include: { account: true },
-        where: { account: { code: { startsWith: '1.1.02' } } },
+        where: { accountId: bankAccountId },
       },
     },
     orderBy: { date: 'asc' },

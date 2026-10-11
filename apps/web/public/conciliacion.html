@@ -123,7 +123,8 @@
     </div>
 
     <div class="actions-bar">
-      <button class="btn btn-secondary" onclick="resetView()">🔄 Nueva conciliación</button>
+      <button class="btn btn-primary" id="btn-rematch" onclick="rematchStatement()">🔄 Volver a conciliar</button>
+      <button class="btn btn-secondary" onclick="resetView()">🆕 Nueva conciliación</button>
       <a href="/index.html" class="btn btn-secondary" style="text-decoration:none">💬 Ir al Chat</a>
     </div>
   </div>
@@ -323,6 +324,36 @@ function renderDetail(data) {
 
   // Scroll to detail
   document.getElementById('step-detail').scrollIntoView({ behavior: 'smooth' });
+}
+
+/**
+ * Vuelve a correr el matcher sobre el extracto YA cargado.
+ *
+ * El matching corre una sola vez, en la subida: si se corrige un criterio, si
+ * el contador registra los asientos que faltaban o si quedaron emparejamientos
+ * repetidos, había que borrar el extracto y volver a subirlo.
+ */
+async function rematchStatement() {
+  if (!currentStatement) return;
+  const btn = document.getElementById('btn-rematch');
+  const texto = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Conciliando...';
+  try {
+    const res = await authFetch(`${API_URL}/reconcile/${currentStatement.id}/rematch`, { method: 'POST' });
+    if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+    const data = await res.json();
+    renderDetail(data);
+    const r = data.rematch || {};
+    const partes = [`${r.nuevas || 0} nueva(s)`];
+    if (r.liberadas) partes.push(`${r.liberadas} repetida(s) liberada(s)`);
+    alert(`✅ Reconciliado: ${partes.join(', ')}.`);
+  } catch (e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = texto;
+  }
 }
 
 async function unmatchRow(rowId) {
