@@ -184,6 +184,53 @@ describe('cafetería: deciden los ítems cuando el proveedor no dice el rubro', 
   });
 });
 
+/**
+ * Factura de fonda (11-10): "Hojaldre" ×2, "Buñuelo" y "Bistec Picado" de una
+ * panadería cuyo proveedor no dice el rubro. El flujo de WhatsApp clasifica con
+ * los TRES primeros ítems (`items.slice(0, 3)`), así que el `bistec` del cuarto
+ * nunca se miraba — y los otros dos no estaban en el mapa: la factura caía a
+ * Gastos Varios aunque Empresa Demo tenga Alimentación.
+ */
+describe('fonda: el ítem de panadería propone Alimentación', () => {
+  const conAlimentacion = [
+    { name: 'Alimentación', accountId: 'acct-alim', confidence: 0.9, keywords: '[]' },
+  ];
+
+  it('los ítems de fonda lo proponen, en singular y en plural', () => {
+    for (const palabra of [
+      'hojaldre', 'hojaldres', 'buñuelo', 'buñuelos', 'encebollado', 'encebollada',
+      'empanada', 'empanadas', 'tortilla', 'tortillas', 'frijol', 'frijoles',
+      'chicharrón', 'chicharron', 'chicharrones', 'rosquete', 'rosquetes',
+      'raspao', 'raspado', 'chicheme', 'víveres', 'viveres',
+    ]) {
+      expect(conceptoDelMapa(palabra, conAlimentacion)).toBe('Alimentación');
+    }
+  });
+
+  it('los tres primeros ítems alcanzan: la factura no cae a Gastos Varios', async () => {
+    const catalogoDemo = [
+      ...conAlimentacion,
+      { name: 'Gastos Varios', accountId: 'acct-varios', confidence: 0.9, keywords: '[]' },
+    ];
+    // Lo que arma el flujo de WhatsApp: los tres primeros ítems de la factura
+    const itemsDesc = 'Hojaldre, Hojaldre, Buñuelo';
+    let propuesto: string | null = null;
+    for (const palabra of itemsDesc.toLowerCase().split(/[\s,]+/).filter((w) => w.length >= 2)) {
+      propuesto = conceptoDelMapa(palabra, catalogoDemo) ?? propuesto;
+      if (propuesto) break;
+    }
+    expect(propuesto).toBe('Alimentación');
+    const r = await agente(catalogoDemo).classify(propuesto!, 'GASTO');
+    expect(r.concept).toBe('Alimentación');
+    expect(r.accountId).toBe('acct-alim');
+  });
+
+  it('sin Alimentación en el catálogo no propone nada (suspenso, no una cuenta inventada)', () => {
+    const sinRubro = [{ name: 'Papelería', accountId: 'acct-pap', confidence: 0.9, keywords: '[]' }];
+    expect(conceptoDelMapa('hojaldre', sinRubro)).toBeNull();
+  });
+});
+
 describe('palabras configuradas por la empresa (Concept.keywords)', () => {
   const concepts = [
     {

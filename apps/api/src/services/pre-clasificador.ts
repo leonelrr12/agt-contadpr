@@ -22,7 +22,10 @@ const IGNORAR = new Set([
  */
 export async function quickClassify(text: string | null | undefined, prisma?: any, companyId?: string): Promise<string | null> {
   if (!text) return null;
-  const words = text.toLowerCase().split(/\s+/).filter(w => w.length >= 2 && !IGNORAR.has(w));
+  // Se parte por todo lo que no sea letra o número — no solo por espacios: en una
+  // factura los ítems vienen como "EMPANADAS, TORTILLAS" y la coma pegada dejaba
+  // la palabra fuera del mapa (solo matcheaba el último ítem de la lista).
+  const words = text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length >= 2 && !IGNORAR.has(w));
   if (words.length === 0) return null;
 
   // Catálogo de la empresa: la búsqueda de keywords queda dentro de la empresa y

@@ -147,6 +147,7 @@ export const KEYWORD_MAP: Record<string, string[]> = {
   tocino: ['Alimentación', 'Alimentacion'], mortadela: ['Alimentación', 'Alimentacion'],
   bologna: ['Alimentación', 'Alimentacion'], salami: ['Alimentación', 'Alimentacion'],
   molida: ['Alimentación', 'Alimentacion'], bistec: ['Alimentación', 'Alimentacion'],
+  encebollado: ['Alimentación', 'Alimentacion'], encebollada: ['Alimentación', 'Alimentacion'],
   lomo: ['Alimentación', 'Alimentacion'], filete: ['Alimentación', 'Alimentacion'],
   // Verduras
   cebolla: ['Alimentación', 'Alimentacion'], tomate: ['Alimentación', 'Alimentacion'],
@@ -186,6 +187,22 @@ export const KEYWORD_MAP: Record<string, string[]> = {
   fideo: ['Alimentación', 'Alimentacion'], spaguetti: ['Alimentación', 'Alimentacion'],
   lasaña: ['Alimentación', 'Alimentacion'], lasana: ['Alimentación', 'Alimentacion'],
   ravioli: ['Alimentación', 'Alimentacion'], canelone: ['Alimentación', 'Alimentacion'],
+  // Comida de fonda. La factura del 11-10 (Hojaldre, Hojaldre, Buñuelo, Bistec
+  // Picado) de una panadería que no dice el rubro caía a Gastos Varios: ningún
+  // ítem estaba en el mapa y el `bistec`, que sí, quedaba fuera del alcance del
+  // clasificador (WhatsApp miraba solo los tres primeros ítems, ya corregido).
+  // En plural también: el texto se parte por espacios y el mapa no ve plurales.
+  hojaldre: ['Alimentación', 'Alimentacion'], hojaldres: ['Alimentación', 'Alimentacion'],
+  buñuelo: ['Alimentación', 'Alimentacion'], buñuelos: ['Alimentación', 'Alimentacion'],
+  empanada: ['Alimentación', 'Alimentacion'], empanadas: ['Alimentación', 'Alimentacion'],
+  tortilla: ['Alimentación', 'Alimentacion'], tortillas: ['Alimentación', 'Alimentacion'],
+  frijol: ['Alimentación', 'Alimentacion'], frijoles: ['Alimentación', 'Alimentacion'],
+  chicharrón: ['Alimentación', 'Alimentacion'], chicharron: ['Alimentación', 'Alimentacion'],
+  chicharrones: ['Alimentación', 'Alimentacion'], rosquete: ['Alimentación', 'Alimentacion'],
+  rosquetes: ['Alimentación', 'Alimentacion'], raspao: ['Alimentación', 'Alimentacion'],
+  raspado: ['Alimentación', 'Alimentacion'], chicheme: ['Alimentación', 'Alimentacion'],
+  // Víveres: la compra de provisiones de una fonda, con y sin tilde.
+  víveres: ['Alimentación', 'Alimentacion'], viveres: ['Alimentación', 'Alimentacion'],
   // Snacks y dulces
   chocolate: ['Refrigerios', 'Alimentación', 'Alimentacion'],
   dulce: ['Refrigerios', 'Alimentación', 'Alimentacion'],

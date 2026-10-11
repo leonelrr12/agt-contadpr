@@ -50,6 +50,14 @@ describe('quickClassify: propuestas validadas contra el catálogo de la empresa'
     expect(await quickClassify('TERPEL ESTACIÓN', roto as any, 'demo')).toBe('Combustible');
   });
 
+  it('la puntuación pegada no saca la palabra del mapa', async () => {
+    // "EMPANADAS," con la coma se quedaba fuera del mapa (el corte era por
+    // espacios) y solo proponía el último ítem de la lista, si acaso.
+    const demoComida = [...demo, { name: 'Alimentación', accountId: 'a3', confidence: 0.9, keywords: '[]' }];
+    expect(await quickClassify('EMPANADAS, CANTIDAD 3, PRECIO 1.50', prisma(demoComida) as any, 'demo')).toBe('Alimentación');
+    expect(await quickClassify('VIVERES, TOTAL 25.00', prisma(demoComida) as any, 'demo')).toBe('Alimentación');
+  });
+
   it('texto vacío o solo metadata no propone nada', async () => {
     expect(await quickClassify('   ', prisma(demo) as any, 'demo')).toBeNull();
     expect(await quickClassify('FACTURA RUC DV TOTAL ITBMS', prisma(demo) as any, 'demo')).toBeNull();

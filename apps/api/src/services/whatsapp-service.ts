@@ -203,9 +203,12 @@ export async function processWhatsAppPDF(
     const duplicado = await buscarFacturaDuplicada(prisma, link?.companyId, buildDedupeKey(factura));
     if (duplicado) return avisoDuplicado(duplicado);
 
-    // Extraer items para mostrar en resumen
+    // Extraer los items: la clasificación los mira TODOS. El ítem que resuelve
+    // el rubro puede estar en cualquier posición — la factura del 11-10 (Hojaldre,
+    // Hojaldre, Buñuelo, Bistec Picado) caía a Gastos Varios porque el `bistec`
+    // era el cuarto y solo se clasificaban los tres primeros.
     const items = extractInvoiceItems(pdfData.text);
-    const itemsDesc = items.length > 0 ? items.slice(0, 3).join(', ') : '';
+    const itemsDesc = items.join(', ');
 
     // Construir resumen base (el concepto se agrega después del orquestador)
     const baseParts: string[] = [];
@@ -828,7 +831,10 @@ async function conceptoPorTexto(
   tipo: string,
 ): Promise<string | null> {
   if (!text) return null;
-  const words = text.toLowerCase().split(/\s+/).filter(w => w.length >= 2);
+  // Se parte por todo lo que no sea letra o número — no solo por espacios: los
+  // ítems llegan unidos por comas ("Empanadas, Tortillas, Viveres") y la coma
+  // pegada dejaba la palabra fuera del mapa, así que solo matcheaba la última.
+  const words = text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length >= 2);
   if (words.length === 0) return null;
 
   // Catálogo de la empresa: es contra esto que se valida lo que propone el mapa.
