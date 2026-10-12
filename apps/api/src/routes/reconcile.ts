@@ -4,7 +4,7 @@ import { validate } from '../middleware/validate';
 import { requireRole } from '../middleware/auth';
 import { requireQuota, incrementUsage } from '../middleware/quota';
 import { parseImportFile, debitCreditDeFila, type ParsedRow } from '../services/csv-parser';
-import { autoMatch, findUnmatchedBookEntries } from '../services/bank-matcher';
+import { autoMatch, findUnmatchedBookEntries, daysBetween } from '../services/bank-matcher';
 import { reconcileMatchSchema, reconcileCreateEntrySchema } from '../validation/schemas';
 import { ClassificationAgent, AccountingAgent } from '@agt-contador/agents';
 import { checkNotBlocked } from '../services/journal-guard';
@@ -199,6 +199,89 @@ async function detalleDeExtracto(prisma: any, companyId: string, statementId: st
 }
 
 /**
+ * Reconstruye el vínculo por LÍNEA de los matches viejos, y devuelve cuántos creó.
+ *
+ * Los extractos conciliados antes de que existiera `bank_row_match` (12-10)
+ * guardan solo el asiento, no la línea que usaron. Sin ese dato el matcher
+ * bloquea el asiento ENTERO —y una transferencia entre cuentas propias tiene una
+ * línea en cada una (el 06-ene, 8829-7 → 2810-1: $2.100 y $5.000), así que la
+ * cuenta receptora no podía conciliar las suyas aunque estuvieran libres—.
+ *
+ * La línea se reconstruye con la misma regla que usa el matcher —la cuenta del
+ * extracto, el lado y el monto del movimiento, ±5 días—, y es exacta porque se
+ * parte de la propia fila. Si no hay ninguna línea que encaje, el match fue
+ * cruzado (el asiento salió de otra cuenta): no se inventa vínculo y el asiento
+ * sigue bloqueado, que es lo conservador.
+ */
+async function reconstruirVinculos(prisma: any, companyId: string): Promise<number> {
+  const faltantes = await prisma.bankStatementRow.findMany({
+    where: {
+      status: 'MATCHED',
+      matchedEntryId: { not: null },
+      matches: { none: {} },
+      statement: { companyId },
+    },
+    select: {
+      id: true, date: true, debit: true, credit: true, matchedEntryId: true,
+      statement: { select: { bankAccountId: true } },
+    },
+  });
+  if (!faltantes.length) return 0;
+
+  // Líneas ya tomadas por otro vínculo: la misma línea no puede sostener dos filas.
+  const vinculos = await prisma.bankRowMatch.findMany({
+    where: { row: { statement: { companyId } } },
+    select: { lineId: true },
+  });
+  const usadas = new Set<string>(vinculos.map((v: any) => v.lineId));
+
+  const porCuenta = new Map<string, any[]>();
+  for (const fila of faltantes) {
+    const acc = fila.statement.bankAccountId;
+    porCuenta.set(acc, [...(porCuenta.get(acc) || []), fila]);
+  }
+
+  let creados = 0;
+  for (const [accountId, filas] of porCuenta) {
+    const asientos = [...new Set(filas.map((f: any) => f.matchedEntryId))];
+    const lineas = await prisma.journalLine.findMany({
+      where: { accountId, journalEntryId: { in: asientos } },
+      select: { id: true, journalEntryId: true, debit: true, credit: true, journalEntry: { select: { date: true } } },
+    });
+
+    for (const fila of filas) {
+      const mio = fila.debit || fila.credit || 0;
+      if (!mio) continue;
+      const candidatas = lineas
+        .filter((l: any) => l.journalEntryId === fila.matchedEntryId && !usadas.has(l.id))
+        .map((l: any) => ({
+          linea: l,
+          monto: fila.debit > 0 ? l.credit : l.debit, // en el extracto el débito es salida; en libros, el haber
+          dias: daysBetween(new Date(fila.date), new Date(l.journalEntry.date)),
+        }))
+        .filter((c: any) => Math.abs(c.monto - mio) < 0.02 && c.dias <= 5)
+        .sort((a: any, b: any) => a.dias - b.dias || String(a.linea.id).localeCompare(String(b.linea.id)));
+      if (!candidatas.length) continue;
+
+      const elegida = candidatas[0];
+      await prisma.bankRowMatch.create({
+        data: {
+          rowId: fila.id,
+          entryId: fila.matchedEntryId,
+          lineId: elegida.linea.id,
+          amount: Math.round(elegida.monto * 100) / 100,
+          isManual: false,
+        },
+      });
+      usadas.add(elegida.linea.id);
+      creados++;
+    }
+  }
+
+  return creados;
+}
+
+/**
  * Suelta las filas que quedaron de MÁS sobre un mismo asiento.
  *
  * El matcher viejo le daba el mismo asiento a varias filas cuando los
@@ -327,6 +410,9 @@ reconcileRouter.post('/:id/rematch', requireRole('admin', 'contador', 'superadmi
   if (!statement) { res.status(404).json({ error: 'Extracto no encontrado' }); return; }
 
   try {
+    // Primero los vínculos que faltan: los matches viejos bloquean su asiento
+    // entero hasta que se sepa qué línea usaron (ver `reconstruirVinculos`).
+    const vinculos = await reconstruirVinculos(req.prisma, req.user!.companyId);
     const { liberadas, bloqueadas } = await soltarAsientosRepetidos(req.prisma, statement.rows, statement.bankAccountId);
     const matches = await autoMatch(statement.id, req.prisma, req.user!.companyId, statement.bankAccountId, bloqueadas);
     const detalle = await detalleDeExtracto(req.prisma, req.user!.companyId, statement.id);
@@ -334,7 +420,7 @@ reconcileRouter.post('/:id/rematch', requireRole('admin', 'contador', 'superadmi
     res.json({
       ...detalle,
       summary: { ...detalle.summary, matches },
-      rematch: { liberadas, nuevas: matches.length },
+      rematch: { liberadas, nuevas: matches.length, vinculos },
     });
   } catch (error: any) {
     console.error('[Reconcile] Rematch error:', error);

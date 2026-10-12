@@ -60,7 +60,7 @@ function dayNumber(d: Date): number {
   return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / DAY_MS);
 }
 
-function daysBetween(d1: Date, d2: Date): number {
+export function daysBetween(d1: Date, d2: Date): number {
   return Math.abs(dayNumber(d1) - dayNumber(d2));
 }
 
@@ -196,8 +196,21 @@ export async function autoMatch(
   // mismo extracto quedan fuera a propósito —sus filas pueden compartir un
   // asiento mientras cada una use una línea distinta (dos transferencias
   // cargadas en un solo asiento)— y el reparto fino lo hace `ocupados.lineas`.
+  //
+  // Ojo con bloquear el asiento ENTERO: una transferencia entre cuentas propias
+  // lleva crédito en una cuenta y débito en la otra (el 06-ene, 8829-7 → 2810-1:
+  // $2.100 y $5.000), así que el extracto de la cuenta receptora tiene que poder
+  // conciliar SUS líneas aunque el de la emisora ya haya usado las suyas. Antes
+  // el asiento entero quedaba bloqueado y esas dos filas no conciliaban nunca
+  // (12-10). El bloqueo por asiento se mantiene solo para los matches viejos, de
+  // antes de `bank_row_match`: esos no dejaron dicho qué línea usaron.
   const yaConciliados = await prisma.bankStatementRow.findMany({
-    where: { status: 'MATCHED', matchedEntryId: { not: null }, statementId: { not: statementId } },
+    where: {
+      status: 'MATCHED',
+      matchedEntryId: { not: null },
+      statementId: { not: statementId },
+      matches: { none: {} },
+    },
     select: { matchedEntryId: true },
   });
 

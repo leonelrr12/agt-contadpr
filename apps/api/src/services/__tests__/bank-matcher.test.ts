@@ -79,6 +79,61 @@ describe('autoMatch — un asiento por fila', () => {
   });
 });
 
+/**
+ * Transferencia entre cuentas propias: el asiento del 06-ene (8829-7 → 2810-1)
+ * tiene CRÉDITO en 8829-7 y DÉBITO en 2810-1, así que el extracto de la cuenta
+ * receptora tiene que conciliar sus líneas de débito aunque el extracto de la
+ * emisora ya haya usado las de crédito. Bloquear el asiento entero —como se
+ * hacía— dejaba las dos entradas de $2.100 y $5.000 pendientes para siempre.
+ */
+describe('autoMatch — transferencia entre cuentas propias', () => {
+  const filasExtracto = () => [
+    { id: 'r-2100', date: fecha('2026-01-06'), description: 'BANCA EN LINEA TRANSFERENCIA DE 0446016788297 ODERAY (SERVICIOS GENERALES ODESA)', reference: '1', debit: 0, credit: 2100, balance: 0, status: 'UNMATCHED', matchedEntryId: null },
+    { id: 'r-5000', date: fecha('2026-01-06'), description: 'BANCA EN LINEA TRANSFERENCIA DE 0446016788297 ODERAY (SERVICIOS GENERALES ODESA) PAGO INMOBILIARIA', reference: '1', debit: 0, credit: 5000, balance: 0, status: 'UNMATCHED', matchedEntryId: null },
+  ];
+
+  /** Líneas de DÉBITO del asiento en 2810-1, la cuenta de este extracto. */
+  const lineasDe2810 = () => [2100, 5000].map(m => ({
+    id: `jl-2810-${m}`, journalEntryId: 'je-transf', debit: m, credit: 0,
+    journalEntry: { id: 'je-transf', date: fecha('2026-01-06'), description: 'TRANFERENCIA DE 2610-1 A 8829-7' },
+    account: { code: '1.1.02.02', name: 'Banco General SOCIEDAD ANONIMA - 2810-1' },
+  }));
+
+  function prisma() {
+    const filas = filasExtracto();
+    const wheres: any[] = [];
+    return {
+      wheres,
+      bankStatementRow: {
+        findMany: async ({ where }: any) => {
+          if (where.status === 'UNMATCHED') return filas;
+          wheres.push(where);
+          // El match anterior (extracto de 8829-7) sí dejó vínculo por línea:
+          // la consulta lo excluye con `matches: { none: {} }`, así que no viene.
+          return where.matches ? [] : [{ matchedEntryId: 'je-transf' }];
+        },
+        update: async ({ where, data }: any) => ({ ...filas.find(f => f.id === where.id), ...data }),
+      },
+      journalLine: { findMany: async () => lineasDe2810() },
+      bankRowMatch: vinculosFalsos([{ lineId: 'jl-8829-2100' }, { lineId: 'jl-8829-5000' }]),
+    };
+  }
+
+  it('pide los matches de otros extractos solo si NO dejaron vínculo por línea', async () => {
+    const p = prisma();
+    await autoMatch('bs-ahorro', p as any, 'odesa', 'acc-2810');
+    expect(p.wheres[0].matches).toEqual({ none: {} });
+  });
+
+  it('las dos entradas concilian contra las líneas de débito de 2810-1', async () => {
+    const matches = await autoMatch('bs-ahorro', prisma() as any, 'odesa', 'acc-2810');
+    expect(matches.map(m => [m.rowId, m.entryId])).toEqual([
+      ['r-2100', 'je-transf'],
+      ['r-5000', 'je-transf'],
+    ]);
+  });
+});
+
 describe('findUnmatchedBookEntries — solo la cuenta del extracto', () => {
   it('pide los asientos de la cuenta del extracto, no de todos los bancos', async () => {
     let where: any = null;

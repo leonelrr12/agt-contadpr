@@ -42,8 +42,16 @@ const prisma = {
     }),
   },
   bankStatementRow: {
-    findMany: async ({ where }: any = {}) =>
-      where?.status === 'MATCHED' ? filas.filter(f => f.status === 'MATCHED') : filas.filter(f => f.status === 'UNMATCHED'),
+    findMany: async ({ where }: any = {}) => {
+      if (where?.status !== 'MATCHED') return filas.filter(f => f.status === 'UNMATCHED');
+      // Como la consulta real: `matches: { none: {} }` deja fuera los matches que
+      // SÍ registraron su vínculo por línea, y cada fila trae la cuenta de su
+      // extracto (una fila de `filas` puede ser de otro extracto: `cuenta`).
+      return filas
+        .filter(f => f.status === 'MATCHED')
+        .filter(f => !where?.matches || !vinculos.some(v => v.rowId === f.id))
+        .map(f => ({ ...f, statement: { bankAccountId: f.cuenta || 'acc-banco' } }));
+    },
     findFirst: async ({ where }: any = {}) => {
       const f = filas.find(x => x.id === where?.id);
       return f ? { ...f, statement: { bankAccountId: 'acc-banco' } } : null;
@@ -197,7 +205,9 @@ describe('POST /reconcile/:id/rematch — volver a conciliar sin volver a subir'
     const body: any = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.rematch).toEqual({ liberadas: 1, nuevas: 1 });
+    // El vínculo del match viejo (r1 → la línea de je-A) se reconstruye en la
+    // misma corrida: es el dato que hace que el reparto sea por línea.
+    expect(body.rematch).toEqual({ liberadas: 1, nuevas: 1, vinculos: 1 });
 
     const porFila = Object.fromEntries(filas.map(f => [f.id, f.matchedEntryId]));
     expect(porFila).toEqual({ r1: 'je-A', r2: 'je-B' });
@@ -213,6 +223,33 @@ describe('POST /reconcile/:id/rematch — volver a conciliar sin volver a subir'
     expect(Array.isArray(body.unmatchedBooks)).toBe(true);
     expect(body.statement.rows).toHaveLength(2);
     expect(body.statement.rows[0].matchedEntry.id).toBe('je-A');
+  });
+
+  /**
+   * Transferencia entre cuentas propias (06-ene, 8829-7 → 2810-1: $2.100 y
+   * $5.000): el asiento tiene la línea de crédito en una cuenta y la de débito
+   * en la otra. El match de la cuenta emisora es de los VIEJOS —no dejó vínculo
+   * por línea—, así que el asiento quedaba bloqueado entero y la cuenta
+   * receptora no podía conciliar sus filas nunca. El rematch reconstruye ese
+   * vínculo y recién entonces el asiento deja de estorbar.
+   */
+  it('un asiento con línea en cada cuenta no bloquea a la receptora', async () => {
+    filas = [
+      { id: 'vieja', cuenta: 'acc-otro', date: new Date('2026-01-06T12:00:00'), description: 'TRANFERENCIA A 8829-7', reference: '1', debit: 5000, credit: 0, balance: 0, status: 'MATCHED', matchedEntryId: 'je-transf', matchConfidence: 1 },
+      { id: 'r-transf', date: new Date('2026-01-06T12:00:00'), description: 'BANCA EN LINEA TRANSFERENCIA DE 0446016788297 ODERAY', reference: '1', debit: 0, credit: 5000, balance: 0, status: 'UNMATCHED', matchedEntryId: null },
+    ];
+    lineasLibro = [
+      { id: 'jl-otro', journalEntryId: 'je-transf', accountId: 'acc-otro', debit: 0, credit: 5000, journalEntry: { id: 'je-transf', date: new Date('2026-01-06T12:00:00'), description: 'TRANFERENCIA DE 2610-1 A 8829-7' }, account: { code: '1.1.02.01', name: 'Banco General ODESA Natural - 8829-7' } },
+      { id: 'jl-esta', journalEntryId: 'je-transf', accountId: 'acc-banco', debit: 5000, credit: 0, journalEntry: { id: 'je-transf', date: new Date('2026-01-06T12:00:00'), description: 'TRANFERENCIA DE 2610-1 A 8829-7' }, account: { code: '1.1.02.02', name: 'Banco General SOCIEDAD ANONIMA - 2810-1' } },
+    ];
+
+    const res = await fetch(`${base}/bs1/rematch`, { method: 'POST' });
+    const body: any = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.rematch.vinculos).toBe(1); // el del match viejo, en la otra cuenta
+    expect(body.rematch.nuevas).toBe(1);
+    expect(filas.find(f => f.id === 'r-transf').matchedEntryId).toBe('je-transf');
   });
 
   it('un extracto de otra empresa no se toca', async () => {
