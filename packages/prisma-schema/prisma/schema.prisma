@@ -213,6 +213,7 @@ model JournalEntry {
   transactions Transaction[]
   recurringTemplates RecurringTemplate[]
   bankStatementRows  BankStatementRow[]
+  bankRowMatches     BankRowMatch[]
   /// Factura de un trabajador que este asiento saldó (reembolso), si vino de ahí.
   expenseClaim ExpenseClaim?
 }
@@ -224,8 +225,9 @@ model JournalLine {
   debit          Float   @default(0)
   credit         Float   @default(0)
 
-  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id])
-  account      Account      @relation(fields: [accountId], references: [id])
+  journalEntry   JournalEntry   @relation(fields: [journalEntryId], references: [id])
+  account        Account        @relation(fields: [accountId], references: [id])
+  bankRowMatches BankRowMatch[]
 }
 
 model AccountingRule {
@@ -643,11 +645,48 @@ model BankStatementRow {
 
   statement       BankStatement  @relation(fields: [statementId], references: [id], onDelete: Cascade)
   matchedEntry    JournalEntry?  @relation(fields: [matchedEntryId], references: [id])
+  matches         BankRowMatch[]
 
   @@index([statementId])
   @@index([matchedEntryId])
   @@index([status])
   @@map("bank_statement_row")
+}
+
+/// Conciliación fina: qué LÍNEAS del libro sostienen una fila del extracto.
+///
+/// La unidad es la línea, no el asiento (un asiento puede tener dos líneas de
+/// banco), y una fila puede cubrirse con VARIAS líneas. El caso que lo motivó:
+/// el ACH de Inmobiliaria Don Antonio del 20-feb por $17.353,68 son cuatro
+/// facturas cobradas de una vez ($912,54 + $6.618,06 + $527,85 + $9.295,23), y
+/// ninguna línea sola da el total — el matcher automático no lo puede armar.
+///
+/// `matchedEntryId` de la fila sigue siendo el asiento "de cabecera" (el primero)
+/// para la UI y los listados; esta tabla es la verdad de qué está conciliado.
+/// `lineId` + `entryId` van juntos a propósito: la línea manda (es la unidad que
+/// no se puede repetir) y el asiento se guarda para no tener que resolverlo por
+/// join en cada consulta.
+model BankRowMatch {
+  id        String   @id @default(cuid())
+  rowId     String
+  entryId   String
+  lineId    String
+  /// Monto aplicado de esa línea. Normalmente el total de la línea; puede ser
+  /// parcial para que cuadre con la fila (depósito neto de comisión, etc.).
+  amount    Float
+  /// Vínculo hecho a mano por el contador: el matcher automático no lo reasigna.
+  isManual  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  row   BankStatementRow @relation(fields: [rowId], references: [id], onDelete: Cascade)
+  entry JournalEntry     @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  line  JournalLine      @relation(fields: [lineId], references: [id], onDelete: Cascade)
+
+  @@unique([rowId, lineId])
+  @@index([rowId])
+  @@index([entryId])
+  @@index([lineId])
+  @@map("bank_row_match")
 }
 
 model ImportLog {

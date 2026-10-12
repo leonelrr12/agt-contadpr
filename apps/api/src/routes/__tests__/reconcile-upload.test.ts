@@ -37,12 +37,17 @@ const prisma = {
       rows: filas.map(f => ({
         ...f,
         matchedEntry: f.matchedEntryId ? { id: f.matchedEntryId, date: new Date('2026-01-01T12:00:00'), description: 'YAPPY KARLA', status: 'BORRADOR' } : null,
+        matches: vinculos.filter(v => v.rowId === f.id),
       })),
     }),
   },
   bankStatementRow: {
     findMany: async ({ where }: any = {}) =>
       where?.status === 'MATCHED' ? filas.filter(f => f.status === 'MATCHED') : filas.filter(f => f.status === 'UNMATCHED'),
+    findFirst: async ({ where }: any = {}) => {
+      const f = filas.find(x => x.id === where?.id);
+      return f ? { ...f, statement: { bankAccountId: 'acc-banco' } } : null;
+    },
     update: async ({ where, data }: any) => {
       const f = filas.find(x => x.id === where.id);
       if (f) Object.assign(f, data);
@@ -52,10 +57,29 @@ const prisma = {
   // Un solo asiento en el libro: el pago de $10 del 01-ene en la cuenta de banco
   journalLine: {
     findMany: async ({ where }: any = {}) =>
-      lineasLibro.filter(l => !where?.accountId || l.accountId === where.accountId),
+      lineasLibro.filter(l =>
+        (!where?.accountId || l.accountId === where.accountId) &&
+        (!where?.id?.in || where.id.in.includes(l.id))),
   },
   journalEntry: { findMany: async () => [] },
+  // Vínculos banco ↔ partidas del libro (los crea el matcher y el vinculador)
+  bankRowMatch: {
+    findMany: async () => vinculos,
+    create: async ({ data }: any) => { vinculos.push(data); return data; },
+    createMany: async ({ data }: any) => { vinculos.push(...data); return { count: data.length }; },
+    deleteMany: async ({ where }: any = {}) => {
+      const antes = vinculos.length;
+      vinculos = vinculos.filter(v => {
+        if (where?.rowId && v.rowId !== where.rowId) return true;
+        if (where?.lineId?.notIn && where.lineId.notIn.includes(v.lineId)) return true;
+        return false;
+      });
+      return { count: antes - vinculos.length };
+    },
+  },
 };
+/** Vínculos vivos entre corridas (cada test arranca sin ninguno). */
+let vinculos: any[] = [];
 
 /** Asientos del libro que ve el matcher (cada test puede cambiarlos). */
 let lineasLibro: any[] = [];
@@ -70,6 +94,7 @@ let base = '';
 
 beforeAll(async () => {
   const app = express();
+  app.use(express.json()); // como en main.ts: sin esto /match no ve el body
   // Lo que en producción pone el middleware de auth
   app.use((req: any, _res, next) => { req.user = { companyId: 'c1', userId: 'u1', role: 'admin' }; req.prisma = prisma; next(); });
   app.use('/api/reconcile', reconcileRouter);
@@ -82,6 +107,7 @@ afterAll(() => server?.close());
 beforeEach(() => {
   creado = null;
   filas = [];
+  vinculos = [];
   lineasLibro = [lineaDe('je-1', 10)];
 });
 
@@ -222,5 +248,111 @@ describe('POST /reconcile/:id/rematch — suelta los emparejamientos cruzados', 
     expect(body.rematch.liberadas).toBe(1);
     expect(filas[0].matchedEntryId).toBe('je-8829');
     expect(body.summary.matched).toBe(1);
+  });
+});
+
+/**
+ * El ACH de Inmobiliaria Don Antonio del 20-feb: un solo depósito de $17.353,68
+ * que cobra CUATRO facturas ($912,54 + $6.618,06 + $527,85 + $9.295,23). El
+ * matcher empareja UNA línea contra UNA fila y por monto exacto, así que ese
+ * depósito no tiene contra qué conciliarse solo y las cuatro partidas quedaban
+ * "sin conciliar (libros)" para siempre. Lo arma el contador, a mano.
+ */
+describe('POST /reconcile/:id/match — una fila del extracto contra varias partidas', () => {
+  const ACH = 17353.68;
+  const COBROS: Array<[string, string, number]> = [
+    ['je-993', 'jl-993', 527.85],
+    ['je-994', 'jl-994', 912.54],
+    ['je-995', 'jl-995', 9295.23],
+    ['je-996', 'jl-996', 6618.06],
+  ];
+
+  const conAchSinConciliar = () => {
+    filas = [{ id: 'ach', date: new Date('2026-02-20T12:00:00'), description: 'ACH - INMOBILIARIA DON ANTONIO, S. A.', reference: '2', debit: 0, credit: ACH, balance: 0, status: 'UNMATCHED', matchedEntryId: null }];
+    lineasLibro = COBROS.map(([je, jl, monto]) => ({
+      id: jl, journalEntryId: je, accountId: 'acc-banco', debit: monto, credit: 0,
+      journalEntry: { id: je, date: new Date('2026-02-20T12:00:00'), description: `Cobro de factura ${je.slice(-3)}`, status: 'BORRADOR', companyId: 'c1' },
+      account: { code: '1.1.02.01', name: 'Banco General' },
+    }));
+  };
+
+  const vincular = async (links: any[]): Promise<{ status: number; body: any }> => {
+    const res = await fetch(`${base}/bs1/match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rowId: 'ach', links }),
+    });
+    return { status: res.status, body: await res.json() };
+  };
+
+  it('las cuatro partidas cuadran la fila y todas quedan conciliadas', async () => {
+    conAchSinConciliar();
+
+    const r = await vincular(COBROS.map(([, jl, monto]) => ({ lineId: jl, amount: monto })));
+
+    expect(r.status).toBe(200);
+    expect(filas[0].status).toBe('MATCHED');
+    expect(filas[0].matchedEntryId).toBe('je-993'); // el primero del vínculo, para la UI
+    expect(vinculos).toHaveLength(4);
+    expect(vinculos.every(v => v.isManual)).toBe(true);
+    expect(vinculos.reduce((s, v) => s + v.amount, 0)).toBeCloseTo(ACH, 2);
+    // La respuesta es el detalle completo: el frente tiene un solo render
+    expect(Array.isArray(r.body.unmatchedBooks)).toBe(true);
+    expect(r.body.statement.rows[0].matches).toHaveLength(4);
+  });
+
+  it('sin el monto de la fila no vincula: dice cuánto falta y no toca nada', async () => {
+    conAchSinConciliar();
+
+    const r = await vincular(COBROS.slice(0, 3).map(([, jl, monto]) => ({ lineId: jl, amount: monto })));
+
+    expect(r.status).toBe(400);
+    // Faltan los $6.618,06 de la factura 996, la que quedó fuera
+    expect(r.body.error).toMatch(/Faltan \$6618\.06/i);
+    expect(filas[0].status).toBe('UNMATCHED');
+    expect(vinculos).toHaveLength(0);
+  });
+
+  it('una partida del lado contrario de la fila no sirve', async () => {
+    conAchSinConciliar();
+    // La fila es una ENTRADA de dinero: la partida va al débito del banco
+    lineasLibro.push({
+      id: 'jl-raro', journalEntryId: 'je-raro', accountId: 'acc-banco', debit: 0, credit: 17353.68,
+      journalEntry: { id: 'je-raro', date: new Date('2026-02-20T12:00:00'), description: 'Salida que no corresponde', status: 'BORRADOR', companyId: 'c1' },
+      account: { code: '1.1.02.01', name: 'Banco General' },
+    });
+
+    const r = await vincular([{ lineId: 'jl-raro', amount: 17353.68 }]);
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/no sirve para esta fila/i);
+    expect(filas[0].status).toBe('UNMATCHED');
+  });
+
+  it('una partida ya conciliada en otra fila no se reutiliza', async () => {
+    conAchSinConciliar();
+    vinculos = [{ rowId: 'otra-fila', lineId: 'jl-993', entryId: 'je-993', amount: 527.85, isManual: true }];
+
+    const r = await vincular(COBROS.map(([, jl, monto]) => ({ lineId: jl, amount: monto })));
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/ya está conciliada en otra fila/i);
+  });
+
+  it('desvincular borra los vínculos y deja la fila sin conciliar', async () => {
+    conAchSinConciliar();
+    await vincular(COBROS.map(([, jl, monto]) => ({ lineId: jl, amount: monto })));
+
+    const res = await fetch(`${base}/bs1/match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rowId: 'ach', entryId: null }),
+    });
+    const body: any = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(vinculos).toHaveLength(0);
+    expect(filas[0].status).toBe('UNMATCHED');
+    expect(body.statement.rows[0].matches).toHaveLength(0);
   });
 });

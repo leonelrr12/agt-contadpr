@@ -153,7 +153,19 @@ async function detalleDeExtracto(prisma: any, companyId: string, statementId: st
     include: {
       bankAccount: { select: { code: true, name: true } },
       rows: {
-        include: { matchedEntry: { select: { id: true, date: true, description: true, status: true } } },
+        include: {
+          matchedEntry: { select: { id: true, date: true, description: true, status: true } },
+          // Qué partidas del libro sostienen la fila: una sola (lo normal) o
+          // varias (el ACH de cuatro facturas). El frente las muestra y el
+          // vinculador las precarga al editar.
+          matches: {
+            include: {
+              entry: { select: { id: true, date: true, description: true } },
+              line: { select: { debit: true, credit: true } },
+            },
+            orderBy: { createdAt: 'asc' },
+          },
+        },
         orderBy: { date: 'asc' },
       },
     },
@@ -200,9 +212,19 @@ async function soltarAsientosRepetidos(
   rows: any[],
   bankAccountId: string,
 ): Promise<{ liberadas: number; bloqueadas: Set<string> }> {
+  // Un vínculo MANUAL (banco ↔ varias partidas, o el 1:1 elegido a mano) no se
+  // suelta nunca: es una decisión del contador, no un emparejamiento del matcher.
+  const vinculos = await prisma.bankRowMatch.findMany({
+    where: { rowId: { in: rows.map(r => r.id) } },
+    select: { rowId: true, isManual: true },
+  });
+  const manuales = new Set<string>(vinculos.filter((v: any) => v.isManual).map((v: any) => v.rowId));
+  const conVinculo = new Set<string>(vinculos.map((v: any) => v.rowId));
+
   const porAsiento = new Map<string, any[]>();
   for (const r of rows) {
     if (r.status !== 'MATCHED' || !r.matchedEntryId) continue;
+    if (manuales.has(r.id)) continue;
     porAsiento.set(r.matchedEntryId, [...(porAsiento.get(r.matchedEntryId) || []), r]);
   }
 
@@ -239,6 +261,11 @@ async function soltarAsientosRepetidos(
         where: { id: sobra.id },
         data: { status: 'UNMATCHED', matchedEntryId: null, matchConfidence: null },
       });
+      // La fila liberada suelta también su vínculo: si no, la línea quedaría
+      // ocupada por una fila que ya no la sostiene.
+      if (conVinculo.has(sobra.id)) {
+        await prisma.bankRowMatch.deleteMany({ where: { rowId: sobra.id } });
+      }
       liberadas++;
     }
     bloqueadas.add(entryId);
@@ -313,27 +340,138 @@ reconcileRouter.post('/:id/rematch', requireRole('admin', 'contador', 'superadmi
 });
 
 /**
- * POST /api/reconcile/:id/match — vincular/desvincular manual
+ * Vincula a mano una fila del extracto con las partidas del libro que la
+ * sostienen. Devuelve el mensaje de error, o null si quedó vinculada.
+ *
+ * El caso que lo pide: el ACH de Inmobiliaria Don Antonio del 20-feb por
+ * $17.353,68 son cuatro facturas cobradas de una vez. El matcher empareja UNA
+ * línea contra UNA fila por monto exacto, así que ese depósito no tiene contra
+ * qué conciliarse solo; acá el contador arma el vínculo y la suma tiene que dar
+ * el monto de la fila (±2 centavos).
+ */
+async function vincularLineas(
+  prisma: any,
+  companyId: string,
+  row: any,
+  links: Array<{ lineId: string; amount?: number }>,
+): Promise<string | null> {
+  const bankAccountId = row.statement.bankAccountId;
+  const lineIds = [...new Set(links.map(l => l.lineId))];
+  const esEntrada = (row.credit || 0) > 0; // entra plata al banco → la partida va al débito
+  const montoFila = esEntrada ? row.credit : row.debit;
+
+  const lineas = await prisma.journalLine.findMany({
+    where: { id: { in: lineIds }, accountId: bankAccountId },
+    include: { journalEntry: { select: { id: true, companyId: true, date: true, description: true, status: true } } },
+  });
+  if (lineas.length !== lineIds.length) {
+    return 'Alguna de las partidas no es de la cuenta de este extracto.';
+  }
+
+  const ocupadas = await prisma.bankRowMatch.findMany({
+    where: { lineId: { in: lineIds }, rowId: { not: row.id } },
+    select: { lineId: true },
+  });
+  if (ocupadas.length) {
+    return 'Una de esas partidas ya está conciliada en otra fila del extracto: desvinculala de ahí primero.';
+  }
+
+  const porLinea = new Map<string, any>(lineas.map((l: any) => [l.id, l]));
+  const aplicados: Array<{ lineId: string; entryId: string; amount: number }> = [];
+  for (const link of links) {
+    const linea = porLinea.get(link.lineId)!;
+    const je = linea.journalEntry;
+    if (je.companyId !== companyId) return 'Alguna de esas partidas es de otra empresa.';
+    if (je.status === 'RECHAZADO' || je.status === 'ANULADO') {
+      return `El asiento "${je.description}" está ${je.status.toLowerCase()} y no puede conciliarse.`;
+    }
+
+    // En el extracto, débito = salida del banco y crédito = entrada; en libros
+    // la partida va al revés. Solo sirve el lado que corresponde.
+    const disponible = esEntrada ? linea.debit : linea.credit;
+    if (!(disponible > 0)) {
+      return `La partida "${je.description}" no sirve para esta fila: es una ${esEntrada ? 'entrada' : 'salida'} de dinero y esa partida está del otro lado.`;
+    }
+    const amount = link.amount ?? disponible;
+    if (amount > disponible + 0.02) {
+      return `El monto aplicado a "${je.description}" ($${amount.toFixed(2)}) es mayor que el de la partida ($${disponible.toFixed(2)}).`;
+    }
+    aplicados.push({ lineId: linea.id, entryId: je.id, amount: Math.round(amount * 100) / 100 });
+  }
+
+  const total = Math.round(aplicados.reduce((s, a) => s + a.amount, 0) * 100) / 100;
+  const dif = Math.round((total - montoFila) * 100) / 100;
+  if (Math.abs(dif) > 0.02) {
+    return dif < 0
+      ? `Faltan $${Math.abs(dif).toFixed(2)} para cuadrar la fila de $${montoFila.toFixed(2)}.`
+      : `Las partidas se pasan por $${dif.toFixed(2)} de la fila de $${montoFila.toFixed(2)}.`;
+  }
+
+  // Primero los vínculos nuevos y después los que ya no van: el unique
+  // (rowId, lineId) no se pisa y la fila nunca queda a medias.
+  const previos = await prisma.bankRowMatch.findMany({ where: { rowId: row.id }, select: { lineId: true } });
+  const previosSet = new Set<string>(previos.map((p: any) => p.lineId));
+  const nuevos = aplicados.filter(a => !previosSet.has(a.lineId));
+  if (nuevos.length) {
+    await prisma.bankRowMatch.createMany({
+      data: nuevos.map(a => ({ rowId: row.id, entryId: a.entryId, lineId: a.lineId, amount: a.amount, isManual: true })),
+    });
+  }
+  await prisma.bankRowMatch.deleteMany({
+    where: { rowId: row.id, lineId: { notIn: aplicados.map(a => a.lineId) } },
+  });
+  await prisma.bankStatementRow.update({
+    where: { id: row.id },
+    data: { matchedEntryId: aplicados[0].entryId, status: 'MATCHED', matchConfidence: 1.0 },
+  });
+
+  return null;
+}
+
+/**
+ * POST /api/reconcile/:id/match — vincular/desvincular a mano.
+ *
+ *  · `{ rowId, links: [{ lineId, amount? }] }` — vínculo fino: una fila
+ *    sostenida por varias partidas del libro (o por una, con monto parcial).
+ *  · `{ rowId, entryId }` — el 1:1 clásico; `entryId: null` desvincula.
+ *
+ * Responde el detalle completo del extracto, igual que la subida y el rematch:
+ * el frente tiene un solo render.
  */
 reconcileRouter.post('/:id/match', validate(reconcileMatchSchema), async (req, res) => {
-  const { rowId, entryId } = req.body;
+  const { rowId, entryId, links } = req.body;
 
-  const row = await req.prisma.bankStatementRow.findFirst({
-    where: { id: rowId, statement: { id: req.params.id, companyId: req.user!.companyId } },
-  });
+  // Todo dentro del try: en Express 4 un throw suelto en un handler async no
+  // llega al middleware de errores y deja la petición colgada para siempre.
+  try {
+    const row = await req.prisma.bankStatementRow.findFirst({
+      where: { id: rowId, statement: { id: req.params.id, companyId: req.user!.companyId } },
+      include: { statement: { select: { bankAccountId: true } } },
+    });
 
-  if (!row) { res.status(404).json({ error: 'Fila no encontrada' }); return; }
+    if (!row) { res.status(404).json({ error: 'Fila no encontrada' }); return; }
 
-  const updated = await req.prisma.bankStatementRow.update({
-    where: { id: rowId },
-    data: {
-      matchedEntryId: entryId || null,
-      status: entryId ? 'MATCHED' : 'UNMATCHED',
-      matchConfidence: entryId ? 1.0 : null, // manual match = 100% confidence
-    },
-  });
+    if (Array.isArray(links) && links.length > 0) {
+      const error = await vincularLineas(req.prisma, req.user!.companyId, row, links);
+      if (error) { res.status(400).json({ error }); return; }
+    } else {
+      await req.prisma.bankRowMatch.deleteMany({ where: { rowId } });
+      await req.prisma.bankStatementRow.update({
+        where: { id: rowId },
+        data: {
+          matchedEntryId: entryId || null,
+          status: entryId ? 'MATCHED' : 'UNMATCHED',
+          matchConfidence: entryId ? 1.0 : null, // manual match = 100% confidence
+        },
+      });
+    }
 
-  res.json(updated);
+    const detalle = await detalleDeExtracto(req.prisma, req.user!.companyId, req.params.id);
+    res.json(detalle);
+  } catch (error: any) {
+    console.error('[Reconcile] Match error:', error);
+    res.status(400).json({ error: error.message || 'No se pudo vincular la fila' });
+  }
 });
 
 /**

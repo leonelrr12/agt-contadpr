@@ -53,6 +53,27 @@
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
     .form-grid label { font-size: 12px; color: #6b7280; display: block; margin-bottom: 2px; }
     .form-grid input, .form-grid select { width: 100%; padding: 8px; border: 1px solid #d0d5dd; border-radius: 6px; box-sizing: border-box; }
+    /* Vinculador: una fila del extracto contra una o varias partidas del libro */
+    #pick-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+    #pick-card { background: #fff; border-radius: 12px; width: 100%; max-width: 860px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.25); }
+    #pick-head { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; }
+    #pick-head h3 { margin: 0 0 4px 0; font-size: 16px; color: #1a1a2e; }
+    #pick-head .fila { font-size: 13px; color: #374151; }
+    #pick-head .buscar { margin-top: 10px; width: 100%; padding: 8px; border: 1px solid #d0d5dd; border-radius: 6px; box-sizing: border-box; }
+    #pick-lista { overflow-y: auto; flex: 1; }
+    #pick-lista table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    #pick-lista th { text-align: left; padding: 8px 12px; background: #f9fafb; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; font-size: 12px; }
+    #pick-lista td { padding: 8px 12px; border-bottom: 1px solid #f3f4f6; }
+    #pick-lista td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    #pick-lista input[type="number"] { width: 110px; padding: 4px 6px; border: 1px solid #d0d5dd; border-radius: 6px; text-align: right; }
+    #pick-lista tr.ya { background: #f0fdf4; }
+    #pick-pie { padding: 14px 20px; border-top: 1px solid #e5e7eb; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    #pick-pie .cuadre { font-size: 13px; color: #374151; }
+    #pick-pie .cuadre b { font-variant-numeric: tabular-nums; }
+    #pick-pie .cuadre.ok b { color: #059669; }
+    #pick-pie .cuadre.falta b { color: #d97706; }
+    #pick-pie .cuadre.sobra b { color: #dc2626; }
+    #pick-pie .acciones { margin-left: auto; display: flex; gap: 8px; }
   </style>
   <script src="js/shared.js?v=1"></script>
 </head>
@@ -96,7 +117,7 @@
       <div class="section-title section-matched">✅ Partidas Conciliadas</div>
       <div style="overflow-x:auto">
         <table class="data-table" id="matched-table">
-          <thead><tr><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Asiento</th><th>Confianza</th><th></th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Partidas del libro</th><th>Confianza</th><th></th></tr></thead>
           <tbody id="matched-tbody"></tbody>
         </table>
       </div>
@@ -127,6 +148,15 @@
       <button class="btn btn-secondary" onclick="resetView()">🆕 Nueva conciliación</button>
       <a href="/index.html" class="btn btn-secondary" style="text-decoration:none">💬 Ir al Chat</a>
     </div>
+
+    <!-- Vinculador: la fila del extracto contra una o varias partidas del libro -->
+    <div id="pick-overlay" class="hidden" onclick="if (event.target === this) cerrarVinculador()">
+      <div id="pick-card">
+        <div id="pick-head"></div>
+        <div id="pick-lista"></div>
+        <div id="pick-pie"></div>
+      </div>
+    </div>
   </div>
 
   <!-- Statement history -->
@@ -142,6 +172,12 @@ const API_URL = '/api';
 if (!getToken()) { window.location.href = '/login.html'; }
 
 let currentStatement = null;
+/** Asientos del libro sin conciliar del último detalle (candidatos del vinculador). */
+let currentUnmatchedBooks = [];
+/** Fila del extracto que se está vinculando, y las partidas elegidas (lineId → monto). */
+let vinculando = null;
+let candidatos = [];
+const seleccion = new Map();
 
 // Load bank accounts
 async function loadBankAccounts() {
@@ -252,6 +288,8 @@ async function loadStatement(id) {
 function renderDetail(data) {
   const { statement, unmatchedBooks, summary } = data;
   currentStatement = statement;
+  currentUnmatchedBooks = unmatchedBooks || [];
+  cerrarVinculador();
 
   document.getElementById('step-detail').classList.remove('hidden');
 
@@ -270,13 +308,20 @@ function renderDetail(data) {
     mHtml = '<tr><td colspan="6" style="text-align:center;color:#6b7280;padding:16px">No hay partidas conciliadas</td></tr>';
   } else {
     for (const r of matchedRows) {
+      const partes = (r.matches || []);
+      const etiqueta = partes.length > 1
+        ? `<span class="badge badge-neutral">${partes.length} partidas</span>`
+        : (r.matchedEntry ? `<span style="font-size:11px">${r.matchedEntry.id.slice(0, 8)}...</span>` : '—');
       mHtml += `<tr>
         <td>${new Date(r.date).toLocaleDateString('es-PA')}</td>
         <td>${esc(r.description)}</td>
         <td>${r.debit > 0 ? '$' + r.debit.toFixed(2) : r.credit > 0 ? '$' + r.credit.toFixed(2) : '—'}</td>
-        <td style="font-size:11px">${r.matchedEntry ? r.matchedEntry.id.slice(0, 8) + '...' : '—'}</td>
+        <td>${etiqueta}</td>
         <td><span class="badge badge-ok">${(r.matchConfidence * 100).toFixed(0)}%</span></td>
-        <td><button class="btn btn-secondary btn-sm" onclick="unmatchRow('${r.id}')">Desvincular</button></td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-secondary btn-sm" onclick="abrirVinculador('${r.id}')">🔗 Partidas</button>
+          <button class="btn btn-secondary btn-sm" onclick="unmatchRow('${r.id}')">Desvincular</button>
+        </td>
       </tr>`;
     }
   }
@@ -295,7 +340,10 @@ function renderDetail(data) {
         <td>${r.reference || '—'}</td>
         <td>${r.debit > 0 ? '$' + r.debit.toFixed(2) : '—'}</td>
         <td>${r.credit > 0 ? '$' + r.credit.toFixed(2) : '—'}</td>
-        <td><button class="btn btn-primary btn-sm" onclick="createEntryFromRow('${r.id}', ${r.debit > 0 ? r.debit : r.credit}, '${esc(r.description)}')">+ Crear asiento</button></td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-secondary btn-sm" onclick="abrirVinculador('${r.id}')">🔗 Vincular</button>
+          <button class="btn btn-primary btn-sm" onclick="createEntryFromRow('${r.id}', ${r.debit > 0 ? r.debit : r.credit}, '${esc(r.description)}')">+ Crear asiento</button>
+        </td>
       </tr>`;
     }
   }
@@ -358,12 +406,160 @@ async function rematchStatement() {
 
 async function unmatchRow(rowId) {
   try {
-    await authFetch(`${API_URL}/reconcile/${currentStatement.id}/match`, {
+    const res = await authFetch(`${API_URL}/reconcile/${currentStatement.id}/match`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rowId, entryId: null }),
     });
-    await loadStatement(currentStatement.id);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || 'No se pudo desvincular');
+    renderDetail(body);
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+/**
+ * Vinculador: una fila del extracto contra UNA O VARIAS partidas del libro.
+ *
+ * El matcher empareja una línea contra una fila y por monto exacto, así que un
+ * depósito que cobra varias facturas de una vez (el ACH de Inmobiliaria Don
+ * Antonio del 20-feb: cuatro facturas por $17.353,68) no tiene contra qué
+ * conciliarse solo. Acá el contador arma el vínculo y la suma tiene que dar.
+ */
+function abrirVinculador(rowId) {
+  const row = (currentStatement?.rows || []).find(r => r.id === rowId);
+  if (!row) return;
+  vinculando = row;
+  seleccion.clear();
+
+  const esEntrada = (row.credit || 0) > 0; // entra plata al banco
+  const montoFila = esEntrada ? row.credit : row.debit;
+
+  // Las partidas ya vinculadas a esta fila van primero —para poder editarlas—;
+  // las demás salen de los asientos sin conciliar de la cuenta del extracto.
+  const ya = (row.matches || []).map(m => ({
+    lineId: m.lineId, date: m.entry?.date, descripcion: m.entry?.description,
+    disponible: esEntrada ? (m.line?.debit || 0) : (m.line?.credit || 0), ya: true,
+  }));
+  const libres = [];
+  for (const e of currentUnmatchedBooks) {
+    for (const l of (e.lines || [])) {
+      const disponible = esEntrada ? l.debit : l.credit;
+      if (!(disponible > 0)) continue; // la partida está del otro lado de la fila
+      libres.push({ lineId: l.id, date: e.date, descripcion: e.description, disponible, ya: false });
+    }
+  }
+  candidatos = [...ya, ...libres];
+  for (const m of row.matches || []) seleccion.set(m.lineId, Math.round(m.amount * 100) / 100);
+
+  document.getElementById('pick-head').innerHTML = `
+    <h3>🔗 Vincular partidas del libro</h3>
+    <div class="fila"><b>${esc(row.description)}</b> · ${new Date(row.date).toLocaleDateString('es-PA')} · ${esEntrada ? 'entrada' : 'salida'} de <b>$${montoFila.toFixed(2)}</b></div>
+    <input class="buscar" id="pick-buscar" placeholder="Buscar partida por descripción..." oninput="renderLista()">`;
+  document.getElementById('pick-overlay').classList.remove('hidden');
+  renderLista();
+  document.getElementById('pick-buscar').focus();
+}
+
+function renderLista() {
+  const row = vinculando;
+  if (!row) return;
+  const esEntrada = (row.credit || 0) > 0;
+  const montoFila = esEntrada ? row.credit : row.debit;
+  const q = (document.getElementById('pick-buscar')?.value || '').trim().toLowerCase();
+  const visibles = candidatos.filter(c => !q || String(c.descripcion || '').toLowerCase().includes(q));
+
+  let html = '<table><thead><tr><th style="width:34px"></th><th>Fecha</th><th>Partida del libro</th><th class="num">Monto</th><th class="num">Aplicar</th></tr></thead><tbody>';
+  if (!visibles.length) {
+    html += '<tr><td colspan="5" style="text-align:center;color:#6b7280;padding:16px">No hay partidas sin conciliar que coincidan con la búsqueda.</td></tr>';
+  }
+  for (const c of visibles) {
+    const marcada = seleccion.has(c.lineId);
+    html += `<tr class="${c.ya ? 'ya' : ''}">
+      <td><input type="checkbox" ${marcada ? 'checked' : ''} onchange="toggleLinea('${c.lineId}')"></td>
+      <td>${c.date ? new Date(c.date).toLocaleDateString('es-PA') : '—'}</td>
+      <td>${esc(c.descripcion)}${c.ya ? ' <span class="badge badge-ok">vinculada</span>' : ''}</td>
+      <td class="num">$${c.disponible.toFixed(2)}</td>
+      <td class="num">${marcada ? `<input type="number" step="0.01" min="0" value="${seleccion.get(c.lineId).toFixed(2)}" onchange="cambiarMonto('${c.lineId}', this.value)">` : '—'}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  document.getElementById('pick-lista').innerHTML = html;
+
+  const total = Math.round([...seleccion.values()].reduce((s, v) => s + v, 0) * 100) / 100;
+  const dif = Math.round((total - montoFila) * 100) / 100;
+  const cuadra = Math.abs(dif) <= 0.02;
+  const estado = cuadra ? 'ok' : (dif < 0 ? 'falta' : 'sobra');
+  const detalle = cuadra ? 'Cuadra ✔' : (dif < 0 ? `Faltan $${Math.abs(dif).toFixed(2)}` : `Sobra $${dif.toFixed(2)}`);
+  document.getElementById('pick-pie').innerHTML = `
+    <div class="cuadre ${estado}">Fila: <b>$${montoFila.toFixed(2)}</b> · Seleccionado: <b>$${total.toFixed(2)}</b> · <b>${detalle}</b></div>
+    <div class="acciones">
+      ${(row.matches || []).length ? '<button class="btn btn-secondary" onclick="quitarVinculo()">Quitar vínculo</button>' : ''}
+      <button class="btn btn-secondary" onclick="cerrarVinculador()">Cancelar</button>
+      <button class="btn btn-primary" id="btn-guardar-vinculo" ${cuadra && seleccion.size ? '' : 'disabled'} onclick="guardarVinculo()">Guardar vínculo</button>
+    </div>`;
+}
+
+function toggleLinea(lineId) {
+  const c = candidatos.find(x => x.lineId === lineId);
+  if (!c) return;
+  if (seleccion.has(lineId)) seleccion.delete(lineId);
+  else seleccion.set(lineId, Math.round(c.disponible * 100) / 100);
+  renderLista();
+}
+
+function cambiarMonto(lineId, valor) {
+  const c = candidatos.find(x => x.lineId === lineId);
+  const n = Math.round(Number(valor) * 100) / 100;
+  if (!c || !(n > 0)) { seleccion.delete(lineId); renderLista(); return; }
+  if (n > c.disponible + 0.02) {
+    alert(`El monto no puede superar el de la partida ($${c.disponible.toFixed(2)}).`);
+    renderLista();
+    return;
+  }
+  seleccion.set(lineId, n);
+  renderLista();
+}
+
+function cerrarVinculador() {
+  vinculando = null;
+  seleccion.clear();
+  document.getElementById('pick-overlay').classList.add('hidden');
+}
+
+async function guardarVinculo() {
+  if (!vinculando) return;
+  const btn = document.getElementById('btn-guardar-vinculo');
+  const links = [...seleccion.entries()].map(([lineId, amount]) => ({ lineId, amount }));
+  btn.disabled = true;
+  btn.textContent = '⏳ Guardando...';
+  try {
+    const res = await authFetch(`${API_URL}/reconcile/${currentStatement.id}/match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rowId: vinculando.id, links }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || 'No se pudo vincular');
+    renderDetail(body);
+  } catch (e) {
+    alert('Error: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = 'Guardar vínculo';
+  }
+}
+
+async function quitarVinculo() {
+  if (!vinculando) return;
+  const rowId = vinculando.id;
+  try {
+    const res = await authFetch(`${API_URL}/reconcile/${currentStatement.id}/match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rowId, entryId: null }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || 'No se pudo quitar el vínculo');
+    renderDetail(body);
   } catch (e) { alert('Error: ' + e.message); }
 }
 

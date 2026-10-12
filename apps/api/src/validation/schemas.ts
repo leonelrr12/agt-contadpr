@@ -208,7 +208,14 @@ export const saveBudgetsSchema = z.object({
 // ── Reconcile ──
 export const reconcileMatchSchema = z.object({
   rowId: z.string().min(1),
-  entryId: z.string().nullable(), // null para desvincular
+  entryId: z.string().nullable().optional(), // el 1:1 clásico; null para desvincular
+  // Vínculo fino: la fila del extracto sostenida por VARIAS partidas del libro
+  // (las cuatro facturas cobradas con un solo ACH). `amount` aplica un monto
+  // parcial de la partida; sin él se toma el total de la línea.
+  links: z.array(z.object({
+    lineId: z.string().min(1),
+    amount: z.number().positive().optional(),
+  })).min(1).optional(),
 });
 
 export const reconcileCreateEntrySchema = z.object({

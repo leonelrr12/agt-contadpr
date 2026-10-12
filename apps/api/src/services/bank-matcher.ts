@@ -42,8 +42,26 @@ function textSimilarity(a: string, b: string): number {
   return union === 0 ? 0 : intersection / union;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Día calendario (UTC) de una fecha de SOLO DÍA.
+ *
+ * Las dos puntas de la comparación se guardan con horas distintas: la fila del
+ * extracto entra por `new Date('2026-06-01')` —medianoche UTC— y el asiento por
+ * `parseLocalDate` —mediodía local, 16:00Z con el TZ del server—. Restar los
+ * timestamps daba 16 h de diferencia dentro del MISMO día, y `Math.round` las
+ * volvía un día entero: el par del mismo día puntuaba 0.9 ("cercano") y uno del
+ * día ANTERIOR puntuaba 1.0 ("exacto") y se llevaba la fila. Así quedó "sin
+ * conciliar (libros)" el asiento "Viaticos — $5.00" del 01-jun: perdió contra el
+ * YAPPY de Edilza del 31-may, de monto idéntico (extracto de junio, 12-10).
+ */
+function dayNumber(d: Date): number {
+  return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / DAY_MS);
+}
+
 function daysBetween(d1: Date, d2: Date): number {
-  return Math.abs(Math.round((d1.getTime() - d2.getTime()) / (1000 * 60 * 60 * 24)));
+  return Math.abs(dayNumber(d1) - dayNumber(d2));
 }
 
 /**
@@ -64,7 +82,7 @@ async function findBestMatch(
    * `entradas` viene de los extractos anteriores, que solo guardan el asiento.
    */
   ocupados: { lineas: Set<string>; entradas: Set<string> } = { lineas: new Set(), entradas: new Set() },
-): Promise<{ entryId: string; lineId: string; confidence: number; matchType: MatchResult['matchType'] } | null> {
+): Promise<{ entryId: string; lineId: string; amount: number; confidence: number; matchType: MatchResult['matchType'] } | null> {
   if (!row.date || (!row.debit && !row.credit)) return null;
 
   const amount = row.debit || row.credit || 0;
@@ -80,10 +98,11 @@ async function findBestMatch(
   // monto y misma fecha), dejando huérfano el de la cuenta correcta — y el
   // contador veía como "sin conciliar" un movimiento que sí estaba registrado
   // (los $15 y $60 de enero en la 8829-7, que se los llevó la 2810-1).
-  const startDate = new Date(rowDate);
-  startDate.setDate(startDate.getDate() - 5);
-  const endDate = new Date(rowDate);
-  endDate.setDate(endDate.getDate() + 5);
+  // La ventana también va por día calendario y cubre el día +5 COMPLETO: los
+  // asientos del borde caen a las 16:00Z y un `lte` a medianoche los dejaba fuera.
+  const rowDay = dayNumber(rowDate);
+  const startDate = new Date((rowDay - 5) * DAY_MS);
+  const endDate = new Date((rowDay + 6) * DAY_MS - 1);
 
   const bankLines = await prisma.journalLine.findMany({
     where: {
@@ -102,7 +121,7 @@ async function findBestMatch(
     },
   });
 
-  let bestMatch: { entryId: string; lineId: string; confidence: number; matchType: MatchResult['matchType'] } | null = null;
+  let bestMatch: { entryId: string; lineId: string; amount: number; confidence: number; matchType: MatchResult['matchType'] } | null = null;
 
   for (const line of bankLines) {
     // Línea ya usada por otra fila (o asiento ya conciliado en otro extracto):
@@ -144,7 +163,7 @@ async function findBestMatch(
     }
 
     if (!bestMatch || confidence > bestMatch.confidence) {
-      bestMatch = { entryId: line.journalEntry.id, lineId: line.id, confidence, matchType };
+      bestMatch = { entryId: line.journalEntry.id, lineId: line.id, amount: bookAmount, confidence, matchType };
     }
   }
 
@@ -181,8 +200,14 @@ export async function autoMatch(
     where: { status: 'MATCHED', matchedEntryId: { not: null }, statementId: { not: statementId } },
     select: { matchedEntryId: true },
   });
+
+  // Líneas ya conciliadas a mano (banco ↔ varias partidas del libro): el matcher
+  // no las toca. Sin esto, la corrida automática se llevaría una de las cuatro
+  // facturas de un depósito ACH ya vinculado y rompería el vínculo.
+  const vinculadas = await prisma.bankRowMatch.findMany({ select: { lineId: true } });
+
   const ocupados = {
-    lineas: new Set<string>(),
+    lineas: new Set<string>(vinculadas.map((v: any) => v.lineId)),
     entradas: new Set<string>([...yaConciliados.map((r: any) => r.matchedEntryId), ...entradasBloqueadas]),
   };
 
@@ -218,6 +243,12 @@ export async function autoMatch(
           matchConfidence: match.confidence,
         },
       });
+      // El vínculo por línea es la verdad de qué quedó conciliado, lo haya hecho
+      // el matcher o el contador: así el vínculo automático también protege su
+      // línea de otra corrida y la UI puede mostrar qué partidas lo sostienen.
+      await prisma.bankRowMatch.create({
+        data: { rowId: row.id, entryId: match.entryId, lineId: match.lineId, amount: match.amount, isManual: false },
+      });
       ocupados.lineas.add(match.lineId);
 
       matches.push({ rowId: row.id, entryId: match.entryId, confidence: match.confidence, matchType: match.matchType });
@@ -249,6 +280,12 @@ export async function findUnmatchedBookEntries(
     select: { matchedEntryId: true },
   });
   const matchedSet = new Set(matchedIds.map((r: any) => r.matchedEntryId));
+
+  // Y los asientos que sostienen una fila por vínculo fino (banco ↔ varias
+  // partidas): una de las cuatro facturas de un depósito ACH también está
+  // conciliada, aunque `matchedEntryId` de la fila apunte a otra.
+  const vinculadas = await prisma.bankRowMatch.findMany({ select: { entryId: true } });
+  for (const v of vinculadas) matchedSet.add(v.entryId);
 
   const dateFilter: any = {};
   if (statementStart) dateFilter.gte = statementStart;
