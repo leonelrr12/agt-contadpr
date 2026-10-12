@@ -81,7 +81,7 @@
 <div class="reconcile-container">
   <div class="reconcile-header">
     <h1>🏦 Conciliación Bancaria</h1>
-    <p>Sube tu extracto bancario CSV. El sistema matchea automáticamente contra los asientos registrados en tus cuentas de banco.</p>
+    <p>Sube tu extracto bancario o el estado de tu tarjeta de crédito (CSV/XLSX). El sistema matchea automáticamente contra los asientos registrados en esa cuenta.</p>
     <p style="margin-top:8px"><a href="/index.html" style="color:#1565c0;text-decoration:none;font-size:14px">← Volver al Chat</a></p>
   </div>
 
@@ -89,7 +89,7 @@
   <div id="step-upload">
     <div class="form-grid" style="margin-bottom:16px">
       <div style="grid-column:1/-1">
-        <label>🏦 Cuenta bancaria</label>
+        <label>🏦 Cuenta bancaria o tarjeta</label>
         <select id="bank-account-select">
           <option value="">Cargando cuentas...</option>
         </select>
@@ -97,9 +97,9 @@
     </div>
     <div class="upload-zone" id="drop-zone">
       <div class="upload-zone-icon">🏦</div>
-      <h3>Arrastra tu extracto CSV aquí o haz clic para seleccionar</h3>
-      <p>Formatos aceptados: CSV del banco (Banco General, Banistmo, etc.)</p>
-      <input type="file" id="file-input" accept=".csv" style="display:none">
+      <h3>Arrastra tu extracto aquí o haz clic para seleccionar</h3>
+      <p>Formatos aceptados: CSV/XLSX del banco o del estado de la tarjeta (Banco General, Banistmo, etc.)</p>
+      <input type="file" id="file-input" accept=".csv,.xlsx" style="display:none">
     </div>
   </div>
 
@@ -112,6 +112,7 @@
   <!-- Paso 3: Detalle de conciliación -->
   <div id="step-detail" class="hidden">
     <div class="summary-cards" id="summary-cards"></div>
+    <div id="aviso-conciliacion" class="hidden" style="padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:16px"></div>
 
     <div class="section">
       <div class="section-title section-matched">✅ Partidas Conciliadas</div>
@@ -146,6 +147,7 @@
     <div class="actions-bar">
       <button class="btn btn-primary" id="btn-rematch" onclick="rematchStatement()">🔄 Volver a conciliar</button>
       <button class="btn btn-secondary" onclick="resetView()">🆕 Nueva conciliación</button>
+      <button class="btn btn-danger" onclick="eliminarExtracto()">🗑 Eliminar extracto</button>
       <a href="/index.html" class="btn btn-secondary" style="text-decoration:none">💬 Ir al Chat</a>
     </div>
 
@@ -172,6 +174,8 @@ const API_URL = '/api';
 if (!getToken()) { window.location.href = '/login.html'; }
 
 let currentStatement = null;
+/** Catálogo de cuentas (GET /api/accounts) para resolver códigos a ids. */
+let cuentasCatalogo = [];
 /** Asientos del libro sin conciliar del último detalle (candidatos del vinculador). */
 let currentUnmatchedBooks = [];
 /** Fila del extracto que se está vinculando, y las partidas elegidas (lineId → monto). */
@@ -185,16 +189,21 @@ async function loadBankAccounts() {
   try {
     const res = await authFetch(`${API_URL}/accounts`);
     const accounts = await res.json();
-    const banks = accounts.filter(a => a.code && a.code.startsWith('1.1.02') && !a.code.endsWith('.02') && a.code !== '1.1.02'); // solo cuentas hoja
-    if (banks.length === 0) {
-      // fallback: mostrar todas las 1.1.02.*
-      const allBanks = accounts.filter(a => a.code && a.code.startsWith('1.1.02'));
-      select.innerHTML = allBanks.length > 0
-        ? allBanks.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('')
-        : '<option value="">No hay cuentas bancarias configuradas</option>';
-    } else {
-      select.innerHTML = banks.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
-    }
+    cuentasCatalogo = Array.isArray(accounts) ? accounts : [];
+    // Bancos (1.1.02.*) y tarjetas de crédito (2.1.03.*): el estado de la
+    // tarjeta se concilia con el mismo motor — el cargo es un crédito al pasivo
+    // en libros, así que el par de signos es el mismo que el del banco.
+    //
+    // Solo cuentas HOJA (el endpoint trae `children`): el nodo padre 1.1.02 no
+    // es conciliable por sí solo. Antes se descartaba con `!code.endsWith('.02')`,
+    // que sacaba al padre pero se llevaba puesta la cuenta 1.1.02.02, una hoja
+    // legítima — por eso el extracto de Banistmo no aparecía en el selector.
+    const conciliables = accounts.filter(a => a.code
+      && (a.code.startsWith('1.1.02') || a.code.startsWith('2.1.03'))
+      && !(a.children || []).length);
+    select.innerHTML = conciliables.length > 0
+      ? conciliables.map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('')
+      : '<option value="">No hay cuentas de banco ni tarjetas configuradas</option>';
   } catch (e) {
     select.innerHTML = '<option value="">Error al cargar cuentas</option>';
   }
@@ -247,7 +256,7 @@ fileInput.addEventListener('change', e => {
 
 async function uploadFile(file) {
   const bankAccountId = document.getElementById('bank-account-select').value;
-  if (!bankAccountId) { alert('Selecciona una cuenta bancaria primero'); return; }
+  if (!bankAccountId) { showAlert('Seleccioná primero la cuenta bancaria o la tarjeta a conciliar.'); return; }
 
   document.getElementById('step-upload').classList.add('hidden');
   document.getElementById('step-detail').classList.add('hidden');
@@ -265,7 +274,7 @@ async function uploadFile(file) {
     document.getElementById('step-loading').classList.add('hidden');
     renderDetail(data);
   } catch (e) {
-    alert('Error: ' + e.message);
+    showAlert('No se pudo subir el extracto: ' + esc(e.message));
     resetView();
   }
 }
@@ -280,7 +289,7 @@ async function loadStatement(id) {
     document.getElementById('step-loading').classList.add('hidden');
     renderDetail(data);
   } catch (e) {
-    alert('Error al cargar: ' + e.message);
+    showAlert('No se pudo cargar el extracto: ' + esc(e.message));
     resetView();
   }
 }
@@ -300,6 +309,18 @@ function renderDetail(data) {
     <div class="summary-card warn"><div class="num">${summary.unmatchedBookCount}</div><div class="label">Sin conciliar (libros)</div></div>
     <div class="summary-card"><div class="num">${summary.total}</div><div class="label">Total extracto</div></div>
   `;
+
+  // Casi nada conciliado es la señal de que el archivo es de OTRA cuenta: el
+  // matcher solo mira la cuenta elegida en el selector, y con un archivo de otro
+  // banco (o de otra cuenta de la misma empresa) el resultado es esto — 2 de 49 —
+  // sin ninguna pista de por qué. Pasó el 12-10 con el estado de 2810-1 (1.1.02.02)
+  // subido como 6305-5 (1.1.02.03).
+  const aviso = document.getElementById('aviso-conciliacion');
+  const pocas = summary.total >= 10 && summary.matched / summary.total < 0.2;
+  aviso.className = pocas ? 'section-title section-unmatched' : 'hidden';
+  aviso.textContent = pocas
+    ? `⚠️ Solo ${summary.matched} de ${summary.total} filas conciliaron. Revisá que la cuenta elegida sea la de ESTE archivo: el match es solo contra los asientos de esa cuenta.`
+    : '';
 
   // Matched
   const matchedRows = statement.rows.filter(r => r.status === 'MATCHED');
@@ -393,15 +414,39 @@ async function rematchStatement() {
     const data = await res.json();
     renderDetail(data);
     const r = data.rematch || {};
-    const partes = [`${r.nuevas || 0} nueva(s)`];
+    const partes = [];
+    if (r.nuevas) partes.push(`${r.nuevas} fila(s) conciliada(s)`);
     if (r.liberadas) partes.push(`${r.liberadas} repetida(s) liberada(s)`);
-    alert(`✅ Reconciliado: ${partes.join(', ')}.`);
+    if (r.vinculos) partes.push(`${r.vinculos} vínculo(s) reconstruido(s)`);
+    showAlert(partes.length
+      ? `✅ Listo: ${partes.join(' · ')}.`
+      : '🔎 Sin cambios: no quedaron filas nuevas por conciliar.<br><br>Si esperabas más, revisá que la cuenta elegida sea la del archivo (el match es solo contra los asientos de esa cuenta).');
   } catch (e) {
-    alert('Error: ' + e.message);
+    showAlert('No se pudo volver a conciliar: ' + esc(e.message));
   } finally {
     btn.disabled = false;
     btn.textContent = texto;
   }
+}
+
+/**
+ * Borra el extracto cargado (y con él sus filas y vínculos: la FK cascadea).
+ *
+ * Es la salida cuando el extracto se subió contra la cuenta equivocada —el
+ * matcher solo mira la cuenta elegida, así que un archivo de otro banco queda
+ * casi entero "sin conciliar" y no hay forma de reasignarlo.
+ */
+async function eliminarExtracto() {
+  if (!currentStatement) return;
+  const archivo = currentStatement.fileName || 'el extracto';
+  const ok = await showConfirm(`¿Eliminar «${esc(archivo)}» y sus ${currentStatement.rows.length} filas?<br><br>Esta acción no se puede deshacer.`);
+  if (!ok) return;
+  try {
+    const res = await authFetch(`${API_URL}/reconcile/${currentStatement.id}`, { method: 'DELETE' });
+    if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+    resetView();
+    loadHistory();
+  } catch (e) { showAlert('Error: ' + esc(e.message)); }
 }
 
 async function unmatchRow(rowId) {
@@ -414,7 +459,7 @@ async function unmatchRow(rowId) {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'No se pudo desvincular');
     renderDetail(body);
-  } catch (e) { alert('Error: ' + e.message); }
+  } catch (e) { showAlert('Error: ' + esc(e.message)); }
 }
 
 /**
@@ -512,7 +557,7 @@ function cambiarMonto(lineId, valor) {
   const n = Math.round(Number(valor) * 100) / 100;
   if (!c || !(n > 0)) { seleccion.delete(lineId); renderLista(); return; }
   if (n > c.disponible + 0.02) {
-    alert(`El monto no puede superar el de la partida ($${c.disponible.toFixed(2)}).`);
+    showAlert(`El monto no puede superar el de la partida ($${c.disponible.toFixed(2)}).`);
     renderLista();
     return;
   }
@@ -542,7 +587,7 @@ async function guardarVinculo() {
     if (!res.ok) throw new Error(body.error || 'No se pudo vincular');
     renderDetail(body);
   } catch (e) {
-    alert('Error: ' + e.message);
+    showAlert('No se pudo guardar el vínculo: ' + esc(e.message));
     btn.disabled = false;
     btn.textContent = 'Guardar vínculo';
   }
@@ -560,17 +605,44 @@ async function quitarVinculo() {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'No se pudo quitar el vínculo');
     renderDetail(body);
-  } catch (e) { alert('Error: ' + e.message); }
+  } catch (e) { showAlert('Error: ' + esc(e.message)); }
+}
+
+/**
+ * Convierte lo que el contador escribe —código ("1.1.02.01"), "código nombre"
+ * ("1.1.02.01 Banco General") o el id— en el id de la cuenta. El endpoint
+ * espera un id: el prompt decía "código o ID" y mandaba el texto crudo, así que
+ * su propio default ("1.1.02.01") rompía por clave foránea.
+ */
+function idDeCuenta(valor) {
+  const v = (valor || '').trim();
+  if (!v) return null;
+  return (cuentasCatalogo.find(a => a.id === v)
+    || cuentasCatalogo.find(a => a.code === v)
+    || cuentasCatalogo.find(a => a.code && v.startsWith(a.code + ' '))
+    || {}).id || null;
 }
 
 function createEntryFromRow(rowId, amount, description) {
-  // Pedir cuentas al usuario
-  const debitAccount = prompt('Cuenta de débito (código o ID):', '');
-  if (!debitAccount) return;
-  const creditAccount = prompt('Cuenta de crédito (código o ID):', '1.1.02.01'); // default: banco general
-  if (!creditAccount) return;
+  const row = (currentStatement?.rows || []).find(r => r.id === rowId);
+  // La cuenta del extracto se propone en el lado que le toca: si la fila SALE
+  // del banco (o es un cargo de la tarjeta) el asiento la acredita; si ENTRA, la
+  // debita. Antes el crédito venía fijo en 1.1.02.01 — el banco equivocado si el
+  // extracto es de otra cuenta.
+  const cuenta = currentStatement?.bankAccount?.code || '';
+  const sale = (row?.debit || 0) > 0;
 
-  createEntry(rowId, amount, description, debitAccount, creditAccount);
+  const debito = prompt('Cuenta de débito (código):', sale ? '' : cuenta);
+  if (!debito) return;
+  const debitId = idDeCuenta(debito);
+  if (!debitId) { showAlert(`No encontré la cuenta «${esc(debito)}». Escribí el código, ej. 6.01.22.`); return; }
+
+  const credito = prompt('Cuenta de crédito (código):', sale ? cuenta : '');
+  if (!credito) return;
+  const creditId = idDeCuenta(credito);
+  if (!creditId) { showAlert(`No encontré la cuenta «${esc(credito)}». Escribí el código, ej. 1.1.02.01.`); return; }
+
+  createEntry(rowId, amount, description, debitId, creditId);
 }
 
 async function createEntry(rowId, amount, description, debitAccountId, creditAccountId) {
@@ -582,7 +654,7 @@ async function createEntry(rowId, amount, description, debitAccountId, creditAcc
     });
     if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
     await loadStatement(currentStatement.id);
-  } catch (e) { alert('Error: ' + e.message); }
+  } catch (e) { showAlert('Error: ' + esc(e.message)); }
 }
 
 function resetView() {

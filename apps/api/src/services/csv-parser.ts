@@ -74,8 +74,11 @@ const CONCEPT_PATTERNS = [/concepto/i, /categoria/i, /category/i, /rubro/i];
 const PAYMENT_PATTERNS = [/pago/i, /payment/i, /metodo/i, /método/i, /forma/i];
 const TYPE_PATTERNS = [/tipo/i, /type/i, /clase/i];
 const PROVIDER_PATTERNS = [/proveedor/i, /cliente/i, /entidad/i, /provider/i, /tercero/i, /nombre/i];
-const DEBIT_PATTERNS = [/d[eé]bito/i, /debit/i, /cargo/i, /salida/i, /retiro/i, /egreso/i];
-const CREDIT_PATTERNS = [/cr[eé]dito/i, /credit/i, /abono/i, /entrada/i, /dep[oó]sito/i, /ingreso/i];
+// Los estados de tarjeta rotulan los lados como "Cargos (Db)" y "Pagos (Cr)":
+// sin el marcador, "Pagos (Cr)" no caía en ninguna columna y el abono se perdía.
+// El `^pagos?\(` va anclado para no robarse una columna "Forma de Pago".
+const DEBIT_PATTERNS = [/d[eé]bito/i, /debit/i, /cargo/i, /salida/i, /retiro/i, /egreso/i, /\(\s*db\s*\)/i];
+const CREDIT_PATTERNS = [/cr[eé]dito/i, /credit/i, /abono/i, /entrada/i, /dep[oó]sito/i, /ingreso/i, /\(\s*cr\s*\)/i, /^pagos?\s*\(/i];
 const BALANCE_PATTERNS = [/saldo/i, /balance/i];
 const REFERENCE_PATTERNS = [/referencia/i, /ref/i, /n[úu]mero/i, /cheque/i, /nro/i, /#[ ]*ref/i, /factura/i];
 const RUC_PATTERNS = [/ruc/i, /tax[_\s]?id/i, /c[ée]dula/i, /identificaci[óo]n/i];
@@ -83,6 +86,35 @@ const ITBMS_PATTERNS = [/itbms/i, /impuesto/i, /^iva$/i];
 
 function matchHeader(header: string, patterns: RegExp[]): boolean {
   return patterns.some(p => p.test(header));
+}
+
+/** Grupos de columnas que sabemos reconocer. */
+const GRUPOS_ENCABEZADO = [
+  DATE_PATTERNS, DESCRIPTION_PATTERNS, AMOUNT_PATTERNS, CONCEPT_PATTERNS, PAYMENT_PATTERNS,
+  TYPE_PATTERNS, PROVIDER_PATTERNS, DEBIT_PATTERNS, CREDIT_PATTERNS, BALANCE_PATTERNS,
+  REFERENCE_PATTERNS, RUC_PATTERNS, ITBMS_PATTERNS,
+];
+
+/** Cuántos grupos distintos reconoce una fila: mide si es un encabezado. */
+function puntajeEncabezado(celdas: string[]): number {
+  return GRUPOS_ENCABEZADO.filter(g => celdas.some(c => c && matchHeader(c, g))).length;
+}
+
+/**
+ * Fila de encabezado dentro de las primeras filas del archivo.
+ *
+ * No siempre es la primera: los estados de tarjeta traen un preámbulo (el
+ * título "Movimientos de tarjetas de crédito" y el número de tarjeta) antes de
+ * la fila de columnas. Tomando la línea 1 como encabezado no se reconocía
+ * ninguna columna y el extracto quedaba vacío. Devuelve -1 si ninguna fila se
+ * parece a un encabezado (ahí se mantiene el comportamiento de siempre).
+ */
+function buscarFilaEncabezado(filas: string[][]): number {
+  for (let i = 0; i < Math.min(filas.length, 20); i++) {
+    if (filas[i].length < 2) continue;
+    if (puntajeEncabezado(filas[i]) >= 2) return i;
+  }
+  return -1;
 }
 
 /** Columna "Estado"/"Estatus" del maestro de Gastos/Compras (Contado/Crédito). Excluye "Estado de Cuenta" (extracto). */
@@ -106,6 +138,49 @@ function detectDelimiter(firstLine: string): string {
   if (tabs > semicolons && tabs > commas) return '\t';
   if (semicolons > commas) return ';';
   return ',';
+}
+
+/**
+ * Lee un CSV eligiendo a la vez el delimitador y la fila de encabezado.
+ *
+ * El delimitador se adivinaba con la PRIMERA línea y el encabezado se daba por
+ * hecho en ella; en el estado de una tarjeta —que arranca con "Movimientos de
+ * tarjetas de crédito" y el número de tarjeta— eso dejaba el archivo sin una
+ * sola columna reconocida. Acá se prueban los tres delimitadores y gana el que
+ * haga reconocible la fila de encabezado.
+ */
+function leerCSV(lineas: string[]): { headers: string[]; rawRows: string[][] } {
+  const muestra = lineas.slice(0, 20);
+  let delim = '';
+  let idx = -1;
+  let mejor = 0;
+  for (const candidato of ['\t', ';', ',']) {
+    const filas = muestra.map(l => parseCSVLine(l, candidato));
+    const i = buscarFilaEncabezado(filas);
+    if (i < 0) continue;
+    const score = puntajeEncabezado(filas[i]);
+    if (score > mejor) { delim = candidato; idx = i; mejor = score; }
+  }
+
+  // Sin encabezado reconocible: primera línea, como siempre.
+  if (idx < 0) {
+    delim = detectDelimiter(lineas[0]);
+    return {
+      headers: parseCSVLine(lineas[0], delim).map(h => h.trim()),
+      rawRows: lineas.slice(1).map(l => parseCSVLine(l, delim).map(v => v.trim())),
+    };
+  }
+  return {
+    headers: parseCSVLine(lineas[idx], delim).map(h => h.trim()),
+    rawRows: lineas.slice(idx + 1).map(l => parseCSVLine(l, delim).map(v => v.trim())),
+  };
+}
+
+/** Igual que `leerCSV`, sobre las filas ya extraídas de un XLSX. */
+function partirPorEncabezado(filas: string[][]): { headers: string[]; rawRows: string[][] } {
+  const idx = buscarFilaEncabezado(filas);
+  if (idx < 0) return { headers: filas[0] ?? [], rawRows: filas.slice(1) };
+  return { headers: filas[idx], rawRows: filas.slice(idx + 1) };
 }
 
 /** Meses en letras, como los exporta el banco ("01-ene-2026"). Se compara por
@@ -422,10 +497,10 @@ export async function parseImportFile(
   buffer: Buffer,
   fileName: string,
 ): Promise<ParseResult> {
-  const isXlsx = fileName.endsWith('.xlsx');
+  const isXlsx = fileName.toLowerCase().endsWith('.xlsx');
 
   let headers: string[] = [];
-  const rawRows: string[][] = [];
+  let rawRows: string[][] = [];
 
   if (isXlsx) {
     const workbook = new ExcelJS.Workbook();
@@ -433,7 +508,8 @@ export async function parseImportFile(
     const sheet = workbook.worksheets[0];
     if (!sheet) throw new Error('El archivo Excel no tiene hojas.');
 
-    sheet.eachRow((row, rowNum) => {
+    const filas: string[][] = [];
+    sheet.eachRow((row) => {
       const values: string[] = [];
       row.eachCell({ includeEmpty: true }, (cell) => {
         values.push(String(cell.value ?? '').trim());
@@ -441,28 +517,16 @@ export async function parseImportFile(
       // Recortar celdas vacías al final
       while (values.length > 0 && values[values.length - 1] === '') values.pop();
       if (values.length === 0) return;
-      if (rowNum === 1) {
-        headers = values;
-      } else {
-        rawRows.push(values);
-      }
+      filas.push(values);
     });
+    ({ headers, rawRows } = partirPorEncabezado(filas));
   } else {
     // CSV
     const text = buffer.toString('utf-8').replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const lines = text.split('\n').filter(l => l.trim());
     if (lines.length === 0) throw new Error('El archivo CSV está vacío.');
 
-    const delimiter = detectDelimiter(lines[0]);
-
-    for (let i = 0; i < lines.length; i++) {
-      const values = parseCSVLine(lines[i], delimiter);
-      if (i === 0) {
-        headers = values.map(h => h.trim());
-      } else {
-        rawRows.push(values.map(v => v.trim()));
-      }
-    }
+    ({ headers, rawRows } = leerCSV(lines));
   }
 
   if (headers.length === 0) throw new Error('No se detectaron encabezados en el archivo.');
@@ -488,11 +552,14 @@ export async function parseImportFile(
   };
 
   for (const h of headers) {
+    // Una columna de cargos/abonos no es "forma de pago": en el estado de la
+    // tarjeta, "Pagos (Cr)" caía en método de pago y el abono se perdía.
+    const esColumnaDeMonto = matchHeader(h, DEBIT_PATTERNS) || matchHeader(h, CREDIT_PATTERNS);
     if (!mapping.dateCol && matchHeader(h, DATE_PATTERNS)) mapping.dateCol = h;
     if (!mapping.descriptionCol && matchHeader(h, DESCRIPTION_PATTERNS)) mapping.descriptionCol = h;
     if (!mapping.amountCol && matchHeader(h, AMOUNT_PATTERNS)) mapping.amountCol = h;
     if (!mapping.conceptCol && matchHeader(h, CONCEPT_PATTERNS) && h !== mapping.descriptionCol) mapping.conceptCol = h;
-    if (!mapping.paymentMethodCol && matchHeader(h, PAYMENT_PATTERNS)) mapping.paymentMethodCol = h;
+    if (!mapping.paymentMethodCol && !esColumnaDeMonto && matchHeader(h, PAYMENT_PATTERNS)) mapping.paymentMethodCol = h;
     if (!mapping.typeCol && matchHeader(h, TYPE_PATTERNS)) mapping.typeCol = h;
     if (!mapping.providerCol && matchHeader(h, PROVIDER_PATTERNS)) mapping.providerCol = h;
     if (!mapping.debitCol && matchHeader(h, DEBIT_PATTERNS)) mapping.debitCol = h;

@@ -153,3 +153,76 @@ describe('parseImportFile — extracto del banco: fecha en letras y monto con si
     expect(debitCreditDeFila(rows[0])).toEqual({ debit: 25, credit: 0 });
   });
 });
+
+/**
+ * Estado de tarjeta de crédito (Banco General, "Movimientos de tarjetas").
+ * Tres cosas lo dejaban inservible: el preámbulo —título y número de tarjeta—
+ * antes de la fila de columnas, los lados rotulados "Cargos (Db)"/"Pagos (Cr)"
+ * (que no caían en ninguna columna, y "Pagos" se colaba como forma de pago) y
+ * los montos en formato "$0,18".
+ */
+describe('parseImportFile — estado de tarjeta de crédito', () => {
+  const FILAS = [
+    '**** 1798\t**** 1798\t28/02/2026\t28/02/2026\tITBMS CARGO POR SEGURO\t10000000730228999949910\t$0,18\t',
+    '**** 1798\t**** 1798\t28/02/2026\t28/02/2026\tSEGURO DE FRAUDE MENSUAL\t10000000730228999949910\t$3,50\t',
+    '**** 1798\t**** 1798\t05/03/2026\t05/03/2026\tPAGO RECIBIDO\t10000000730228999949911\t\t$150,00',
+  ];
+  const TARJETA = [
+    'Movimientos de tarjetas de crédito',
+    '**** 1798  VISA PYME',
+    '',
+    'Cuenta\t"Tarjeta     "\tFecha transacción\tFecha proceso\tDescripción\tReferencia\tCargos (Db)\tPagos (Cr)',
+    ...FILAS,
+  ].join('\n');
+
+  const parsear = () => parseImportFile(Buffer.from(TARJETA, 'utf8'), 'TARJETA.csv');
+
+  it('salta el preámbulo y encuentra el encabezado', async () => {
+    const { headers } = await parsear();
+    expect(headers).toContain('Fecha transacción');
+    expect(headers).toContain('Cargos (Db)');
+  });
+
+  it('lee los lados (Db)/(Cr) como débito y crédito, no como forma de pago', async () => {
+    const { detectedMapping: m } = await parsear();
+    expect(m.debitCol).toBe('Cargos (Db)');
+    expect(m.creditCol).toBe('Pagos (Cr)');
+    expect(m.paymentMethodCol).toBeNull();
+  });
+
+  it('lee fechas, descripción, referencia y montos en formato "$0,18"', async () => {
+    const { rows } = await parsear();
+    expect(rows).toHaveLength(3);
+    expect(rows[0].date).toBe('2026-02-28');
+    expect(rows[0].description).toBe('ITBMS CARGO POR SEGURO');
+    expect(rows[0].reference).toBe('10000000730228999949910');
+    expect(debitCreditDeFila(rows[0])).toEqual({ debit: 0.18, credit: 0 });
+    expect(debitCreditDeFila(rows[2])).toEqual({ debit: 0, credit: 150 });
+  });
+
+  // Con la coma como separador, un monto "$3,50" solo es legible si viene
+  // entrecomillado — así lo exporta el banco. Sin comillas el archivo es
+  // ambiguo para cualquiera, no solo para nosotros.
+  it.each([['"$3,50"', 3.5], ['3.50', 3.5]])(
+    'el mismo estado separado por comas también entra (monto %s)',
+    async (monto, esperado) => {
+      const csv = [
+        'Movimientos de tarjetas de crédito',
+        '**** 1798  VISA PYME',
+        'Cuenta,Tarjeta,Fecha transacción,Fecha proceso,Descripción,Referencia,Cargos (Db),Pagos (Cr)',
+        `**** 1798,**** 1798,28/02/2026,28/02/2026,SEGURO DE FRAUDE MENSUAL,10000000730228999949910,${monto},`,
+      ].join('\n');
+      const { rows, detectedMapping: m } = await parseImportFile(Buffer.from(csv, 'utf8'), 'TARJETA.csv');
+      expect(m.creditCol).toBe('Pagos (Cr)');
+      expect(rows).toHaveLength(1);
+      expect(debitCreditDeFila(rows[0])).toEqual({ debit: esperado, credit: 0 });
+    },
+  );
+
+  it('una columna "Forma de Pago" sigue siendo el método de pago', async () => {
+    const csv = 'Fecha,Detalle,Monto,Forma de Pago\n01/10/2026,Compra papeleria,100.00,Transferencia\n';
+    const { detectedMapping: m, rows } = await parseImportFile(Buffer.from(csv, 'utf8'), 'x.csv');
+    expect(m.paymentMethodCol).toBe('Forma de Pago');
+    expect(rows[0].paymentMethod).toBe('Transferencia');
+  });
+});

@@ -17,10 +17,10 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ext = file.originalname.toLowerCase();
-    if (ext.endsWith('.csv') || file.mimetype === 'text/csv') {
+    if (ext.endsWith('.csv') || ext.endsWith('.xlsx') || file.mimetype === 'text/csv') {
       cb(null, true);
     } else {
-      cb(new Error('Formato no soportado. Use CSV.'));
+      cb(new Error('Formato no soportado. Use CSV o XLSX.'));
     }
   },
 });
@@ -42,12 +42,15 @@ reconcileRouter.post('/upload', upload.single('file'), async (req, res) => {
   }
 
   try {
-    // Verificar que la cuenta existe y es de banco
+    // La cuenta existe y es conciliable: banco (1.1.02.*) o tarjeta de crédito
+    // (2.1.03.*). El motor sirve igual para las dos — la compra con tarjeta
+    // entra como CARGO en el estado y como crédito al pasivo en libros, que es
+    // exactamente el par que compara el matcher.
     const account = await req.prisma.account.findFirst({
       where: { id: bankAccountId, companyId: req.user!.companyId },
     });
-    if (!account || !account.code.startsWith('1.1.02')) {
-      res.status(400).json({ error: 'La cuenta seleccionada no es una cuenta bancaria válida (1.1.02.*)' });
+    if (!account || !(account.code.startsWith('1.1.02') || account.code.startsWith('2.1.03'))) {
+      res.status(400).json({ error: 'La cuenta seleccionada no es conciliable: se aceptan cuentas de banco (1.1.02.*) y tarjetas de crédito (2.1.03.*)' });
       return;
     }
 
