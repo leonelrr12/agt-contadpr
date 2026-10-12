@@ -57,7 +57,11 @@ describe('corridaXlsx', () => {
   /** La hoja, como matriz de valores crudos (fila 1 = encabezado, la última = totales). */
   async function leer(run: any) {
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(await corridaXlsx(run));
+    // exceljs declara `load(Buffer)` con el Buffer viejo (no genérico) y el de Node 24
+    // es `Buffer<ArrayBufferLike>`: es el mismo objeto en runtime, pero los tipos no
+    // encajan y sin el cast rompe el `tsc` del build por un archivo de tests.
+    const libro = (await corridaXlsx(run)) as unknown as Parameters<typeof wb.xlsx.load>[0];
+    await wb.xlsx.load(libro);
     const ws = wb.worksheets[0];
     const filas: any[][] = [];
     ws.eachRow((row) => filas.push((row.values as any[]).slice(1)));
