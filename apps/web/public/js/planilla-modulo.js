@@ -49,6 +49,21 @@
     return datos;
   }
 
+  /**
+   * Baja un archivo del módulo (los exports) con el token de la sesión. Sin el chequeo
+   * de `res.ok`, un 404 o un 500 se guardaría como un `.xlsx` con un JSON adentro.
+   */
+  async function descargar(ruta, nombre) {
+    const res = await authFetch(API + ruta);
+    if (!res.ok) throw new Error(`No se pudo generar el archivo (${res.status})`);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = nombre;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   const estado = {
     vista: 'corrida',
     empleados: [],
@@ -1059,7 +1074,8 @@
           <span class="badge ${ESTADO_BADGE[c.status] || 'badge-neutral'}">${esc(c.status)}</span></h3>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-secondary" id="h-volver">← Volver</button>
-          <button class="btn btn-secondary" id="h-export">Exportar CSV</button>
+          <button class="btn btn-secondary" id="h-export-xlsx" title="El detalle de los cálculos de esta corrida: días, sueldo, extras, deducciones, neto y aportes del patrono">Exportar Excel</button>
+          <button class="btn btn-secondary" id="h-export" title="El formato del archivo viejo, para presentar la planilla a la CSS">Exportar CSV (CSS)</button>
           ${c.status !== 'ANULADA' ? '<button class="btn btn-primary" id="h-aprobar">Aprobar los asientos</button>' : ''}
           ${c.status !== 'ANULADA' ? '<button class="btn btn-secondary" id="h-rechazar">Rechazar</button>' : ''}
           ${c.status !== 'ANULADA' ? '<button class="btn btn-danger" id="h-anular">Anular la corrida</button>' : ''}
@@ -1087,14 +1103,12 @@
     }
     const id = e.target.id;
     if (id === 'h-volver') { estado.corridaDetalle = null; await render(); return; }
-    if (id === 'h-export') {
-      const res = await authFetch(`${API}/corridas/${estado.corridaDetalle.id}/export.csv`);
-      const blob = await res.blob();
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `planilla-${estado.corridaDetalle.tipo}-${estado.corridaDetalle.periodo}.csv`;
-      a.click();
-      URL.revokeObjectURL(a.href);
+    if (id === 'h-export' || id === 'h-export-xlsx') {
+      const formato = id === 'h-export' ? 'csv' : 'xlsx';
+      const { id: corridaId, tipo, periodo } = estado.corridaDetalle;
+      try {
+        await descargar(`/corridas/${corridaId}/export.${formato}`, `planilla-${tipo}-${periodo}.${formato}`);
+      } catch (err) { alert(err.message); }
       return;
     }
     if (id === 'h-aprobar' || id === 'h-rechazar') {

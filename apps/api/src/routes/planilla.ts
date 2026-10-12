@@ -12,6 +12,7 @@ import {
   listarCorridas,
   obtenerCorrida,
   corridaACSV,
+  corridaXlsx,
   finDePeriodo,
   type OpcionesCorrida,
 } from '../services/payroll-run';
@@ -716,6 +717,29 @@ planillaRouter.get(
     res.setHeader('Content-Disposition', `attachment; filename="planilla-${corrida.tipo}-${corrida.periodo}.csv"`);
     // El BOM hace que Excel en Windows respete los acentos.
     res.send('﻿' + corridaACSV(corrida));
+  }),
+);
+
+/**
+ * GET /api/planilla/corridas/:id/export.xlsx — el listado de cálculos, para Excel.
+ *
+ * Es el detalle que el contador revisa y suma; el `.csv` de arriba es otra cosa (el
+ * formato del archivo viejo, para presentar la planilla a la CSS) y por eso los dos
+ * conviven en vez de reemplazarse.
+ */
+planillaRouter.get(
+  '/corridas/:id/export.xlsx',
+  wrap(async (req, res) => {
+    const corrida = await obtenerCorrida(req.prisma, req.user!.companyId, req.params.id);
+    if (!corrida) {
+      res.status(404).json({ error: 'Corrida no encontrada' });
+      return;
+    }
+    const buffer = await corridaXlsx(corrida);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="planilla-${corrida.tipo}-${corrida.periodo}.xlsx"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
   }),
 );
 

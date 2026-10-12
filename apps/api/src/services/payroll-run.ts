@@ -1,5 +1,6 @@
 import { parseLocalDate } from '../lib/dates';
 import { r2, sumarMontos } from '../lib/money';
+import { buildXlsx, type ColumnDef } from './export';
 import { loadAccountFlags, blockedMessage } from './journal-guard';
 import { anularAsiento } from './journal-annul';
 import { logAudit } from './audit-log';
@@ -1218,4 +1219,90 @@ export function corridaACSV(run: any): string {
   });
 
   return [headers.join(','), ...filas.map((f: string[]) => f.join(','))].join('\r\n') + '\r\n';
+}
+
+/** Las columnas monetarias del listado: las que llevan formato y suma al pie. */
+const CAMPOS_MONETARIOS = [
+  'sueldo', 'horasExtras', 'otrosIngresos', 'menosSueldo', 'bruto',
+  'ss', 'se', 'isr', 'otrasDeducciones', 'neto',
+  'ssPatronal', 'sePatronal', 'riesgosPatronal',
+];
+
+/**
+ * Una deducción de acreedor en una línea de texto: `Banco General 50.00`. Las que no
+ * se aplicaron se muestran con el motivo que quedó congelado en la corrida —la saltó
+ * el contador, suspendida en diciembre—: es la constancia de por qué no se descontó,
+ * y sin ella la columna diría que el total tiene un hueco sin explicación.
+ */
+function etiquetaDeduccion(d: any): string {
+  return d.monto > 0
+    ? `${d.acreedor} ${d.monto.toFixed(2)}`
+    : `${d.acreedor} (${d.motivoOmitida || 'no aplicada'})`;
+}
+
+/**
+ * El listado de CÁLCULOS de la corrida, en Excel: una fila por empleado con todo lo
+ * que calculó el motor y una fila de totales al pie.
+ *
+ * **No reemplaza a `corridaACSV`**, que reproduce el archivo viejo para presentar la
+ * planilla a la CSS: este es el detalle que el contador revisa, suma y cruza en Excel.
+ *
+ * Los montos van como NÚMEROS —no como el texto de dos decimales del CSV, que existe
+ * para que Excel no coma los ceros— así que se pueden sumar y filtrar; el formato de
+ * moneda lo pone el generador. Y salen del ítem tal como quedó congelado, **sin
+ * reordenarlos por tipo de corrida**: en el décimo y en las vacaciones el motor ya
+ * guarda `sueldo` en cero y el monto en `bruto` (payroll-calc.ts), así que la fila se
+ * lee sola y el listado dice lo mismo para cualquier tipo.
+ */
+export async function corridaXlsx(run: any): Promise<Buffer> {
+  const columns: ColumnDef[] = [
+    { header: 'Empleado', key: 'empleado' },
+    { header: 'Cédula', key: 'cedula' },
+    { header: 'Días', key: 'dias' },
+    { header: 'Sueldo', key: 'sueldo' },
+    { header: 'Horas extras', key: 'horasExtras' },
+    { header: 'Otros ingresos', key: 'otrosIngresos' },
+    { header: 'Menos sueldo', key: 'menosSueldo' },
+    { header: 'Bruto', key: 'bruto' },
+    { header: 'SS', key: 'ss' },
+    { header: 'SE', key: 'se' },
+    { header: 'ISR', key: 'isr' },
+    { header: 'Otras deducciones', key: 'otrasDeducciones' },
+    { header: 'Detalle de deducciones', key: 'detalleDeducciones' },
+    { header: 'Neto', key: 'neto' },
+    { header: 'SS patronal', key: 'ssPatronal' },
+    { header: 'SE patronal', key: 'sePatronal' },
+    { header: 'Riesgos profesionales', key: 'riesgosPatronal' },
+  ];
+
+  const rows = run.items.map((i: any) => ({
+    empleado: i.employee?.nombre ?? '',
+    cedula: i.employee?.cedula ?? '',
+    dias: i.diasTrabajados,
+    sueldo: i.sueldo,
+    horasExtras: i.horasExtras,
+    otrosIngresos: i.otrosIngresos,
+    menosSueldo: i.menosSueldo,
+    bruto: i.bruto,
+    ss: i.ss,
+    se: i.se,
+    isr: i.isr,
+    otrasDeducciones: i.otrasDeducciones,
+    detalleDeducciones: (i.deducciones || []).map(etiquetaDeduccion).join(' · '),
+    neto: i.neto,
+    ssPatronal: i.ssPatronal,
+    sePatronal: i.sePatronal,
+    riesgosPatronal: i.riesgosPatronal,
+  }));
+
+  // Los totales se suman de lo IMPRESO, no se leen de los totales congelados de la
+  // corrida: así el pie nunca puede contradecir a las filas de arriba. Los días no se
+  // suman —treinta días-hombre no son un dato de la planilla— y van en blanco.
+  const footerRow: Record<string, unknown> = { empleado: 'Total', cedula: '', dias: '', detalleDeducciones: '' };
+  for (const clave of CAMPOS_MONETARIOS) {
+    footerRow[clave] = sumarMontos(...rows.map((r: any) => Number(r[clave]) || 0));
+  }
+
+  // El nombre de la hoja lleva tipo y período: es lo que se ve en la pestaña de Excel.
+  return buildXlsx(`${run.tipo} ${run.periodo}`, columns, rows, CAMPOS_MONETARIOS, footerRow);
 }

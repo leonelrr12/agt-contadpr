@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 
 export type ExportFormat = 'xlsx' | 'csv';
 
-interface ColumnDef {
+export interface ColumnDef {
   header: string;
   key: string;
   width?: number;
@@ -61,8 +61,12 @@ interface XlsxOptions {
 
 /**
  * Genera un archivo Excel (.xlsx) a partir de filas de datos.
+ *
+ * Lo usan los reportes (por `exportReport`) y, además, el listado de cálculos de una
+ * corrida de planilla, que no es un reporte de `/api/reports` y arma sus columnas en su
+ * propio módulo (`payroll-run.ts`) — de ahí que esté exportado.
  */
-async function buildXlsx(
+export async function buildXlsx(
   sheetName: string,
   columns: ColumnDef[],
   rows: Record<string, unknown>[],

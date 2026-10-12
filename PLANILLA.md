@@ -221,6 +221,20 @@ CSS de ese mes ya está pagada.
 viejo** (`QUINCENA, NOMBRE, CEDULA, SUELDO, HORAS EXTRAS, DECIMO, SS, SE, ISR, TOPAL A PAGAR`). Sin esto,
 retirar la carga por archivo dejaría al contador peor que antes: la planilla hay que presentarla a la CSS.
 
+**Y el listado de cálculos, en Excel** (`GET /corridas/:id/export.xlsx`, 12-10): el detalle completo —días,
+sueldo, horas extras, otros ingresos, menos sueldo, bruto, SS, SE, ISR, otras deducciones (con su acreedor y,
+si no se aplicó, el motivo), neto y los tres aportes del patrono— con una fila por empleado y una de totales.
+**Son dos exports porque son dos consumidores**: el CSV es el formato del archivo viejo para presentar la
+planilla a la CSS, y este es lo que el contador revisa y suma. Tres decisiones que lo sostienen:
+
+- **Los montos van como números**, no como el texto de dos decimales del CSV —aquel es texto justamente para
+  que Excel no le coma los ceros a la cédula—: así el contador puede sumar y filtrar.
+- **El pie suma lo impreso**, no los totales congelados de la corrida: así el archivo no puede
+  contradecirse solo. Los días no se suman y van en blanco.
+- **No reordena por tipo de corrida** (el CSV sí: cada tipo llena su columna): en el décimo y en las
+  vacaciones el motor ya guarda `sueldo` en cero y el monto en `bruto`, así que la fila se lee sola y el
+  listado dice lo mismo para cualquier tipo.
+
 ### 3.4 El asiento, por empleado
 
 ```
@@ -543,7 +557,7 @@ Todos cuelgan de `/api/planilla`, así que la lista blanca del rol los cubre sin
 | GET | `/corridas` · `/corridas/:id` | Historial y detalle, con el estado de cada asiento |
 | POST | `/corridas/:id/recalcular` · `/anular` | Solo en BORRADOR; la anulación reusa `journal-annul.ts` |
 | POST | `/corridas/:id/revisar` | Aprueba o rechaza **en bloque**, con reporte por empleado |
-| GET | `/corridas/:id/export.csv` | Las columnas del archivo viejo |
+| GET | `/corridas/:id/export.csv` · `/export.xlsx` | Las columnas del archivo viejo (para la CSS) y el listado de cálculos en Excel |
 | GET | `/acumulados` · `/acumulados/:employeeId` | Décimo, vacaciones y prima por empleado |
 | GET/POST/PATCH/DELETE | `/deducciones` · `/deducciones/:id` | Catálogo de deducciones de acreedores, con el saldo derivado de cada una. Solo se borra una que nunca descontó |
 | GET | `/acreedores` | Saldo de cada cuenta por pagar de planilla: retenido, pagado y saldo del mayor |
@@ -607,7 +621,8 @@ La empresa de pruebas es **`demo-company`**. **ODESA no se toca.**
    `/api/reports`, `/api/config`, `/api/salud` y `/api/users` responden 403; `/api/planilla/*` y
    `/api/accounts` responden 200; revisar una corrida responde 403. Un usuario `inventario` recibe 403 en
    `/api/planilla`.
-8. **Export** — el CSV abre con los montos exactos y las columnas del archivo viejo.
+8. **Export** — el CSV abre con los montos exactos y las columnas del archivo viejo, y el xlsx con el detalle
+   del cálculo: los montos se suman en Excel (son números) y el pie iguala a las filas.
 
 ---
 
