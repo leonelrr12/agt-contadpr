@@ -54,8 +54,8 @@
     .form-grid label { font-size: 12px; color: #6b7280; display: block; margin-bottom: 2px; }
     .form-grid input, .form-grid select { width: 100%; padding: 8px; border: 1px solid #d0d5dd; border-radius: 6px; box-sizing: border-box; }
     /* Vinculador: una fila del extracto contra una o varias partidas del libro */
-    #pick-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
-    #pick-card { background: #fff; border-radius: 12px; width: 100%; max-width: 860px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.25); }
+    #pick-overlay, #entry-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+    #pick-card, #entry-card { background: #fff; border-radius: 12px; width: 100%; max-width: 860px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.25); }
     #pick-head { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; }
     #pick-head h3 { margin: 0 0 4px 0; font-size: 16px; color: #1a1a2e; }
     #pick-head .fila { font-size: 13px; color: #374151; }
@@ -74,6 +74,25 @@
     #pick-pie .cuadre.falta b { color: #d97706; }
     #pick-pie .cuadre.sobra b { color: #dc2626; }
     #pick-pie .acciones { margin-left: auto; display: flex; gap: 8px; }
+
+    /* Formulario del asiento que falta (el «+ Crear asiento» del extracto): el lado
+       del extracto va fijo y el contador elige UNA cuenta —la contrapartida— de una
+       lista con filtro, en vez de los dos prompt() de antes. */
+    #entry-card { max-width: 620px; }
+    #entry-head { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; }
+    #entry-head h3 { margin: 0 0 4px 0; font-size: 16px; color: #1a1a2e; }
+    #entry-head .fila { font-size: 13px; color: #374151; }
+    #entry-head .nota { margin: 6px 0 0 0; }
+    #entry-body { padding: 12px 20px 20px; overflow-y: auto; }
+    #entry-body label { font-size: 12px; color: #6b7280; display: block; margin-bottom: 2px; }
+    #entry-body .lado { font-size: 11px; color: #6b7280; margin-top: 4px; }
+    #entry-body input[type="text"] { width: 100%; padding: 8px; border: 1px solid #d0d5dd; border-radius: 6px; box-sizing: border-box; }
+    #entry-body .buscar { width: 100%; padding: 6px 8px; border: 1px solid #d0d5dd; border-radius: 6px; box-sizing: border-box; margin-bottom: 6px; font-size: 12px; }
+    #entry-body select { width: 100%; border: 1px solid #d0d5dd; border-radius: 6px; padding: 4px; box-sizing: border-box; font-size: 12px; }
+    #entry-body .banco { margin-top: 12px; padding: 10px 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 13px; color: #374151; }
+    #entry-body .banco .etiqueta { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.4px; }
+    #entry-body .manual { margin-top: 16px; font-size: 12px; color: #6b7280; }
+    #entry-pie { padding: 14px 20px; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 8px; }
   </style>
   <script src="js/shared.js?v=1"></script>
 </head>
@@ -157,6 +176,35 @@
         <div id="pick-head"></div>
         <div id="pick-lista"></div>
         <div id="pick-pie"></div>
+      </div>
+    </div>
+
+    <!-- Crear el asiento que falta: la fila está en el banco y no en libros. El lado
+         del extracto ya se conoce, así que el contador elige UNA cuenta. -->
+    <div id="entry-overlay" class="hidden" onclick="if (event.target === this) cerrarFormularioAsiento()">
+      <div id="entry-card">
+        <div id="entry-head"></div>
+        <div id="entry-body">
+          <div>
+            <label for="e-descripcion">Descripción del asiento</label>
+            <input type="text" id="e-descripcion" maxlength="200">
+          </div>
+          <div class="banco" id="e-banco"></div>
+          <div style="margin-top:16px">
+            <label for="e-contrapartida" id="e-etiqueta">La otra cuenta</label>
+            <input type="text" class="buscar" id="e-buscar" placeholder="Filtrar por código o nombre…" oninput="filtrarContrapartidas()">
+            <select id="e-contrapartida" size="7"></select>
+            <div class="lado" id="e-lado"></div>
+          </div>
+          <div class="manual">
+            ¿El asiento lleva más de dos cuentas (ITBMS, retenciones, varios conceptos)? Hacelo desde
+            <a href="/index.html">Revisión → ➕ Asiento Manual</a>, que acepta el asiento completo.
+          </div>
+        </div>
+        <div id="entry-pie">
+          <button class="btn btn-secondary" onclick="cerrarFormularioAsiento()">Cancelar</button>
+          <button class="btn btn-primary" id="e-crear" onclick="crearAsientoDesdeFila()">Crear asiento</button>
+        </div>
       </div>
     </div>
   </div>
@@ -363,7 +411,7 @@ function renderDetail(data) {
         <td>${r.credit > 0 ? '$' + r.credit.toFixed(2) : '—'}</td>
         <td style="white-space:nowrap">
           <button class="btn btn-secondary btn-sm" onclick="abrirVinculador('${r.id}')">🔗 Vincular</button>
-          <button class="btn btn-primary btn-sm" onclick="createEntryFromRow('${r.id}', ${r.debit > 0 ? r.debit : r.credit}, '${esc(r.description)}')">+ Crear asiento</button>
+          <button class="btn btn-primary btn-sm" onclick="abrirFormularioAsiento('${r.id}')">+ Crear asiento</button>
         </td>
       </tr>`;
     }
@@ -390,6 +438,12 @@ function renderDetail(data) {
     }
   }
   document.getElementById('book-tbody').innerHTML = bHtml;
+
+  // La grilla de extractos de arriba se refresca acá, en el único sitio por el que
+  // pasan TODAS las acciones que la cambian (subir, volver a conciliar, vincular,
+  // desvincular): sin esto el extracto recién subido no aparecía en la lista —ni se
+  // movían los porcentajes— hasta refrescar la página a mano.
+  loadHistory();
 
   // Scroll to detail
   document.getElementById('step-detail').scrollIntoView({ behavior: 'smooth' });
@@ -609,52 +663,145 @@ async function quitarVinculo() {
 }
 
 /**
- * Convierte lo que el contador escribe —código ("1.1.02.01"), "código nombre"
- * ("1.1.02.01 Banco General") o el id— en el id de la cuenta. El endpoint
- * espera un id: el prompt decía "código o ID" y mandaba el texto crudo, así que
- * su propio default ("1.1.02.01") rompía por clave foránea.
+ * Crear el asiento que falta desde una fila del extracto.
+ *
+ * El movimiento del banco YA se conoce —es la fila, con su fecha, su monto y su
+ * cuenta—, así que el asiento son dos líneas y al contador solo le falta **una**
+ * cuenta: la contrapartida. Antes eran dos `prompt()` pidiendo el CÓDIGO de cada
+ * cuenta, y lo que se escribía se mandaba crudo como clave foránea.
+ *
+ * Si el asiento necesita más de dos cuentas (ITBMS, retenciones, varios conceptos),
+ * este formulario no alcanza: eso se arma en Revisión → Asiento Manual.
  */
-function idDeCuenta(valor) {
-  const v = (valor || '').trim();
-  if (!v) return null;
-  return (cuentasCatalogo.find(a => a.id === v)
-    || cuentasCatalogo.find(a => a.code === v)
-    || cuentasCatalogo.find(a => a.code && v.startsWith(a.code + ' '))
-    || {}).id || null;
+let filaCreando = null;
+
+/**
+ * Las cuentas que se pueden elegir: hojas (el nodo padre no se postea) y activas,
+ * por código. Las bloqueadas sí van —la API las rechaza con el nombre de la cuenta—
+ * para que el contador vea por qué no puede usar la que tenía en mente. La cuenta
+ * del extracto queda fuera: no puede ser contrapartida de sí misma.
+ */
+function cuentasParaElegir(exceptoId = null) {
+  return cuentasCatalogo
+    .filter(a => a.isActive !== false && !(a.children || []).length && a.id !== exceptoId)
+    .slice()
+    .sort((a, b) => String(a.code).localeCompare(String(b.code), 'es'));
 }
 
-function createEntryFromRow(rowId, amount, description) {
+/** Llena la lista de la contrapartida; el filtro va por código o por nombre. */
+function llenarContrapartidas(filtro = '') {
+  const select = document.getElementById('e-contrapartida');
+  const previo = select.value;
+  const q = filtro.trim().toLowerCase();
+  const cuentas = cuentasParaElegir(currentStatement?.bankAccountId || null).filter(a =>
+    !q || String(a.code).toLowerCase().includes(q) || String(a.name).toLowerCase().includes(q));
+
+  // La opción vacía solo va sin filtro: es el "todavía no elegí".
+  const opciones = (q ? [] : ['<option value="">— elegí una cuenta —</option>'])
+    .concat(cuentas.map(a => `<option value="${a.id}">${esc(a.code)} — ${esc(a.name)}</option>`));
+  select.innerHTML = opciones.join('') || '<option value="">Sin cuentas que coincidan</option>';
+
+  // Lo elegido se conserva mientras siga en la lista (el filtro se escribe después
+  // de elegir): si desapareció, la lista vuelve a "elegí una cuenta".
+  select.value = cuentas.some(a => a.id === previo) ? previo : '';
+  const elegida = select.selectedOptions[0];
+  if (elegida) elegida.scrollIntoView({ block: 'nearest' });
+}
+
+function filtrarContrapartidas() {
+  llenarContrapartidas(document.getElementById('e-buscar').value);
+}
+
+function abrirFormularioAsiento(rowId) {
   const row = (currentStatement?.rows || []).find(r => r.id === rowId);
-  // La cuenta del extracto se propone en el lado que le toca: si la fila SALE
-  // del banco (o es un cargo de la tarjeta) el asiento la acredita; si ENTRA, la
-  // debita. Antes el crédito venía fijo en 1.1.02.01 — el banco equivocado si el
-  // extracto es de otra cuenta.
-  const cuenta = currentStatement?.bankAccount?.code || '';
-  const sale = (row?.debit || 0) > 0;
+  if (!row) return;
+  filaCreando = row;
 
-  const debito = prompt('Cuenta de débito (código):', sale ? '' : cuenta);
-  if (!debito) return;
-  const debitId = idDeCuenta(debito);
-  if (!debitId) { showAlert(`No encontré la cuenta «${esc(debito)}». Escribí el código, ej. 6.01.22.`); return; }
+  const sale = (row.debit || 0) > 0;              // la plata SALE de la cuenta del extracto
+  const monto = sale ? row.debit : row.credit;
+  // El id sale de `bankAccountId` (columna del extracto): el `bankAccount` que
+  // devuelve la API trae solo código y nombre.
+  const bancoId = currentStatement?.bankAccountId || null;
+  const bancoCode = currentStatement?.bankAccount?.code || '';
+  const bancoNombre = currentStatement?.bankAccount?.name || '';
 
-  const credito = prompt('Cuenta de crédito (código):', sale ? cuenta : '');
-  if (!credito) return;
-  const creditId = idDeCuenta(credito);
-  if (!creditId) { showAlert(`No encontré la cuenta «${esc(credito)}». Escribí el código, ej. 1.1.02.01.`); return; }
+  // El lado del extracto queda FIJO, y del lado que le toca: si la plata sale de la
+  // cuenta se ACREDITA; si entra, se DEBITA. Lo elige el contador es la otra cuenta.
+  document.getElementById('entry-head').innerHTML = `
+    <h3>➕ Crear el asiento que falta</h3>
+    <div class="fila"><b>${esc(row.description)}</b> · ${new Date(row.date).toLocaleDateString('es-PA')} · ${sale ? 'salida' : 'entrada'} de <b>$${monto.toFixed(2)}</b></div>
+    <div class="nota">Nace en BORRADOR con la fecha de la fila, por ese monto, y queda conciliado con ella. Lo aprueba el contador desde Revisión.</div>`;
 
-  createEntry(rowId, amount, description, debitId, creditId);
+  document.getElementById('e-banco').innerHTML = `
+    <div class="etiqueta">${sale ? 'Crédito' : 'Débito'} · movimiento del extracto (fijo)</div>
+    <div><b>${esc(bancoCode)}</b> — ${esc(bancoNombre)} · $${monto.toFixed(2)}</div>`;
+
+  document.getElementById('e-etiqueta').textContent = sale
+    ? 'Cuenta del débito — qué se pagó o a quién'
+    : 'Cuenta del crédito — de dónde salió la plata';
+  document.getElementById('e-lado').textContent = sale
+    ? 'El asiento debita esta cuenta y acredita la del extracto.'
+    : 'El asiento debita la del extracto y acredita esta cuenta.';
+
+  document.getElementById('e-descripcion').value = row.description || '';
+  document.getElementById('e-buscar').value = '';
+  // La lista arranca vacía: si no, al abrir otra fila quedaría elegida la cuenta de
+  // la fila anterior (un gasto que se arrastra sin que nadie lo mire).
+  document.getElementById('e-contrapartida').innerHTML = '';
+  llenarContrapartidas();
+
+  document.getElementById('entry-overlay').classList.remove('hidden');
+  const boton = document.getElementById('e-crear');
+  boton.disabled = false;
+  boton.textContent = 'Crear asiento';
+  document.getElementById('e-buscar').focus();
 }
 
-async function createEntry(rowId, amount, description, debitAccountId, creditAccountId) {
+function cerrarFormularioAsiento() {
+  filaCreando = null;
+  document.getElementById('entry-overlay').classList.add('hidden');
+}
+
+async function crearAsientoDesdeFila() {
+  const row = filaCreando;
+  if (!row) return;
+
+  const bancoId = currentStatement?.bankAccountId || null;
+  const contrapartida = document.getElementById('e-contrapartida').value;
+  if (!bancoId) { showAlert('No pude identificar la cuenta del extracto.'); return; }
+  if (!contrapartida) { showAlert('Elegí la cuenta de la contrapartida.'); return; }
+  if (contrapartida === bancoId) { showAlert('La contrapartida no puede ser la cuenta del extracto.'); return; }
+
+  // El monto es el de la fila —es el movimiento que se está registrando— y la fecha
+  // la hereda el asiento: no se editan acá.
+  const amount = (row.debit || 0) > 0 ? row.debit : row.credit;
+  const sale = (row.debit || 0) > 0;
+  const description = document.getElementById('e-descripcion').value.trim();
+
+  const boton = document.getElementById('e-crear');
+  boton.disabled = true;
+  boton.textContent = 'Creando…';
   try {
     const res = await authFetch(`${API_URL}/reconcile/${currentStatement.id}/create-entry`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rowId, amount, description, debitAccountId, creditAccountId }),
+      body: JSON.stringify({
+        rowId: row.id,
+        amount,
+        description,
+        debitAccountId: sale ? contrapartida : bancoId,
+        creditAccountId: sale ? bancoId : contrapartida,
+      }),
     });
-    if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo crear el asiento');
+    cerrarFormularioAsiento();
     await loadStatement(currentStatement.id);
-  } catch (e) { showAlert('Error: ' + esc(e.message)); }
+  } catch (e) {
+    showAlert('Error: ' + esc(e.message));
+    boton.disabled = false;
+    boton.textContent = 'Crear asiento';
+  }
 }
 
 function resetView() {
