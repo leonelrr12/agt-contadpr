@@ -208,10 +208,12 @@ async function detalleDeExtracto(prisma: any, companyId: string, statementId: st
  * cuenta receptora no podía conciliar las suyas aunque estuvieran libres—.
  *
  * La línea se reconstruye con la misma regla que usa el matcher —la cuenta del
- * extracto, el lado y el monto del movimiento, ±5 días—, y es exacta porque se
- * parte de la propia fila. Si no hay ninguna línea que encaje, el match fue
- * cruzado (el asiento salió de otra cuenta): no se inventa vínculo y el asiento
- * sigue bloqueado, que es lo conservador.
+ * extracto, el lado y el monto del movimiento—, y es exacta porque se parte de la
+ * propia fila. Los ±5 días se piden para ELEGIR entre varias candidatas; cuando el
+ * asiento tiene UNA sola línea de ese lado y monto en la cuenta, no hay elección
+ * que hacer y la ventana sobra (ver el detalle abajo). Si no hay ninguna línea que
+ * encaje, el match fue cruzado (el asiento salió de otra cuenta): no se inventa
+ * vínculo y el asiento sigue bloqueado, que es lo conservador.
  */
 async function reconstruirVinculos(prisma: any, companyId: string): Promise<number> {
   const faltantes = await prisma.bankStatementRow.findMany({
@@ -252,18 +254,28 @@ async function reconstruirVinculos(prisma: any, companyId: string): Promise<numb
     for (const fila of filas) {
       const mio = fila.debit || fila.credit || 0;
       if (!mio) continue;
-      const candidatas = lineas
+      const porMonto = lineas
         .filter((l: any) => l.journalEntryId === fila.matchedEntryId && !usadas.has(l.id))
         .map((l: any) => ({
           linea: l,
           monto: fila.debit > 0 ? l.credit : l.debit, // en el extracto el débito es salida; en libros, el haber
           dias: daysBetween(new Date(fila.date), new Date(l.journalEntry.date)),
         }))
-        .filter((c: any) => Math.abs(c.monto - mio) < 0.02 && c.dias <= 5)
-        .sort((a: any, b: any) => a.dias - b.dias || String(a.linea.id).localeCompare(String(b.linea.id)));
-      if (!candidatas.length) continue;
+        .filter((c: any) => Math.abs(c.monto - mio) < 0.02);
 
-      const elegida = candidatas[0];
+      // La ventana elige ENTRE candidatas; con una sola no hay elección que hacer —el
+      // match ya está hecho y acá solo se anota qué línea usó—. Exigirla dejaba el
+      // asiento bloqueado para siempre cuando sus patas salieron con más de 5 días de
+      // diferencia: la planilla de enero de ODESA paga por la 6305-5 el 08 y por la
+      // 2810-1 el 16, así que reconstruir el vínculo del 16 con la fecha del asiento
+      // (08) quedaba a 8 días — y sin el vínculo, el asiento entero bloqueaba la línea
+      // de la 6305-5, que estaba libre (12-10).
+      const enVentana = porMonto
+        .filter((c: any) => c.dias <= 5)
+        .sort((a: any, b: any) => a.dias - b.dias || String(a.linea.id).localeCompare(String(b.linea.id)));
+      const elegida = enVentana[0] ?? (porMonto.length === 1 ? porMonto[0] : undefined);
+      if (!elegida) continue;
+
       await prisma.bankRowMatch.create({
         data: {
           rowId: fila.id,

@@ -402,3 +402,49 @@ describe('autoMatch — solo la cuenta del extracto', () => {
     expect(updates).toEqual([{ id: 'y1', matchedEntryId: 'je-8829' }]);
   });
 });
+
+/**
+ * Montos idénticos que se repiten casi todos los días (los $6 de alimentación, ODESA
+ * marzo): con una sola pasada, en el orden en que vengan las filas, la del 24-03 se
+ * lleva el asiento del 26-03 —está a 2 días, dentro de la banda— y la del 26-03, que
+ * es su dueña, se queda sin nada. Y como el asiento del 26-03 queda "conciliado" por
+ * la fila equivocada, la lista de libros lo esconde: no hay forma de linkearlo a mano.
+ * Con las dos pasadas, la fila del mismo día se empareja antes que la que solo está
+ * cerca.
+ */
+describe('autoMatch — el mismo día manda sobre el cercano', () => {
+  const filas = () => [
+    { id: 'r-24a', date: fecha('2026-03-24'), description: 'BANCA EN LINEA TRANSFERENCIA A 0425984548933', reference: null, debit: 6, credit: 0, balance: 0, status: 'UNMATCHED', matchedEntryId: null },
+    { id: 'r-24b', date: fecha('2026-03-24'), description: 'BANCA EN LINEA TRANSFERENCIA A 0404971572648', reference: null, debit: 6, credit: 0, balance: 0, status: 'UNMATCHED', matchedEntryId: null },
+    { id: 'r-26', date: fecha('2026-03-26'), description: 'BANCA EN LINEA TRANSFERENCIA A 0428991159366', reference: null, debit: 6, credit: 0, balance: 0, status: 'UNMATCHED', matchedEntryId: null },
+  ];
+
+  /** Una partida de $6 por asiento: el del 24-03 y el del 26-03. */
+  const libro = () => ['24', '26'].map(d => ({
+    id: `jl-${d}`, journalEntryId: `je-${d}`, debit: 0, credit: 6,
+    journalEntry: { id: `je-${d}`, date: fecha(`2026-03-${d}`), description: 'Alimentación — $6.00' },
+    account: { code: '1.1.02.03', name: 'Banco General AHORRO - 6305-5' },
+  }));
+
+  it('la fila del 26-03 se queda con el asiento del 26-03, no con el que le sobra al 24-03', async () => {
+    const filasExtracto = filas();
+    const updates: Array<{ id: string; entry: string }> = [];
+    const prisma = {
+      bankStatementRow: {
+        findMany: async ({ where }: any) => (where.status === 'UNMATCHED' ? filasExtracto : []),
+        update: async ({ where, data }: any) => { updates.push({ id: where.id, entry: data.matchedEntryId }); return data; },
+      },
+      journalLine: { findMany: async () => libro() },
+      bankRowMatch: vinculosFalsos(),
+    };
+
+    await autoMatch('bs-mar', prisma as any, 'odesa', 'acc-6305');
+
+    // El 24-03 tiene UNA sola partida para DOS filas: una concilia con la suya y la
+    // otra se queda pendiente. Lo que no puede pasar es que se lleve la del 26-03.
+    expect(updates).toEqual([
+      { id: 'r-24a', entry: 'je-24' },
+      { id: 'r-26', entry: 'je-26' },
+    ]);
+  });
+});

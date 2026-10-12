@@ -82,6 +82,13 @@ async function findBestMatch(
    * `entradas` viene de los extractos anteriores, que solo guardan el asiento.
    */
   ocupados: { lineas: Set<string>; entradas: Set<string> } = { lineas: new Set(), entradas: new Set() },
+  /**
+   * Confianza mínima para devolver un candidato. Las bandas son 1.0 (mismo día),
+   * 0.9 (±2 días) y 0.7/0.5 (hasta ±5, según se parezcan las descripciones); el
+   * reparto por rondas de `autoMatch` las usa para emparejar primero lo del mismo
+   * día y dejar lo difuso para el final.
+   */
+  minConfianza = 0.5,
 ): Promise<{ entryId: string; lineId: string; amount: number; confidence: number; matchType: MatchResult['matchType'] } | null> {
   if (!row.date || (!row.debit && !row.credit)) return null;
 
@@ -168,7 +175,7 @@ async function findBestMatch(
   }
 
   // Solo devolver matches con confianza suficiente
-  if (bestMatch && bestMatch.confidence >= 0.5) {
+  if (bestMatch && bestMatch.confidence >= minConfianza) {
     return bestMatch;
   }
 
@@ -225,46 +232,84 @@ export async function autoMatch(
   };
 
   const matches: MatchResult[] = [];
+  /** Filas que ya quedaron emparejadas en esta corrida. */
+  const resueltas = new Set<string>();
 
-  for (const row of rows) {
-    const parsed: ParsedRow = {
-      date: row.date.toISOString().split('T')[0],
-      description: row.description,
-      amount: row.debit || row.credit,
-      concept: null,
-      paymentMethod: null,
-      type: null,
-      provider: null,
-      reference: row.reference,
-      ruc: null,
-      itbms: null,
-      debit: row.debit,
-      credit: row.credit,
-      balance: row.balance,
-      _raw: {},
-    };
+  /** El estado de la fila, con la forma que espera `findBestMatch`. */
+  const comoFila = (row: any): ParsedRow => ({
+    date: row.date.toISOString().split('T')[0],
+    description: row.description,
+    amount: row.debit || row.credit,
+    concept: null,
+    paymentMethod: null,
+    type: null,
+    provider: null,
+    reference: row.reference,
+    ruc: null,
+    itbms: null,
+    debit: row.debit,
+    credit: row.credit,
+    balance: row.balance,
+    _raw: {},
+  });
 
-    const match = await findBestMatch(parsed, prisma, companyId, bankAccountId, ocupados);
+  /** Asigna el emparejamiento y deja la constancia: fila + vínculo por línea. */
+  const asignar = async (row: any, match: any) => {
+    await prisma.bankStatementRow.update({
+      where: { id: row.id },
+      data: {
+        status: 'MATCHED',
+        matchedEntryId: match.entryId,
+        matchConfidence: match.confidence,
+      },
+    });
+    // El vínculo por línea es la verdad de qué quedó conciliado, lo haya hecho
+    // el matcher o el contador: así el vínculo automático también protege su
+    // línea de otra corrida y la UI puede mostrar qué partidas lo sostienen.
+    await prisma.bankRowMatch.create({
+      data: { rowId: row.id, entryId: match.entryId, lineId: match.lineId, amount: match.amount, isManual: false },
+    });
+    ocupados.lineas.add(match.lineId);
+    resueltas.add(row.id);
+    matches.push({ rowId: row.id, entryId: match.entryId, confidence: match.confidence, matchType: match.matchType });
+  };
 
-    if (match) {
-      // Actualizar la fila con el match
-      await prisma.bankStatementRow.update({
-        where: { id: row.id },
-        data: {
-          status: 'MATCHED',
-          matchedEntryId: match.entryId,
-          matchConfidence: match.confidence,
-        },
-      });
-      // El vínculo por línea es la verdad de qué quedó conciliado, lo haya hecho
-      // el matcher o el contador: así el vínculo automático también protege su
-      // línea de otra corrida y la UI puede mostrar qué partidas lo sostienen.
-      await prisma.bankRowMatch.create({
-        data: { rowId: row.id, entryId: match.entryId, lineId: match.lineId, amount: match.amount, isManual: false },
-      });
-      ocupados.lineas.add(match.lineId);
+  // Dos bandas, de la mejor confianza a la peor: primero lo del MISMO día o ±2
+  // (0.9-1.0) y después lo difuso (0.5-0.7, hasta ±5 días).
+  //
+  // Antes se recorría una sola vez, en el orden en que vinieran las filas, y cada una
+  // agarraba lo primero aceptable (≥0.5). Con montos idénticos y repetidos —los $6 de
+  // alimentación, que salen casi todos los días— eso corre el reparto un día hacia
+  // atrás: cada día se lleva las partidas del día siguiente. En marzo de ODESA las
+  // tres filas del 31-03 se quedaron sin contraparte mientras su asiento figuraba
+  // conciliado por las del 26-03, y como el asiento ya estaba "conciliado" la lista
+  // de libros lo escondía (12-10).
+  for (const banda of [0.9, 0.5]) {
+    for (;;) {
+      const pendientes = rows.filter((r: any) => !resueltas.has(r.id));
+      if (!pendientes.length) break;
 
-      matches.push({ rowId: row.id, entryId: match.entryId, confidence: match.confidence, matchType: match.matchType });
+      // Primero se piden TODAS las propuestas y después se asignan: así una fila no
+      // consume una partida que otra necesita más (a igual banda, gana la confianza
+      // más alta). Las que pierden su candidata vuelven a proponer en la ronda
+      // siguiente, ya sin ella en juego.
+      const propuestas: Array<{ row: any; match: any }> = [];
+      for (const row of pendientes) {
+        const match = await findBestMatch(comoFila(row), prisma, companyId, bankAccountId, ocupados, banda);
+        if (match) propuestas.push({ row, match });
+      }
+      if (!propuestas.length) break;
+
+      propuestas.sort((a, b) => b.match.confidence - a.match.confidence);
+
+      let asignadas = 0;
+      for (const p of propuestas) {
+        if (resueltas.has(p.row.id) || ocupados.lineas.has(p.match.lineId)) continue;
+        await asignar(p.row, p.match);
+        asignadas++;
+      }
+      // Nadie pudo tomar nada: no queda nada que repartir en esta banda.
+      if (!asignadas) break;
     }
   }
 
