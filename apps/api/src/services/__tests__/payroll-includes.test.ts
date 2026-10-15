@@ -13,65 +13,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { Prisma } from '@agt-contador/prisma-schema';
+import { prismaValidador } from '../../test-utils/prisma-validador';
 import { obtenerCorrida, listarCorridas } from '../payroll-run';
 import { acumuladosDe, listarEmpleados, obtenerEmpleado } from '../payroll-empleados';
 import { catalogoDe, listarDeducciones, resumenAcreedores } from '../payroll-acreedores';
-
-const MODELOS = new Map<string, { name: string; fields: { name: string; kind: string }[] }>(
-  ((Prisma as any).dmmf.datamodel.models as any[]).map((m) => [m.name, m]),
-);
-
-/** `payrollItem` → `PayrollItem`: la convención de Prisma para los delegates. */
-const modeloDe = (delegate: string) => MODELOS.get(delegate.charAt(0).toUpperCase() + delegate.slice(1));
-
-function validarArgs(delegate: string, args: any, metodo: string) {
-  const modelo = modeloDe(delegate);
-  if (!modelo || !args || typeof args !== 'object') return;
-  for (const clave of ['include', 'select'] as const) {
-    const bloque = args[clave];
-    if (!bloque || typeof bloque !== 'object') continue;
-    for (const campo of Object.keys(bloque)) {
-      // `_count`, `_sum`… son agregados y no campos del modelo.
-      if (campo.startsWith('_')) continue;
-      if (!modelo.fields.some((f) => f.name === campo)) {
-        throw new Error(
-          `${delegate}.${metodo}: ${clave}.${campo} no existe en el modelo ${modelo.name}. ` +
-            `Disponibles: ${modelo.fields.map((f) => f.name).join(', ')}`,
-        );
-      }
-    }
-  }
-}
-
-/**
- * Prisma de mentira que valida los argumentos. `resultados` trae lo que devuelve cada
- * consulta: por `"delegate.metodo"`, por delegate, o una función.
- */
-function prismaValidador(resultados: Record<string, any> = {}) {
-  const llamadas: { delegate: string; metodo: string }[] = [];
-  const prisma: any = new Proxy(
-    {},
-    {
-      get: (_t, prop: string) => {
-        if (prop === '$transaction') return async (cb: any) => cb(prisma);
-        if (prop.startsWith('$')) return async () => undefined;
-        return new Proxy(
-          {},
-          {
-            get: (_t2, metodo: string) => async (args: any) => {
-              validarArgs(prop, args, metodo);
-              llamadas.push({ delegate: prop, metodo });
-              const r = resultados[`${prop}.${metodo}`] ?? resultados[prop] ?? [];
-              return typeof r === 'function' ? r(args) : r;
-            },
-          },
-        );
-      },
-    },
-  );
-  return { prisma, llamadas };
-}
 
 describe('planilla: los include existen en el modelo (DMMF)', () => {
   it('el guardia detecta el include que reventó el 28-09', async () => {

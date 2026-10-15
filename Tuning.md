@@ -217,9 +217,12 @@ rentabilidad** por segmento.
 - **`prisma: any` en los servicios: `tsc` no valida las consultas.** Un `include` con una relación que
   no existe compila y revienta en runtime —pasó el 28-09 con el desglose de deducciones colgado del
   ítem en vez de la corrida, y el endpoint devolvió 500 hasta que se reinició el proceso—. Mitigación
-  desde el 15-10: `services/__tests__/payroll-includes.test.ts` valida los `include`/`select` de las
-  lecturas de planilla contra el **DMMF real** de Prisma, así que un nombre inventado falla en el test.
-  El mismo arnés se puede apuntar a otros módulos cuando se toque su lectura.
+  desde el 15-10: **`test-utils/prisma-validador.ts`** es un Prisma de mentira que valida
+  `include`/`select` contra el **DMMF real** del schema (y anota qué consultas corrió). Lo usan
+  `services/__tests__/payroll-includes.test.ts` (las 8 lecturas de planilla) y
+  `routes/__tests__/lecturas-includes.test.ts` (~26 endpoints de informes, inventario, auxiliares,
+  reembolsos, conciliación, salud y presupuesto). Al tocar la lectura de otro módulo, apuntarle el
+  mismo arnés: es una tarde y evita que un nombre mal puesto llegue al contador.
 - **Sin tests contra la BD real.** Los 465 tests son de servicio y de ruta, con **stubs de Prisma a
   mano** (los de ruta levantan Express y pegan con `fetch`: `reconcile-upload`, `declaraciones-itbms`).
   No hay ni un test que toque PostgreSQL, así que lo que depende del motor (índices únicos parciales,
