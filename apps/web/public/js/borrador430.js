@@ -80,7 +80,10 @@ async function loadReportBorrador430() {
   _b430Mes = d.periodo.mes;
   _b430AnioFiscal = d.periodo.anioFiscal;
   el.innerHTML = b430Html(d);
-  setInformesExportBar('borrador-430');
+  // La barra de export GLOBAL vive dentro de #informes-date-filter, que se oculta en
+  // esta pestaña (no usa el filtro de fechas): sus botones quedarían invisibles. Los
+  // del 430 van en la barra del propio informe, junto al período y el vencimiento.
+  setInformesExportBar(null);
 }
 
 async function b430CambiarPeriodo(year, mes) {
@@ -114,6 +117,8 @@ function b430Html(d) {
       </label>
       <span style="flex:1"></span>
       <span style="font-size:12px;color:#6b7280">${d.periodo.label} · vence el <b>${b430Fecha(d.periodo.vence)}</b></span>
+      <button onclick="exportInforme('borrador-430','xlsx')" title="Descargar el borrador en Excel" style="padding:5px 12px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📥 Excel</button>
+      <button onclick="exportInforme('borrador-430','csv')" title="Descargar el borrador en CSV" style="padding:5px 12px;font-size:11px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer">CSV</button>
     </div>`;
 
   return controles + b430Avisos(d) + b430Cards(d) + b430Renglones(d) + b430Liquidacion(d) + b430Retenciones(d) + b430Detalle(d) + b430NoClasificados(d);
