@@ -606,3 +606,42 @@ export const updatePayrollSettingsSchema = z.object({
   cuentas: z.record(z.string(), z.string().nullable()).optional(),
 });
 export type UpdatePayrollSettingsInput = z.infer<typeof updatePayrollSettingsSchema>;
+
+// ── Declaraciones de ITBMS (Formulario 430) ──
+// Los renglones son números libres con signo (el saldo anterior puede ser negativo:
+// es el saldo a favor que se arrastra). El servicio recalcula el saldo a pagar.
+export const crearDeclaracionItbmsSchema = z.object({
+  year: z.number().int().min(2000).max(2100),
+  mes: z.number().int().min(1).max(12),
+  notas: z.string().trim().max(500).optional(),
+});
+
+const renglonDeclaracion = z.number().finite();
+export const editarDeclaracionItbmsSchema = z
+  .object({
+    baseVentas: renglonDeclaracion.optional(),
+    debitoFiscal: renglonDeclaracion.optional(),
+    baseCompras: renglonDeclaracion.optional(),
+    creditoFiscal: renglonDeclaracion.optional(),
+    retencionAplicada: renglonDeclaracion.optional(),
+    saldoAnterior: renglonDeclaracion.optional(),
+    notas: z.string().trim().max(500).optional(),
+  })
+  .refine((b) => Object.keys(b).length > 0, { message: 'Nada que actualizar' });
+
+export const presentarDeclaracionItbmsSchema = z.object({
+  numeroFormulario: z.string().trim().min(1, 'El número de formulario es obligatorio').max(60),
+  fechaPresentacion: isoDate.optional(),
+  /** Retenciones a aplicar al renglón 52; sin lista, todas las que tengan certificado. */
+  retencionIds: z.array(z.string().min(1)).max(300).optional(),
+});
+
+export const pagarDeclaracionItbmsSchema = z.object({
+  monto: z.number().finite().positive().optional(),
+  cuentaBancoId: z.string().min(1, 'Selecciona la cuenta de banco'),
+  fecha: isoDate.optional(),
+});
+
+export const anularDeclaracionItbmsSchema = z.object({
+  motivo: z.string().trim().min(3, 'Explica el motivo de la anulación').max(300),
+});

@@ -7,8 +7,8 @@
 > Para arrancar el proyecto (comandos, BD, despliegue, trampas) ver **AGENTS.md**, que es el que se
 > carga en cada sesión. Esto de acá es el estado del producto y lo que falta.
 
-**Última verificación contra el código: 2026-10-15** — 42 modelos Prisma, 180 endpoints en `routes/`,
-migración más alta `0036_conciliacion_por_linea`, 417 tests.
+**Última verificación contra el código: 2026-10-15** — 43 modelos Prisma, 190 endpoints en `routes/`,
+migración más alta `0037_declaracion_itbms`, 461 tests.
 
 ---
 
@@ -64,7 +64,7 @@ Verificado contra el código el 25-09-2026. **Si algo no está en esta lista, no
 | Facturas PDF (logo, numeración correlativa, ITBMS desglosado, leyenda de resolución DGI) | `factura-pdf.ts`, `routes/facturas.ts` |
 | Cobros a facturas | modelo `InvoicePayment` |
 | Retención de ITBMS sufrida (50%) | `retencion-itbms.ts`, `routes/retenciones.ts` |
-| **Borrador del Form. 430 (ITBMS mensual)** — informe de SOLO LECTURA calculado del mayor: renglones por tasa, retenciones R52, pagos a la DGI y compensaciones separados del crédito fiscal (el débito de `2.1.05` mezcla las tres cosas), saldo anterior con signo y **cuadre contra la cuenta** | `borrador-430.ts`, pestaña 🧾 Form. 430 en Informes |
+| **Form. 430 (ITBMS mensual) — informe y declaración**: el borrador calcula los renglones del mayor (renglones por tasa, pagos a la DGI y compensaciones separados del crédito fiscal, saldo anterior con signo y **cuadre contra la cuenta**); la declaración guarda lo presentado (N° de formulario, fechas, estados BORRADOR → PRESENTADA → PAGADA → ANULADA), **compensa el R52** al presentar, crea el asiento del pago y **anular revierte todo y devuelve las retenciones** | `borrador-430.ts`, `declaracion-itbms.ts`, `routes/declaraciones.ts`, `declaracion-itbms-pdf.ts`, pestaña 🧾 Form. 430 |
 | Anexos DGI por cuenta + bloqueo de cuentas | `anexo-rules.ts`, `journal-guard.ts`, migración `0014` |
 | Cierre de año fiscal | `year-close.ts`, `isClosing` + `period`, migración `0006` |
 | Reportes (balance, resultados, flujo de caja, comprobación, auxiliares) | `routes/reports.ts` |
@@ -85,70 +85,53 @@ la carga general y el concepto "Honorarios" clasifica a `6.02.01`.
 
 ## 4. Pendiente
 
-### 4.1 ⛔ Bloqueado por una decisión tuya — Compensación R52 del ITBMS retenido
+### 4.1 ✅ RESUELTO — Compensación R52 del ITBMS retenido y declaración del 430
 
-**Es lo único realmente bloqueado del proyecto.** Aplazado el 18-09-2026 hasta tener criterio contable.
+**Cerrado el 15-10-2026** con la declaración como dato (fase 2, migración `0037`). Lo que sigue acá es
+el historial de la decisión; no hay nada bloqueado.
 
-**15-10-2026 — el cálculo ya está:** se construyó el **borrador del 430** (informe de solo lectura,
-pestaña 🧾 Form. 430 en Informes) como insumo para responder estas preguntas. Enseña los renglones
-calculados del mayor, **separa los pagos a la DGI del crédito fiscal** (en ODESA los pagos del año,
-2.524,77, superan a las compras, 1.784,75: restarlos a lo bruto inflaba el crédito), aplica el R52
-disponible, muestra el saldo anterior **con su signo** —sin el `Math.max(0, …)` que se come el saldo a
-favor de D2— y cuadra contra el movimiento de la cuenta o dice qué asiento no pudo clasificar.
-Detecta además las tasas por asiento: el 10 % de alimentación/hospedaje ya sale separado del 7 %.
-**Lo que sigue bloqueado es la declaración como DATO** (asiento, pago, reversión y estados), no el cálculo.
+**Lo que hay hoy:**
+- **Informe borrador del 430** (fase 1, solo lectura): `borrador-430.ts`, pestaña 🧾 Form. 430.
+- **Declaración como DATO**: modelo `DeclaracionItbms`, estados BORRADOR → PRESENTADA → PAGADA y
+  ANULADA desde cualquiera. Presentar guarda el N° de formulario, **compensa el R52** (asiento
+  D 2.1.05 / C 1.1.07 por las retenciones con certificado que se elijan), las pasa a APLICADA con
+  **FK real** (`retencion_itbms.declaracionId`) y completa la obligación del calendario. Pagar crea el
+  asiento contra banco (CONFIRMADO). **Anular revierte los asientos, devuelve las retenciones a
+  RECIBIDA y suelta el período** (índice único parcial), que era la brecha que impedía deshacer.
+- PDF de la declaración (`declaracion-itbms-pdf.ts`) con número y fecha; el borrador sale rotulado
+  «NO PRESENTADO» para que no se confunda con el formulario.
 
-**El problema.** El crédito por ITBMS retenido entra a `1.1.07 ITBMS Retenido por Terceros`
-(D Banco 1.035 + D 1.1.07 35 / C Clientes 1.070) y se declara en el **renglón 52 del Formulario 430**.
-Pero `PAGO_ITBMS` debita `2.1.05 ITBMS por Pagar` contra banco por el total **sin mirar el crédito**,
-así que el saldo se acumula. Hoy el único modo de aplicarlo es manual y sin reversión: `POST
-/api/retenciones-itbms/compensar` (modal "Compensar R52" en Informes) crea D 2.1.05 / C 1.1.07.
+**Lo que se decidió (y por qué):**
+- **D1 — Alcance: solo el 430 mensual.** El 431 (ISR anual) queda fuera: es otro formulario y otro módulo.
+- **D2 — El saldo a favor se ARRASTRA** al mes siguiente (contador, 15-10-2026). El informe ya lo
+  aplica como saldo anterior, sin clamp a cero, y la declaración lo publica en `saldoAFavor`.
+- **D3 — Montos del mayor CON ajuste del contador**: la declaración nace con los renglones del informe
+  y el contador los corrige antes de presentar. Presentar exige que el renglón 52 coincida con las
+  retenciones que de verdad se compensan: nada de descuadres mudos entre el formulario y el mayor.
 
-**Dos decisiones abiertas** (D2 quedó cerrada el 15-10-2026):
+**Brechas de la lista original — estado:**
+1. **Cerrada.** La declaración existe como dato (renglones, número, fechas y asientos).
+2. **Cerrada.** Anular revierte el asiento y devuelve las retenciones (antes `APLICADA` era terminal).
+3. **Cerrada.** El vínculo con el asiento es una FK real (`asientoCompensacionId` / `asientoPagoId`,
+   patrón `ExpenseClaim`), no el JSON de `metadata`.
+4. **Parcial.** El borrador y la declaración resuelven sus cuentas por unión de alias + código +
+   nombre; el botón manual `POST /retenciones-itbms/compensar` sigue con su resolución estricta y
+   **sigue existiendo** (no se retiró: era una funcionalidad en uso y el dueño no lo pidió).
+5. **Aclarada.** `6.05.01` es «Impuesto Municipal»: si el contador quiere una cuenta de ITBMS gastado,
+   hay que crearla.
+6. **Parcial.** La tasa sigue en `process.env` para los asientos nuevos; el borrador y la declaración
+   la derivan de cada asiento y avisan si no es 7/10/15 %.
 
-- **D1 — Alcance:** *A)* solo ITBMS mensual (Form. 430) completo; *B)* también ISR anual (Form. 431);
-  *C)* mínimo, solo la compensación sin declaración. **Provisional: A**, o C si se quiere valor
-  inmediato con mínimo riesgo.
-- **D2 — Crédito mayor que el impuesto del período: ✅ RESUELTA — se ARRASTRA.** El saldo a favor no se
-  pide en devolución ni se deja quieto: pasa al mes siguiente (confirmado por el contador el
-  15-10-2026). El borrador del 430 ya lo aplica —el mes siguiente lo recibe como saldo anterior— y
-  publica `liquidacion.reglaSaldoAFavor: 'ARRASTRE'` para la fase de la declaración.
-- **D3 — De dónde salen los montos:** *1)* calculados del mayor con ajuste del contador; *2)* tecleados
-  por el contador; *3)* calculados sin ajuste. **Provisional: 1.**
-
-**Las 5 preguntas para el contador:**
-1. **✅ Contestada (15-10-2026):** si el ITBMS de compras + la retención sufrida superan al de ventas,
-   el excedente **se arrastra** al mes siguiente. No se pide devolución.
-2. ¿Se presenta con montos del libro o del formulario? Si difieren, ¿cuál manda para el pago?
-3. ¿El pago va por el neto (ya aplicada la retención) o se paga el total y la retención se reclama aparte?
-4. Compras sin derecho a crédito: hoy la app registra el ITBMS dentro del costo. ¿Correcto, o va a
-   cuenta separada? **Ojo:** `6.05.01` es «Impuesto Municipal» (el alias suelto `itbms-gastado` del
-   seed no lo usa nadie, y el concepto `Municipio` sí escribe ahí): no existe una cuenta de «ITBMS
-   Gastado», así que si el contador la quiere hay que crearla.
-5. ¿Qué formularios y periodicidad (430 mensual, 431 anual, otros)? ¿El vencimiento depende del último
-   dígito del RUC? Hoy la app usa **día 15 fijo**.
-
-**Brechas a cerrar en la misma entrega:**
-1. No existe "declaración" como dato: `TaxObligation` es solo calendario, sin renglones, número de
-   formulario ni asiento de pago. *(El cálculo de los renglones ya existe: `borrador-430.ts`.)*
-2. La compensación **no se puede revertir**: `APLICADA` es terminal en `canTransition` y anular el
-   asiento no devuelve las retenciones a `RECIBIDA`.
-3. `RetentionItbms.journalEntryId` apunta al asiento del cobro, no al de compensación (el vínculo real
-   solo vive en `metadata` JSON).
-4. Resolución de cuentas inconsistente: `compensar` exige alias exacto, los cobros usan búsqueda
-   tolerante. Una cuenta `1.1.07` creada a mano sin alias rompe la compensación. *(El borrador del 430
-   resuelve la suya por unión de alias + código + nombre, así que no se queda corto si remapean.)*
-5. `6.05.01` es «Impuesto Municipal», no una cuenta de ITBMS gastado (ver pregunta 4).
-6. La tasa de ITBMS vive en `process.env` (default 7%) y no queda registrada por período. *(El borrador
-   no la usa: deriva la tasa implícita de cada asiento y avisa si no es 7/10/15 %, que es como detectó
-   el 10 % de alimentación en ODESA.)*
-
-**Boceto de diseño (no vinculante):** modelo `DeclaracionITBMS` con `companyId`, `period`, renglones
-(`baseVentas`, `itbmsDebito`, `baseCompras`, `itbmsCredito`, `retencionAplicada`, `saldoAnterior`,
-`saldoAPagar`/`saldoAFavor`), `numeroFormulario`, `fechaPresentacion`, `estado` (BORRADOR → PRESENTADA →
-PAGADA, ANULADA) y asientos asociados. Flujo: borrador → ajustar → presentar (asiento + retenciones a
-APLICADA + `TaxObligation` completada) → pagar → anular (revierte todo). Reutiliza `validateEntry` del
-`AccountingAgent`, `findRetencionAccount`, `checkNotBlocked`, `logAudit`, `requireQuota`.
+**Historial de la decisión** (lo que estaba bloqueado hasta el 15-10-2026): el crédito por ITBMS
+retenido entra a `1.1.07` y se declara en el renglón 52; `PAGO_ITBMS` debitaba `2.1.05` por el total
+sin mirar el crédito, así que el saldo se acumulaba, y el único modo de aplicarlo era el botón manual
+`POST /retenciones-itbms/compensar` (que sigue ahí, para uso manual). Las **5 preguntas al contador**
+que originaron el bloqueo quedan contestadas así: (1) el excedente **se arrastra**; (2) manda el
+formulario presentado, con el libro al lado —el borrador enseña los dos y la declaración guarda lo
+declarado—; (3) el pago se registra por lo que **efectivamente se pagó** (el modal lo propone con el
+saldo declarado y se puede corregir); (4) el ITBMS de compras sin derecho a crédito sigue dentro del
+costo, y `6.05.01` es «Impuesto Municipal»; (5) 430 mensual, vence el **día 15** (confirmado, sin regla
+de último dígito del RUC).
 
 ---
 
@@ -292,6 +275,23 @@ rentabilidad** por segmento.
   y pasaban a OVERDUE la noche anterior; en invierno las zonas coinciden y no se notaba. La corrida del
   calendario **normaliza sola** las filas viejas y devuelve a PENDING las mal marcadas, así que no hizo
   falta migrar a mano.
+
+**Declaración de ITBMS (Form. 430)**
+- **Es una foto, no un puntero.** Los renglones nacen del borrador y el contador los corrige **mientras
+  está en BORRADOR**; al presentar quedan congelados y la fila no se recalcula nunca más. Para corregir
+  hay que anular y volver a declarar (el período queda libre: el índice único es parcial,
+  `WHERE estado <> 'ANULADA'`).
+- **El renglón 52 tiene que cuadrar con lo que se aplica.** Presentar exige que el renglón declarado sea
+  igual a la suma de las retenciones que se compensan en el mayor; si no, dice cuánto falta y cómo
+  arreglarlo. Solo entran las **RECIBIDAS con certificado** anteriores al cierre (las PENDIENTE se
+  informan aparte: en ODESA hoy son 25 con $4.727,36 sin certificado).
+- **Los asientos los revisa el contador.** La compensación del R52 nace **BORRADOR** (igual que el botón
+  manual de compensar); el **pago** nace CONFIRMADO, porque es un pago ya hecho.
+- **Nada se borra.** Anular crea el espejo con `anularAsiento` (fechado hoy, no reescribe el mes
+  declarado), devuelve las retenciones a RECIBIDA y la obligación a pendiente; el número de formulario
+  no se reutiliza.
+- Los **pagos y compensaciones ya contabilizados no son renglones del formulario**: van en la
+  liquidación del informe, no en la declaración (`saldo a pagar = débito − crédito − R52 + saldo anterior`).
 
 **Cierre fiscal**- Los asientos de cierre se marcan `isClosing` + `period` y quedan **excluidos de reportes y diario**
   (no del mayor `3.03`). Índice único parcial por empresa/año.

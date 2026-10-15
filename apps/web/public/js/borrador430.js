@@ -10,6 +10,10 @@
 let _b430Year = null;
 let _b430Mes = null;
 let _b430AnioFiscal = null;
+/** Declaración viva del período que se está mirando (o null). */
+let _b430Decl = null;
+/** Retenciones aplicables al renglón 52 y lo que espera certificado. */
+let _b430Ret = null;
 
 const B430_MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
@@ -79,6 +83,19 @@ async function loadReportBorrador430() {
   _b430Year = d.periodo.year;
   _b430Mes = d.periodo.mes;
   _b430AnioFiscal = d.periodo.anioFiscal;
+
+  // La declaración del período se pide aparte: si falla, el informe se pinta igual.
+  _b430Decl = null;
+  _b430Ret = null;
+  try {
+    const rd = await authFetch(`${API_URL}/declaraciones-itbms/periodo/${d.periodo.start.slice(0, 7)}`);
+    if (rd.ok) {
+      const jd = await rd.json();
+      _b430Decl = jd.declaracion || null;
+      _b430Ret = jd.retenciones || null;
+    }
+  } catch { /* sin declaración: el borrador es la vista */ }
+
   el.innerHTML = b430Html(d);
   // La barra de export GLOBAL vive dentro de #informes-date-filter, que se oculta en
   // esta pestaña (no usa el filtro de fechas): sus botones quedarían invisibles. Los
@@ -119,9 +136,10 @@ function b430Html(d) {
       <span style="font-size:12px;color:#6b7280">${d.periodo.label} · vence el <b>${b430Fecha(d.periodo.vence)}</b></span>
       <button onclick="exportInforme('borrador-430','xlsx')" title="Descargar el borrador en Excel" style="padding:5px 12px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📥 Excel</button>
       <button onclick="exportInforme('borrador-430','csv')" title="Descargar el borrador en CSV" style="padding:5px 12px;font-size:11px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer">CSV</button>
-    </div>`;
+    </div>
+    ${b430BarraDeclaracion(d)}`;
 
-  return controles + b430Avisos(d) + b430Cards(d) + b430Renglones(d) + b430Liquidacion(d) + b430Retenciones(d) + b430Detalle(d) + b430NoClasificados(d);
+  return controles + b430Avisos(d) + b430Declarado(d) + b430Cards(d) + b430Renglones(d) + b430Liquidacion(d) + b430Retenciones(d) + b430Detalle(d) + b430NoClasificados(d);
 }
 
 /** Franja de avisos + el cuadre. El descuadre va primero y en rojo. */
@@ -288,4 +306,315 @@ function b430NoClasificados(d) {
   return `
     <div style="font-size:12px;font-weight:700;color:#c62828;text-transform:uppercase;letter-spacing:.04em;margin:18px 0 6px">Movimientos sin clasificar</div>
     ${buildInformesTable(headers, rows)}`;
+}
+
+/* ── La declaración del período: el «informe real» ──
+ * El borrador de arriba es lo que dice el libro HOY; esto es lo que se presentó, con
+ * su número de formulario y sus asientos. Es una foto: no se recalcula nunca. */
+
+const B430_ESTADO_DECL = {
+  BORRADOR: { texto: 'BORRADOR', color: '#b45309', bg: '#fffbeb' },
+  PRESENTADA: { texto: 'PRESENTADA', color: '#1565c0', bg: '#eff6ff' },
+  PAGADA: { texto: 'PAGADA', color: '#059669', bg: '#ecfdf5' },
+  ANULADA: { texto: 'ANULADA', color: '#c62828', bg: '#fef2f2' },
+};
+
+const b430Boton = (onclick, texto, color, title) =>
+  `<button onclick="${onclick}"${title ? ` title="${title}"` : ''} style="padding:6px 12px;font-size:12px;background:${color};color:#fff;border:none;border-radius:6px;cursor:pointer">${texto}</button>`;
+
+/** Barra de acciones del período, según el estado de la declaración. */
+function b430BarraDeclaracion(d) {
+  const dec = _b430Decl;
+  if (!dec) {
+    return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px">
+      <span style="font-size:12px;color:#6b7280">Todavía no hay declaración de <b>${d.periodo.label}</b>: lo de abajo es un borrador de trabajo, no una declaración presentada.</span>
+      <span style="flex:1"></span>
+      ${b430Boton('b430CrearDeclaracion()', '🧾 Crear declaración', '#1565c0', 'Guarda los renglones de este período para presentarlos ante la DGI')}
+    </div>`;
+  }
+  const e = B430_ESTADO_DECL[dec.estado] || { texto: dec.estado, color: '#6b7280', bg: '#f3f4f6' };
+  const datos = [];
+  if (dec.numeroFormulario) datos.push(`Form. N° <b>${dec.numeroFormulario}</b>`);
+  if (dec.fechaPresentacion) datos.push(`presentada el <b>${b430Fecha(dec.fechaPresentacion)}</b>`);
+  if (dec.estado === 'PAGADA') datos.push(`pagada ${b430Money(dec.montoPagado)} el <b>${b430Fecha(dec.fechaPago)}</b>`);
+  if (dec.estado === 'ANULADA' && dec.motivoAnulacion) datos.push(`anulada: ${dec.motivoAnulacion}`);
+
+  let acciones = '';
+  if (dec.estado === 'BORRADOR') {
+    acciones = [
+      b430Boton('b430ModalRenglones()', '✏️ Editar renglones', '#6b7280', 'Corregir los renglones antes de presentar'),
+      b430Boton('b430ModalPresentar()', '📤 Presentar', '#1565c0', 'Registrar el número de formulario y aplicar el R52'),
+      b430Boton('b430Anular()', '🚫 Anular', '#c62828'),
+    ].join(' ');
+  } else if (dec.estado === 'PRESENTADA') {
+    acciones = [
+      b430Boton('b430ModalPagar()', '💵 Registrar pago', '#059669'),
+      b430Boton('b430Pdf()', '📄 PDF', '#374151'),
+      b430Boton('b430Anular()', '🚫 Anular', '#c62828'),
+    ].join(' ');
+  } else if (dec.estado === 'PAGADA') {
+    acciones = [b430Boton('b430Pdf()', '📄 PDF', '#374151'), b430Boton('b430Anular()', '🚫 Anular', '#c62828')].join(' ');
+  } else {
+    acciones = [b430Boton('b430CrearDeclaracion()', '🧾 Crear de nuevo', '#1565c0'), b430Boton('b430Pdf()', '📄 PDF', '#374151')].join(' ');
+  }
+
+  return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;padding:10px 12px;background:${e.bg};border:1px solid ${e.color}44;border-radius:8px">
+    <span style="font-size:11px;font-weight:700;color:${e.color};background:#fff;border:1px solid ${e.color}66;border-radius:10px;padding:2px 10px">${e.texto}</span>
+    <span style="font-size:12px;color:#374151">${datos.join(' · ') || 'Sin presentar'}</span>
+    <span style="flex:1"></span>
+    ${acciones}
+  </div>`;
+}
+
+/** Los renglones DECLARADOS al lado de lo que dice el libro hoy. */
+function b430Declarado(d) {
+  const dec = _b430Decl;
+  if (!dec) return '';
+  const libro = {
+    baseVentas: d.bases.ventasGravadas,
+    debitoFiscal: (d.renglones.find((r) => r.id === 'debitoFiscal') || {}).monto || 0,
+    baseCompras: d.bases.comprasGravadas,
+    creditoFiscal: (d.renglones.find((r) => r.id === 'creditoFiscal') || {}).monto || 0,
+    retencionAplicada: (d.renglones.find((r) => r.id === 'renglon52') || {}).monto || 0,
+    saldoAnterior: d.liquidacion.saldoAnterior,
+  };
+  const etiquetas = [
+    ['baseVentas', 'Base gravada de ventas'],
+    ['debitoFiscal', 'Débito fiscal'],
+    ['baseCompras', 'Base gravada de compras'],
+    ['creditoFiscal', 'Crédito fiscal'],
+    ['retencionAplicada', 'Retenciones aplicadas (R52)'],
+    ['saldoAnterior', 'Saldo anterior'],
+  ];
+  const filas = etiquetas.map(([k, etiqueta]) => {
+    const dec0 = Number(dec.renglones[k]) || 0;
+    const lib = Number(libro[k]) || 0;
+    const difiere = dec.estado !== 'BORRADOR' && Math.abs(dec0 - lib) > 0.005;
+    return `<tr>
+      <td style="padding:5px 10px">${etiqueta}</td>
+      <td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600">${b430Money(dec0)}</td>
+      <td style="padding:5px 10px;text-align:right;font-variant-numeric:tabular-nums;color:${difiere ? '#b45309' : '#9ca3af'}">${b430Money(lib)}${difiere ? ' ⚠️' : ''}</td>
+    </tr>`;
+  }).join('');
+
+  const pendiente = _b430Ret && _b430Ret.pendienteCertificado > 0
+    ? `<div style="font-size:11px;color:#b45309;margin-top:6px">Hay ${b430Money(_b430Ret.pendienteCertificado)} en retenciones esperando certificado: no se pueden aplicar al renglón 52 hasta registrarlo (Informes → Retenciones ITBMS).</div>`
+    : '';
+
+  return `
+    <div style="font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;margin:6px 0 6px">Declaración del período</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff">
+      <thead><tr>
+        <th style="text-align:left;padding:6px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;text-transform:uppercase">Renglón</th>
+        <th style="text-align:right;padding:6px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;text-transform:uppercase">Declarado</th>
+        <th style="text-align:right;padding:6px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;text-transform:uppercase">Libro hoy</th>
+      </tr></thead>
+      <tbody>${filas}</tbody>
+      <tfoot><tr style="border-top:2px solid #1a1a2e;font-weight:700">
+        <td style="padding:6px 10px">${dec.saldoAFavor ? 'SALDO A FAVOR (se arrastra)' : 'TOTAL A PAGAR'}</td>
+        <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums">${b430Money(dec.saldoAPagar)}</td>
+        <td></td>
+      </tr></tfoot>
+    </table></div>
+    <div style="font-size:11px;color:#9ca3af;margin-top:4px">El declarado es lo que se presentó (no se recalcula); la columna «libro hoy» es lo que dice la contabilidad ahora — si difieren, el libro se movió después de declarar.</div>
+    ${pendiente}`;
+}
+
+/* ── Acciones ── */
+
+function b430Pdf() {
+  if (!_b430Decl) return;
+  window.open(`${API_URL}/declaraciones-itbms/${_b430Decl.id}/pdf?token=${getToken()}`, '_blank');
+}
+
+function b430Dialogo(html) {
+  const overlay = document.createElement('div');
+  overlay.className = 'app-dialog-overlay';
+  overlay.innerHTML = `<div class="app-dialog" style="max-width:560px;text-align:left">${html}</div>`;
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+const b430Input = (id, valor, opts = {}) =>
+  `<input id="${id}" type="${opts.type || 'number'}"${opts.type === 'text' || opts.type === 'date' ? '' : ' step="0.01"'} value="${valor}" ${opts.min ? `min="${opts.min}"` : ''} style="width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">`;
+
+const b430Etiqueta = (texto) => `<label style="font-size:11px;color:#6b7280;display:block;margin:10px 0 3px">${texto}</label>`;
+
+const b430Pie = (accion, texto, color) => `
+  <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+    <button class="app-dialog-btn" onclick="this.closest('.app-dialog-overlay').remove()">Cancelar</button>
+    <button class="app-dialog-btn primary" onclick="${accion}" style="background:${color};border-color:${color}">${texto}</button>
+  </div>`;
+
+async function b430Enviar(metodo, ruta, body, btn, msgOk) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+  try {
+    const res = await authFetch(`${API_URL}/declaraciones-itbms${ruta}`, {
+      method: metodo,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw d;
+    document.querySelectorAll('.app-dialog-overlay').forEach((o) => o.remove());
+    await showAlert(`✅ ${msgOk}`);
+    await loadReportBorrador430();
+    return d;
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Reintentar'; }
+    await showAlert(`❌ ${e.error || 'No se pudo completar la operación'}`);
+    return null;
+  }
+}
+
+async function b430CrearDeclaracion() {
+  if (!_b430Decl) {
+    const ok = await showConfirm(`¿Crear la declaración de ${B430_MESES[_b430Mes - 1]} ${_b430Year} con los renglones de este borrador? Después vas a poder corregirlos antes de presentar.`);
+    if (!ok) return;
+    await b430Enviar('POST', '/', { year: _b430Year, mes: _b430Mes }, null, 'Declaración creada. Revísala y preséntala cuando esté lista.');
+  }
+}
+
+function b430ModalRenglones() {
+  const dec = _b430Decl;
+  if (!dec) return;
+  const campo = (k, etiqueta) => b430Etiqueta(etiqueta) + b430Input(`r-${k}`, dec.renglones[k]);
+  b430Dialogo(`
+    <div style="font-weight:700;font-size:16px;margin-bottom:6px">✏️ Renglones declarados</div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:8px">Corrígelos si el formulario que vas a presentar difiere del libro. El total se recalcula solo.</div>
+    ${campo('baseVentas', 'Base gravada de ventas')}
+    ${campo('debitoFiscal', 'Débito fiscal (ITBMS de ventas)')}
+    ${campo('baseCompras', 'Base gravada de compras')}
+    ${campo('creditoFiscal', 'Crédito fiscal (ITBMS de compras y gastos)')}
+    ${campo('retencionAplicada', 'Retenciones aplicadas (renglón 52)')}
+    ${campo('saldoAnterior', 'Saldo anterior (negativo = saldo a favor)')}
+    <div style="margin-top:10px;padding:8px 10px;background:#f9fafb;border-radius:6px;font-size:12px">
+      Total a pagar = débito − crédito − R52 + saldo anterior =
+      <b id="r-total">—</b>
+    </div>
+    <div style="font-size:11px;color:#9ca3af;margin-top:6px">Al presentar, el renglón 52 tiene que coincidir con las retenciones que de verdad se apliquen.</div>
+    ${b430Pie('b430GuardarRenglones(this)', '💾 Guardar', '#1565c0')}`);
+  const recalcular = () => {
+    const v = (k) => Number(document.getElementById(`r-${k}`).value) || 0;
+    const total = v('debitoFiscal') - v('creditoFiscal') - v('retencionAplicada') + v('saldoAnterior');
+    document.getElementById('r-total').textContent = b430Money(total);
+  };
+  ['baseVentas', 'debitoFiscal', 'baseCompras', 'creditoFiscal', 'retencionAplicada', 'saldoAnterior'].forEach((k) => {
+    document.getElementById(`r-${k}`).addEventListener('input', recalcular);
+  });
+  recalcular();
+}
+
+async function b430GuardarRenglones(btn) {
+  const v = (k) => Number(document.getElementById(`r-${k}`).value) || 0;
+  await b430Enviar('PATCH', `/${_b430Decl.id}`, {
+    baseVentas: v('baseVentas'),
+    debitoFiscal: v('debitoFiscal'),
+    baseCompras: v('baseCompras'),
+    creditoFiscal: v('creditoFiscal'),
+    retencionAplicada: v('retencionAplicada'),
+    saldoAnterior: v('saldoAnterior'),
+  }, btn, 'Renglones actualizados.');
+}
+
+function b430ModalPresentar() {
+  const dec = _b430Decl;
+  if (!dec) return;
+  const ret = _b430Ret || { aplicables: [], pendienteCertificado: 0 };
+  const [y, m] = [dec.year, dec.mes];
+  const minFecha = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}-01`;
+  const hoy = todayLocalStr();
+  const filas = ret.aplicables.length
+    ? ret.aplicables.map((r, i) => `
+      <label style="display:flex;gap:8px;align-items:center;padding:4px 0;font-size:12px;border-bottom:1px solid #f3f4f6">
+        <input type="checkbox" class="r52-430" data-i="${i}" data-monto="${r.montoRetencion}" checked>
+        <span style="flex:1">${b430Fecha(r.fecha)} · ${r.cliente || 'Cliente'} · certificado ${r.numeroCertificado || '—'}</span>
+        <b>${b430Money(r.montoRetencion)}</b>
+      </label>`).join('')
+    : `<div style="font-size:12px;color:#6b7280;padding:6px 0">No hay retenciones con certificado para aplicar.</div>`;
+  b430Dialogo(`
+    <div style="font-weight:700;font-size:16px;margin-bottom:6px">📤 Presentar la declaración 430</div>
+    <div style="font-size:12px;color:#6b7280">Al presentar se registra el número de formulario, se compensa el R52 aplicado y la obligación del calendario queda cumplida.</div>
+    ${b430Etiqueta('N° de formulario (el de la DGI)')}${b430Input('pr-numero', '', { type: 'text' })}
+    ${b430Etiqueta('Fecha de presentación')}${b430Input('pr-fecha', hoy, { type: 'date', min: minFecha })}
+    ${b430Etiqueta('Retenciones a aplicar al renglón 52')}
+    <div id="pr-rets" style="max-height:180px;overflow:auto">${filas}</div>
+    <div style="margin-top:8px;padding:8px 10px;background:#f9fafb;border-radius:6px;font-size:12px">
+      Renglón 52 declarado: <b>${b430Money(dec.renglones.retencionAplicada)}</b> · seleccionado: <b id="pr-total">$0.00</b>
+      <div id="pr-aviso" style="display:none;color:#b45309;margin-top:4px"></div>
+    </div>
+    ${ret.pendienteCertificado > 0 ? `<div style="font-size:11px;color:#b45309;margin-top:6px">Quedan ${b430Money(ret.pendienteCertificado)} en retenciones sin certificado: no se pueden aplicar (regístralas con 📥 en Informes → Retenciones ITBMS).</div>` : ''}
+    ${b430Pie('b430ConfirmarPresentar(this)', '📤 Presentar', '#1565c0')}`);
+
+  const total = () => [...document.querySelectorAll('.r52-430')].filter((c) => c.checked).reduce((s, c) => s + Number(c.dataset.monto), 0);
+  const pintar = () => {
+    const t = Math.round(total() * 100) / 100;
+    document.getElementById('pr-total').textContent = b430Money(t);
+    const dif = Math.abs(t - Number(dec.renglones.retencionAplicada)) > 0.005;
+    const aviso = document.getElementById('pr-aviso');
+    aviso.style.display = dif ? '' : 'none';
+    aviso.textContent = dif
+      ? `El renglón 52 declarado (${b430Money(dec.renglones.retencionAplicada)}) no coincide con lo seleccionado (${b430Money(t)}): corrígelo en «✏️ Editar renglones» o marca las retenciones que falten.`
+      : '';
+  };
+  document.querySelectorAll('.r52-430').forEach((c) => c.addEventListener('change', pintar));
+  pintar();
+}
+
+async function b430ConfirmarPresentar(btn) {
+  const ids = [...document.querySelectorAll('.r52-430')].filter((c) => c.checked)
+    .map((c) => (_b430Ret.aplicables[Number(c.dataset.i)] || {}).id).filter(Boolean);
+  await b430Enviar('POST', `/${_b430Decl.id}/presentar`, {
+    numeroFormulario: document.getElementById('pr-numero').value,
+    fechaPresentacion: document.getElementById('pr-fecha').value,
+    retencionIds: ids,
+  }, btn, 'Declaración presentada.');
+}
+
+async function b430ModalPagar() {
+  const dec = _b430Decl;
+  if (!dec) return;
+  let cuentas = [];
+  try {
+    const res = await authFetch(`${API_URL}/declaraciones-itbms/cuentas-pago`);
+    if (res.ok) cuentas = await res.json();
+  } catch { /* sin cuentas: el select sale vacío y el guardado avisa */ }
+  const opciones = cuentas.map((c) => `<option value="${c.id}">${c.code} ${c.name}</option>`).join('');
+  b430Dialogo(`
+    <div style="font-weight:700;font-size:16px;margin-bottom:6px">💵 Registrar el pago</div>
+    <div style="font-size:12px;color:#6b7280">Se crea el asiento contra el banco (débito ITBMS por Pagar) y la declaración queda pagada.</div>
+    ${b430Etiqueta('Monto pagado')}${b430Input('pg-monto', dec.saldoAPagar)}
+    ${b430Etiqueta('Cuenta de banco')}
+    <select id="pg-cuenta" style="width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;background:#fff">
+      ${opciones || '<option value="">No hay cuentas de banco en el catálogo</option>'}
+    </select>
+    ${b430Etiqueta('Fecha del pago')}${b430Input('pg-fecha', todayLocalStr(), { type: 'date' })}
+    ${b430Pie('b430ConfirmarPago(this)', '💵 Registrar pago', '#059669')}`);
+}
+
+async function b430ConfirmarPago(btn) {
+  await b430Enviar('POST', `/${_b430Decl.id}/pagar`, {
+    monto: Number(document.getElementById('pg-monto').value),
+    cuentaBancoId: document.getElementById('pg-cuenta').value,
+    fecha: document.getElementById('pg-fecha').value,
+  }, btn, 'Pago registrado.');
+}
+
+async function b430Anular() {
+  const dec = _b430Decl;
+  if (!dec) return;
+  const que = [];
+  if (dec.asientos && dec.asientos.length) que.push(`se creará el asiento espejo de ${dec.asientos.length} asiento(s)`);
+  if (dec.retenciones && dec.retenciones.length) que.push(`${dec.retenciones.length} retención(es) vuelven a RECIBIDA`);
+  que.push('la obligación del período vuelve a pendiente');
+  b430Dialogo(`
+    <div style="font-weight:700;font-size:16px;margin-bottom:6px">🚫 Anular la declaración</div>
+    <div style="font-size:12px;color:#6b7280">Al anular: ${que.join(', ')}. El número de formulario no se reutiliza y el período queda libre para volver a declarar.</div>
+    ${b430Etiqueta('Motivo (queda en la auditoría)')}
+    <textarea id="an-motivo" rows="3" style="width:100%;padding:7px 9px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px"></textarea>
+    ${b430Pie('b430ConfirmarAnular(this)', '🚫 Anular', '#c62828')}`);
+}
+
+async function b430ConfirmarAnular(btn) {
+  await b430Enviar('POST', `/${_b430Decl.id}/anular`, { motivo: document.getElementById('an-motivo').value }, btn, 'Declaración anulada.');
 }

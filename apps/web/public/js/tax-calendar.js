@@ -50,6 +50,9 @@ async function loadTaxCalendarInline() {
           ? `<button class="btn-sm" onclick="markTaxObligationComplete('${o.id}')" style="padding:4px 10px;font-size:11px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✅ Marcar</button>`
           : `<span style="font-size:11px;color:#059669;font-weight:600">✅ Completado</span>
              <button class="btn-sm" onclick="unmarkTaxObligation('${o.id}')" title="La devuelve a pendiente y borra el monto real registrado" style="padding:4px 10px;font-size:11px;background:#e5e7eb;color:#374151;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">↩ Desmarcar</button>`}
+        ${o.type === 'ITBMS'
+          ? `<button class="btn-sm" onclick="abrirDeclaracion430('${o.period}')" title="Ver el borrador del 430 y la declaración de ese período" style="padding:4px 10px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">🧾 Declaración</button>`
+          : ''}
       </div>`;
     }
 
@@ -214,4 +217,20 @@ async function closeFiscalYear() {
     resumen.innerHTML = `<span style="color:${color};font-weight:600">${esGanancia ? 'GANANCIA' : 'PÉRDIDA'}: $${d.resumen.utilidadNeta.toFixed(2)}</span> · Asiento <code>${d.entry.id.slice(0, 8)}</code> creado (${d.entry.lines.length} líneas).`;
     loadYearCloseStatus();
   } catch { resumen.innerHTML = '<span style="color:#dc2626">Error de conexión</span>'; }
+}
+
+/**
+ * Abre la pestaña 🧾 Form. 430 en el período de la obligación. La usan las tarjetas
+ * ITBMS del calendario: declarar es lo que cumple la obligación, así que el camino
+ * natural es ir al informe y presentar desde ahí (el «✅ Marcar» sigue estando para
+ * quien solo quiera dejar constancia).
+ */
+function abrirDeclaracion430(period) {
+  const [y, m] = String(period).split('-').map(Number);
+  if (!y || !m) return;
+  _b430Year = y;
+  _b430Mes = m;
+  const nav = document.querySelector('#sidebar-nav .nav-link[data-view="panel-informes"]');
+  if (nav) nav.click();
+  clickInformeTab('borrador430');
 }

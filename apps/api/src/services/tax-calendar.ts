@@ -340,6 +340,37 @@ export async function marcarObligacionCumplida(
   return true;
 }
 
+/**
+ * Contracara de `marcarObligacionCumplida`: devuelve la obligación a pendiente y le
+ * borra el monto real (el «↩ Desmarcar» del calendario hace lo mismo a mano). La usa
+ * la anulación de una declaración 430, que tiene que deshacer lo que hizo al presentar.
+ *
+ * El estado se recalcula por fecha —vencida si el día del vencimiento ya pasó— con el
+ * mismo criterio del generador, para no dejarla en un estado que no le toca.
+ */
+export async function desmarcarObligacion(
+  prisma: any,
+  companyId: string,
+  type: string,
+  period: string,
+): Promise<boolean> {
+  const obligacion = await prisma.taxObligation.findFirst({ where: { companyId, type, period } });
+  if (!obligacion) return false;
+
+  const hoy = new Date();
+  const vencida = new Date(obligacion.dueDate) < new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  await prisma.taxObligation.update({
+    where: { id: obligacion.id },
+    data: {
+      status: vencida ? 'OVERDUE' : 'PENDING',
+      actualAmount: null,
+      completedAt: null,
+      notes: null,
+    },
+  });
+  return true;
+}
+
 export interface ObligacionProyectada {
   type: string;
   period: string;

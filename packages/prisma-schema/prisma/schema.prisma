@@ -89,6 +89,7 @@ model Company {
   workerAccounts     WorkerAccount[]
   expenseClaims      ExpenseClaim[]
   reimbursements     Reimbursement[]
+  declaracionesItbms DeclaracionItbms[]
 }
 
 model User {
@@ -116,6 +117,8 @@ model User {
   auditLogs      AuditLog[]
   recurringTemplates RecurringTemplate[]
   reimbursementsPaid Reimbursement[] @relation("ReimbursementsPaid")
+  declaracionesPresentadas DeclaracionItbms[] @relation("DeclaracionesPresentadas")
+  declaracionesAnuladas    DeclaracionItbms[] @relation("DeclaracionesAnuladas")
 }
 
 model Account {
@@ -216,6 +219,10 @@ model JournalEntry {
   bankRowMatches     BankRowMatch[]
   /// Factura de un trabajador que este asiento saldó (reembolso), si vino de ahí.
   expenseClaim ExpenseClaim?
+  /// Declaración 430 cuyo acto de presentar creó este asiento (compensación del R52).
+  declaracionCompensacion DeclaracionItbms? @relation("DeclaracionCompensacion")
+  /// Declaración 430 cuyo pago creó este asiento.
+  declaracionPago         DeclaracionItbms? @relation("DeclaracionPago")
 }
 
 model JournalLine {
@@ -480,17 +487,25 @@ model RetentionItbms {
   fechaCertificado  DateTime?
   estado            String    @default("PENDIENTE") // PENDIENTE | RECIBIDA | APLICADA | ANULADA
   journalEntryId    String?   // asiento del cobro que la materializó
+  /// Declaración 430 que aplicó esta retención al renglón 52 (null = no aplicada).
+  /// Es el vínculo que faltaba: hasta la 0037 el único rastro de una compensación era
+  /// el JSON de `Transaction.metadata`, así que no se podía consultar ni revertir
+  /// (Tuning.md §4.1, brechas 2 y 3). Anular la declaración devuelve a RECIBIDA las
+  /// retenciones que apunten a ella.
+  declaracionId     String?
   notas             String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
   client            Client    @relation(fields: [clientId], references: [id])
   invoice           Invoice   @relation(fields: [invoiceId], references: [id])
+  declaracion       DeclaracionItbms? @relation(fields: [declaracionId], references: [id])
 
   @@index([companyId])
   @@index([clientId])
   @@index([invoiceId])
   @@index([estado])
+  @@index([declaracionId])
   @@map("retencion_itbms")
 }
 
@@ -1351,4 +1366,103 @@ model Reimbursement {
 
   @@index([companyId, workerId])
   @@map("reimbursement")
+}
+
+/// Declaración mensual de ITBMS (Formulario 430) como DATO: los renglones que el
+/// contador presentó ante la DGI, con su número de formulario, la fecha y los
+/// asientos que la declaración creó.
+///
+/// Nace del borrador (`borrador-430.ts`, solo lectura) y el contador corrige los
+/// renglones antes de presentar: los números declarados son SUYOS, no los del libro.
+/// `borradorJson` guarda la foto de lo que se vio al crear — el borrador sigue
+/// moviéndose con el libro y esta fila NO se recalcula nunca: es una foto, no un
+/// puntero.
+///
+/// Los renglones son los del formulario (bases, débito, crédito, renglón 52 y saldo
+/// anterior). Los pagos y las compensaciones ya contabilizados no son renglones del
+/// 430 —son parte de la liquidación del informe— así que no se guardan acá.
+///
+/// Estados: BORRADOR → PRESENTADA → PAGADA; ANULADA desde cualquiera (terminal, y
+/// deja el período libre para volver a declarar).
+model DeclaracionItbms {
+  id        String @id @default(cuid())
+  companyId String
+  /// Período declarado en "YYYY-MM" (misma convención que `TaxObligation.period`).
+  period    String
+  year      Int
+  mes       Int
+  /// BORRADOR | PRESENTADA | PAGADA | ANULADA
+  estado    String @default("BORRADOR")
+
+  // ── Renglones del formulario ──
+  baseVentas    Float @default(0)
+  debitoFiscal  Float @default(0)
+  baseCompras   Float @default(0)
+  /// Crédito fiscal NETO de las devoluciones a proveedor (lo que el informe llama
+  /// `liquidacion.creditoFiscal`).
+  creditoFiscal Float @default(0)
+  /// Renglón 52: retenciones sufridas aplicadas EN ESTA declaración. No se teclea —
+  /// lo fija el acto de presentar, porque tiene que cuadrar con el asiento que se crea.
+  retencionAplicada Float @default(0)
+  /// Con signo: negativo = saldo a favor arrastrado del mes anterior (regla D2).
+  saldoAnterior Float @default(0)
+  /// débito − crédito − renglón 52 + saldo anterior. Se recalcula en cada edición
+  /// mientras esté en BORRADOR y queda congelado al presentar.
+  saldoAPagar   Float   @default(0)
+  /// `saldoAPagar` < 0: NO se pide devolución, se arrastra al mes siguiente (D2).
+  saldoAFavor   Boolean @default(false)
+
+  // ── El acto de declarar ──
+  numeroFormulario  String?
+  /// Fecha del formulario (día, mediodía local: `parseLocalDate`).
+  fechaPresentacion DateTime?
+  /// Sello del sistema: cuándo se registró acá (puede no ser la fecha del formulario).
+  presentadaAt    DateTime?
+  presentadaPorId String?
+
+  // ── El pago ──
+  montoPagado Float?
+  fechaPago   DateTime?
+
+  // ── Anulación ──
+  anuladaAt       DateTime?
+  anuladaPorId    String?
+  motivoAnulacion String?
+
+  /// Asientos que ESTA declaración creó. `@unique`: un asiento pertenece a una sola
+  /// declaración y lo garantiza la base (patrón `ExpenseClaim`, migración 0032), no
+  /// el código.
+  asientoCompensacionId String? @unique
+  asientoPagoId         String? @unique
+  /// ¿Esta declaración marcó la `TaxObligation` del período como COMPLETED? Se guarda
+  /// porque la vuelta atrás no se adivina: la fila pudo completarla el contador a mano.
+  obligacionMarcada Boolean @default(false)
+
+  /// Foto del borrador al crear (JSON en String, la convención del repo:
+  /// `Concept.keywords`, `Transaction.metadata`): renglones, liquidación, cuadre y
+  /// avisos, para poder enseñar «declarado vs libro» sin recalcular nada.
+  borradorJson String?
+  notas        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company             Company          @relation(fields: [companyId], references: [id])
+  asientoCompensacion JournalEntry?    @relation("DeclaracionCompensacion", fields: [asientoCompensacionId], references: [id])
+  asientoPago         JournalEntry?    @relation("DeclaracionPago", fields: [asientoPagoId], references: [id])
+  presentadaPor       User?            @relation("DeclaracionesPresentadas", fields: [presentadaPorId], references: [id])
+  anuladaPor          User?            @relation("DeclaracionesAnuladas", fields: [anuladaPorId], references: [id])
+  retenciones         RetentionItbms[]
+
+  // Una sola declaración VIVA por empresa+período: el guardia es un índice único
+  // PARCIAL que vive en SQL (migración 0037, `WHERE "estado" <> 'ANULADA'`) porque
+  // Prisma no expresa el WHERE; sin el parcial, una declaración anulada bloquearía el
+  // período para siempre —justo lo contrario de «se anula y se rehace»—. Mismo idioma
+  // que `payroll_run` (0023) y el cierre de año (0006). Es deliberado: no agregar acá
+  // un @@unique([companyId, period]).
+  // `numeroFormulario` sí es único por empresa (y nullable: los borradores conviven).
+  @@unique([companyId, numeroFormulario])
+  @@index([companyId, estado])
+  @@index([companyId, period])
+  @@map("declaracion_itbms")
 }
