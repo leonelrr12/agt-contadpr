@@ -95,6 +95,11 @@ DELETE FROM payment_record
   WHERE "subscriptionId" IN (SELECT id FROM subscription WHERE "companyId" = '${COMPANY_ID}');
 
 -- ============================================================
+-- Facturas por correo: el ledger primero (la factura recibida lo referencia) y la
+-- configuración del buzón después.
+DELETE FROM email_factura_mensaje WHERE "companyId" = '${COMPANY_ID}';
+DELETE FROM email_factura_config WHERE "companyId" = '${COMPANY_ID}';
+
 -- FASE 3: Eliminar tablas principales con FKs a otras tablas
 -- ============================================================
 DELETE FROM "Transaction" WHERE "companyId" = '${COMPANY_ID}';

@@ -54,7 +54,7 @@ beforeAll(async () => {
 
 afterAll(() => server?.close());
 
-const pedir = async (ruta: string, init?: any) => {
+const pedir = async (ruta: string, init?: any): Promise<{ status: number; body: any }> => {
   const res = await fetch(`${base}${ruta}`, init);
   return { status: res.status, body: await res.json().catch(() => ({})) };
 };

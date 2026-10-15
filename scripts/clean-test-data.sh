@@ -76,7 +76,11 @@ UPDATE inventory_product SET "stockActual" = 0, "stockValor" = 0, "costoPromedio
 -- TRABAJADOR se conserva: es el alta del celular, no un movimiento — y con él
 -- queda su vínculo en whatsapp_link, así que ese celular sigue operando como
 -- trabajador. El reclamo va primero: referencia al pago.
+-- El ledger de correos va ANTES de expense_claim: la factura recibida tiene FK a él
+-- (ON DELETE SET NULL, así que no rompe, pero el orden es el de la dependencia).
+DELETE FROM email_factura_mensaje WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM expense_claim WHERE "companyId" = '${COMPANY_ID}';
+DELETE FROM email_factura_config WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM reimbursement WHERE "companyId" = '${COMPANY_ID}';
 
 DELETE FROM invoice_item WHERE "invoiceId" IN (SELECT id FROM invoice WHERE "companyId" = '${COMPANY_ID}');

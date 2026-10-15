@@ -7,8 +7,8 @@
 > Para arrancar el proyecto (comandos, BD, despliegue, trampas) ver **AGENTS.md**, que es el que se
 > carga en cada sesión. Esto de acá es el estado del producto y lo que falta.
 
-**Última verificación contra el código: 2026-10-15** — 43 modelos Prisma, 190 endpoints en `routes/`,
-migración más alta `0037_declaracion_itbms`, 461 tests.
+**Última verificación contra el código: 2026-10-15** — 45 modelos Prisma, 190 endpoints en `routes/`,
+migración más alta `0038_facturas_por_correo` (**escrita, sin aplicar**), 505 tests.
 
 ---
 
@@ -166,7 +166,10 @@ Trabajo ya pagado que hoy no rinde nada:
 
 Ninguno tiene modelo en el schema todavía.
 
-- **Facturas DGI por correo (IMAP)** — **diseño cerrado el 14-10-2026, sin empezar**: leer el buzón que
+- **Facturas DGI por correo (IMAP)** — **fase 1 hecha el 15-10-2026** (schema, migración `0038`
+  escrita y scripts de borrado; **falta aplicarla**, con autorización). Sigue: fase 0 (refactors),
+  fase 2 (config + rutas + tarjeta), fase 3 (el barrido, que necesita un buzón de prueba). Diseño
+  cerrado el 14-10-2026: leer el buzón que
   la empresa asigne y cargar las facturas que mandan los proveedores (PDF/XML adjunto o link del CUTE)
   como asiento BORRADOR + archivo en «Facturas recibidas», con el correo y el flag de activo
   configurables en Administración. Decisiones del dueño: **al contado contra una cuenta de banco

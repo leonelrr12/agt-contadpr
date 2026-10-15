@@ -90,6 +90,8 @@ model Company {
   expenseClaims      ExpenseClaim[]
   reimbursements     Reimbursement[]
   declaracionesItbms DeclaracionItbms[]
+  emailFacturaConfig EmailFacturaConfig?
+  emailFacturaMensajes EmailFacturaMensaje[]
 }
 
 model User {
@@ -1319,6 +1321,14 @@ model ExpenseClaim {
   fecha          DateTime
   total          Float
   itbms          Float     @default(0)
+  /// Canal por el que entró: MANUAL | WHATSAPP | CORREO. Antes el canal se deducía de
+  /// si la factura tenía trabajador; con el correo hacen falta los tres y la píldora de
+  /// «Facturas recibidas» lo lee de acá.
+  origen         String    @default("MANUAL")
+  /// Correo del que salió, si vino por el canal de correo. `SET NULL` a propósito:
+  /// borrar el historial de correos no puede llevarse una factura archivada (misma
+  /// doctrina que `workerId` en la 0033).
+  emailMensajeId String?
   /// RUC+número+fecha+total; si falta alguno, la URL. Evita que la MISMA factura
   /// entre dos veces, la mande quien la mande. Null = no se pudo identificar
   /// (Postgres deja convivir varios NULL en el unique).
@@ -1337,10 +1347,12 @@ model ExpenseClaim {
   worker         WorkerAccount? @relation(fields: [workerId], references: [id])
   journalEntry   JournalEntry?  @relation(fields: [journalEntryId], references: [id])
   reimbursement  Reimbursement? @relation(fields: [reimbursementId], references: [id])
+  emailMensaje   EmailFacturaMensaje? @relation(fields: [emailMensajeId], references: [id])
 
   @@unique([companyId, dedupeKey])
   @@index([companyId, status])
   @@index([companyId, workerId, status])
+  @@index([emailMensajeId])
   @@map("expense_claim")
 }
 
@@ -1465,4 +1477,95 @@ model DeclaracionItbms {
   @@index([companyId, estado])
   @@index([companyId, period])
   @@map("declaracion_itbms")
+}
+
+/// Configuración del canal de facturas por correo (IMAP), 1:1 con la empresa. Se crea
+/// PEREZOSAMENTE con `upsert` —doctrina `PayrollSettings`—: los defaults valen y las
+/// credenciales NO se heredan de una empresa a otra.
+///
+/// `imapPassword` viaja cifrado (`services/crypto-fields.ts`): hay que agregarlo a
+/// `ENCRYPTED_FIELDS` o queda en claro, y esa lista cifra **por nombre de campo**, así
+/// que el alias del buzón se llama `inboxAlias` (un campo llamado `email` se cifraría
+/// solo y dejaría de poder consultarse).
+///
+/// El cursor (`imapUidValidity` + `imapLastUid`) es la segunda red de idempotencia,
+/// además del `Message-ID`: si cambia la UIDVALIDITY del buzón, el cursor se reinicia y
+/// se mira una ventana de 7 días.
+model EmailFacturaConfig {
+  id        String  @id @default(cuid())
+  companyId String  @unique
+  isActive  Boolean @default(false)
+  /// IMAP (buzón propio de la empresa) | CENTRAL (reenvío al buzón del sistema).
+  modo      String  @default("IMAP")
+
+  imapHost     String?
+  imapPort     Int     @default(993)
+  imapSecure   Boolean @default(true)
+  imapUser     String?
+  imapPassword String?
+  imapFolder   String  @default("INBOX")
+  /// Cursor del buzón: `UIDVALIDITY` y último UID procesado.
+  imapUidValidity Int?
+  imapLastUid     Int?
+  /// Por defecto NO se toca el buzón (ni `\Seen` ni mover): el ledger ES la marca.
+  marcarLeido  Boolean @default(false)
+  carpetaMover String?
+
+  /// Dirección de reenvío del modo CENTRAL; `@unique` porque es lo que rutea el mensaje
+  /// a la empresa. Se llama `inboxAlias` y no `email` por la trampa de ENCRYPTED_FIELDS.
+  inboxAlias String? @unique
+
+  /// Contrapartida de los asientos: cuenta de **BANCO** (nunca Caja —en producción está
+  /// vacía— ni CxP: es una compra al contado). Sin cuenta configurada el barrido no crea
+  /// asientos: mejor no cargar que acreditar una cuenta equivocada.
+  cuentaPagoId      String?
+  metodoPago        String  @default("TRANSFERENCIA")
+  conceptoDefaultId String?
+
+  ultimaCorridaAt DateTime?
+  ultimoEstado    String?
+  ultimoDetalle   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("email_factura_config")
+}
+
+/// Ledger de correos vistos. Va aparte de `expense_claim` por tres razones: un correo
+/// puede traer **0, 1 o N facturas** (1:N); hay que recordar los que **no** eran
+/// facturas para no re-escanear el buzón ni gastar LLM en cada corrida; y el
+/// `Message-ID` único por empresa es la red de idempotencia que sobrevive a que cambie
+/// la UIDVALIDITY del buzón o a que el proceso muera a mitad.
+model EmailFacturaMensaje {
+  id          String    @id @default(cuid())
+  companyId   String
+  origen      String // IMAP | CENTRAL
+  folder      String?
+  uidValidity Int?
+  uid         Int?
+  messageId   String
+  remitente   String?
+  asunto      String?
+  recibidoAt  DateTime?
+  /// Adjuntos que traía (JSON en String, la convención del repo: `Transaction.metadata`).
+  adjuntos    String    @default("[]")
+  /// Resumen de las facturas detectadas y cargadas (JSON en String).
+  facturas    String    @default("[]")
+  /// PROCESANDO | CARGADA | DUPLICADA | SIN_ADJUNTOS | SIN_FACTURA | SIN_DATOS |
+  /// OTRO_CLIENTE | SIN_CUENTA | SIN_CONCEPTO | CUOTA | ERROR | INTERRUMPIDO
+  estado      String    @default("PROCESANDO")
+  detalle     String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company           Company        @relation(fields: [companyId], references: [id])
+  facturasRecibidas ExpenseClaim[]
+
+  @@unique([companyId, messageId])
+  @@index([companyId, estado])
+  @@index([companyId, createdAt])
+  @@map("email_factura_mensaje")
 }
