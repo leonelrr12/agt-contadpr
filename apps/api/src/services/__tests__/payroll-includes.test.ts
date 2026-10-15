@@ -28,6 +28,17 @@ describe('planilla: los include existen en el modelo (DMMF)', () => {
     await expect(prisma.payrollRun.findFirst({ include: { deducciones: true } })).resolves.toBeDefined();
   });
 
+  it('⭐ y lo detecta ANIDADO, que es como estaba de verdad', async () => {
+    // El include original era `payrollRun → items → deducciones`: validar solo el primer
+    // nivel lo habría dejado pasar.
+    const { prisma } = prismaValidador();
+    await expect(
+      prisma.payrollRun.findMany({
+        include: { items: { include: { employee: true, deducciones: true } } },
+      }),
+    ).rejects.toThrow(/PayrollRun\.items: include\.deducciones no existe en el modelo PayrollItem/);
+  });
+
   it('obtenerCorrida — el endpoint que devolvía 500', async () => {
     const { prisma, llamadas } = prismaValidador({
       payrollRun: { id: 'r1', tipo: 'SUELDO', fechaPago: new Date(2026, 9, 15, 12), items: [], deducciones: [] },

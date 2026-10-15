@@ -49,17 +49,33 @@ const VACIOS: Record<string, () => any> = {
 export function validarArgs(delegate: string, args: any, metodo: string): void {
   const modelo = modeloDe(delegate);
   if (!modelo || !args || typeof args !== 'object') return;
+  validarBloque(modelo, args, `${delegate}.${metodo}`);
+}
+
+/**
+ * Valida `include`/`select` y **baja por las relaciones**: el include que rompió en
+ * planilla era anidado (`payrollRun → items → deducciones`), así que mirar solo el
+ * primer nivel no habría atrapado nada.
+ */
+function validarBloque(modelo: Modelo, args: any, contexto: string): void {
   for (const clave of ['include', 'select'] as const) {
-    const bloque = args[clave];
+    const bloque = args?.[clave];
     if (!bloque || typeof bloque !== 'object') continue;
-    for (const campo of Object.keys(bloque)) {
+    for (const [campo, valor] of Object.entries<any>(bloque)) {
       // `_count`, `_sum`… son agregados y no campos del modelo.
       if (campo.startsWith('_')) continue;
-      if (!modelo.fields.some((f) => f.name === campo)) {
+      const f = modelo.fields.find((x) => x.name === campo);
+      if (!f) {
         throw new Error(
-          `${delegate}.${metodo}: ${clave}.${campo} no existe en el modelo ${modelo.name}. ` +
-            `Disponibles: ${modelo.fields.map((f) => f.name).join(', ')}`,
+          `${contexto}: ${clave}.${campo} no existe en el modelo ${modelo.name}. ` +
+            `Disponibles: ${modelo.fields.map((x) => x.name).join(', ')}`,
         );
+      }
+      // Si el campo es una relación y trae su propio bloque, se valida contra el
+      // modelo del otro lado.
+      if (f.kind === 'object' && valor && typeof valor === 'object') {
+        const hijo = MODELOS.get((f as any).type);
+        if (hijo) validarBloque(hijo, valor, `${contexto} → ${modelo.name}.${campo}`);
       }
     }
   }
