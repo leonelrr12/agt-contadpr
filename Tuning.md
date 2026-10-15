@@ -206,14 +206,6 @@ rentabilidad** por segmento.
 ---
 
 ### 4.4 Detalles menores
-
-- **Calendario fiscal — los vencimientos se pintan un día antes** (detectado el 15-10-2026 al arreglar el
-  corte del mes). `TaxObligation.dueDate` se guarda a **medianoche local del servidor** (Nueva York) en
-  vez de a mediodía, la convención del resto del repo. En verano (EDT, UTC-4) esa medianoche cae a las
-  23:00 del día anterior en Panamá, así que un vencimiento del **15 de agosto se ve 14/08** en el
-  navegador (`tax-calendar.js` formatea con `toLocaleDateString`) y la obligación pasa a OVERDUE la
-  noche anterior; en invierno coincide y no se nota. Arreglarlo son dos partes: guardar a mediodía en el
-  generador **y migrar las filas existentes** (+12 h). Sin decidir.
 - **§3 Recurrentes:** detección de patrones por IA ("este gasto de $49.99 aparece cada mes, ¿lo hago
   recurrente?").
 - **§7 Facturas:** **envío por email al cliente** (lo demás está: logo, correlativo, ITBMS, resolución).
@@ -291,8 +283,16 @@ rentabilidad** por segmento.
 - El bloqueo (`isBlocked`) se aplica en 18 puntos de escritura. **Excepciones deliberadas:** `anular`
   (revierte un asiento existente) y `year-close` (debe poder saldar cuentas con saldo).
 
-**Cierre fiscal**
-- Los asientos de cierre se marcan `isClosing` + `period` y quedan **excluidos de reportes y diario**
+**Calendario fiscal**
+- Los vencimientos son **días, no instantes**: se guardan a **mediodía local** (la convención del repo)
+  y el corte de «vencido» es el **inicio del día** — una obligación que vence hoy sigue vigente, y
+  visible en el panel, hasta que el día termina. Corregido el 15-10-2026: estaban a medianoche del
+  servidor y en verano (EDT) se pintaban **un día antes** en Panamá (un ITBMS del 15-ago se veía 14/08)
+  y pasaban a OVERDUE la noche anterior; en invierno las zonas coinciden y no se notaba. La corrida del
+  calendario **normaliza sola** las filas viejas y devuelve a PENDING las mal marcadas, así que no hizo
+  falta migrar a mano.
+
+**Cierre fiscal**- Los asientos de cierre se marcan `isClosing` + `period` y quedan **excluidos de reportes y diario**
   (no del mayor `3.03`). Índice único parcial por empresa/año.
 - El balance de comprobación sin filtro usa el **año fiscal activo** (último asiento).
 

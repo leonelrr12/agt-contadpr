@@ -18,13 +18,45 @@ export const MESES_GENERADOS = 3;
 const VENCIMIENTO_MENSUAL: Record<string, number> = { ITBMS: 15, CSS: 5 };
 
 /**
+ * Vencimiento a MEDIODÍA local, la convención de fechas de solo día del repo
+ * (`lib/dates.ts`, `parseLocalDate`): las columnas son `timestamp` y la UI las pinta
+ * con la hora del navegador.
+ *
+ * A medianoche, en verano (el servidor corre en Nueva York, EDT), el instante cae a
+ * las 23:00 del día anterior en Panamá: un ITBMS que vence el 15 de agosto se veía
+ * **14/08** en pantalla y la obligación pasaba a OVERDUE la noche anterior (en
+ * invierno las dos zonas coinciden y el bug no se notaba).
+ */
+function vencimientoAlMediodia(y: number, mesIndex: number, dia: number): Date {
+  return new Date(y, mesIndex, dia, 12, 0, 0, 0);
+}
+
+/** Medianoche LOCAL de hoy: el corte de «el día del vencimiento ya pasó». */
+function inicioDeHoy(now: Date): Date {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+/** Último instante del día de un vencimiento: mientras no pase, el día cuenta. */
+function finDelDia(fecha: Date): Date {
+  return new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate() + 1);
+}
+
+/** El mismo día de una fecha, pero a mediodía local (normaliza los datos viejos). */
+function alMediodia(fecha: Date): Date {
+  return new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate(), 12, 0, 0, 0);
+}
+
+/**
  * Genera las obligaciones fiscales pendientes para los próximos N meses.
+ *
+ * `now` es inyectable para poder probar los bordes del calendario (el día del
+ * vencimiento, el 31 de marzo del ISR) sin depender de la fecha en que corra el test.
  */
 export async function generateUpcomingObligations(
   prisma: any,
   companyId: string,
+  now: Date = new Date(),
 ): Promise<number> {
-  const now = new Date();
   const obligations: ObligationDef[] = [];
 
   // ── Mensuales: próximos 3 meses ──
@@ -35,8 +67,8 @@ export async function generateUpcomingObligations(
     const year = d.getFullYear();
 
     // ITBMS — vence el día 15 del mes siguiente
-    const itbmsDue = new Date(d.getFullYear(), d.getMonth() + 1, 15);
-    if (itbmsDue >= now) {
+    const itbmsDue = vencimientoAlMediodia(d.getFullYear(), d.getMonth() + 1, 15);
+    if (finDelDia(itbmsDue) > now) {
       obligations.push({
         type: 'ITBMS',
         period,
@@ -47,8 +79,8 @@ export async function generateUpcomingObligations(
     }
 
     // CSS — vence el día 5 del mes siguiente
-    const cssDue = new Date(d.getFullYear(), d.getMonth() + 1, 5);
-    if (cssDue >= now) {
+    const cssDue = vencimientoAlMediodia(d.getFullYear(), d.getMonth() + 1, 5);
+    if (finDelDia(cssDue) > now) {
       obligations.push({
         type: 'CSS',
         period,
@@ -63,8 +95,8 @@ export async function generateUpcomingObligations(
   const currentYear = now.getFullYear();
 
   // Aviso de Operación — vence marzo 31
-  const avisoDue = new Date(currentYear, 2, 31); // Marzo 31
-  if (now.getMonth() < 3 || (now.getMonth() === 2 && now.getDate() <= 31)) {
+  const avisoDue = vencimientoAlMediodia(currentYear, 2, 31); // Marzo 31
+  if (finDelDia(avisoDue) > now) {
     obligations.push({
       type: 'AVISO',
       period: String(currentYear),
@@ -75,8 +107,8 @@ export async function generateUpcomingObligations(
   }
 
   // ISR — vence marzo 31
-  const isrDue = new Date(currentYear, 2, 31);
-  if (now < isrDue || now.getFullYear() < currentYear) {
+  const isrDue = vencimientoAlMediodia(currentYear, 2, 31);
+  if (finDelDia(isrDue) > now) {
     obligations.push({
       type: 'ISR',
       period: String(currentYear),
@@ -126,13 +158,29 @@ export async function generateUpcomingObligations(
   }
 
   // ── Marcar vencidas ──
+  // El corte es el INICIO DEL DÍA, no la hora: una obligación que vence hoy sigue
+  // vigente hasta que el día termina. Con `lt: now` y el vencimiento a medianoche, el
+  // día del vencimiento ya contaba como vencido (y en verano, desde la noche anterior).
   await prisma.taxObligation.updateMany({
     where: {
       companyId,
       status: 'PENDING',
-      dueDate: { lt: now },
+      dueDate: { lt: inicioDeHoy(now) },
     },
     data: { status: 'OVERDUE' },
+  });
+
+  // Y al revés: una obligación marcada vencida cuyo día todavía no pasó vuelve a
+  // PENDING. Es la corrección de las filas que quedaron mal marcadas con el criterio
+  // viejo (el 15-10-2026 había 9 vencidas así en producción) y deja el estado
+  // cuadrando solo en cada corrida.
+  await prisma.taxObligation.updateMany({
+    where: {
+      companyId,
+      status: 'OVERDUE',
+      dueDate: { gte: inicioDeHoy(now) },
+    },
+    data: { status: 'PENDING' },
   });
 
   // ── Refrescar los estimados de ITBMS que quedaron FUERA de la ventana ──
@@ -153,6 +201,22 @@ export async function generateUpcomingObligations(
     if (obl.estimatedAmount !== estimatedAmount) {
       await prisma.taxObligation.update({ where: { id: obl.id }, data: { estimatedAmount } });
     }
+  }
+
+  // ── Normalizar los vencimientos guardados a medianoche ──
+  //
+  // Hasta el 15-10-2026 los vencimientos se guardaban a medianoche del servidor, y en
+  // verano (EDT) eso cae a las 23:00 del día anterior en Panamá: un ITBMS del 15-ago
+  // se veía 14/08. Se pasan a MEDIODÍA sin mover el día —la convención del repo— y la
+  // corrida los arregla sola, sin SQL a mano. Idempotente: a la segunda no cambia nada.
+  const pendientesDeHora: any[] = await prisma.taxObligation.findMany({
+    where: { companyId },
+    select: { id: true, dueDate: true },
+  });
+  for (const o of pendientesDeHora) {
+    const mediodia = alMediodia(new Date(o.dueDate));
+    if (mediodia.getTime() === new Date(o.dueDate).getTime()) continue;
+    await prisma.taxObligation.update({ where: { id: o.id }, data: { dueDate: mediodia } });
   }
 
   return created;
@@ -370,7 +434,7 @@ export async function obligacionesProyectadas(
     for (const [type, ancla] of anclas) {
       if (vivas.has(`${type}|${period}`)) continue;
       const ultimoDia = new Date(m.getFullYear(), m.getMonth() + 2, 0).getDate();
-      const dueDate = new Date(m.getFullYear(), m.getMonth() + 1, Math.min(ancla.dia, ultimoDia));
+      const dueDate = vencimientoAlMediodia(m.getFullYear(), m.getMonth() + 1, Math.min(ancla.dia, ultimoDia));
       if (dueDate > fin) continue;
       estimar(type, period, dueDate);
     }
@@ -389,7 +453,9 @@ export async function getTaxCalendarSummary(prisma: any, companyId: string) {
   const upcoming = await prisma.taxObligation.findMany({
     where: {
       companyId,
-      dueDate: { gte: now, lte: thirtyDays },
+      // Desde el inicio del día: una obligación que vence hoy se sigue viendo en el
+      // panel después del mediodía (con `gte: now` desaparecía a la hora del vencimiento).
+      dueDate: { gte: inicioDeHoy(now), lte: thirtyDays },
       status: { not: 'COMPLETED' },
     },
     orderBy: { dueDate: 'asc' },
