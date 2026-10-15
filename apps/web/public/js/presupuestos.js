@@ -97,12 +97,25 @@ async function pptoRender() {
           ${años.map(a => `<option value="${a}"${a === _pptoYear ? ' selected' : ''}>${a}${a === _pptoAnioFiscal ? ' (fiscal)' : ''}</option>`).join('')}
         </select>
       </label>
+      <button onclick="pptoExportar('xlsx')" title="Descargar la vista actual en Excel" style="padding:5px 12px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">📥 Excel</button>
+      <button onclick="pptoExportar('csv')" title="Descargar la vista actual en CSV" style="padding:5px 12px;font-size:11px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer">CSV</button>
     </div>
     <div id="ppto-cuerpo"></div>`;
 
   if (_pptoSubTab === 'captura') await pptoRenderCaptura();
   else await pptoRenderComparativa();
-  setInformesExportBar(_pptoSubTab === 'captura' ? 'presupuesto' : 'presupuesto-comparativa');
+  // La barra de export GLOBAL vive dentro de #informes-date-filter, que esta pestaña
+  // oculta (no usa el filtro de fechas): sus botones quedarían invisibles. Los de acá
+  // van en la barra propia, junto al selector de año.
+  setInformesExportBar(null);
+}
+
+/**
+ * Descarga la vista activa. El tipo lo manda el sub-tab: la captura exporta la matriz
+ * del presupuesto y la comparativa, el real contra el presupuesto (con su mes).
+ */
+function pptoExportar(format) {
+  exportInforme(_pptoSubTab === 'captura' ? 'presupuesto' : 'presupuesto-comparativa', format);
 }
 
 /* ── Captura ── */

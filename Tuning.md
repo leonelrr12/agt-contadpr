@@ -207,11 +207,6 @@ rentabilidad** por segmento.
 
 ### 4.4 Detalles menores
 
-- **Presupuesto no tiene botones de descarga visibles.** La barra de export de Informes
-  (`#informes-export-btns`) vive dentro de `#informes-date-filter`, y esa fila se oculta en las
-  pestañas que no usan el filtro de fechas (`.hidden` es `display:none !important`). Detectado el
-  15-10-2026 al arreglar lo mismo en el Form. 430, que ahora trae sus botones en su propia barra;
-  Presupuesto sigue dependiendo de la barra global. Se arregla igual: botones propios en su barra.
 - **§3 Recurrentes:** detección de patrones por IA ("este gasto de $49.99 aparece cada mes, ¿lo hago
   recurrente?").
 - **§7 Facturas:** **envío por email al cliente** (lo demás está: logo, correlativo, ITBMS, resolución).

@@ -842,6 +842,9 @@ export async function exportReport(
       const filas: Record<string, unknown>[] = [];
       const estilos: RowStyle[] = [];
       const m2 = (n: number) => (Number(n) || 0).toFixed(2);
+      // Las fechas salen como se leen en pantalla (dd/mm/aaaa): el archivo lo abre el
+      // contador al lado del formulario, no un programa.
+      const fFecha = (iso: string) => String(iso || '').slice(0, 10).split('-').reverse().join('/');
       const agregar = (concepto: string, monto: number | string = '', detalle = '', bold = false) => {
         filas.push({ concepto, monto, detalle });
         estilos.push({ bold });
@@ -867,7 +870,7 @@ export async function exportReport(
       agregar('+ Saldo anterior (arrastre del mayor)', m2(l.saldoAnterior));
       agregar('− Pagos a la DGI ya registrados', m2(l.pagosDelMes));
       agregar('− Compensaciones R52 ya contabilizadas', m2(l.compensacionesDelMes));
-      agregar(l.saldoAFavor ? 'SALDO A FAVOR (se arrastra al mes siguiente)' : 'TOTAL A PAGAR', m2(l.totalAPagar), `vence el ${d.periodo.vence}`, true);
+      agregar(l.saldoAFavor ? 'SALDO A FAVOR (se arrastra al mes siguiente)' : 'TOTAL A PAGAR', m2(l.totalAPagar), `vence el ${fFecha(d.periodo.vence)}`, true);
       agregar('');
       agregar('BASES GRAVADAS', '', '', true);
       agregar('Ventas gravadas', m2(d.bases.ventasGravadas), porTasa(d.bases.ventasPorTasa));
@@ -886,7 +889,7 @@ export async function exportReport(
       agregar('DETALLE POR ASIENTO', `movimiento del mes: ${m2(d.cuadre.movimientoLibroMes)}`, `${d.cuadre.asientos} asiento(s) · ${d.cuadre.asientosBorrador} en borrador · ${d.cuadre.cuadra ? 'cuadra con el mayor' : 'NO CUADRA'}`, true);
       for (const a of d.detalle) {
         agregar(
-          `${a.fecha}  ${a.descripcion}`,
+          `${fFecha(a.fecha)}  ${a.descripcion}`,
           m2(a.efectoSaldo),
           `${a.clasificacion} · base ${a.baseGravada === null ? '—' : m2(a.baseGravada)} · ${a.confianza}`,
         );
@@ -895,7 +898,7 @@ export async function exportReport(
       const titleRows: TitleRow[] = [];
       if (meta.companyName) titleRows.push({ text: meta.companyName.toUpperCase(), bold: true });
       titleRows.push({ text: 'Borrador Formulario 430 — ITBMS' });
-      titleRows.push({ text: `${d.periodo.label} · vence el ${d.periodo.vence}` });
+      titleRows.push({ text: `${d.periodo.label} · vence el ${fFecha(d.periodo.vence)}` });
       titleRows.push({ text: 'BORRADOR DE TRABAJO: NO ES UNA DECLARACIÓN PRESENTADA', size: 10, bold: false });
       if (d.incluyeBorradores) titleRows.push({ text: 'Incluye asientos en BORRADOR (sin aprobar)', size: 10, bold: false });
 

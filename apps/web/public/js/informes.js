@@ -30,9 +30,9 @@ function clickInformeTab(informe) {
   _currentInformeTab = informe;
   // Mostrar filtro de fecha solo para reportes que lo soportan
   // La barra de export vive DENTRO de #informes-date-filter, que las pestañas sin filtro
-  // de fechas ocultan (`.hidden` es `display:none !important`). El 430 pone sus propios
-  // botones en su barra, así que acá va null; Presupuesto sigue con el problema.
-  const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', 'balance-general': 'balance-general', resultados: 'estado-resultados', 'flujo-caja': 'flujo-caja', dashboard: null, auxiliares: null, revision: null, presupuestos: 'presupuesto-comparativa', borrador430: null };
+  // de fechas ocultan (`.hidden` es `display:none !important`). Presupuesto y el 430
+  // ponen sus propios botones en su barra, así que acá van en null.
+  const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', 'balance-general': 'balance-general', resultados: 'estado-resultados', 'flujo-caja': 'flujo-caja', dashboard: null, auxiliares: null, revision: null, presupuestos: null, borrador430: null };
   const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'balance-general' || informe === 'resultados' || informe === 'flujo-caja' || informe === 'dashboard');
   document.getElementById('informes-date-filter').classList.toggle('hidden', !showFilter);
   // El botón "Nivel 3" es solo del Balance (conserva su estado al volver)
