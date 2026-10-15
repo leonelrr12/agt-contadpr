@@ -163,7 +163,7 @@ function b430Cards(d) {
       ${b430Card('Débito fiscal (ventas)', b430Money(l.debitoFiscal), '#1a1a2e', `${b430Money(d.bases.ventasGravadas)} de base gravada`)}
       ${b430Card('Crédito fiscal (compras)', b430Money(l.creditoFiscal), '#1565c0', `${b430Money(d.bases.comprasGravadas)} de base gravada`)}
       ${b430Card('Retenciones por aplicar (R52)', b430Money(l.renglon52), '#7c3aed', `${d.retenciones.registrosDelMes} en el mes · ${b430Money(d.retenciones.pendienteCertificado)} sin certificado`)}
-      ${b430Card(aFavor ? 'Saldo a favor del período' : 'Total a pagar', b430Money(l.totalAPagar), aFavor ? '#059669' : '#b45309', `saldo anterior ${b430Money(l.saldoAnterior)}`)}
+      ${b430Card(aFavor ? 'Saldo a favor (se arrastra)' : 'Total a pagar', b430Money(l.totalAPagar), aFavor ? '#059669' : '#b45309', `saldo anterior ${b430Money(l.saldoAnterior)}`)}
     </div>`;
 }
 
@@ -200,10 +200,12 @@ function b430Liquidacion(d) {
       ${fila('+ Saldo anterior (arrastre del mayor)', l.saldoAnterior)}
       ${fila('− Pagos a la DGI ya registrados', l.pagosDelMes, { color: '#6b7280' })}
       ${fila('− Compensaciones R52 ya contabilizadas', l.compensacionesDelMes, { color: '#6b7280' })}
-      ${fila(aFavor ? 'SALDO A FAVOR' : 'TOTAL A PAGAR', l.totalAPagar, { fuerte: true, borde: true, color: aFavor ? '#059669' : '#b45309' })}
+      ${fila(aFavor ? 'SALDO A FAVOR (se arrastra al mes siguiente)' : 'TOTAL A PAGAR', l.totalAPagar, { fuerte: true, borde: true, color: aFavor ? '#059669' : '#b45309' })}
     </table></div>
     <div style="font-size:11px;color:#9ca3af;margin-top:4px">
       El saldo anterior sale del mayor y conserva el signo: si es negativo, es un saldo a favor que arrastra la cuenta.
+      La regla del contador (15-10-2026) es que el saldo a favor <b>no se pide en devolución: se arrastra al mes siguiente</b>,
+      que es lo que ya hace este informe al recibirlo como saldo anterior.
       ${l.diferenciaVsMayor !== 0 ? ` Diferencia contra el mayor: ${b430Money(l.diferenciaVsMayor)} (ajustes de balance y movimientos sin clasificar).` : ''}
     </div>`;
 }

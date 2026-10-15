@@ -867,7 +867,7 @@ export async function exportReport(
       agregar('+ Saldo anterior (arrastre del mayor)', m2(l.saldoAnterior));
       agregar('− Pagos a la DGI ya registrados', m2(l.pagosDelMes));
       agregar('− Compensaciones R52 ya contabilizadas', m2(l.compensacionesDelMes));
-      agregar(l.saldoAFavor ? 'SALDO A FAVOR' : 'TOTAL A PAGAR', m2(l.totalAPagar), `vence el ${d.periodo.vence}`, true);
+      agregar(l.saldoAFavor ? 'SALDO A FAVOR (se arrastra al mes siguiente)' : 'TOTAL A PAGAR', m2(l.totalAPagar), `vence el ${d.periodo.vence}`, true);
       agregar('');
       agregar('BASES GRAVADAS', '', '', true);
       agregar('Ventas gravadas', m2(d.bases.ventasGravadas), porTasa(d.bases.ventasPorTasa));

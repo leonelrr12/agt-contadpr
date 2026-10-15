@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getSaldoITBMS } from '../tax-calendar';
+import { getSaldoITBMS, estimateITBMS } from '../tax-calendar';
 
 /**
  * El saldo de ITBMS que muestra el calendario fiscal. Se prueba por lo que costó:
@@ -40,5 +40,45 @@ describe('getSaldoITBMS', () => {
   it('redondea a dos decimales', async () => {
     const prisma = prismaCon([{ debit: 0, credit: 0.1 + 0.2 }]);
     expect(await getSaldoITBMS(prisma, 'c1')).toBe(0.3);
+  });
+});
+
+/**
+ * El corte del mes del estimado. El bug: `new Date(year, month, 0)` es la MEDIANOCHE
+ * del último día y los asientos se guardan a mediodía local (`parseLocalDate`), así
+ * que todo lo cargado el último día del mes quedaba fuera del estimado que el
+ * calendario le enseña al contador como «lo que vas a deber».
+ */
+describe('estimateITBMS', () => {
+  /** Prisma de mentira que aplica el filtro de fecha como lo haría la BD. */
+  const prismaConAsientos = (asientos: { fecha: Date; debit: number; credit: number }[]) => ({
+    journalLine: {
+      findMany: async (args: any) => asientos.filter((a) => a.fecha <= args.where.journalEntry.date.lte),
+    },
+  });
+
+  it('⭐ incluye los asientos del ÚLTIMO día del mes (a mediodía local)', async () => {
+    const prisma = prismaConAsientos([
+      { fecha: new Date(2026, 8, 15, 12, 0, 0), debit: 0, credit: 700 }, // dentro
+      { fecha: new Date(2026, 8, 30, 12, 0, 0), debit: 0, credit: 300 }, // último día, mediodía
+      { fecha: new Date(2026, 9, 1, 12, 0, 0), debit: 0, credit: 999 }, // ya es octubre
+    ]);
+    // Con el corte viejo (30-sep 00:00) esto daba 700: se perdía el asiento del día 30.
+    expect(await estimateITBMS(prisma, 'c1', '2026-09')).toBe(1000);
+  });
+
+  it('incluye un reverso de anulación fechado el último día a cualquier hora', async () => {
+    const prisma = prismaConAsientos([
+      { fecha: new Date(2026, 8, 30, 23, 30, 0), debit: 50, credit: 0 }, // `new Date()` del reverso
+    ]);
+    expect(await estimateITBMS(prisma, 'c1', '2026-09')).toBe(0); // 50 de crédito fiscal netea a 0
+  });
+
+  it('diciembre cierra en su propio año', async () => {
+    const prisma = prismaConAsientos([
+      { fecha: new Date(2026, 11, 31, 12, 0, 0), debit: 0, credit: 120 },
+      { fecha: new Date(2027, 0, 1, 12, 0, 0), debit: 0, credit: 500 },
+    ]);
+    expect(await estimateITBMS(prisma, 'c1', '2026-12')).toBe(120);
   });
 });

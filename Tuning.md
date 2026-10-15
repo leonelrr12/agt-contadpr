@@ -104,20 +104,21 @@ Pero `PAGO_ITBMS` debita `2.1.05 ITBMS por Pagar` contra banco por el total **si
 así que el saldo se acumula. Hoy el único modo de aplicarlo es manual y sin reversión: `POST
 /api/retenciones-itbms/compensar` (modal "Compensar R52" en Informes) crea D 2.1.05 / C 1.1.07.
 
-**Tres decisiones abiertas** (recomendaciones provisionales, sin validar con el contador):
+**Dos decisiones abiertas** (D2 quedó cerrada el 15-10-2026):
 
 - **D1 — Alcance:** *A)* solo ITBMS mensual (Form. 430) completo; *B)* también ISR anual (Form. 431);
   *C)* mínimo, solo la compensación sin declaración. **Provisional: A**, o C si se quiere valor
   inmediato con mínimo riesgo.
-- **D2 — Crédito mayor que el impuesto del período:** *1)* arrastrar el excedente al mes siguiente;
-  *2)* preguntar cada período si arrastrar o pedir devolución; *3)* solo informarlo. **Provisional: 2**
-  (no fija una regla tributaria no confirmada y deja rastro).
+- **D2 — Crédito mayor que el impuesto del período: ✅ RESUELTA — se ARRASTRA.** El saldo a favor no se
+  pide en devolución ni se deja quieto: pasa al mes siguiente (confirmado por el contador el
+  15-10-2026). El borrador del 430 ya lo aplica —el mes siguiente lo recibe como saldo anterior— y
+  publica `liquidacion.reglaSaldoAFavor: 'ARRASTRE'` para la fase de la declaración.
 - **D3 — De dónde salen los montos:** *1)* calculados del mayor con ajuste del contador; *2)* tecleados
   por el contador; *3)* calculados sin ajuste. **Provisional: 1.**
 
 **Las 5 preguntas para el contador:**
-1. Si ITBMS de compras + retención sufrida > ITBMS de ventas del mes: ¿se arrastra, se pide devolución o
-   queda saldo a favor quieto? ¿La app genera asiento?
+1. **✅ Contestada (15-10-2026):** si el ITBMS de compras + la retención sufrida superan al de ventas,
+   el excedente **se arrastra** al mes siguiente. No se pide devolución.
 2. ¿Se presenta con montos del libro o del formulario? Si difieren, ¿cuál manda para el pago?
 3. ¿El pago va por el neto (ya aplicada la retención) o se paga el total y la retención se reclama aparte?
 4. Compras sin derecho a crédito: hoy la app registra el ITBMS dentro del costo. ¿Correcto, o va a
@@ -206,6 +207,13 @@ rentabilidad** por segmento.
 
 ### 4.4 Detalles menores
 
+- **Calendario fiscal — los vencimientos se pintan un día antes** (detectado el 15-10-2026 al arreglar el
+  corte del mes). `TaxObligation.dueDate` se guarda a **medianoche local del servidor** (Nueva York) en
+  vez de a mediodía, la convención del resto del repo. En verano (EDT, UTC-4) esa medianoche cae a las
+  23:00 del día anterior en Panamá, así que un vencimiento del **15 de agosto se ve 14/08** en el
+  navegador (`tax-calendar.js` formatea con `toLocaleDateString`) y la obligación pasa a OVERDUE la
+  noche anterior; en invierno coincide y no se nota. Arreglarlo son dos partes: guardar a mediodía en el
+  generador **y migrar las filas existentes** (+12 h). Sin decidir.
 - **§3 Recurrentes:** detección de patrones por IA ("este gasto de $49.99 aparece cada mes, ¿lo hago
   recurrente?").
 - **§7 Facturas:** **envío por email al cliente** (lo demás está: logo, correlativo, ITBMS, resolución).
@@ -251,7 +259,12 @@ rentabilidad** por segmento.
 - En la carga masiva, sin columna de ITBMS el asiento dice el monto del archivo; la casilla "Calcular
   ITBMS" lo reactiva por archivo.
 - `getSaldoITBMS` suma las líneas de `2.1.05` de asientos CONFIRMADO (créditos de ventas − débitos de
-  compras y pagos). Es **acumulado, no de un período**.
+  compras y pagos). Es **acumulado, no de un período**. Su estimado mensual corta en el **último
+  instante del mes en hora local**: con `new Date(year, month, 0)` (medianoche del último día) los
+  asientos de ese día —que se guardan a mediodía— quedaban fuera del número que el calendario le
+  enseña al contador (corregido el 15-10-2026).
+- **El saldo a favor se arrastra** al mes siguiente; no se pide en devolución (contador, 15-10-2026).
+  El borrador del 430 lo aplica: el mes siguiente lo recibe como saldo anterior, sin clamp a cero.
 - La retención sufrida **no es saldo de CxC**: es un crédito fiscal con certificado, declarable en el
   renglón 52 del Form. 430. Cuenta `1.1.07`.
 - **Regla "al cierre del neto"** (confirmada 05-09): el cliente nunca paga más del neto; la retención se

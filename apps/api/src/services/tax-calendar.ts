@@ -198,9 +198,15 @@ export async function getSaldoITBMS(prisma: any, companyId: string, upTo?: Date)
   return Math.max(0, Math.round(neto * 100) / 100);
 }
 
-async function estimateITBMS(prisma: any, companyId: string, period: string): Promise<number> {
+/** Estimado de ITBMS de un período (`YYYY-MM`). Exportada para el test de regresión
+ *  del corte del mes: el bug del último día no se ve sin ejercitar el rango. */
+export async function estimateITBMS(prisma: any, companyId: string, period: string): Promise<number> {
   const [year, month] = period.split('-').map(Number);
-  const endDate = new Date(year, month, 0);
+  // El corte es el ÚLTIMO INSTANTE del mes en hora local, no la medianoche del último
+  // día: los asientos se guardan a mediodía local (`parseLocalDate`), así que
+  // `new Date(year, month, 0)` dejaba FUERA todo lo cargado el último día del mes (y el
+  // reverso de una anulación, que se fecha con `new Date()`, a cualquier hora).
+  const endDate = new Date(new Date(year, month, 1).getTime() - 1);
   return getSaldoITBMS(prisma, companyId, endDate);
 }
 

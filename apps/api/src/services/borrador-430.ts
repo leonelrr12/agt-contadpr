@@ -543,6 +543,13 @@ export interface Borrador430 {
     compensacionesDelMes: number;
     totalAPagar: number;
     saldoAFavor: boolean;
+    /**
+     * Regla confirmada por el contador (15-10-2026): el saldo a favor NO se pide en
+     * devolución, **se arrastra al mes siguiente**. El informe ya la aplica —el mes
+     * siguiente lo recibe como `saldoAnterior`— y la deja dicha en los datos para
+     * cuando se construya la declaración (decisión D2 de `Tuning.md` §4.1).
+     */
+    reglaSaldoAFavor: 'ARRASTRE';
     diferenciaVsMayor: number;
   };
   saldoAnterior: { monto: number; al: string; saldoAFavor: boolean };
@@ -968,6 +975,7 @@ export async function buildBorrador430(
       compensacionesDelMes: compensacionesR52,
       totalAPagar,
       saldoAFavor: totalAPagar < -TOL,
+      reglaSaldoAFavor: 'ARRASTRE',
       diferenciaVsMayor,
     },
     saldoAnterior: {

@@ -511,6 +511,29 @@ describe('buildBorrador430', () => {
     expect(r.cuadre.cuadra).toBe(true);
   });
 
+  it('⭐ el saldo a favor se ARRASTRA al mes siguiente (regla del contador, 15-10-2026)', async () => {
+    // Septiembre cierra con saldo a favor (más compra que venta) y octubre tiene que
+    // abrir con ese saldo como anterior: el favor no se pierde ni se pide en devolución.
+    const prisma = stubPrisma({
+      asientos: [
+        asientoVenta('v1', new Date(2026, 8, 10, 12, 0, 0)), // 70 de débito fiscal
+        asientoCompra('c1', new Date(2026, 8, 12, 12, 0, 0)), // 35 de crédito fiscal
+        asientoPago('p1', new Date(2026, 8, 20, 12, 0, 0), 200), // 200 pagados a la DGI
+        asientoVenta('v2', new Date(2026, 9, 5, 12, 0, 0)), // octubre: 70 de débito fiscal
+      ],
+    });
+    const sep = await buildBorrador430(prisma, 'c1', { year: 2026, mes: 9 }, 2026);
+    const oct = await buildBorrador430(prisma, 'c1', { year: 2026, mes: 10 }, 2026);
+
+    expect(sep.liquidacion.totalAPagar).toBe(-165);
+    expect(sep.liquidacion.saldoAFavor).toBe(true);
+    expect(sep.liquidacion.reglaSaldoAFavor).toBe('ARRASTRE');
+    expect(oct.saldoAnterior.monto).toBe(-165); // lo recibe como anterior
+    expect(oct.saldoAnterior.saldoAFavor).toBe(true);
+    expect(oct.liquidacion.totalAPagar).toBe(-95); // −165 + 70
+    expect(oct.cuadre.cuadra).toBe(true);
+  });
+
   it('el R52 disponible son las retenciones RECIBIDAS sin compensar; una APLICADA no se resta dos veces', async () => {
     const prisma = stubPrisma({
       asientos: [asientoVenta('v1', new Date(2026, 8, 10, 12, 0, 0))],
