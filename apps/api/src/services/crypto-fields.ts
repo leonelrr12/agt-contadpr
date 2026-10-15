@@ -7,9 +7,13 @@ import crypto from 'crypto';
 const KEY_B64 = process.env.FIELD_ENC_KEY || '';
 const KEY = KEY_B64 ? Buffer.from(KEY_B64, 'base64') : null;
 
-// Campos a cifrar (por nombre, en los modelos Company/Client/Supplier/PaymentRecord).
+// Campos a cifrar, POR NOMBRE DE CAMPO y para todos los modelos (Company/Client/
+// Supplier/PaymentRecord/EmailFacturaConfig…): un campo nuevo con uno de estos
+// nombres se cifra solo y deja de ser consultable.
 // User.email queda FUERA: se usa como login y es unique.
-const ENCRYPTED_FIELDS = ['taxId', 'email', 'phone', 'reference'];
+// `imapPassword` (buzón de facturas por correo) se cifra en reposo y se descifra
+// al leerlo con el cliente extendido; el barrido usa ese cliente, no el crudo.
+const ENCRYPTED_FIELDS = ['taxId', 'email', 'phone', 'reference', 'imapPassword'];
 // Modelo excluido del cifrado por completo
 const EXCLUDED_MODELS = new Set(['User', 'AuthToken', 'ApiKey']);
 

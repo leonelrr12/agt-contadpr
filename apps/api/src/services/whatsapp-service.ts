@@ -29,29 +29,14 @@ import {
   type FacturaExtraida,
 } from './reembolsos';
 import { extractFromPDF } from './pdf-extractor';
+import { descargarFacturaDgi, DgiError, DGI_BROWSER_UA } from './dgi-cute';
+import { resolveCompanyUserId } from './company-user';
 import { conceptoDelMapa, conceptoPorKeywords } from '@agt-contador/agents';
 
 const OPENWA_URL = process.env.OPENWA_API_URL || 'http://localhost:2785';
 const OPENWA_KEY = process.env.OPENWA_API_KEY || '';
 const OPENWA_SESSION = process.env.OPENWA_SESSION_NAME || 'contador507';
 const APP_HOST = process.env.APP_HOST || `http://localhost:${process.env.PORT || 3001}`;
-
-/**
- * Resuelve el userId real del usuario que opera por WhatsApp para una empresa.
- * Prefiere un admin activo; si no hay, cualquier usuario activo.
- * Lanza si la empresa no tiene usuarios activos: en la práctica no ocurre
- * (el registro crea siempre un admin), y así se evita atribuir transacciones
- * a un usuario fantasma.
- */
-async function resolveWhatsAppUserId(prisma: any, companyId: string): Promise<string> {
-  const user =
-    (await prisma.user.findFirst({ where: { companyId, role: 'admin', isActive: true } })) ||
-    (await prisma.user.findFirst({ where: { companyId, isActive: true } }));
-  if (!user) {
-    throw new Error(`La empresa ${companyId} no tiene usuarios activos para operar por WhatsApp`);
-  }
-  return user.id;
-}
 
 function waHeaders() {
   return {
@@ -109,53 +94,36 @@ export async function processWhatsAppDgiUrl(
   chatId: string,
   qrUrl: string,
 ): Promise<string | null> {
+  const ERROR_QR = '❌ Error al procesar el QR. Intenta con una foto más clara del código.';
   try {
-    // La DGI exige User-Agent de navegador; sin él devuelve una página distinta.
-    const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36';
-    const response = await fetch(qrUrl, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(60000) });
-    if (!response.ok) return '❌ No se pudo acceder a la URL del QR.';
-
-    let buffer = Buffer.from(await response.arrayBuffer());
-    const headStr = buffer.slice(0, 500).toString();
-    // El visor de la DGI embebe el XML OFICIAL de la factura en un input oculto:
-    // es el documento legal y viaja con el reembolso (el PDF solo lo representa).
-    let dgiXml: string | null = null;
-
-    // Detectar visor web DGI y descargar el PDF real.
-    // OJO: el form con facturaXML aparece lejos del inicio del HTML (~byte 25k),
-    // por eso se revisa el HTML COMPLETO, no solo los primeros bytes.
-    if (headStr.includes('<!DOCTYPE') || headStr.includes('<html') || headStr.includes('facturaXML')) {
-      const html = buffer.toString();
-      // El QR decodificado quedó truncado/deteriorado: la DGI rechaza el
-      // contenido y no genera el form de descarga.
-      if (html.includes('mal construido')) {
-        return '❌ El código QR de la foto está *deteriorado*: la DGI lo rechaza (contenido incompleto).\n\n📌 Opciones:\n• En el panel web usa *📷 Escanear QR* (cámara en vivo, funciona mejor)\n• Haz *screenshot* del QR en el PDF y envíalo como *documento*\n• O envía directamente el *PDF* de la factura DGI';
-      }
-      if (html.includes('facturaXML') && html.includes('DescargarFacturaPDF')) {
-        const match = html.match(/id="facturaXML"[^>]*value="([^"]*)"/);
-        if (match?.[1]) {
-          dgiXml = match[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-          const baseUrl = new URL(qrUrl);
-          const pdfRes = await fetch(`${baseUrl.protocol}//${baseUrl.host}/Consultas/DescargarFacturaPDF`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded', Referer: qrUrl, 'User-Agent': UA },
-            body: `facturaXML=${encodeURIComponent(dgiXml)}`,
-            signal: AbortSignal.timeout(60000),
-          });
-          if (pdfRes.ok) buffer = Buffer.from(await pdfRes.arrayBuffer());
-        }
-      }
-    }
+    // El visor de la DGI, su XML oficial y el PDF viven en `dgi-cute.ts`.
+    const factura = await descargarFacturaDgi(qrUrl, {
+      timeoutMs: 60000,
+      userAgent: DGI_BROWSER_UA,
+    });
 
     // Procesar como PDF normal, arrastrando el enlace del CUTE y su XML
     return await processWhatsAppPDF(
       prisma, phoneNumber, chatId,
-      'data:application/pdf;base64,' + buffer.toString('base64'),
-      { dgiUrl: qrUrl, dgiXml },
+      'data:application/pdf;base64,' + factura.pdf.toString('base64'),
+      { dgiUrl: factura.dgiUrl, dgiXml: factura.dgiXml },
     );
   } catch (err: any) {
-    console.error('[WhatsApp] QR process error:', err.message);
-    return '❌ Error al procesar el QR. Intenta con una foto más clara del código.';
+    if (err instanceof DgiError) {
+      console.error('[WhatsApp] QR error', err.code, err.message);
+      if (err.code === 'DGI_DETERIORADO') {
+        return '❌ El código QR de la foto está *deteriorado*: la DGI lo rechaza (contenido incompleto).\n\n📌 Opciones:\n• En el panel web usa *📷 Escanear QR* (cámara en vivo, funciona mejor)\n• Haz *screenshot* del QR en el PDF y envíalo como *documento*\n• O envía directamente el *PDF* de la factura DGI';
+      }
+      // El servidor de la DGI contestó que no (el enlace venció, por ejemplo).
+      // Lo demás —QR ilegible, página que no es la factura, timeout— se cuenta
+      // igual: la foto no sirvió.
+      if (err.code === 'DGI_HTTP' && err.etapa === 'GET' && err.status) {
+        return '❌ No se pudo acceder a la URL del QR.';
+      }
+    } else {
+      console.error('[WhatsApp] QR process error:', err.message);
+    }
+    return ERROR_QR;
   }
 }
 
@@ -440,7 +408,7 @@ async function processWithOrchestrator(
   const orchestrator = new OrchestratorAgent({
     prisma,
     companyId: link.companyId,
-    userId: await resolveWhatsAppUserId(prisma, link.companyId),
+    userId: await resolveCompanyUserId(prisma, link.companyId),
     deepseekApiKey: process.env.DEEPSEEK_API_KEY,
     paymentMethodForzado: link.workerAccountId ? 'REEMBOLSO' : undefined,
   });
@@ -531,7 +499,7 @@ async function processWithOrchestrator(
       // 3. Nada falta → ejecutar orquestador para obtener confirmación con asiento contable
       if (missing.length === 0) {
         const { OrchestratorAgent: OA2 } = await import('@agt-contador/agents');
-        const o2 = new OA2({ prisma, companyId: link.companyId, userId: await resolveWhatsAppUserId(prisma, link.companyId), deepseekApiKey: process.env.DEEPSEEK_API_KEY, paymentMethodForzado: link.workerAccountId ? 'REEMBOLSO' : undefined });
+        const o2 = new OA2({ prisma, companyId: link.companyId, userId: await resolveCompanyUserId(prisma, link.companyId), deepseekApiKey: process.env.DEEPSEEK_API_KEY, paymentMethodForzado: link.workerAccountId ? 'REEMBOLSO' : undefined });
         const r2 = await o2.process(text, { messages: [], extractedData: dialogData });
         if (r2.needsConfirmation && r2.prompt) { setPendingResult(chatId, r2.result); return r2.prompt; }
         // Si el orquestador pide categoría pero ya tenemos concepto, ignorar y usar el resultado actual
@@ -676,6 +644,7 @@ async function registrarFacturaSiAplica(
       journalEntry: saved.journalEntry,
       tipo: pending?.dialog?.type,
       factura: datos,
+      origen: 'WHATSAPP',
     });
     if (!creado) {
       // Duplicada: el asiento ya se creó, así que se avisa para que el contador
@@ -704,7 +673,7 @@ async function handleConfirm(
   const orchestrator = new OrchestratorAgent({
     prisma,
     companyId: link.companyId,
-    userId: await resolveWhatsAppUserId(prisma, link.companyId),
+    userId: await resolveCompanyUserId(prisma, link.companyId),
     deepseekApiKey: process.env.DEEPSEEK_API_KEY,
   });
 
@@ -933,7 +902,7 @@ async function advanceAfterCategory(prisma: any, chatId: string, link: any, waSe
   const { OrchestratorAgent: OA3 } = await import('@agt-contador/agents');
   const o3 = new OA3({
     prisma, companyId: link.companyId,
-    userId: await resolveWhatsAppUserId(prisma, link.companyId),
+    userId: await resolveCompanyUserId(prisma, link.companyId),
     deepseekApiKey: process.env.DEEPSEEK_API_KEY,
   });
   const result3 = await o3.process(reprocessText, { messages: [], extractedData: ctx });
@@ -1125,7 +1094,7 @@ export async function confirmBatch(sessionKey: string): Promise<string> {
     const orchestrator = new OrchestratorAgent({
       prisma: st.prisma,
       companyId: st.link.companyId,
-      userId: await resolveWhatsAppUserId(st.prisma, st.link.companyId),
+      userId: await resolveCompanyUserId(st.prisma, st.link.companyId),
       deepseekApiKey: process.env.DEEPSEEK_API_KEY,
     });
     for (const item of pendientes) {

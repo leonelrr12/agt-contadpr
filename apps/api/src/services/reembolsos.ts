@@ -110,6 +110,13 @@ function fechaFactura(factura: FacturaExtraida, journalEntry: any): Date {
   return journalEntry?.date ? new Date(journalEntry.date) : new Date();
 }
 
+/**
+ * Canal por el que entró la factura. Se guarda tal cual en `expense_claim.origen`
+ * (antes se deducía de si tenía trabajador, y con el correo hacen falta los tres
+ * valores): es lo que pinta la píldora del canal en «Facturas recibidas».
+ */
+export type OrigenFactura = 'MANUAL' | 'WHATSAPP' | 'CORREO';
+
 export interface RegistroFactura {
   companyId: string;
   /** Null = factura de la empresa: se archiva, no se reembolsa. */
@@ -117,6 +124,10 @@ export interface RegistroFactura {
   journalEntry: any;
   tipo?: string | null;
   factura: FacturaExtraida | null;
+  /** Default 'MANUAL'; WhatsApp manda 'WHATSAPP' y el correo, 'CORREO'. */
+  origen?: OrigenFactura;
+  /** Correo del que salió la factura (ledger `email_factura_mensaje`). */
+  emailMensajeId?: string | null;
 }
 
 /**
@@ -130,7 +141,7 @@ export interface RegistroFactura {
  */
 export async function registrarFacturaRecibida(
   prisma: any,
-  { companyId, workerId, journalEntry, tipo, factura }: RegistroFactura,
+  { companyId, workerId, journalEntry, tipo, factura, origen, emailMensajeId }: RegistroFactura,
 ): Promise<{ creado: boolean; motivo?: string; claim?: any; duplicado?: any }> {
   if (!journalEntry?.id) return { creado: false, motivo: 'sin asiento' };
   if (tipo && !TIPOS_FACTURA_RECIBIDA.has(tipo)) return { creado: false, motivo: `tipo ${tipo}` };
@@ -159,6 +170,8 @@ export async function registrarFacturaRecibida(
         dedupeKey,
         journalEntryId: journalEntry.id,
         status: 'PENDIENTE',
+        origen: origen ?? 'MANUAL',
+        emailMensajeId: emailMensajeId ?? null,
       },
     });
     return { creado: true, claim };

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { extractFromPDF } from '../services/pdf-extractor';
+import { descargarFacturaDgi, DgiError } from '../services/dgi-cute';
 import { quickClassify } from '../services/pre-clasificador';
 
 export const facturaRouter = Router();
@@ -70,71 +71,47 @@ facturaRouter.post('/extract-url', async (req, res) => {
     // Validar que sea una URL válida
     new URL(url);
 
-    const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
+    // El visor de la DGI y la descarga del PDF viven en `dgi-cute.ts`. Sin
+    // User-Agent de navegador, tal como se hacía acá (WhatsApp sí lo manda).
+    const { pdf } = await descargarFacturaDgi(url, { timeoutMs: 30000, userAgent: null });
 
-    if (!response.ok) {
-      res.status(400).json({ error: `No se pudo acceder a la URL: HTTP ${response.status}` });
-      return;
-    }
-
-    let buffer = Buffer.from(await response.arrayBuffer());
-    const headStr = buffer.slice(0, 200).toString();
-
-    // Detectar si es visor web DGI (FacturasPorQR) → extraer facturaXML y descargar PDF real
-    if (headStr.includes('facturaXML') || headStr.includes('<!DOCTYPE') || headStr.includes('<html')) {
-      const html = buffer.toString();
-
-      if (html.includes('facturaXML') && html.includes('DescargarFacturaPDF')) {
-        const match = html.match(/id="facturaXML"[^>]*value="([^"]*)"/);
-        if (!match || !match[1]) {
-          res.status(400).json({ error: 'No se pudo extraer el XML de la factura del visor DGI.' });
-          return;
-        }
-        const facturaXML = match[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-
-        const baseUrl = new URL(url);
-        const descargarUrl = `${baseUrl.protocol}//${baseUrl.host}/Consultas/DescargarFacturaPDF`;
-
-        const pdfResponse = await fetch(descargarUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Referer': url,
-          },
-          body: `facturaXML=${encodeURIComponent(facturaXML)}`,
-          signal: AbortSignal.timeout(30000),
-        });
-
-        if (!pdfResponse.ok) {
-          res.status(400).json({ error: `No se pudo descargar el PDF de la DGI: HTTP ${pdfResponse.status}` });
-          return;
-        }
-
-        buffer = Buffer.from(await pdfResponse.arrayBuffer());
-      } else {
-        res.status(400).json({ error: 'La URL abrió una página web, no un PDF. Usa OCR con captura de pantalla.' });
-        return;
-      }
-    }
-
-    // Verificar que sea un PDF válido (magic bytes %PDF)
-    const pdfHeader = buffer.slice(0, 5).toString();
-    if (!pdfHeader.startsWith('%PDF')) {
-      res.status(400).json({ error: 'El archivo descargado no es un PDF válido.' });
-      return;
-    }
-
-    const result = await extractFromPDF(buffer, req.prisma);
+    const result = await extractFromPDF(pdf, req.prisma);
     const concept = await quickClassify(result.text, req.prisma, req.user!.companyId)
       || await quickClassify(result.provider || '', req.prisma, req.user!.companyId);
     res.json({ ...result, concept });
   } catch (error: any) {
+    // Los códigos de `descargarFacturaDgi` se traducen acá: el servicio no sabe
+    // de HTTP ni de mensajes de usuario.
+    if (error instanceof DgiError) {
+      if (error.code === 'DGI_TIMEOUT') {
+        res.status(504).json({ error: 'Tiempo de espera agotado al descargar el PDF (30s)' });
+        return;
+      }
+      if (error.code === 'DGI_HTTP' && error.status) {
+        res.status(400).json({
+          error:
+            error.etapa === 'POST'
+              ? `No se pudo descargar el PDF de la DGI: HTTP ${error.status}`
+              : `No se pudo acceder a la URL: HTTP ${error.status}`,
+        });
+        return;
+      }
+      if (error.code === 'DGI_QR_INVALIDO') {
+        res.status(400).json({ error: 'No se pudo extraer el XML de la factura del visor DGI.' });
+        return;
+      }
+      if (error.code === 'DGI_NO_PDF' || error.code === 'DGI_DETERIORADO') {
+        res.status(400).json({
+          error: error.eraHtml
+            ? 'La URL abrió una página web, no un PDF. Usa OCR con captura de pantalla.'
+            : 'El archivo descargado no es un PDF válido.',
+        });
+        return;
+      }
+      // DGI_HTTP sin status = fallo de red: cae al 500 genérico de abajo.
+    }
     if (error.code === 'ERR_INVALID_URL') {
       res.status(400).json({ error: 'La URL proporcionada no es válida' });
-      return;
-    }
-    if (error.name === 'TimeoutError' || error.code === 'ABORT_ERR') {
-      res.status(504).json({ error: 'Tiempo de espera agotado al descargar el PDF (30s)' });
       return;
     }
     console.error('[Factura URL] Error:', error);

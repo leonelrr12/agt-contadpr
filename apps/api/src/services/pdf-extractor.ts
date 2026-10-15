@@ -258,8 +258,19 @@ export async function extractFromPDF(
 ): Promise<PDFExtractResult> {
   const parser = new PDFParse({ data: pdfBuffer });
   const data = await parser.getText();
-  const rawText = data?.text || '';
+  return extractFromText(data?.text || '', prisma);
+}
 
+/**
+ * Los datos de la factura a partir del TEXTO ya extraído del documento.
+ *
+ * Va aparte de `extractFromPDF` porque el XML de la DGI también es texto y no
+ * tiene por qué pasar por el parser de PDF: el mismo camino sirve para los dos.
+ */
+export async function extractFromText(
+  rawText: string,
+  prisma?: PrismaClient,
+): Promise<PDFExtractResult> {
   if (!rawText.trim()) {
     return {
       text: '',
