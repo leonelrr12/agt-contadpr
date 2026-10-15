@@ -618,32 +618,86 @@ async function computeAlertas(prisma: any, companyId: string, ratios: Ratios, pr
 }
 
 // ── Narrativa IA (DeepSeek) — cualquier fallo devuelve null y el panel degrada ──
-async function generateNarrativa(payload: SaludPayload): Promise<Narrativa | null> {
-  const client = getLLMClient();
-  if (!client) return null;
+
+/**
+ * Techo de tokens de la narrativa. Estaba en 600 y se quedaba corto: el prompt pide
+ * un párrafo de 2-4 frases **más** hasta 4 alertas y 4 recomendaciones, y con un
+ * resumen rico el modelo pasa de 600 y la API corta la respuesta a media cadena
+ * (`Unterminated string in JSON at position ~2000`, 3 veces en el log de producción).
+ * Con 1.500 sobra —una narrativa medida usa ~460— y el JSON termina siempre.
+ */
+const NARRATIVA_MAX_TOKENS = 1500;
+
+const NARRATIVA_SYSTEM = 'Eres un analista financiero sénior para pequeñas empresas en Panamá. Recibes un resumen JSON de la salud financiera de una empresa y debes explicarla en lenguaje natural. Reglas: habla en español, tono claro y profesional; explica POR QUÉ cambiaron los números cuando haya deltas (mes actual vs anterior); sé específico con montos, porcentajes y meses reales del resumen; NO inventes datos que no estén en el resumen. Devuelve SOLO JSON válido con esta estructura: {"resumen": "párrafo de 2-4 frases con el estado general y las razones de los cambios", "alertas": ["una frase cada una"], "recomendaciones": ["recomendaciones concretas y accionables hoy"]}. Máximo 4 alertas y 4 recomendaciones.';
+
+/** Versión corta para el reintento: si la primera respuesta se pasó del techo, se pide menos. */
+const NARRATIVA_SYSTEM_BREVE = NARRATIVA_SYSTEM.replace(
+  'un párrafo de 2-4 frases con el estado general y las razones de los cambios',
+  'un párrafo de 2 frases como máximo',
+).replace('Máximo 4 alertas y 4 recomendaciones.', 'Máximo 2 alertas y 2 recomendaciones, cada una de una sola frase.');
+
+/**
+ * Lee la respuesta del modelo. Pura y exportada para poder probar los tres finales
+ * malos que ya se vieron en producción: respuesta cortada, texto que no es JSON y
+ * JSON sin `resumen`.
+ */
+export function interpretarNarrativa(
+  text: string,
+  finishReason?: string | null,
+): { narrativa: Narrativa | null; motivo?: string } {
+  // `length` = la API cortó la respuesta por el techo de tokens. Se distingue del
+  // JSON inválido a propósito: el primero se arregla reintentando más breve, el
+  // segundo no.
+  if (finishReason === 'length') {
+    return { narrativa: null, motivo: `respuesta cortada por max_tokens (${text.length} caracteres)` };
+  }
+  let parsed: any;
   try {
-    const input = buildNarrativaInput(payload);
-    const completion = await client.chat.completions.create({
-      model: 'deepseek-chat',
-      temperature: 0.2,
-      max_tokens: 600,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: 'Eres un analista financiero sénior para pequeñas empresas en Panamá. Recibes un resumen JSON de la salud financiera de una empresa y debes explicarla en lenguaje natural. Reglas: habla en español, tono claro y profesional; explica POR QUÉ cambiaron los números cuando haya deltas (mes actual vs anterior); sé específico con montos, porcentajes y meses reales del resumen; NO inventes datos que no estén en el resumen. Devuelve SOLO JSON válido con esta estructura: {"resumen": "párrafo de 2-4 frases con el estado general y las razones de los cambios", "alertas": ["una frase cada una"], "recomendaciones": ["recomendaciones concretas y accionables hoy"]}. Máximo 4 alertas y 4 recomendaciones.',
-        },
-        { role: 'user', content: input },
-      ],
-    });
-    const text = completion.choices?.[0]?.message?.content || '';
-    const parsed = JSON.parse(text);
-    if (typeof parsed.resumen !== 'string') return null;
-    return {
+    parsed = JSON.parse(text);
+  } catch {
+    return { narrativa: null, motivo: `la respuesta no es JSON válido (${text.length} caracteres)` };
+  }
+  if (typeof parsed?.resumen !== 'string' || !parsed.resumen.trim()) {
+    return { narrativa: null, motivo: 'la respuesta no trae el campo "resumen"' };
+  }
+  return {
+    narrativa: {
       resumen: parsed.resumen,
       alertas: Array.isArray(parsed.alertas) ? parsed.alertas.slice(0, 4).map(String) : [],
       recomendaciones: Array.isArray(parsed.recomendaciones) ? parsed.recomendaciones.slice(0, 4).map(String) : [],
-    };
+    },
+  };
+}
+
+async function generateNarrativa(payload: SaludPayload): Promise<Narrativa | null> {
+  const client = getLLMClient();
+  if (!client) return null;
+  const input = buildNarrativaInput(payload);
+
+  const pedir = async (system: string) => {
+    const completion = await client.chat.completions.create({
+      model: 'deepseek-chat',
+      temperature: 0.2,
+      max_tokens: NARRATIVA_MAX_TOKENS,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: input },
+      ],
+    });
+    const choice = completion.choices?.[0];
+    return interpretarNarrativa(choice?.message?.content || '', choice?.finish_reason);
+  };
+
+  try {
+    let { narrativa, motivo } = await pedir(NARRATIVA_SYSTEM);
+    // Si se pasó del techo, se reintenta UNA vez pidiendo brevedad: el panel se queda
+    // sin narrativa si no, y el costo de la segunda llamada es de este caso raro.
+    if (!narrativa && motivo?.startsWith('respuesta cortada')) {
+      ({ narrativa, motivo } = await pedir(NARRATIVA_SYSTEM_BREVE));
+    }
+    if (!narrativa) console.warn(`[SaludIA] Narrativa descartada: ${motivo}`);
+    return narrativa;
   } catch (err: any) {
     console.error('[SaludIA] Error generando narrativa:', err?.message);
     return null;
