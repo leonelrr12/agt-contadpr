@@ -645,3 +645,33 @@ export const pagarDeclaracionItbmsSchema = z.object({
 export const anularDeclaracionItbmsSchema = z.object({
   motivo: z.string().trim().min(3, 'Explica el motivo de la anulación').max(300),
 });
+
+// ── Facturas por correo (buzón IMAP) ──
+// Cuidado con `imapPassword`: AUSENTE significa «no la toques» y `null` significa
+// «bórrala». Por eso es `.optional().nullable()` y el handler distingue los dos
+// casos — no se puede poner un default acá sin borrar la contraseña en cada guardado.
+export const updateEmailFacturaConfigSchema = z.object({
+  isActive: z.boolean().optional(),
+  modo: z.enum(['IMAP', 'CENTRAL']).optional(),
+  imapHost: z.string().trim().max(200).nullable().optional(),
+  imapPort: z.coerce.number().int().min(1).max(65535).optional(),
+  imapSecure: z.boolean().optional(),
+  imapUser: z.string().trim().max(200).nullable().optional(),
+  imapPassword: z.string().max(500).nullable().optional(),
+  imapFolder: z.string().trim().min(1).max(200).optional(),
+  marcarLeido: z.boolean().optional(),
+  carpetaMover: z.string().trim().max(200).nullable().optional(),
+  cuentaPagoId: z.string().nullable().optional(),
+  conceptoDefaultId: z.string().nullable().optional(),
+});
+
+/** «Probar conexión»: lo que se escribió en la tarjeta, sin haber guardado todavía. */
+export const probarEmailFacturaSchema = z.object({
+  imapHost: z.string().trim().max(200).nullable().optional(),
+  imapPort: z.coerce.number().int().min(1).max(65535).optional(),
+  imapSecure: z.boolean().optional(),
+  imapUser: z.string().trim().max(200).nullable().optional(),
+  /** Vacío = usar la contraseña guardada (el navegador nunca la recibe de vuelta). */
+  imapPassword: z.string().max(500).nullable().optional(),
+  imapFolder: z.string().trim().max(200).optional(),
+});
