@@ -214,8 +214,16 @@ rentabilidad** por segmento.
 
 - **Lógica duplicada backend ↔ frontend:** parseo de método de pago, concepto, monto, y dos copias de
   fechas, cliente LLM y few-shot (`ocr.ts` vs `pdf-extractor.ts`). Candidato a módulo compartido.
-- **Sin tests de integración de la API** ni de OCR/PDF. Los 66 tests actuales son unitarios con stubs
-  de Prisma, sin BD.
+- **`prisma: any` en los servicios: `tsc` no valida las consultas.** Un `include` con una relación que
+  no existe compila y revienta en runtime —pasó el 28-09 con el desglose de deducciones colgado del
+  ítem en vez de la corrida, y el endpoint devolvió 500 hasta que se reinició el proceso—. Mitigación
+  desde el 15-10: `services/__tests__/payroll-includes.test.ts` valida los `include`/`select` de las
+  lecturas de planilla contra el **DMMF real** de Prisma, así que un nombre inventado falla en el test.
+  El mismo arnés se puede apuntar a otros módulos cuando se toque su lectura.
+- **Sin tests contra la BD real.** Los 465 tests son de servicio y de ruta, con **stubs de Prisma a
+  mano** (los de ruta levantan Express y pegan con `fetch`: `reconcile-upload`, `declaraciones-itbms`).
+  No hay ni un test que toque PostgreSQL, así que lo que depende del motor (índices únicos parciales,
+  constraints, `$transaction` de verdad) se verifica a mano. OCR/PDF tampoco tienen tests de contenido.
 - **DevOps:** el puerto de PostgreSQL se expone al host en el compose; la API no tiene healthcheck de
   Docker aunque exista `/api/health`; el `entrypoint.sh` corre `prisma db push` + seed en cada arranque
   (correcto en dev, peligroso en producción); `ecosystem.config.js` lee `process.env` que no existe al
