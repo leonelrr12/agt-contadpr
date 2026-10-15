@@ -29,7 +29,7 @@ function clickInformeTab(informe) {
   if (active) { active.classList.add('active'); active.style.color = '#1a1a2e'; active.style.borderBottomColor = '#1565c0'; }
   _currentInformeTab = informe;
   // Mostrar filtro de fecha solo para reportes que lo soportan
-  const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', 'balance-general': 'balance-general', resultados: 'estado-resultados', 'flujo-caja': 'flujo-caja', dashboard: null, auxiliares: null, revision: null, presupuestos: 'presupuesto-comparativa' };
+  const exportTypes = { diario: 'diario', balance: 'balance-comprobacion', 'balance-general': 'balance-general', resultados: 'estado-resultados', 'flujo-caja': 'flujo-caja', dashboard: null, auxiliares: null, revision: null, presupuestos: 'presupuesto-comparativa', borrador430: 'borrador-430' };
   const showFilter = (informe === 'diario' || informe === 'balance' || informe === 'balance-general' || informe === 'resultados' || informe === 'flujo-caja' || informe === 'dashboard');
   document.getElementById('informes-date-filter').classList.toggle('hidden', !showFilter);
   // El botón "Nivel 3" es solo del Balance (conserva su estado al volver)
@@ -41,7 +41,7 @@ function clickInformeTab(informe) {
   if (statusEl) statusEl.style.display = informe === 'diario' ? '' : 'none';
   setInformesExportBar(exportTypes[informe] || null);
   showInformesLoading();
-  const loaders = { diario: loadReportDiario, balance: loadReportBalance, 'balance-general': loadReportBalanceGeneral, resultados: loadReportResultados, 'flujo-caja': loadReportFlujoCaja, dashboard: loadReportDashboard, presupuestos: loadReportPresupuestos };
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, 'balance-general': loadReportBalanceGeneral, resultados: loadReportResultados, 'flujo-caja': loadReportFlujoCaja, dashboard: loadReportDashboard, presupuestos: loadReportPresupuestos, borrador430: loadReportBorrador430 };
   if (loaders[informe]) loaders[informe]();
 }
 
@@ -597,7 +597,7 @@ function getInformesDateParams() {
 function loadCurrentInformeTab() {
   // OJO: este mapa está duplicado a propósito con el de clickInformeTab — si se
   // añade una pestaña hay que tocar LOS DOS, o "Filtrar" repinta el informe anterior.
-  const loaders = { diario: loadReportDiario, balance: loadReportBalance, 'balance-general': loadReportBalanceGeneral, resultados: loadReportResultados, 'flujo-caja': loadReportFlujoCaja, dashboard: loadReportDashboard, presupuestos: loadReportPresupuestos };
+  const loaders = { diario: loadReportDiario, balance: loadReportBalance, 'balance-general': loadReportBalanceGeneral, resultados: loadReportResultados, 'flujo-caja': loadReportFlujoCaja, dashboard: loadReportDashboard, presupuestos: loadReportPresupuestos, borrador430: loadReportBorrador430 };
   if (loaders[_currentInformeTab]) loaders[_currentInformeTab]();
 }
 
@@ -624,6 +624,15 @@ function exportInforme(type, format) {
     if (_pptoYear) params.set('year', _pptoYear);
     params.set('tipos', _pptoTipos);
     if (type === 'presupuesto-comparativa' && _pptoMes !== 'acum') params.set('mes', _pptoMes);
+  }
+  // Borrador 430: mismo caso (período mensual propio). Se limpia el rango de fechas
+  // para que no viaje un `status`/rango residual de otra pestaña.
+  if (type === 'borrador-430') {
+    params.delete('startDate');
+    params.delete('endDate');
+    params.delete('status');
+    if (_b430Year) params.set('year', String(_b430Year));
+    if (_b430Mes) params.set('mes', String(_b430Mes));
   }
   window.open(`${API_URL}/reports/export/${type}?${params.toString()}`, '_blank');
 }

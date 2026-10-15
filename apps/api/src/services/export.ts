@@ -792,6 +792,123 @@ export async function exportReport(
       };
     }
 
+    case 'borrador-430': {
+      // El borrador es un informe anidado (renglones + liquidación + detalle), así
+      // que se aplana a una sola tabla de Concepto | Monto | Detalle con secciones
+      // en negrita. El detalle por asiento va al final: es el rastro con el que el
+      // contador audita por qué cada asiento cayó en su renglón.
+      const d = data as unknown as {
+        periodo: { label: string; start: string; end: string; vence: string };
+        esDeclaracion: boolean;
+        incluyeBorradores: boolean;
+        renglones: { id: string; etiqueta: string; monto: number; asientos: number }[];
+        liquidacion: {
+          debitoFiscal: number;
+          creditoFiscal: number;
+          sinRetenciones: number;
+          renglon52: number;
+          aPagarMes: number;
+          saldoAnterior: number;
+          pagosDelMes: number;
+          compensacionesDelMes: number;
+          totalAPagar: number;
+          saldoAFavor: boolean;
+        };
+        bases: {
+          ventasGravadas: number;
+          comprasGravadas: number;
+          ventasPorTasa: Record<string, number>;
+          comprasPorTasa: Record<string, number>;
+          ventasSinBaseDerivable: number;
+          comprasSinBaseDerivable: number;
+        };
+        retenciones: { delMes: number; disponibles: number; registrosDelMes: number; pendienteCertificado: number };
+        detalle: {
+          fecha: string;
+          descripcion: string;
+          clasificacion: string;
+          confianza: string;
+          baseGravada: number | null;
+          efectoSaldo: number;
+        }[];
+        cuadre: { cuadra: boolean; movimientoLibroMes: number; asientos: number; asientosBorrador: number };
+      };
+
+      const columns: ColumnDef[] = [
+        { header: 'Concepto', key: 'concepto', width: ANCHO_CONCEPTO },
+        { header: 'Monto', key: 'monto', width: ANCHO_MONTO },
+        { header: 'Detalle', key: 'detalle', width: 46 },
+      ];
+      const filas: Record<string, unknown>[] = [];
+      const estilos: RowStyle[] = [];
+      const m2 = (n: number) => (Number(n) || 0).toFixed(2);
+      const agregar = (concepto: string, monto: number | string = '', detalle = '', bold = false) => {
+        filas.push({ concepto, monto, detalle });
+        estilos.push({ bold });
+      };
+      const porTasa = (m: Record<string, number>) =>
+        Object.entries(m)
+          .map(([tasa, base]) => `${tasa}: ${m2(base)}`)
+          .join(' · ');
+      const l = d.liquidacion;
+
+      agregar('RENGLONES', '', '', true);
+      for (const r of d.renglones) {
+        if (r.monto === 0 && r.asientos === 0) continue;
+        agregar(r.etiqueta, m2(r.monto), `${r.asientos} asiento(s)`);
+      }
+      agregar('');
+      agregar('LIQUIDACIÓN', '', '', true);
+      agregar('Débito fiscal (ITBMS de ventas)', m2(l.debitoFiscal));
+      agregar('− Crédito fiscal (ITBMS de compras y gastos)', m2(l.creditoFiscal));
+      agregar('= ITBMS del período', m2(l.sinRetenciones));
+      agregar('− Retenciones sufridas por aplicar (R52)', m2(l.renglon52));
+      agregar('= A pagar del período', m2(l.aPagarMes));
+      agregar('+ Saldo anterior (arrastre del mayor)', m2(l.saldoAnterior));
+      agregar('− Pagos a la DGI ya registrados', m2(l.pagosDelMes));
+      agregar('− Compensaciones R52 ya contabilizadas', m2(l.compensacionesDelMes));
+      agregar(l.saldoAFavor ? 'SALDO A FAVOR' : 'TOTAL A PAGAR', m2(l.totalAPagar), `vence el ${d.periodo.vence}`, true);
+      agregar('');
+      agregar('BASES GRAVADAS', '', '', true);
+      agregar('Ventas gravadas', m2(d.bases.ventasGravadas), porTasa(d.bases.ventasPorTasa));
+      agregar('Compras gravadas', m2(d.bases.comprasGravadas), porTasa(d.bases.comprasPorTasa));
+      if (d.bases.ventasSinBaseDerivable + d.bases.comprasSinBaseDerivable > 0) {
+        agregar('Asientos con ITBMS y base no reconstruible', '', `${d.bases.ventasSinBaseDerivable + d.bases.comprasSinBaseDerivable} asiento(s): el impuesto sí está contado`);
+      }
+      agregar('');
+      agregar('RETENCIONES (R52)', '', '', true);
+      agregar('Retenidas en el período', m2(d.retenciones.delMes), `${d.retenciones.registrosDelMes} registro(s)`);
+      agregar('Disponibles por aplicar (con certificado)', m2(d.retenciones.disponibles));
+      if (d.retenciones.pendienteCertificado > 0) {
+        agregar('Pendientes de certificado (no aplicables)', m2(d.retenciones.pendienteCertificado));
+      }
+      agregar('');
+      agregar('DETALLE POR ASIENTO', `movimiento del mes: ${m2(d.cuadre.movimientoLibroMes)}`, `${d.cuadre.asientos} asiento(s) · ${d.cuadre.asientosBorrador} en borrador · ${d.cuadre.cuadra ? 'cuadra con el mayor' : 'NO CUADRA'}`, true);
+      for (const a of d.detalle) {
+        agregar(
+          `${a.fecha}  ${a.descripcion}`,
+          m2(a.efectoSaldo),
+          `${a.clasificacion} · base ${a.baseGravada === null ? '—' : m2(a.baseGravada)} · ${a.confianza}`,
+        );
+      }
+
+      const titleRows: TitleRow[] = [];
+      if (meta.companyName) titleRows.push({ text: meta.companyName.toUpperCase(), bold: true });
+      titleRows.push({ text: 'Borrador Formulario 430 — ITBMS' });
+      titleRows.push({ text: `${d.periodo.label} · vence el ${d.periodo.vence}` });
+      titleRows.push({ text: 'BORRADOR DE TRABAJO: NO ES UNA DECLARACIÓN PRESENTADA', size: 10, bold: false });
+      if (d.incluyeBorradores) titleRows.push({ text: 'Incluye asientos en BORRADOR (sin aprobar)', size: 10, bold: false });
+
+      const buffer = format === 'xlsx'
+        ? await buildXlsx('Borrador 430', columns, filas, ['monto'], undefined, { rowStyles: estilos, titleRows })
+        : Buffer.from(buildCsv(columns, filas), 'utf-8');
+      return {
+        buffer,
+        contentType: format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv',
+        filename: `borrador-430-${d.periodo.start.slice(0, 7)}.${format}`,
+      };
+    }
+
     default:
       throw new Error(`Tipo de reporte no soportado: ${reportType}`);
   }

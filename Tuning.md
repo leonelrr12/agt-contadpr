@@ -7,8 +7,8 @@
 > Para arrancar el proyecto (comandos, BD, despliegue, trampas) ver **AGENTS.md**, que es el que se
 > carga en cada sesión. Esto de acá es el estado del producto y lo que falta.
 
-**Última verificación contra el código: 2026-09-25** — 36 modelos Prisma, 41 rutas montadas, migración
-más alta `0025_empleado_clase_riesgo`, 172 tests.
+**Última verificación contra el código: 2026-10-15** — 42 modelos Prisma, 180 endpoints en `routes/`,
+migración más alta `0036_conciliacion_por_linea`, 417 tests.
 
 ---
 
@@ -64,6 +64,7 @@ Verificado contra el código el 25-09-2026. **Si algo no está en esta lista, no
 | Facturas PDF (logo, numeración correlativa, ITBMS desglosado, leyenda de resolución DGI) | `factura-pdf.ts`, `routes/facturas.ts` |
 | Cobros a facturas | modelo `InvoicePayment` |
 | Retención de ITBMS sufrida (50%) | `retencion-itbms.ts`, `routes/retenciones.ts` |
+| **Borrador del Form. 430 (ITBMS mensual)** — informe de SOLO LECTURA calculado del mayor: renglones por tasa, retenciones R52, pagos a la DGI y compensaciones separados del crédito fiscal (el débito de `2.1.05` mezcla las tres cosas), saldo anterior con signo y **cuadre contra la cuenta** | `borrador-430.ts`, pestaña 🧾 Form. 430 en Informes |
 | Anexos DGI por cuenta + bloqueo de cuentas | `anexo-rules.ts`, `journal-guard.ts`, migración `0014` |
 | Cierre de año fiscal | `year-close.ts`, `isClosing` + `period`, migración `0006` |
 | Reportes (balance, resultados, flujo de caja, comprobación, auxiliares) | `routes/reports.ts` |
@@ -88,6 +89,15 @@ la carga general y el concepto "Honorarios" clasifica a `6.02.01`.
 
 **Es lo único realmente bloqueado del proyecto.** Aplazado el 18-09-2026 hasta tener criterio contable.
 
+**15-10-2026 — el cálculo ya está:** se construyó el **borrador del 430** (informe de solo lectura,
+pestaña 🧾 Form. 430 en Informes) como insumo para responder estas preguntas. Enseña los renglones
+calculados del mayor, **separa los pagos a la DGI del crédito fiscal** (en ODESA los pagos del año,
+2.524,77, superan a las compras, 1.784,75: restarlos a lo bruto inflaba el crédito), aplica el R52
+disponible, muestra el saldo anterior **con su signo** —sin el `Math.max(0, …)` que se come el saldo a
+favor de D2— y cuadra contra el movimiento de la cuenta o dice qué asiento no pudo clasificar.
+Detecta además las tasas por asiento: el 10 % de alimentación/hospedaje ya sale separado del 7 %.
+**Lo que sigue bloqueado es la declaración como DATO** (asiento, pago, reversión y estados), no el cálculo.
+
 **El problema.** El crédito por ITBMS retenido entra a `1.1.07 ITBMS Retenido por Terceros`
 (D Banco 1.035 + D 1.1.07 35 / C Clientes 1.070) y se declara en el **renglón 52 del Formulario 430**.
 Pero `PAGO_ITBMS` debita `2.1.05 ITBMS por Pagar` contra banco por el total **sin mirar el crédito**,
@@ -111,21 +121,26 @@ así que el saldo se acumula. Hoy el único modo de aplicarlo es manual y sin re
 2. ¿Se presenta con montos del libro o del formulario? Si difieren, ¿cuál manda para el pago?
 3. ¿El pago va por el neto (ya aplicada la retención) o se paga el total y la retención se reclama aparte?
 4. Compras sin derecho a crédito: hoy la app registra el ITBMS dentro del costo. ¿Correcto, o va a
-   cuenta separada (`6.05.01 ITBMS Gastado`, en catálogo sin uso)?
+   cuenta separada? **Ojo:** `6.05.01` es «Impuesto Municipal» (el alias suelto `itbms-gastado` del
+   seed no lo usa nadie, y el concepto `Municipio` sí escribe ahí): no existe una cuenta de «ITBMS
+   Gastado», así que si el contador la quiere hay que crearla.
 5. ¿Qué formularios y periodicidad (430 mensual, 431 anual, otros)? ¿El vencimiento depende del último
    dígito del RUC? Hoy la app usa **día 15 fijo**.
 
 **Brechas a cerrar en la misma entrega:**
 1. No existe "declaración" como dato: `TaxObligation` es solo calendario, sin renglones, número de
-   formulario ni asiento de pago.
+   formulario ni asiento de pago. *(El cálculo de los renglones ya existe: `borrador-430.ts`.)*
 2. La compensación **no se puede revertir**: `APLICADA` es terminal en `canTransition` y anular el
    asiento no devuelve las retenciones a `RECIBIDA`.
 3. `RetentionItbms.journalEntryId` apunta al asiento del cobro, no al de compensación (el vínculo real
    solo vive en `metadata` JSON).
 4. Resolución de cuentas inconsistente: `compensar` exige alias exacto, los cobros usan búsqueda
-   tolerante. Una cuenta `1.1.07` creada a mano sin alias rompe la compensación.
-5. `6.05.01 ITBMS Gastado` existe sin uso (pregunta 4).
-6. La tasa de ITBMS vive en `process.env` (default 7%) y no queda registrada por período.
+   tolerante. Una cuenta `1.1.07` creada a mano sin alias rompe la compensación. *(El borrador del 430
+   resuelve la suya por unión de alias + código + nombre, así que no se queda corto si remapean.)*
+5. `6.05.01` es «Impuesto Municipal», no una cuenta de ITBMS gastado (ver pregunta 4).
+6. La tasa de ITBMS vive en `process.env` (default 7%) y no queda registrada por período. *(El borrador
+   no la usa: deriva la tasa implícita de cada asiento y avisa si no es 7/10/15 %, que es como detectó
+   el 10 % de alimentación en ODESA.)*
 
 **Boceto de diseño (no vinculante):** modelo `DeclaracionITBMS` con `companyId`, `period`, renglones
 (`baseVentas`, `itbmsDebito`, `baseCompras`, `itbmsCredito`, `retencionAplicada`, `saldoAnterior`,
@@ -166,6 +181,13 @@ Trabajo ya pagado que hoy no rinde nada:
 
 Ninguno tiene modelo en el schema todavía.
 
+- **Facturas DGI por correo (IMAP)** — **diseño cerrado el 14-10-2026, sin empezar**: leer el buzón que
+  la empresa asigne y cargar las facturas que mandan los proveedores (PDF/XML adjunto o link del CUTE)
+  como asiento BORRADOR + archivo en «Facturas recibidas», con el correo y el flag de activo
+  configurables en Administración. Decisiones del dueño: **al contado contra una cuenta de banco
+  configurable (nunca CxP)**, IMAP propio **y** buzón central con reenvío, corrida diaria + botón
+  «Revisar ahora», **sin add-on**. El diseño completo, las fases y las trampas están en
+  [`FACTURAS-CORREO.md`](FACTURAS-CORREO.md).
 - **§10 Centro de Costos / Proyectos** — etiquetar transacciones por proyecto, sucursal o departamento;
   rentabilidad segmentada; cruce con presupuesto. El más transversal: toca informes, presupuesto y facturas.
 - **§14 Agente Multi-Empresa para Despachos** — vista unificada de todos los clientes del despacho,

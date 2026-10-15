@@ -4,6 +4,7 @@ import { cuentasEfectivo } from '../lib/cuentas-efectivo';
 import { getAnioFiscal, anioFiscalRange } from '../lib/fiscal-year';
 import { exportReport } from '../services/export';
 import { buildBudgetComparison } from '../services/budget-comparison';
+import { buildBorrador430 } from '../services/borrador-430';
 import type { ExportFormat } from '../services/export';
 
 export const reportsRouter = Router();
@@ -761,6 +762,27 @@ reportsRouter.get('/dashboard', async (req, res) => {
   });
 });
 
+/**
+ * Borrador del Formulario 430 (ITBMS mensual) — SOLO LECTURA.
+ *
+ * Devuelve los renglones de la declaración calculados del libro, las bases
+ * reconstruidas y el cuadre contra el movimiento de la cuenta de ITBMS. No crea
+ * asientos ni cambia estados: la declaración como dato es una fase posterior
+ * (Tuning.md §4.1). El cálculo vive en `services/borrador-430.ts`.
+ *
+ * Sin `?year=` usa el año fiscal activo (como el resto de los informes) y sin
+ * `?mes=` el mes en curso.
+ */
+reportsRouter.get('/borrador-430', async (req, res) => {
+  const anioFiscal = await getAnioFiscal(req.prisma, req.user!.companyId);
+  const yearRaw = Number(req.query.year);
+  const mesRaw = Number(req.query.mes);
+  const year = Number.isInteger(yearRaw) && yearRaw >= 2000 && yearRaw <= 2100 ? yearRaw : anioFiscal;
+  const mes = Number.isInteger(mesRaw) && mesRaw >= 1 && mesRaw <= 12 ? mesRaw : new Date().getMonth() + 1;
+  const report = await buildBorrador430(req.prisma, req.user!.companyId, { year, mes }, anioFiscal);
+  res.json(report);
+});
+
 // ── Exportación de reportes ──
 reportsRouter.get('/export/:type', async (req, res) => {
   const { type } = req.params;
@@ -958,10 +980,21 @@ reportsRouter.get('/export/:type', async (req, res) => {
         break;
       }
 
+      case 'borrador-430': {
+        // Mismo cálculo que el GET (misma función), para que el archivo no discrepe.
+        const anioFiscalExp = await getAnioFiscal(req.prisma, req.user!.companyId);
+        const yRaw = Number(req.query.year);
+        const mRaw = Number(req.query.mes);
+        const y = Number.isInteger(yRaw) && yRaw >= 2000 && yRaw <= 2100 ? yRaw : anioFiscalExp;
+        const m = Number.isInteger(mRaw) && mRaw >= 1 && mRaw <= 12 ? mRaw : new Date().getMonth() + 1;
+        data = (await buildBorrador430(req.prisma, req.user!.companyId, { year: y, mes: m }, anioFiscalExp)) as unknown as Record<string, unknown>;
+        break;
+      }
+
       default:
         res.status(400).json({
           error: 'Tipo de reporte no soportado',
-          tipos: ['balance-comprobacion', 'balance-general', 'estado-resultados', 'flujo-caja', 'diario', 'proveedores', 'presupuesto', 'presupuesto-comparativa'],
+          tipos: ['balance-comprobacion', 'balance-general', 'estado-resultados', 'flujo-caja', 'diario', 'proveedores', 'presupuesto', 'presupuesto-comparativa', 'borrador-430'],
         });
         return;
     }
