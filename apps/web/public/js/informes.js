@@ -838,7 +838,6 @@ function renderAnexosDgi(d, el) {
 
 /* ── Retenciones ITBMS (crédito fiscal — Form. 430 renglón 52) ── */
 
-let _retencionesRows = [];
 
 async function loadRetencionesItbms(el) {
   // Vive en el panel Auxiliares (pestaña 🔖 Retenciones ITBMS): el contenedor llega
@@ -863,7 +862,6 @@ async function loadRetencionesItbms(el) {
     const res = await authFetch(`${API_URL}/retenciones-itbms?${q.toString()}`);
     if (!res.ok) { el.innerHTML = filtro + '<div style="text-align:center;padding:32px;color:#6b7280">Error al cargar</div>'; return; }
     const rows = await res.json();
-    _retencionesRows = rows;
     const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     if (!rows.length) {
       el.innerHTML = filtro + '<div style="text-align:center;padding:32px;color:#6b7280">Sin retenciones de ITBMS en el período seleccionado.<br><span style="font-size:12px">Las retenciones se registran automáticamente al cobrar a un cliente agente con retención.</span></div>';
@@ -881,7 +879,7 @@ async function loadRetencionesItbms(el) {
       <div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">✅ Aplicado (R52)</div><div style="font-size:20px;font-weight:700;color:#6b7280">${money(rows.filter(r => r.estado === 'APLICADA').reduce((s, r) => s + (r.montoRetencion || 0), 0))}</div></div>
     </div>`;
     const toolbar = `<div style="margin-bottom:12px;display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap">
-      <button onclick="abrirCompensarR52()" title="Compensa el crédito de retenciones con certificado contra ITBMS por Pagar (renglón 52)" style="padding:5px 12px;font-size:11px;background:#059669;color:#fff;border:none;border-radius:4px;cursor:pointer">💼 Compensar crédito (R52)</button>
+      <button onclick="irAlForm430()" title="El crédito del renglón 52 se aplica al presentar la declaración del 430" style="padding:5px 12px;font-size:11px;background:#059669;color:#fff;border:none;border-radius:4px;cursor:pointer">🧾 Aplicar en el Form. 430</button>
       <button onclick="exportarRetencionesPdf()" style="padding:5px 12px;font-size:11px;background:#b91c1c;color:#fff;border:none;border-radius:4px;cursor:pointer">📄 PDF</button>
       <button onclick="exportarRetencionesCsv()" style="padding:5px 12px;font-size:11px;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer">📥 CSV auxiliar DGI</button>
     </div>`;
@@ -900,7 +898,10 @@ async function loadRetencionesItbms(el) {
           <button onclick="retencionRecibir('${r.id}')" style="padding:4px 8px;font-size:11px;background:#0284c7;color:#fff;border:none;border-radius:4px;cursor:pointer">📥 Recibir</button>
           <button onclick="retencionAnular('${r.id}')" style="padding:4px 8px;font-size:11px;background:#ef4444;color:#fff;border:none;border-radius:4px;cursor:pointer">✕</button>`;
       } else if (r.estado === 'RECIBIDA') {
-        accion = `<button onclick="retencionAplicar('${r.id}')" style="padding:4px 8px;font-size:11px;background:#059669;color:#fff;border:none;border-radius:4px;cursor:pointer">✅ Aplicar (R52)</button>
+        // El crédito se aplica al PRESENTAR el 430: es lo que crea el asiento, deja el
+        // vínculo con la retención y permite anularlo. Antes había un botón acá que
+        // marcaba APLICADA sin declaración y sin vuelta atrás.
+        accion = `<span style="font-size:11px;color:#6b7280">→ se aplica al presentar el Form. 430</span>
           <button onclick="retencionAnular('${r.id}')" title="Anular" style="padding:4px 8px;font-size:11px;background:#ef4444;color:#fff;border:none;border-radius:4px;cursor:pointer">✕</button>`;
       }
       return [
@@ -947,15 +948,16 @@ async function retencionRecibir(id) {
   if (res.ok) { await showAlert('✅ Retención marcada como recibida (certificado registrado).'); loadRetencionesItbms(); }
   else await showAlert(`❌ ${d.error || 'Error'}`);
 }
-async function retencionAplicar(id) {
-  const ok = await showConfirm('¿Marcar esta retención como <strong>APLICADA</strong>? Se asume que el crédito se usó en la declaración (Form. 430, renglón 52).');
-  if (!ok) return;
-  const res = await authFetch(`${API_URL}/retenciones-itbms/${id}`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado: 'APLICADA' }),
-  });
-  const d = await res.json();
-  if (res.ok) { await showAlert('✅ Retención aplicada como crédito fiscal.'); loadRetencionesItbms(); }
-  else await showAlert(`❌ ${d.error || 'Error'}`);
+/**
+ * Lleva a la pestaña 🧾 Form. 430: el crédito del renglón 52 se aplica AL PRESENTAR la
+ * declaración, que es lo que crea el asiento, deja el vínculo con la retención y sabe
+ * anularlo. Antes había un botón acá que la marcaba APLICADA sin declaración y sin
+ * vuelta atrás.
+ */
+function irAlForm430() {
+  const nav = document.querySelector('#sidebar-nav .nav-link[data-view="panel-informes"]');
+  if (nav) nav.click();
+  clickInformeTab('borrador430');
 }
 async function retencionAnular(id) {
   const ok = await showConfirm('¿Anular esta retención? El crédito fiscal ya no estará disponible.');
@@ -987,57 +989,6 @@ function exportarRetencionesPdf() {
 
 /** Modal de compensación R52: elige las retenciones RECIBIDAS (con certificado)
  *  del período y crea el asiento débito ITBMS por Pagar / crédito ITBMS Retenido. */
-function abrirCompensarR52() {
-  const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const candidatas = _retencionesRows.filter(r => r.estado === 'RECIBIDA');
-  if (!candidatas.length) {
-    showAlert('📋 No hay retenciones RECIBIDAS (con certificado) en el período seleccionado. Marca las retenciones como recibidas (📥) para poder compensarlas en el renglón 52.');
-    return;
-  }
-  const overlay = document.createElement('div');
-  overlay.className = 'app-dialog-overlay';
-  const listHtml = candidatas.map((r, i) => `<label style="display:flex;gap:8px;align-items:center;padding:6px 0;font-size:13px;cursor:pointer;border-bottom:1px solid #f0f0f0">
-    <input type="checkbox" class="r52-check" data-i="${i}" checked style="accent-color:#059669">
-    <span style="flex:1">${escapeHtml(r.factura || '—')} · ${escapeHtml(r.cliente || '')}</span>
-    <strong>${money(r.montoRetencion)}</strong>
-  </label>`).join('');
-  overlay.innerHTML = `<div class="app-dialog" style="max-width:520px">
-    <div style="font-weight:700;font-size:16px;margin-bottom:4px">💼 Compensación R52</div>
-    <div style="font-size:12px;color:#6b7280;margin-bottom:12px">Débito <strong>ITBMS por Pagar</strong> / Crédito <strong>ITBMS Retenido por Terceros</strong> — las retenciones seleccionadas pasan a <strong>APLICADA</strong> (Form. 430, renglón 52).</div>
-    <div style="max-height:300px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px">${listHtml}</div>
-    <div style="text-align:right;font-size:14px;font-weight:700;margin-top:10px">Total: <span id="r52-total">${money(candidatas.reduce((s, r) => s + r.montoRetencion, 0))}</span></div>
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
-      <button class="app-dialog-btn" onclick="this.closest('.app-dialog-overlay').remove()">Cancelar</button>
-      <button class="app-dialog-btn primary" onclick="confirmarCompensarR52(this)">✅ Compensar y aplicar</button>
-    </div>
-  </div>`;
-  overlay.querySelectorAll('.r52-check').forEach(chk => chk.addEventListener('change', () => {
-    let total = 0;
-    overlay.querySelectorAll('.r52-check').forEach(c => { if (c.checked) total += candidatas[Number(c.dataset.i)].montoRetencion; });
-    overlay.querySelector('#r52-total').textContent = money(total);
-  }));
-  document.body.appendChild(overlay);
-}
-
-async function confirmarCompensarR52(btn) {
-  const overlay = btn.closest('.app-dialog-overlay');
-  const candidatas = _retencionesRows.filter(r => r.estado === 'RECIBIDA');
-  const seleccionadas = [];
-  overlay.querySelectorAll('.r52-check').forEach(c => { if (c.checked) seleccionadas.push(candidatas[Number(c.dataset.i)].id); });
-  if (!seleccionadas.length) { await showAlert('Selecciona al menos una retención'); return; }
-  btn.disabled = true;
-  const res = await authFetch(`${API_URL}/retenciones-itbms/compensar`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ retencionIds: seleccionadas }),
-  });
-  const d = await res.json();
-  if (!res.ok) { await showAlert(`❌ ${d.error || 'Error'}`); btn.disabled = false; return; }
-  overlay.remove();
-  await showAlert(`✅ Compensación creada: asiento BORRADOR #${d.journalEntryId.slice(0, 8)} por $${Number(d.total).toFixed(2)}. ${d.aplicadas} retención(es) marcadas como APLICADA.`);
-  loadRetencionesItbms();
-}
-
-/* ── Ficha del cliente: perfil de agente de retención ITBMS ── */
 async function openClientProfileModal(clientId) {
   try {
     const res = await authFetch(`${API_URL}/clients/${clientId}`);

@@ -114,9 +114,10 @@ el historial de la decisión; no hay nada bloqueado.
 2. **Cerrada.** Anular revierte el asiento y devuelve las retenciones (antes `APLICADA` era terminal).
 3. **Cerrada.** El vínculo con el asiento es una FK real (`asientoCompensacionId` / `asientoPagoId`,
    patrón `ExpenseClaim`), no el JSON de `metadata`.
-4. **Parcial.** El borrador y la declaración resuelven sus cuentas por unión de alias + código +
-   nombre; el botón manual `POST /retenciones-itbms/compensar` sigue con su resolución estricta y
-   **sigue existiendo** (no se retiró: era una funcionalidad en uso y el dueño no lo pidió).
+4. **Cerrada.** El botón manual `POST /retenciones-itbms/compensar` y el `PATCH … estado: APLICADA`
+   **se retiraron el 15-10-2026** (410 y 400 con la guía hacia la declaración): quedaba una retención
+   `APLICADA` sin declaración, sin vínculo y **sin vuelta atrás**. Ahora el renglón 52 tiene un solo
+   escritor y una sola salida.
 5. **Aclarada.** `6.05.01` es «Impuesto Municipal»: si el contador quiere una cuenta de ITBMS gastado,
    hay que crearla.
 6. **Parcial.** La tasa sigue en `process.env` para los asientos nuevos; el borrador y la declaración
@@ -304,6 +305,9 @@ rentabilidad** por segmento.
 - **Nada se borra.** Anular crea el espejo con `anularAsiento` (fechado hoy, no reescribe el mes
   declarado), devuelve las retenciones a RECIBIDA y la obligación a pendiente; el número de formulario
   no se reutiliza.
+- **El renglón 52 se aplica SOLO al presentar** la declaración (único escritor desde el 15-10-2026):
+  los caminos viejos —`POST /retenciones-itbms/compensar` y marcar `APLICADA` por PATCH— devuelven la
+  guía. Registrar el certificado (📥) sigue siendo cosa de la pestaña Retenciones ITBMS.
 - Los **pagos y compensaciones ya contabilizados no son renglones del formulario**: van en la
   liquidación del informe, no en la declaración (`saldo a pagar = débito − crédito − R52 + saldo anterior`).
 

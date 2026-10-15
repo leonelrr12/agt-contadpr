@@ -1,9 +1,6 @@
 import { Router } from 'express';
 import PDFDocument from 'pdfkit';
 import { requireRole } from '../middleware/auth';
-import { requireQuota, incrementUsage } from '../middleware/quota';
-import { AccountingAgent } from '@agt-contador/agents';
-import { checkNotBlocked } from '../services/journal-guard';
 
 /**
  * Retenciones de ITBMS SUFRIDAS (crédito fiscal del vendedor).
@@ -75,6 +72,16 @@ retencionesRouter.patch('/:id', requireRole('admin', 'contador', 'superadmin'), 
   const data: any = {};
   if (estado !== undefined) {
     if (!ESTADOS.includes(estado)) { res.status(400).json({ error: `Estado inválido. Válidos: ${ESTADOS.join(', ')}` }); return; }
+    // APLICADA es cosa de la declaración del 430: es la única que crea el asiento de
+    // compensación, deja el vínculo (`retention_itbms.declaracionId`) y sabe revertirlo.
+    // Marcarla a mano dejaba una retención APLICADA sin declaración y sin vuelta atrás.
+    if (estado === 'APLICADA') {
+      res.status(400).json({
+        error: 'El crédito del renglón 52 se aplica al PRESENTAR la declaración del 430 (pestaña 🧾 Form. 430), no desde acá: así queda el asiento, el vínculo con la retención y la posibilidad de anularla. Registra el certificado (📥) y preséntala desde ahí.',
+        code: 'R52_SE_APLICA_AL_DECLARAR',
+      });
+      return;
+    }
     if (!canTransition(row.estado, estado)) {
       res.status(400).json({ error: `No se puede pasar de "${row.estado}" a "${estado}".` });
       return;
@@ -252,69 +259,19 @@ retencionesRouter.get('/resumen-r52', async (req, res) => {
   });
 });
 
-// POST /api/retenciones-itbms/compensar — compensa crédito de retenciones
-// sufridas contra ITBMS por Pagar al declarar (Form. 430, renglón 52).
-// JE BORRADOR: débito 2.1.05 (itbms-por-pagar) / crédito 1.1.07
-// (itbms-retenido-terceros) por el total; las retenciones pasan a APLICADA.
-retencionesRouter.post('/compensar', requireRole('admin', 'contador', 'superadmin'), requireQuota, async (req, res) => {
-  const ids = Array.isArray(req.body?.retencionIds) ? req.body.retencionIds.map(String) : [];
-  if (ids.length === 0) { res.status(400).json({ error: 'Selecciona al menos una retención con certificado (RECIBIDA)' }); return; }
-
-  const rows = await req.prisma.retentionItbms.findMany({
-    where: { id: { in: ids }, companyId: req.user!.companyId },
+// POST /api/retenciones-itbms/compensar — RETIRADO.
+//
+// El crédito del renglón 52 se aplica al presentar la declaración del 430 (pestaña
+// 🧾 Form. 430): ahí el asiento queda vinculado a la retención (`declaracionId`), la
+// declaración tiene número y fecha, y anularla devuelve las retenciones a RECIBIDA.
+// El botón viejo hacía lo mismo pero sin vínculo consultable y sin vuelta atrás, así
+// que quedaba una retención APLICADA que nadie podía deshacer (Tuning.md §4.1).
+//
+// Se deja el 410 (y no un 404) para que un navegador con el JS viejo en caché reciba
+// la guía en vez de un error críptico — mismo idioma que el stub de Honorarios.
+retencionesRouter.post('/compensar', (_req, res) => {
+  res.status(410).json({
+    error: 'El crédito del renglón 52 ya no se compensa desde acá: se aplica al PRESENTAR la declaración del 430 (pestaña 🧾 Form. 430 del panel de Informes). Ahí queda el asiento, el vínculo con las retenciones y la posibilidad de anularla.',
+    code: 'COMPENSAR_R52_RETIRADO',
   });
-  const noEncontradas = rows.length !== ids.length;
-  const noListas = rows.filter(r => r.estado !== 'RECIBIDA');
-  if (noEncontradas) { res.status(404).json({ error: 'Alguna retención no existe en esta empresa' }); return; }
-  if (noListas.length > 0) {
-    res.status(400).json({ error: `Solo se pueden compensar retenciones RECIBIDAS (con certificado). Pendientes de certificado: ${noListas.length}` });
-    return;
-  }
-  const total = Math.round(rows.reduce((s, r) => s + r.montoRetencion, 0) * 100) / 100;
-  if (total <= 0) { res.status(400).json({ error: 'El total a compensar es cero' }); return; }
-
-  const je = await req.prisma.$transaction(async (tx: any) => {
-    const agent = new AccountingAgent(tx, req.user!.companyId);
-    await agent.init();
-    let porPagarId: string, retenidoId: string;
-    try { porPagarId = agent.resolveAlias('itbms-por-pagar'); } catch {
-      throw Object.assign(new Error('No se encontró la cuenta ITBMS por Pagar (alias itbms-por-pagar) en el catálogo.'), { status: 400 });
-    }
-    try { retenidoId = agent.resolveAlias('itbms-retenido-terceros'); } catch {
-      throw Object.assign(new Error('No se encontró la cuenta "ITBMS Retenido por Terceros" (alias itbms-retenido-terceros) en el catálogo.'), { status: 400 });
-    }
-    const desc = `Compensación R52 — retenciones sufridas $${total.toFixed(2)} (Form. 430 renglón 52)`;
-    const blocked = await checkNotBlocked(tx, req.user!.companyId, [porPagarId, retenidoId]);
-    if (blocked) throw Object.assign(new Error(blocked), { status: 400 });
-
-    const created = await tx.journalEntry.create({
-      data: {
-        date: new Date(),
-        description: desc,
-        status: 'BORRADOR',
-        companyId: req.user!.companyId,
-        createdById: req.user!.userId,
-        lines: { create: [
-          { accountId: porPagarId, debit: total, credit: 0 },
-          { accountId: retenidoId, debit: 0, credit: total },
-        ] },
-      },
-    });
-    await tx.transaction.create({
-      data: {
-        type: 'PAGO_ITBMS', amount: total, description: desc, concept: 'Compensación R52',
-        paymentMethod: 'CREDITO', date: new Date(), companyId: req.user!.companyId,
-        createdById: req.user!.userId, journalEntryId: created.id,
-        metadata: JSON.stringify({ source: 'compensacion-r52', retentionIds: rows.map(r => r.id), retenciones: rows.map(r => ({ invoiceId: r.invoiceId, monto: r.montoRetencion })) }),
-      },
-    });
-    await tx.retentionItbms.updateMany({
-      where: { id: { in: rows.map(r => r.id) } },
-      data: { estado: 'APLICADA' },
-    });
-    return created;
-  });
-
-  await incrementUsage(req);
-  res.json({ journalEntryId: je.id, total, aplicadas: rows.length });
 });
