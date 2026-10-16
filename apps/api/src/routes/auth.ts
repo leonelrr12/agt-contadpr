@@ -5,14 +5,10 @@ import { generateToken, requireAuth } from '../middleware/auth';
 import { sendEmail, APP_URL } from '../services/mailer';
 import { bloqueoRestante, registrarFallo, limpiarFallos } from '../services/login-guard';
 import { TERMS_VERSION, necesitaAceptar } from '../lib/terms';
-import { empresasDeUsuario, rolEnEmpresa } from '../services/empresas-usuario';
+import { empresasDeUsuario, rolEnEmpresa, sesionEnEmpresa } from '../services/empresas-usuario';
+import { crearEmpresaConPlantilla, hacerAdministrador } from '../services/crear-empresa';
 
 export const authRouter = Router();
-
-// ID de la empresa semilla usada como plantilla de plan de cuentas y conceptos
-// al registrar una empresa nueva. Si no existe en la DB, el registro crea
-// empresas sin plan de cuentas (ver warn abajo).
-const TEMPLATE_COMPANY_ID = 'demo-company';
 
 /**
  * POST /api/auth/login
@@ -104,117 +100,30 @@ authRouter.post('/register', async (req, res) => {
   const hashed = await bcrypt.hash(password, 10);
 
   try {
-    // Crear empresa + usuario admin en una transacción
+    // La empresa nace con su plan de cuentas, sus conceptos y su plan Demo: el
+    // armado vive en `services/crear-empresa.ts`, que es la MISMA función que usa
+    // el alta desde «Mis empresas» — así una empresa es igual la cree quien la
+    // cree, y no hay dos listas de pasos que se puedan separar.
     const result = await req.prisma.$transaction(async (tx: any) => {
-    const company = await tx.company.create({
-      data: {
-        name: companyName,
-        taxId: companyTaxId || `SIN-RUC-${crypto.randomUUID()}`,
+      const company = await crearEmpresaConPlantilla(tx, { name: companyName, taxId: companyTaxId });
 
-        country: 'PA',
-        currency: 'USD',
-      },
-    });
-
-    // Copiar plan de cuentas desde demo
-    const demoAccounts = await tx.account.findMany({
-      where: { companyId: TEMPLATE_COMPANY_ID },
-    });
-
-    if (demoAccounts.length === 0) {
-      console.warn('[Register] Plantilla demo sin cuentas — la empresa quedará sin plan de cuentas');
-    }
-
-    const accountMap: Record<string, string> = {};
-    for (const acc of demoAccounts) {
-      const created = await tx.account.create({
+      const user = await tx.user.create({
         data: {
-          code: acc.code,
-          name: acc.name,
-          type: acc.type,
-          parentId: null, // se actualiza abajo
+          email,
+          name,
+          password: hashed,
+          role: 'admin',
           companyId: company.id,
-          aliases: acc.aliases || [],
-          // El "Lleva Anexo" de la plantilla SÍ se hereda: se marca una vez en Demo
-          // (p. ej. 6.02.01 Honorarios) y todo cliente nuevo nace con el Anexo puesto.
-          // `isBlocked` NO se copia a propósito: bloquear una cuenta es una decisión
-          // operativa de cada empresa y heredarla le dejaría flujos rotos desde el día 1.
-          requiresAnexo: acc.requiresAnexo,
+          // Evidencia de la aceptación (ver lib/terms.ts)
+          termsVersion: TERMS_VERSION,
+          termsAcceptedAt: new Date(),
         },
       });
-      accountMap[acc.code] = created.id;
-    }
 
-    // Actualizar parentIds
-    for (const acc of demoAccounts) {
-      if (acc.parentId) {
-        const parentCode = demoAccounts.find((a: any) => a.id === acc.parentId)?.code;
-        if (parentCode && accountMap[parentCode] && accountMap[acc.code]) {
-          await tx.account.update({
-            where: { id: accountMap[acc.code] },
-            data: { parentId: accountMap[parentCode] },
-          });
-        }
-      }
-    }
+      await hacerAdministrador(tx, user.id, company.id);
 
-    // Copiar conceptos
-    const demoConcepts = await tx.concept.findMany({
-      where: { companyId: TEMPLATE_COMPANY_ID },
+      return { company, user };
     });
-
-    for (const c of demoConcepts) {
-      // Buscar la cuenta equivalente en la nueva empresa por código
-      const demoAcc = demoAccounts.find((a: any) => a.id === c.accountId);
-      const newAccountId = demoAcc ? accountMap[demoAcc.code] : null;
-      if (newAccountId) {
-        await tx.concept.create({
-          data: {
-            name: c.name,
-            accountId: newAccountId,
-            companyId: company.id,
-            confidence: c.confidence,
-          },
-        });
-      }
-    }
-
-    const user = await tx.user.create({
-      data: {
-        email,
-        name,
-        password: hashed,
-        role: 'admin',
-        companyId: company.id,
-        // Evidencia de la aceptación (ver lib/terms.ts)
-        termsVersion: TERMS_VERSION,
-        termsAcceptedAt: new Date(),
-      },
-    });
-
-    // La membresía es lo que da el acceso (`user_company`): sin ella el dueño de
-    // la empresa recién creada no podría entrar a su propia empresa.
-    await tx.userCompany.create({ data: { userId: user.id, companyId: company.id, role: 'admin' } });
-
-    // Crear suscripción Demo automática (14 días, 50 movimientos)
-    const demoPlan = await tx.plan.findUnique({ where: { name: 'Demo' } });
-    if (demoPlan) {
-      const demoEnd = new Date();
-      demoEnd.setDate(demoEnd.getDate() + 14);
-      await tx.subscription.create({
-        data: {
-          companyId: company.id,
-          planId: demoPlan.id,
-          status: 'DEMO',
-          movementsLimit: demoPlan.monthlyLimit,
-          periodStart: new Date(),
-          periodEnd: demoEnd,
-        },
-      });
-    }
-
-    return { company, user };
-  });
 
   const token = generateToken({
     userId: result.user.id,
@@ -299,38 +208,6 @@ authRouter.get('/me', requireAuth, async (req, res) => {
     },
   });
 });
-
-/**
- * La sesión de un usuario EN UNA EMPRESA: token + lo que el frontend guarda.
- *
- * La empresa y el rol salen de la membresía (`user_company`), no de `User`: es lo
- * que permite que la misma cuenta tenga un rol distinto en cada empresa. El
- * superadmin entra a cualquiera con su propio rol.
- *
- * Devuelve null si el usuario no tiene acceso a esa empresa.
- */
-async function sesionEnEmpresa(prisma: any, userId: string, companyId: string): Promise<any | null> {
-  const user = await prisma.user.findUnique({ where: { id: userId }, include: { company: true } });
-  if (!user || !user.isActive) return null;
-
-  const superadmin = user.role === 'superadmin';
-  const rol = await rolEnEmpresa(prisma, userId, companyId, superadmin);
-  if (!rol) return null;
-
-  const company = companyId === user.companyId ? user.company : await prisma.company.findUnique({ where: { id: companyId } });
-  if (!company) return null;
-
-  return {
-    token: generateToken({ userId: user.id, companyId, role: rol, name: user.name, email: user.email }),
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: rol,
-      company: { id: company.id, name: company.name, taxId: company.taxId },
-    },
-  };
-}
 
 /**
  * POST /api/auth/switch-company

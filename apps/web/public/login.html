@@ -367,7 +367,17 @@
           }),
         });
         const data = await res.json();
-        if (!res.ok) { showError(data.error || 'Error al registrar'); btn.disabled = false; btn.textContent = 'Crear Empresa y Comenzar'; return; }
+        if (!res.ok) {
+          // El correo que ya tiene cuenta es el caso normal de alguien que quiere
+          // una SEGUNDA empresa: no se registra de nuevo, entra y la crea adentro.
+          const msg = res.status === 409
+            ? 'Ese correo ya tiene cuenta. Entrá con él y creá la empresa desde «🏢 Mis empresas» — así queda en la misma cuenta.'
+            : (data.error || 'Error al registrar');
+          showError(msg);
+          btn.disabled = false;
+          btn.textContent = 'Crear Empresa y Comenzar';
+          return;
+        }
 
         saveAuth(data);
         window.location.href = '/';

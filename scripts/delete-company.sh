@@ -125,10 +125,18 @@ DELETE FROM "Account" WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM subscription WHERE "companyId" = '${COMPANY_ID}';
 
 -- ============================================================
--- FASE 5: Auditoría y Usuarios
+-- FASE 5: Auditoría, accesos y Usuarios
 -- ============================================================
 DELETE FROM "AuditLog"
   WHERE "userId" IN (SELECT id FROM "User" WHERE "companyId" = '${COMPANY_ID}');
+
+-- Membresías (`user_company`): el acceso de cada usuario a esta empresa. Van
+-- ANTES que el usuario y que la empresa: la FK las referencia a las dos y sin
+-- borrarlas el DELETE de "Company" falla. Ojo: un usuario que además trabaja en
+-- otra empresa NO se borra (se va solo su membresía de acá) — eso lo decide el
+-- DELETE de "User" de abajo, que solo se lleva los que son de esta empresa.
+DELETE FROM user_company WHERE "companyId" = '${COMPANY_ID}';
+
 DELETE FROM "User" WHERE "companyId" = '${COMPANY_ID}';
 
 -- ============================================================

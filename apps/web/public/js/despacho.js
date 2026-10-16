@@ -139,12 +139,85 @@ function despachoHTML(empresas, actualId) {
     </div>`;
   });
 
+  // Solo admin y superadmin dan de alta empresas (mismo criterio que la API):
+  // abrir libros nuevos es una responsabilidad, y quien la crea queda de dueño.
+  const puedeCrear = ['admin', 'superadmin'].includes(getUser()?.role);
+
   return `<div class="admin-form-card">
-    <h4>🏢 Mis empresas</h4>
-    <p style="font-size:12px;color:#6b7280;margin:0 0 12px 0">
-      Lo que pide atención en cada empresa. «Entrar» cambia la empresa activa y recarga la pantalla:
-      no hace falta cerrar sesión.
-    </p>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div>
+        <h4 style="margin:0 0 4px 0">🏢 Mis empresas</h4>
+        <p style="font-size:12px;color:#6b7280;margin:0 0 12px 0">
+          Lo que pide atención en cada empresa. «Entrar» cambia la empresa activa y recarga la pantalla:
+          no hace falta cerrar sesión.
+        </p>
+      </div>
+      ${puedeCrear ? `<button class="btn-secondary" style="padding:7px 14px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;font-size:13px;white-space:nowrap" onclick="openCrearEmpresa(${JSON.stringify(empresas.map((e) => ({ id: e.id, name: e.name }))).replace(/"/g, '&quot;')})">+ Crear empresa</button>` : ''}
+    </div>
     ${tarjetas.join('')}
   </div>`;
+}
+
+/**
+ * Alta de una empresa desde acá. Nace igual que por el registro —plan de cuentas
+ * de la plantilla, conceptos y plan Demo— y quien la crea queda como su
+ * administrador: al terminar, entra directo a ella.
+ */
+function openCrearEmpresa(misEmpresas = []) {
+  // De dónde copiar el catálogo: la plantilla del sistema o una empresa propia
+  // (un despacho usa SU catálogo para que todos sus clientes nazcan iguales).
+  const opciones = [
+    '<option value="">Plantilla del sistema (recomendada para empezar)</option>',
+    ...misEmpresas.map((e) => `<option value="${despachoEsc(e.id)}">${despachoEsc(e.name)}</option>`),
+  ].join('');
+
+  const overlay = document.createElement('div');
+  overlay.className = 'app-dialog-overlay';
+  overlay.innerHTML = `<div class="app-dialog" style="max-width:440px">
+    <div style="font-weight:700;font-size:16px;margin-bottom:6px">🏢 Nueva empresa</div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:12px">Nace con el plan de cuentas y los conceptos de la plantilla, y con el plan Demo (14 días). Vas a quedar como su administrador.</div>
+    <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Nombre</label>
+    <input id="ce-nombre" placeholder="Distribuidora La Central, S.A." style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+    <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">RUC (opcional — se puede completar después)</label>
+    <input id="ce-ruc" placeholder="1555-1234-5678" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+    <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Copiar el plan de cuentas y los conceptos de</label>
+    <select id="ce-plantilla" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px">${opciones}</select>
+    <div style="font-size:11px;color:#6b7280;margin-top:4px">Elegí una empresa tuya si querés que este cliente nazca con tu mismo catálogo.</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+      <button class="app-dialog-btn" onclick="this.closest('.app-dialog-overlay').remove()">Cancelar</button>
+      <button class="app-dialog-btn primary" onclick="guardarEmpresaNueva(this)">🏢 Crear y entrar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function guardarEmpresaNueva(btn) {
+  const nombre = document.getElementById('ce-nombre')?.value.trim();
+  const taxId = document.getElementById('ce-ruc')?.value.trim() || null;
+  const plantillaCompanyId = document.getElementById('ce-plantilla')?.value || null;
+  if (!nombre) { await showAlert('Poné el nombre de la empresa'); return; }
+  btn.disabled = true;
+  btn.textContent = 'Creando…';
+  try {
+    const res = await authFetch(`${API_URL}/companies`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: nombre, taxId, plantillaCompanyId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      await showAlert(data.error || 'No se pudo crear la empresa');
+      btn.disabled = false;
+      btn.textContent = '🏢 Crear y entrar';
+      return;
+    }
+    // Se entra a la empresa nueva con la sesión que devuelve el alta.
+    localStorage.setItem('agt_token', data.token);
+    localStorage.setItem('agt_user', JSON.stringify(data.user));
+    window.location.reload();
+  } catch {
+    await showAlert('Error de conexión');
+    btn.disabled = false;
+    btn.textContent = '🏢 Crear y entrar';
+  }
 }

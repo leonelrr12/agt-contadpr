@@ -45,10 +45,13 @@ function pintarSelectorEmpresa(user) {
   const empresas = user.empresas || [];
   const actual = user.company?.id;
 
-  // «Mis empresas» solo tiene sentido cuando hay más de una: con una sola, el
-  // tablero sería una pantalla que repite lo que ya se ve.
+  // «Mis empresas» se muestra cuando hay más de una —para cambiar entre ellas—
+  // o cuando el rol puede CREAR una: es el único lugar donde se da de alta una
+  // empresa, así que esconderlo para quien tiene una sola le cierra justamente
+  // el camino que viene a buscar (el segundo cliente de un despacho).
+  const puedeCrear = ['admin', 'superadmin'].includes(user.role);
   const nav = document.getElementById('nav-despacho-link');
-  if (nav) nav.style.display = empresas.length > 1 ? '' : 'none';
+  if (nav) nav.style.display = empresas.length > 1 || puedeCrear ? '' : 'none';
 
   if (empresas.length < 2) {
     el.textContent = user.company?.name || '';

@@ -12,6 +12,8 @@
  * siendo `superadmin`. No hace falta crearle membresías.
  */
 
+import { generateToken } from '../middleware/auth';
+
 export interface EmpresaAccesible {
   id: string;
   name: string;
@@ -58,4 +60,39 @@ export async function empresasDeUsuario(
 export async function esSuperadmin(prisma: any, userId: string): Promise<boolean> {
   const u = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
   return u?.role === 'superadmin';
+}
+
+/**
+ * La sesión de un usuario EN UNA EMPRESA: token + lo que el frontend guarda.
+ *
+ * La empresa y el rol salen de la membresía, no de `User`: es lo que permite que
+ * la misma cuenta tenga un rol distinto en cada empresa, y que el superadmin
+ * entre a cualquiera con su propio rol. Devuelve null si no tiene acceso.
+ *
+ * Vive acá y no en las rutas porque la usan tres: el login, el cambio de empresa
+ * y el alta de una empresa nueva (que entra directo a la recién creada).
+ */
+export async function sesionEnEmpresa(prisma: any, userId: string, companyId: string): Promise<any | null> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, include: { company: true } });
+  if (!user || !user.isActive) return null;
+
+  const rol = await rolEnEmpresa(prisma, userId, companyId, user.role === 'superadmin');
+  if (!rol) return null;
+
+  const company =
+    companyId === user.companyId || !rol
+      ? user.company
+      : await prisma.company.findUnique({ where: { id: companyId } });
+  if (!company) return null;
+
+  return {
+    token: generateToken({ userId: user.id, companyId, role: rol, name: user.name, email: user.email }),
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: rol,
+      company: { id: company.id, name: company.name, taxId: company.taxId },
+    },
+  };
 }
