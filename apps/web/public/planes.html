@@ -269,19 +269,19 @@
       <div class="payment-icon">📱</div>
       <h3>Yappy</h3>
       <p>Transfiere desde tu app del Banco General</p>
-      <div class="payment-detail">📞 507-XXXX-XXXX</div>
+      <div class="payment-detail">📞 6403-4863</div>
     </div>
     <div class="payment-card">
       <div class="payment-icon">🏦</div>
-      <h3>Transferencia Bancaria</h3>
-      <p>Banco General · Cuenta Corriente</p>
-      <div class="payment-detail">Cuenta: XXXX-XXXX-XXXX<br>Titular: Hrodced, Inc.</div>
+      <h3>Transferencia ACH</h3>
+      <p>Caja de Ahorros</p>
+      <div class="payment-detail">Tipo Cta.: Ahorros<br>Cuenta #: 590000078733<br>Titular: Leonel Rodriguez</div>
     </div>
     <div class="payment-card">
       <div class="payment-icon">📧</div>
       <h3>Confirmación</h3>
       <p>Envíanos tu comprobante por WhatsApp o email</p>
-      <div class="payment-detail">📱 +507 XXXX-XXXX<br>📧 admin@contador507.com</div>
+      <div class="payment-detail">📱 +507 6403-4863<br>📧 admin@contador507.com</div>
     </div>
   </div>
 </div>
@@ -404,10 +404,13 @@ fetch('/api/addons')
   .then(r => r.json())
   .then(addons => {
     if (!addons.length) return;
+    // El título va DENTRO de una grilla como el de los planes: si va suelto como
+    // hermano de la grilla, ocupa el ancho de la pantalla y queda pegado al borde
+    // mientras las tarjetas van centradas. `grid-column: 1/-1` = fila completa.
     document.getElementById('plans-container').insertAdjacentHTML('afterend', `
-      <h2 style="margin-top:48px">⚡ Módulos adicionales</h2>
-      <p style="color:var(--muted);margin-bottom:20px">Se suman a cualquier plan, sin cambiar de plan.</p>
       <div class="plans-grid">
+        <h2 style="grid-column:1/-1;text-align:center;font-size:22px;font-weight:700;margin:24px 0 0">⚡ Módulos adicionales</h2>
+        <p style="grid-column:1/-1;text-align:center;color:var(--muted);font-size:15px;margin:0 0 8px">Se suman a cualquier plan, sin cambiar de plan.</p>
         ${addons.map(a => `
           <div class="plan-card" style="border-top:4px solid #7c3aed">
             <h3>${a.nombre}</h3>
