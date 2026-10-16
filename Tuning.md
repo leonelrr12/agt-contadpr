@@ -173,10 +173,13 @@ Trabajo ya pagado que hoy no rinde nada:
   [`FACTURAS-CORREO.md`](FACTURAS-CORREO.md).
 - **§10 Centro de Costos / Proyectos** — etiquetar transacciones por proyecto, sucursal o departamento;
   rentabilidad segmentada; cruce con presupuesto. El más transversal: toca informes, presupuesto y facturas.
-- **§14 Agente Multi-Empresa para Despachos** — vista unificada de todos los clientes del despacho,
-  tablero de pendientes, cambio rápido entre empresas, reportes consolidados. **El mayor diferenciador
-  del roadmap** (el comprador natural de un producto llamado *contador* es un despacho, no una empresa
-  suelta), pero con pocas empresas en la base construir la vista ahora es adivinar.
+- **§14 Agente Multi-Empresa para Despachos** — ⏳ **fases 1a, 1b y 2 desplegadas el 16-10-2026**:
+  selector de empresa (el superadmin entra a cualquiera sin reloguearse), **membresías** con rol POR
+  empresa (migración `0040`, una cuenta trabaja varias empresas) y el **tablero de pendientes**
+  «🏢 Mis empresas» con borradores por revisar, buzón con problemas, por cobrar vencido, obligaciones
+  fiscales y cuota de cada empresa. **Falta la fase 3** (resumen comparativo de ventas/gastos/resultado
+  entre empresas), que se deja para cuando haya con qué comparar. El diseño está en
+  [`DESPACHO.md`](DESPACHO.md).
 - **§9 Archivo Digital de Documentos** — adjuntar facturas/recibos a cada asiento, S3/Cloudflare R2,
   búsqueda por proveedor/fecha/monto. El menos atractivo: exige infraestructura y credenciales nuevas
   para un beneficio que hoy nadie pide.
