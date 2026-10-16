@@ -20,11 +20,13 @@ import {
   cuentasBancoDeEmpresa,
   getOrCreateEmailConfig,
 } from '../services/email-facturas-config';
-import { probarConexion } from '../services/email-inbox';
+import { barrerFacturasPorCorreo, marcarInterrumpidos, probarConexion, reprocesarMensaje } from '../services/email-inbox';
 
 export const facturasEmailRouter = Router();
 
 const ROLES = ['admin', 'superadmin'] as const;
+/** El contador mira el buzón y lo revisa a mano, pero no toca las credenciales. */
+const ROLES_LECTURA = ['admin', 'contador', 'superadmin'] as const;
 
 /**
  * La dirección de reenvío del modo CENTRAL: `usuario+alias@dominio`, que Gmail
@@ -176,3 +178,55 @@ facturasEmailRouter.post(
     res.json(await probarConexion(prueba));
   },
 );
+
+// POST /api/facturas-email/revisar — «Revisar ahora»: un barrido a pedido
+facturasEmailRouter.post('/revisar', requireRole(...ROLES_LECTURA), async (req, res) => {
+  // `forzar` para poder probar una configuración completa que todavía no se
+  // activó; el cron no lo usa (barre lo que el dueño encendió).
+  const resumen = await barrerFacturasPorCorreo(req.prisma, req.user!.companyId, { forzar: true });
+  // 200 con el resumen aunque haya fallado: el veredicto va en el cuerpo.
+  res.json(resumen);
+});
+
+// GET /api/facturas-email/mensajes — el ledger de correos vistos
+facturasEmailRouter.get('/mensajes', requireRole(...ROLES_LECTURA), async (req, res) => {
+  const companyId = req.user!.companyId;
+  const limite = Math.min(Math.max(parseInt(String(req.query.limit || '50'), 10) || 50, 1), 200);
+  const estado = req.query.estado ? String(req.query.estado) : null;
+
+  // Antes de listar: una corrida que murió a mitad dejaría el correo en
+  // PROCESANDO para siempre, y el barrido nunca vuelve a mirar ese UID.
+  await marcarInterrumpidos(req.prisma, companyId);
+
+  const filas = await req.prisma.emailFacturaMensaje.findMany({
+    where: { companyId, ...(estado ? { estado } : {}) },
+    orderBy: { createdAt: 'desc' },
+    take: limite,
+    select: {
+      id: true, estado: true, remitente: true, asunto: true, detalle: true,
+      recibidoAt: true, createdAt: true, facturas: true, adjuntos: true, uid: true,
+    },
+  });
+  res.json(filas.map((f: any) => ({ ...f, facturas: jsonSeguro(f.facturas), adjuntos: jsonSeguro(f.adjuntos) })));
+});
+
+// POST /api/facturas-email/mensajes/:id/reprocesar
+facturasEmailRouter.post('/mensajes/:id/reprocesar', requireRole(...ROLES), async (req, res) => {
+  const r = await reprocesarMensaje(req.prisma, req.user!.companyId, String(req.params.id));
+  if (!r.ok) {
+    res.status(400).json({ error: r.error });
+    return;
+  }
+  const m = r.mensaje;
+  res.json({ ...m, facturas: jsonSeguro(m.facturas), adjuntos: jsonSeguro(m.adjuntos) });
+});
+
+/** Las columnas JSON se guardan como texto (la convención del repo): se abren acá. */
+function jsonSeguro(valor: any): any[] {
+  try {
+    const v = JSON.parse(valor || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}

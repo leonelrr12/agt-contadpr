@@ -39,7 +39,10 @@ vi.mock('../wa-session-store', () => {
   };
 });
 
-vi.mock('../pdf-extractor', () => ({
+vi.mock('../pdf-extractor', async (importOriginal) => ({
+  // Solo se sustituye el parseo del PDF (necesitaría un PDF de verdad): la
+  // extracción de items es pura y se usa la real, que es lo que se está probando.
+  extractInvoiceItems: (await importOriginal<typeof import('../pdf-extractor')>()).extractInvoiceItems,
   extractFromPDF: async () => ({
     text: caja.texto,
     provider: 'PANADERIA LA ESPIGA',

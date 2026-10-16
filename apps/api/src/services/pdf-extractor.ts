@@ -252,6 +252,45 @@ export interface PDFExtractResult {
   source: 'pdf-parse' | 'pdf-parse+llm';
 }
 
+/**
+ * Descripciones de los items de una factura DGI.
+ *
+ * La clasificación los mira TODOS: el ítem que resuelve el rubro puede estar en
+ * cualquier posición (la factura del 11-10 caía a Gastos Varios porque el bistec
+ * era el cuarto y solo se clasificaban los tres primeros). Vive acá y no en el
+ * flujo de WhatsApp porque el correo lee los mismos PDF.
+ */
+export function extractInvoiceItems(pdfText: string): string[] {
+  if (!pdfText) return [];
+  // Buscar la sección de items: después de "Valor Item" y antes de "Desglose ITBMS"
+  const lines = pdfText.split('\n');
+  const items: string[] = [];
+  let inItems = false;
+
+  for (const line of lines) {
+    if (/Valor\s*Item/i.test(line)) {
+      inItems = true;
+      continue;
+    }
+    if (/Desglose\s*ITBMS|Subtotal|Valor\s*Total/i.test(line)) {
+      inItems = false;
+      continue;
+    }
+    if (inItems) {
+      const trimmed = line.trim();
+      // Saltar cabeceras o líneas vacías
+      if (!trimmed || /^(No\.|Código|Cantidad|Unidad|Precio)/i.test(trimmed)) continue;
+      // La línea de item empieza con número seguido de descripción
+      const match = trimmed.match(/^\d+\s+(.+?)(?:\s+\d+\.?\d*\s+)/);
+      if (match) {
+        const desc = match[1].trim();
+        if (desc.length > 2 && desc.length < 80) items.push(desc);
+      }
+    }
+  }
+  return items;
+}
+
 export async function extractFromPDF(
   pdfBuffer: Buffer,
   prisma?: PrismaClient,

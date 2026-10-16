@@ -1555,7 +1555,8 @@ model EmailFacturaMensaje {
   /// Resumen de las facturas detectadas y cargadas (JSON en String).
   facturas    String    @default("[]")
   /// PROCESANDO | CARGADA | DUPLICADA | SIN_ADJUNTOS | SIN_FACTURA | SIN_DATOS |
-  /// OTRO_CLIENTE | SIN_CUENTA | SIN_CONCEPTO | CUOTA | ERROR | INTERRUMPIDO
+  /// OTRO_CLIENTE | SIN_CUENTA | SIN_CONCEPTO | CUOTA | ERROR | INTERRUMPIDO |
+  /// DETECTADA (factura encontrada SIN cargar: estado del barrido sin pipeline)
   estado      String    @default("PROCESANDO")
   detalle     String?
   createdAt   DateTime  @default(now())

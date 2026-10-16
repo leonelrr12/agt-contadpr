@@ -6,6 +6,25 @@
 let efConfig = null;
 let efBorrarPassword = false;
 
+/** Los estados del ledger, con su color y su texto para el contador. */
+const EF_ESTADOS = {
+  DETECTADA: { color: '#1565c0', texto: 'detectada' },
+  CARGADA: { color: '#059669', texto: 'cargada' },
+  DUPLICADA: { color: '#92400e', texto: 'duplicada' },
+  SIN_FACTURA: { color: '#6b7280', texto: 'sin factura' },
+  SIN_ADJUNTOS: { color: '#6b7280', texto: 'sin adjuntos' },
+  SIN_DATOS: { color: '#92400e', texto: 'sin datos legibles' },
+  OTRO_CLIENTE: { color: '#6b7280', texto: 'de otro cliente' },
+  SIN_CUENTA: { color: '#92400e', texto: 'sin cuenta de contrapartida' },
+  SIN_CONCEPTO: { color: '#92400e', texto: 'sin concepto' },
+  CUOTA: { color: '#92400e', texto: 'cuota agotada' },
+  PROCESANDO: { color: '#6b7280', texto: 'procesando' },
+  INTERRUMPIDO: { color: '#b91c1c', texto: 'interrumpido' },
+  ERROR: { color: '#b91c1c', texto: 'error' },
+};
+
+const efEstado = (e) => EF_ESTADOS[e] || { color: '#6b7280', texto: String(e || '').toLowerCase() };
+
 function efEsc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -21,6 +40,79 @@ async function loadPanelEmailFacturas() {
     efPintar(efConfig);
   } catch (e) {
     card.innerHTML = '<div class="admin-form-card"><h4>📧 Facturas por correo</h4><div style="color:#b91c1c;font-size:13px">No se pudo cargar la configuración del buzón.</div></div>';
+  }
+  efCargarLedger();
+}
+
+/** Los últimos correos que vio el sistema, con lo que encontró en cada uno. */
+async function efCargarLedger() {
+  const el = document.getElementById('email-facturas-ledger');
+  if (!el) return;
+  try {
+    const res = await authFetch(`${API_URL}/facturas-email/mensajes?limit=25`);
+    const mensajes = await res.json();
+    el.innerHTML = efLedgerHTML(Array.isArray(mensajes) ? mensajes : []);
+  } catch (e) {
+    el.innerHTML = '';
+  }
+}
+
+function efLedgerHTML(mensajes) {
+  const filas = mensajes.length
+    ? mensajes.map(efFilaLedger).join('')
+    : '<div style="color:#6b7280;font-size:13px;padding:10px 0">Todavía no se revisó el buzón.</div>';
+
+  return `
+  <div class="admin-form-card">
+    <h4>📨 Últimos correos revisados</h4>
+    <p style="font-size:12px;color:#6b7280;margin:0 0 8px 0">
+      El sistema lleva su propio registro de los correos que ya vio: lo que aparece acá no se vuelve a procesar.
+    </p>
+    ${filas}
+  </div>`;
+}
+
+function efFilaLedger(m) {
+  const e = efEstado(m.estado);
+  const cuando = m.recibidoAt || m.createdAt;
+  const fecha = cuando ? new Date(cuando).toLocaleString('es-PA', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+  const facturas = Array.isArray(m.facturas) ? m.facturas : [];
+  const adjuntos = Array.isArray(m.adjuntos) ? m.adjuntos : [];
+  const detalleFacturas = facturas
+    .map((f) => `${f.proveedor || 'Sin proveedor'}${f.total != null ? ` — $${Number(f.total).toFixed(2)}` : ''}${f.numeroFactura ? ` (${f.numeroFactura})` : ''} <span style="color:#6b7280">· ${f.via}</span>`)
+    .join('<br>');
+  const reprocesable = ['INTERRUMPIDO', 'ERROR'].includes(m.estado);
+
+  return `
+  <div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;margin-bottom:8px;background:#fff">
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap">
+      <div style="min-width:0">
+        <div style="font-size:13px;color:#1a1a2e;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${efEsc(m.asunto || '(sin asunto)')}</div>
+        <div style="font-size:12px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${efEsc(m.remitente || '')}</div>
+      </div>
+      <div style="text-align:right;white-space:nowrap">
+        <span style="font-size:11px;font-weight:700;color:${e.color}">${efEsc(e.texto)}</span>
+        <div style="font-size:11px;color:#9ca3af">${fecha}</div>
+      </div>
+    </div>
+    ${detalleFacturas ? `<div style="font-size:12px;color:#374151;margin-top:6px">${detalleFacturas}</div>` : ''}
+    ${m.detalle ? `<div style="font-size:11px;color:#6b7280;margin-top:4px">${efEsc(m.detalle)}</div>` : ''}
+    ${adjuntos.length ? `<div style="font-size:11px;color:#9ca3af;margin-top:4px">${adjuntos.length} adjunto(s): ${adjuntos.map((a) => efEsc(a.nombre || a.tipo || '—')).join(', ')}</div>` : ''}
+    ${reprocesable ? `<div style="margin-top:6px"><button class="btn-secondary" style="padding:4px 10px;font-size:12px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer" onclick="efReprocesar('${m.id}', this)">↻ Reprocesar</button></div>` : ''}
+  </div>`;
+}
+
+async function efReprocesar(id, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Reprocesando…';
+  try {
+    const res = await authFetch(`${API_URL}/facturas-email/mensajes/${id}/reprocesar`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) await showAlert(data.error || 'No se pudo reprocesar');
+    efCargarLedger();
+  } catch (e) {
+    await showAlert('Error de conexión');
+    btn.disabled = false;
   }
 }
 
@@ -144,6 +236,7 @@ function efFormularioHTML(cfg) {
     <div style="margin-top:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <button class="btn-primary" id="ef-btn-guardar" onclick="efGuardar()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar</button>
       <button class="btn-secondary" id="ef-btn-probar" onclick="efProbar()" style="padding:8px 18px;border:1px solid #d1d5db;border-radius:8px;background:#fff;color:#374151;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">🔌 Probar conexión</button>
+      <button class="btn-secondary" id="ef-btn-revisar" onclick="efRevisar()" style="padding:8px 18px;border:1px solid #d1d5db;border-radius:8px;background:#fff;color:#374151;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">🔄 Revisar ahora</button>
       <span id="ef-msg" style="font-size:13px;font-weight:600"></span>
     </div>
     ${estado}
@@ -220,6 +313,42 @@ async function efGuardar() {
     efBorrarPassword = false;
     efPintar(data);
     efMensaje('✅ Guardado', '#059669');
+  } catch (e) {
+    efMensaje('Error de conexión', '#b91c1c');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/**
+ * «Revisar ahora»: barre el buzón. Guarda primero lo que está en pantalla —quien
+ * toca el botón acaba de cambiar algo y espera que se use lo que escribió— y
+ * después muestra lo que encontró.
+ */
+async function efRevisar() {
+  const btn = document.getElementById('ef-btn-revisar');
+  btn.disabled = true;
+  efMensaje('Revisando el buzón…', '#6b7280');
+  try {
+    const guardado = await authFetch(`${API_URL}/facturas-email/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(efCuerpo()),
+    });
+    if (!guardado.ok) {
+      const e = await guardado.json();
+      efMensaje(`❌ ${e.error || 'No se pudo guardar antes de revisar'}`, '#b91c1c');
+      return;
+    }
+    const res = await authFetch(`${API_URL}/facturas-email/revisar`, { method: 'POST' });
+    const r = await res.json();
+    efMensaje(
+      r.ok
+        ? `✅ ${r.revisados} correo(s), ${r.facturas} factura(s) detectada(s)`
+        : `❌ ${r.detalle || r.codigo || 'No se pudo revisar'}`,
+      r.ok ? '#059669' : '#b91c1c',
+    );
+    efCargarLedger();
   } catch (e) {
     efMensaje('Error de conexión', '#b91c1c');
   } finally {

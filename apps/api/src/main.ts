@@ -64,7 +64,15 @@ const prisma: any = new PrismaClient().$extends({
           (args as any).data = encryptData((args as any).data, model as string);
         }
         const result = await query(args);
-        if (['findUnique', 'findFirst', 'findMany', 'findUniqueOrThrow', 'findFirstOrThrow'].includes(operation)) {
+        // Se descifra TODO lo que devuelve una fila, no solo las lecturas: una
+        // escritura tiene que devolver lo mismo que devolvería su lectura. Sin
+        // esto, `upsert` —el que usa la configuración del buzón— entregaba la
+        // contraseña IMAP todavía en `v1:…` y el servidor de correo la rechazaba.
+        if (
+          ['findUnique', 'findFirst', 'findMany', 'findUniqueOrThrow', 'findFirstOrThrow', 'create', 'update', 'upsert', 'delete'].includes(
+            operation,
+          )
+        ) {
           return decryptResult(result);
         }
         return result;

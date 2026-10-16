@@ -28,7 +28,7 @@ import {
   TIPOS_FACTURA_RECIBIDA,
   type FacturaExtraida,
 } from './reembolsos';
-import { extractFromPDF } from './pdf-extractor';
+import { extractFromPDF, extractInvoiceItems } from './pdf-extractor';
 import { descargarFacturaDgi, DgiError, DGI_BROWSER_UA } from './dgi-cute';
 import { resolveCompanyUserId } from './company-user';
 import { conceptoDelMapa, conceptoPorKeywords } from '@agt-contador/agents';
@@ -834,38 +834,6 @@ async function conceptoPorTexto(
     if (propuesto) return propuesto;
   }
   return null;
-}
-
-/** Extrae descripciones de items de una factura DGI. */
-function extractInvoiceItems(pdfText: string): string[] {
-  if (!pdfText) return [];
-  // Buscar la sección de items: después de "Valor Item" y antes de "Desglose ITBMS"
-  const lines = pdfText.split('\n');
-  const items: string[] = [];
-  let inItems = false;
-
-  for (const line of lines) {
-    if (/Valor\s*Item/i.test(line)) {
-      inItems = true;
-      continue;
-    }
-    if (/Desglose\s*ITBMS|Subtotal|Valor\s*Total/i.test(line)) {
-      inItems = false;
-      continue;
-    }
-    if (inItems) {
-      const trimmed = line.trim();
-      // Saltar cabeceras o líneas vacías
-      if (!trimmed || /^(No\.|Código|Cantidad|Unidad|Precio)/i.test(trimmed)) continue;
-      // La línea de item empieza con número seguido de descripción
-      const match = trimmed.match(/^\d+\s+(.+?)(?:\s+\d+\.?\d*\s+)/);
-      if (match) {
-        const desc = match[1].trim();
-        if (desc.length > 2 && desc.length < 80) items.push(desc);
-      }
-    }
-  }
-  return items;
 }
 
 /** Formatea el prompt de categoría. */
