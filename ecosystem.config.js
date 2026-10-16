@@ -45,6 +45,11 @@ module.exports = {
       // PM2 congela aquí valores viejos y dotenv no sobreescribe vars existentes)
       APP_URL: process.env.APP_URL || 'https://contador507.com',
       FIELD_ENC_KEY: process.env.FIELD_ENC_KEY || '',
+      // Buzón central de facturas por correo: la misma cuenta Gmail del mailer.
+      // Los valores viven en el .env de la raíz (que este archivo lee al arrancar),
+      // no acá: el bloque `env` de PM2 queda congelado en el dump.
+      EMAIL_CENTRAL_IMAP_USER: process.env.EMAIL_CENTRAL_IMAP_USER || '',
+      EMAIL_CENTRAL_IMAP_PASS: process.env.EMAIL_CENTRAL_IMAP_PASS || '',
     },
   }],
 };

@@ -457,13 +457,26 @@ export async function reprocesarMensaje(
   }
 
   const cfg = await getOrCreateEmailConfig(prisma, companyId);
-  if (faltanCredenciales(cfg)) return { ok: false, error: 'Faltan las credenciales del buzón.' };
 
-  const client: any = opts.cliente || clienteImap(cfg);
+  // Un correo del buzón central se relee del buzón CENTRAL: la empresa dueña del
+  // alias no tiene credenciales propias (ese es el punto de ese modo).
+  const central = fila.origen === 'CENTRAL';
+  const fuente = central ? configCentral() : cfg;
+  if (faltanCredenciales(fuente)) {
+    return {
+      ok: false,
+      error: central ? 'Faltan las credenciales del buzón central.' : 'Faltan las credenciales del buzón.',
+    };
+  }
+
+  const client: any = opts.cliente || clienteImap(fuente);
   try {
     await client.connect();
-    const lock = await client.getMailboxLock(String(fila.folder || cfg.imapFolder || 'INBOX'), {
-      readOnly: !(cfg.marcarLeido || cfg.carpetaMover),
+    // El buzón central NUNCA se toca: `marcarLeido`/`carpetaMover` son de la
+    // casilla de la empresa, no de la cuenta compartida de la plataforma.
+    const tocaBuzon = !central && !!(cfg.marcarLeido || cfg.carpetaMover);
+    const lock = await client.getMailboxLock(String(fila.folder || (central ? carpetaCentral() : cfg.imapFolder) || 'INBOX'), {
+      readOnly: !tocaBuzon,
     });
     try {
       const bajado = await client.fetchOne(String(fila.uid), { source: true }, { uid: true });
@@ -472,7 +485,7 @@ export async function reprocesarMensaje(
       }
       const resultado = await analizarCorreo(prisma, cfg, fila.id, bajado.source);
       await anotarResultado(prisma, fila.id, resultado, false);
-      if (cfg.marcarLeido || cfg.carpetaMover) await tocarCorreo(client, cfg, Number(fila.uid));
+      if (tocaBuzon) await tocarCorreo(client, cfg, Number(fila.uid));
       const mensaje = await prisma.emailFacturaMensaje.findUnique({ where: { id: fila.id } });
       return { ok: true, mensaje };
     } finally {
@@ -678,6 +691,23 @@ async function anotarMensaje(
 // si era una factura sería leerlo todo. Lo que no tiene alias se mira por arriba
 // —remitente, asunto, tamaño— y se deja intacto.
 
+/** La carpeta del buzón central donde caen los reenvíos. */
+export function carpetaCentral(): string {
+  return process.env.EMAIL_CENTRAL_IMAP_FOLDER || 'INBOX';
+}
+
+/** La configuración del buzón de la plataforma, armada desde el entorno. */
+export function configCentral(): any {
+  return {
+    imapHost: process.env.EMAIL_CENTRAL_IMAP_HOST || 'imap.gmail.com',
+    imapPort: Number(process.env.EMAIL_CENTRAL_IMAP_PORT) || 993,
+    imapSecure: true,
+    imapUser: process.env.EMAIL_CENTRAL_IMAP_USER,
+    imapPassword: process.env.EMAIL_CENTRAL_IMAP_PASS,
+    imapFolder: carpetaCentral(),
+  };
+}
+
 /** El `+tag` de una dirección: `usuario+facturas@dominio` → `facturas`. */
 export function aliasDeDireccion(direccion: string | null | undefined): string | null {
   const d = String(direccion || '').trim().toLowerCase();
@@ -738,17 +768,8 @@ export async function barrerBuzonCentral(prisma: any, opts: { cliente?: any } = 
     };
   }
 
-  const carpeta = process.env.EMAIL_CENTRAL_IMAP_FOLDER || 'INBOX';
-  const client: any =
-    opts.cliente ||
-    clienteImap({
-      imapHost: process.env.EMAIL_CENTRAL_IMAP_HOST || 'imap.gmail.com',
-      imapPort: Number(process.env.EMAIL_CENTRAL_IMAP_PORT) || 993,
-      imapSecure: true,
-      imapUser: usuario,
-      imapPassword: clave,
-      imapFolder: carpeta,
-    });
+  const carpeta = carpetaCentral();
+  const client: any = opts.cliente || clienteImap(configCentral());
 
   const estados = base.estados;
   const sinCuota = new Set<string>();
@@ -762,19 +783,34 @@ export async function barrerBuzonCentral(prisma: any, opts: { cliente?: any } = 
     const lock = await client.getMailboxLock(carpeta, { readOnly: true });
     try {
       const uidValidity = Number(client.mailbox?.uidValidity || 0);
-      const rango: any =
-        ultimo > 0 ? `${ultimo}:*` : { since: new Date(Date.now() - VENTANA_DIAS * 86400000) };
 
-      for await (const meta of client.fetch(rango, { uid: true, envelope: true, size: true }, { uid: true })) {
-        const uid = Number(meta.uid);
-        if (!uid || uid <= ultimo) continue; // el quirk de `N:*`, otra vez
-        if (base.revisados >= MAX_CORREOS) break;
+      // Primero los UIDs (una lista, barata) y después los metadatos SOLO de los
+      // que se van a mirar. Al revés —recorriendo la ventana entera— una bandeja
+      // con meses de correo deja la pasada recorriendo cientos de mensajes.
+      //
+      // Se toman los MÁS NUEVOS primero: la ventana es hacia atrás, pero lo que
+      // importa es lo que acaba de llegar. Un correo viejo que quede afuera de
+      // este tope no se pierde para siempre por casualidad: simplemente la
+      // dirección se empieza a usar desde que existe (y el proveedor lo reenvía).
+      const todos = ((await client.search({ since: new Date(Date.now() - VENTANA_DIAS * 86400000) }, { uid: true })) ||
+        []) as number[];
+      const pendientes = todos
+        .filter((u) => Number(u) > ultimo)
+        .sort((a, b) => b - a)
+        .slice(0, MAX_CORREOS);
+
+      for (const uidCrudo of pendientes) {
+        const uid = Number(uidCrudo);
+        const meta: any = await client.fetchOne(String(uid), { envelope: true, size: true }, { uid: true });
+        // La marca avanza SIEMPRE, también con los ignorados: si no, cada pasada
+        // volvería a empezar por los mismos correos y no llegaría nunca a los nuevos.
+        ultimo = Math.max(ultimo, uid);
+        if (!meta) continue;
 
         const direcciones = direccionesDe(meta.envelope);
         const empresa = await empresaPorAlias(prisma, direcciones);
         if (!empresa || sinCuota.has(empresa.companyId)) {
           base.ignorados++;
-          ultimo = Math.max(ultimo, uid);
           continue;
         }
 
@@ -787,7 +823,6 @@ export async function barrerBuzonCentral(prisma: any, opts: { cliente?: any } = 
         });
         if (!fila) {
           sumar('YA_VISTO');
-          ultimo = Math.max(ultimo, uid);
           continue;
         }
 
@@ -814,7 +849,6 @@ export async function barrerBuzonCentral(prisma: any, opts: { cliente?: any } = 
         sumar(resultado.estado);
         base.facturas += resultado.facturas.filter((f: any) => f.estado === 'CARGADA').length;
         await anotarResultado(prisma, fila.id, resultado, !meta.envelope?.messageId);
-        ultimo = Math.max(ultimo, uid);
       }
 
       ultimoUidCentral = ultimo;

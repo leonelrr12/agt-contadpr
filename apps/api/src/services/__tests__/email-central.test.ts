@@ -56,19 +56,24 @@ describe('empresaPorAlias', () => {
 class ImapCentralFalso {
   mailbox = { uidValidity: 555 };
   mensajes: any[] = [];
+  /** Los cuerpos que se pidieron: los metadatos no cuentan como abrir el correo. */
   fuentesPedidas: number[] = [];
+  metadatosPedidos: number[] = [];
 
   async connect() {}
   async logout() {}
   async getMailboxLock() {
     return { release: () => {} };
   }
-  async *fetch() {
-    for (const m of this.mensajes) yield m;
+  async search() {
+    return this.mensajes.map((m) => m.uid);
   }
-  async fetchOne(uid: string) {
-    this.fuentesPedidas.push(Number(uid));
-    return this.mensajes.find((m) => m.uid === Number(uid)) || null;
+  async fetchOne(uid: string, query: any) {
+    const id = Number(uid);
+    const m = this.mensajes.find((x) => x.uid === id) || null;
+    if (query?.source) this.fuentesPedidas.push(id);
+    else this.metadatosPedidos.push(id);
+    return m;
   }
 }
 
@@ -169,7 +174,7 @@ describe('barrerBuzonCentral', () => {
     expect(imap.fuentesPedidas).toEqual([10]); // solo ese cuerpo se bajó
   });
 
-  it('un correo sin alias registrado se ignora SIN bajar su cuerpo', async () => {
+  it('de TODOS se miran los metadatos, pero el cuerpo solo de los que tienen alias', async () => {
     const prisma = prismaFalso([CONFIG_CENTRAL]);
     const imap = new ImapCentralFalso();
     imap.mensajes = [
@@ -182,7 +187,10 @@ describe('barrerBuzonCentral', () => {
 
     expect(r.ignorados).toBe(2);
     expect(r.revisados).toBe(1);
-    expect(imap.fuentesPedidas).toEqual([22]); // los cuerpos 20 y 21 nunca se pidieron
+    // Los tres se miraron por arriba (remitente, asunto), pero el cuerpo —lo que
+    // se leería— solo se pidió para el que tiene alias registrado.
+    expect(imap.metadatosPedidos.sort((a, b) => a - b)).toEqual([20, 21, 22]);
+    expect(imap.fuentesPedidas).toEqual([22]);
     expect(prisma._filas).toHaveLength(1);
   });
 
