@@ -31,6 +31,7 @@ import {
 import { extractFromPDF, extractInvoiceItems } from './pdf-extractor';
 import { descargarFacturaDgi, DgiError, DGI_BROWSER_UA } from './dgi-cute';
 import { resolveCompanyUserId } from './company-user';
+import { incrementarUsoDeEmpresa } from './suscripcion';
 import { conceptoDelMapa, conceptoPorKeywords } from '@agt-contador/agents';
 
 const OPENWA_URL = process.env.OPENWA_API_URL || 'http://localhost:2785';
@@ -705,11 +706,8 @@ async function handleConfirm(
 
     response += await registrarFacturaSiAplica(prisma, link, waSession.pendingResult, saved, getPendingFactura(chatId));
 
-    // Incrementar contador de movimientos de la suscripción
-    await prisma.subscription.updateMany({
-      where: { companyId: link.companyId, status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] } },
-      data: { movementsUsed: { increment: 1 } },
-    }).catch(() => {});
+    // Incrementar contador de movimientos de la suscripción de la cuenta
+    await incrementarUsoDeEmpresa(prisma, link.companyId, 1).catch(() => {});
 
     const s = getSession(chatId);
     if (s) { s.pendingResult = null; s.dialogContext = null; s.originalInput = null; s.pendingFactura = null; }
@@ -1073,10 +1071,7 @@ export async function confirmBatch(sessionKey: string): Promise<string> {
         }
         const saved = await orchestrator.confirm(item.pending);
         await registrarFacturaSiAplica(st.prisma, st.link, item.pending, saved, item.factura || null);
-        await st.prisma.subscription.updateMany({
-          where: { companyId: st.link.companyId, status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] } },
-          data: { movementsUsed: { increment: 1 } },
-        }).catch(() => {});
+        await incrementarUsoDeEmpresa(st.prisma, st.link.companyId, 1).catch(() => {});
         ok++;
       } catch (e: any) {
         console.error('[Batch] confirm error:', e.message);

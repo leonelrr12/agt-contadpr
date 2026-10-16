@@ -46,13 +46,24 @@ adminRouter.get('/subscriptions', async (req, res) => {
   const where: any = {};
   if (status) where.status = status;
   if (search) {
-    where.company = { name: { contains: search as string, mode: 'insensitive' } };
+    // Se busca por la cuenta (el cliente que paga) y también por sus empresas: el
+    // dueño conoce a la empresa por su nombre, no por el de la cuenta.
+    where.OR = [
+      { cuenta: { name: { contains: search as string, mode: 'insensitive' } } },
+      { cuenta: { companies: { some: { name: { contains: search as string, mode: 'insensitive' } } } } },
+    ];
   }
 
   const subscriptions = await req.prisma.subscription.findMany({
     where,
     include: {
-      company: { select: { id: true, name: true, taxId: true, email: true } },
+      cuenta: {
+        select: {
+          id: true,
+          name: true,
+          companies: { select: { id: true, name: true, taxId: true, email: true } },
+        },
+      },
       plan: { select: { id: true, name: true, monthlyLimit: true, price: true } },
       payments: { orderBy: { paidAt: 'desc' }, take: 5 },
     },
@@ -66,7 +77,7 @@ adminRouter.get('/subscriptions/:id', async (req, res) => {
   const sub = await req.prisma.subscription.findUnique({
     where: { id: req.params.id },
     include: {
-      company: true,
+      cuenta: { include: { companies: true } },
       plan: true,
       payments: { orderBy: { paidAt: 'desc' } },
     },
@@ -75,34 +86,52 @@ adminRouter.get('/subscriptions/:id', async (req, res) => {
   res.json(sub);
 });
 
+/**
+ * POST /api/admin/subscriptions — asignar un plan a una cuenta.
+ *
+ * Acepta `cuentaId` (lo natural) o `companyId` (como se venía usando desde el
+ * panel: se pega el id de una empresa y se cobra a la cuenta dueña). El plan y la
+ * cuota son de la cuenta, así que **expiramos la suscripción vigente de la cuenta
+ * entera**, no la de una empresa: si no, un despacho quedaría con dos planes.
+ */
 adminRouter.post('/subscriptions', async (req, res) => {
-  const { companyId, planId, status, movementsLimit, periodDays, note } = req.body;
+  const { cuentaId, companyId, planId, status, movementsLimit, periodDays, note } = req.body;
 
-  if (!companyId || !planId) {
-    res.status(400).json({ error: 'companyId y planId son requeridos' });
+  if ((!cuentaId && !companyId) || !planId) {
+    res.status(400).json({ error: 'cuentaId (o companyId) y planId son requeridos' });
     return;
   }
 
   const plan = await req.prisma.plan.findUnique({ where: { id: planId } });
   if (!plan) { res.status(404).json({ error: 'Plan no encontrado' }); return; }
 
-  const company = await req.prisma.company.findUnique({ where: { id: companyId } });
-  if (!company) { res.status(404).json({ error: 'Empresa no encontrada' }); return; }
+  let cuenta;
+  if (cuentaId) {
+    cuenta = await req.prisma.cuenta.findUnique({ where: { id: cuentaId } });
+    if (!cuenta) { res.status(404).json({ error: 'Cuenta no encontrada' }); return; }
+  } else {
+    const company = await req.prisma.company.findUnique({
+      where: { id: companyId },
+      include: { cuenta: true },
+    });
+    if (!company) { res.status(404).json({ error: 'Empresa no encontrada' }); return; }
+    cuenta = company.cuenta;
+  }
 
   const periodStart = new Date();
   const days = periodDays || 30;
   const periodEnd = new Date(periodStart);
   periodEnd.setDate(periodEnd.getDate() + days);
 
-  // Si la empresa ya tiene una suscripción activa, la expiramos primero
+  // Si la cuenta ya tiene una suscripción activa, la expiramos primero
   await req.prisma.subscription.updateMany({
-    where: { companyId, status: { in: ['ACTIVE', 'DEMO', 'GRANTED', 'GRACE'] } },
+    where: { cuentaId: cuenta.id, status: { in: ['ACTIVE', 'DEMO', 'GRANTED', 'GRACE'] } },
     data: { status: 'EXPIRED' },
   });
 
   const subscription = await req.prisma.subscription.create({
     data: {
-      companyId,
+      cuentaId: cuenta.id,
       planId,
       status: status || 'ACTIVE',
       movementsLimit: movementsLimit || plan.monthlyLimit,
@@ -112,7 +141,7 @@ adminRouter.post('/subscriptions', async (req, res) => {
       grantedNote: note || null,
     },
     include: {
-      company: { select: { name: true } },
+      cuenta: { select: { name: true, companies: { select: { id: true, name: true } } } },
       plan: { select: { name: true } },
     },
   });
@@ -145,7 +174,7 @@ adminRouter.patch('/subscriptions/:id', async (req, res) => {
     where: { id: req.params.id },
     data,
     include: {
-      company: { select: { name: true } },
+      cuenta: { select: { name: true } },
       plan: { select: { name: true } },
     },
   });
@@ -167,7 +196,7 @@ adminRouter.patch('/subscriptions/:id/addons', async (req, res) => {
     where: { id: req.params.id },
     data: { addons },
     include: {
-      company: { select: { name: true } },
+      cuenta: { select: { name: true } },
       plan: { select: { name: true } },
     },
   });
@@ -190,7 +219,7 @@ adminRouter.get('/payments', async (req, res) => {
       subscription: {
         select: {
           id: true,
-          company: { select: { name: true } },
+          cuenta: { select: { name: true } },
           plan: { select: { name: true } },
         },
       },

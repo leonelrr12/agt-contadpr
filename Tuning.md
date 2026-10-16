@@ -368,7 +368,9 @@ como alternativa por soportar LATAM sin entidad en EE.UU.) **No hay campos de St
 | Pyme | 500 | $49.99 | 25 req/s |
 | Despacho | 2,000 | $149.99 | 50 req/s |
 
-El rate limit se cuenta **por empresa**, no por IP.
+El rate limit es un **campo del plan** (`Plan.reqPorSegundo`) y se cuenta **por empresa**, no por IP.
+Antes era una tabla por NOMBRE de plan dentro de `middleware/plan-rate-limit.ts`: renombrar un plan o
+crear uno nuevo lo dejaba en 5 req/s sin avisar (trampa 1 de `PLANES.md` §8, cerrada el 16-10).
 
 **Ciclo de vida de la suscripción:** `active` acceso completo · `past_due` banner + 7 días de gracia ·
 `canceled` se bloquea crear movimientos y queda solo lectura (reportes y exportación) · `trialing`.
@@ -376,14 +378,18 @@ El rate limit se cuenta **por empresa**, no por IP.
 **API Keys:** prefijo `sk_live_`, hash SHA-256 en BD, revocación por soft-delete, la llave completa se
 devuelve **una sola vez**.
 
-**En revisión (16-10-2026):** el dueño propuso planes nuevos por **empresas y usuarios** (no solo
-movimientos) con un plan de despacho que cubre varios clientes. El diseño está en
-[`PLANES.md`](PLANES.md): entidad **Cuenta** (todo cliente es una cuenta; un despacho es una cuenta con
-N empresas), la suscripción mudándose de la empresa a la cuenta, `maxEmpresas` /
-`maxUsuariosPorEmpresa` / módulos por plan **validados de verdad**, y la tabla de precios revisada.
-**Decisiones del dueño:** el despacho es una entidad aparte con su suscripción, y el tope de
-movimientos se mantiene holgado como red anti-abuso. **Antes de tocar los planes**: `plan-rate-limit.ts`
-está cableado por NOMBRE de plan y cae a 5 req/s en silencio si se renombran (ver `PLANES.md` §8).
+**En marcha (16-10-2026):** planes nuevos por **empresas y usuarios** (no solo movimientos), con un plan
+de despacho que cubre varios clientes. El diseño está en [`PLANES.md`](PLANES.md): entidad **Cuenta**
+(todo cliente es una cuenta; un despacho es una cuenta con N empresas), la suscripción mudándose de la
+empresa a la cuenta, `maxEmpresas` / `maxUsuariosPorEmpresa` / módulos por plan **validados de verdad**,
+y la tabla de precios revisada. **Decisiones del dueño:** el despacho es una entidad aparte con su
+suscripción, y el tope de movimientos se mantiene holgado como red anti-abuso.
+
+**Fase 1 HECHA** (migración `0041_cuenta_facturacion`): `Cuenta ──1:N── Company`, `Subscription.cuentaId`
+en vez de `companyId` y la cuota/plan resolviéndose por la cuenta —`services/suscripcion.ts` es la única
+fuente del salto empresa → cuenta → suscripción—. El consumo es **uno solo por cuenta** (el de sus
+empresas se suma) y una empresa que se suma a un despacho **hereda su plan** en vez de estrenar un Demo.
+Faltan las fases 2-4 (límites validados, módulos por plan, panel por cuenta).
 
 **Pendiente comercial:** portal de facturación de autoservicio.
 

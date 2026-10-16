@@ -10,9 +10,20 @@ import { crearEmpresaConPlantilla, hacerAdministrador, PLANTILLA_DEL_SISTEMA } f
  */
 
 function txFalso(opts: any = {}) {
-  const creado = { cuentas: [] as any[], conceptos: [] as any[], membresias: [] as any[], suscripciones: [] as any[] };
+  const creado = {
+    cuentas: [] as any[], conceptos: [] as any[], membresias: [] as any[], suscripciones: [] as any[],
+    // Las cuentas de FACTURACIÓN creadas (no el plan de cuentas contables)
+    cuentasDeFacturacion: [] as any[],
+  };
   const tx: any = {
     company: { create: async ({ data }: any) => ({ id: 'c-nueva', ...data }) },
+    cuenta: {
+      create: async ({ data }: any) => {
+        const nueva = { id: 'cta-nueva', ...data };
+        creado.cuentasDeFacturacion.push(nueva);
+        return nueva;
+      },
+    },
     account: {
       findMany: async () => opts.plantilla ?? [
         { id: 'a1', code: '1.1.01', name: 'Caja', type: 'ACTIVO', parentId: null, aliases: ['caja'], requiresAnexo: false },
@@ -38,6 +49,8 @@ function txFalso(opts: any = {}) {
     },
     plan: { findUnique: async () => opts.plan ?? { id: 'plan-demo', name: 'Demo', monthlyLimit: 50 } },
     subscription: {
+      // Cuántas suscripciones tiene ya la cuenta (0 = la cuenta estrena plan)
+      count: async () => opts.suscripcionesDeLaCuenta ?? 0,
       create: async ({ data }: any) => {
         creado.suscripciones.push(data);
         return data;
@@ -74,12 +87,39 @@ describe('crearEmpresaConPlantilla', () => {
     expect(creado.conceptos[0].companyId).toBe('c-nueva');
   });
 
-  it('nace con el plan Demo de 14 días', async () => {
+  it('nace con el plan Demo de 14 días, colgado de su propia cuenta', async () => {
     const { tx, creado } = txFalso();
     await crearEmpresaConPlantilla(tx, { name: 'X' });
-    expect(creado.suscripciones[0]).toMatchObject({ companyId: 'c-nueva', planId: 'plan-demo', status: 'DEMO', movementsLimit: 50 });
+    // La cuenta que paga nace con el nombre de la empresa: para un cliente
+    // individual, la cuenta ES su empresa.
+    expect(creado.cuentasDeFacturacion).toHaveLength(1);
+    expect(creado.cuentasDeFacturacion[0].name).toBe('X');
+    expect(creado.suscripciones[0]).toMatchObject({ cuentaId: 'cta-nueva', planId: 'plan-demo', status: 'DEMO', movementsLimit: 50 });
     const dias = (creado.suscripciones[0].periodEnd - creado.suscripciones[0].periodStart) / 86400000;
     expect(Math.round(dias)).toBe(14);
+  });
+
+  it('la empresa nace dentro de la cuenta de facturación', async () => {
+    const { tx } = txFalso();
+    const empresa = await crearEmpresaConPlantilla(tx, { name: 'X' });
+    expect(empresa.cuentaId).toBe('cta-nueva');
+  });
+
+  it('con cuenta elegida (cliente de un despacho) NO estrena plan ni cuenta', async () => {
+    const { tx, creado } = txFalso({ suscripcionesDeLaCuenta: 1 });
+    const empresa = await crearEmpresaConPlantilla(tx, { name: 'Cliente del despacho' }, { cuentaId: 'cta-despacho' });
+
+    expect(empresa.cuentaId).toBe('cta-despacho');
+    expect(creado.cuentasDeFacturacion).toHaveLength(0); // no abrió cuenta propia
+    expect(creado.suscripciones).toHaveLength(0); // el plan ya es de la cuenta
+  });
+
+  it('una cuenta vencida no se rearma con un Demo al sumar un cliente', async () => {
+    // `count` mira TODAS las suscripciones, no solo las vigentes: si no, dar de alta
+    // un cliente sería la puerta para que una cuenta suspendida vuelva a tener cuota.
+    const { tx, creado } = txFalso({ suscripcionesDeLaCuenta: 3 });
+    await crearEmpresaConPlantilla(tx, { name: 'Cliente nuevo' }, { cuentaId: 'cta-vencida' });
+    expect(creado.suscripciones).toHaveLength(0);
   });
 
   it('sin RUC queda un marcador, no el RUC de otro', async () => {

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
+import { suscripcionDeEmpresa } from '../services/suscripcion';
 import { waPaused } from '../services/startup';
 import { processWhatsAppMessage, processWhatsAppPDF, processWhatsAppDgiUrl, verifyCode, generateCode, sendWhatsAppMessage, isBatchActive, startBatch, endBatch, getBatch, setBatchMetodoPago, enqueueBatchItem, confirmBatch, buildBatchResumen } from '../services/whatsapp-service';
 
@@ -84,11 +85,8 @@ async function handleWebhook(req: any, res: any): Promise<void> {
       return res.sendStatus(200);
     }
 
-    // Verificar suscripción activa
-    const sub = await req.prisma.subscription.findFirst({
-      where: { companyId: linkCheck.companyId, status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] } },
-      include: { plan: true },
-    });
+    // Verificar suscripción activa (la de la cuenta dueña de esta empresa)
+    const sub = await suscripcionDeEmpresa(req.prisma, linkCheck.companyId);
     if (!sub) {
       await sendWhatsAppMessage(replyChatId,'⚠️ No tienes una suscripción activa. Contrata un plan en contador507.com/planes');
       return res.sendStatus(200);

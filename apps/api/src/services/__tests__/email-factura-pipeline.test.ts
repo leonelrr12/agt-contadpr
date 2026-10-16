@@ -54,10 +54,11 @@ function prismaFalso(opts: any = {}) {
         'banco' in opts ? opts.banco : { id: 'acc-banco', code: '1.1.02.01', name: 'Banco General', isActive: true, isBlocked: false },
     },
     subscription: {
+      // La cuota se resuelve por la CUENTA de la empresa (`services/suscripcion.ts`)
       findFirst: async () => ('sub' in opts ? opts.sub : { id: 'sub-1', movementsUsed: 10, movementsLimit: 100 }),
-      update: async () => {
+      updateMany: async () => {
         llamadas.cuota++;
-        return {};
+        return { count: 1 };
       },
     },
     concept: { findFirst: async () => opts.concepto ?? null },

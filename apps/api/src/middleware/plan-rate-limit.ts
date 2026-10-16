@@ -1,22 +1,14 @@
 import rateLimit from 'express-rate-limit';
+import { suscripcionDeEmpresa } from '../services/suscripcion';
 
 /**
  * Rate limiting por plan — SOLO para escrituras (POST/PUT/PATCH/DELETE).
  * Las lecturas (GET) no están limitadas por plan, solo por el rate limiter global.
  *
- * Límites por segundo según el plan contratado:
- * - Demo / sin plan:  5 req/s
- * - Emprendedor:      10 req/s
- * - Pyme:             25 req/s
- * - Despacho:         50 req/s
+ * El límite sale de **`Plan.reqPorSegundo`**, un campo del plan. Antes era una tabla
+ * por NOMBRE de plan en este archivo, y eso era una trampa: renombrar un plan o
+ * crear uno nuevo lo dejaba en el piso de 5 req/s sin que nadie se enterara.
  */
-const PLAN_RATE_LIMITS: Record<string, number> = {
-  Demo: 5,
-  Emprendedor: 10,
-  Pyme: 25,
-  Despacho: 50,
-};
-
 const DEFAULT_LIMIT = 5;
 
 export const planRateLimiter = rateLimit({
@@ -30,17 +22,10 @@ export const planRateLimiter = rateLimit({
       const companyId = req.user?.companyId;
       if (!companyId) return DEFAULT_LIMIT;
 
-      const subscription = await req.prisma.subscription.findFirst({
-        where: {
-          companyId,
-          status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] },
-        },
-        include: { plan: true },
-      });
-
+      const subscription = await suscripcionDeEmpresa(req.prisma, companyId);
       if (!subscription) return DEFAULT_LIMIT;
 
-      return PLAN_RATE_LIMITS[subscription.plan.name] || DEFAULT_LIMIT;
+      return subscription.plan.reqPorSegundo || DEFAULT_LIMIT;
     } catch {
       return DEFAULT_LIMIT;
     }

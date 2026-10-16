@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { incrementarUsoDeEmpresa, suscripcionDeEmpresa } from '../services/suscripcion';
 
 /**
  * Middleware que verifica que la empresa tenga una suscripción activa
@@ -6,18 +7,16 @@ import type { Request, Response, NextFunction } from 'express';
  *
  * Estados permitidos: DEMO, ACTIVE, GRANTED, GRACE
  * Estados bloqueados: EXPIRED
+ *
+ * La suscripción es de la **cuenta** que paga, no de la empresa: acá se sube de una
+ * a la otra (`services/suscripcion.ts`). La cuota es una sola para toda la cuenta,
+ * así que lo que consume una empresa del despacho descuenta el cupo de todas.
  */
 export async function requireQuota(req: Request, res: Response, next: NextFunction): Promise<void> {
   const companyId = req.user!.companyId;
 
-  // Obtener la suscripción activa más reciente
-  const subscription = await req.prisma.subscription.findFirst({
-    where: {
-      companyId,
-      status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] },
-    },
-    include: { plan: true },
-  });
+  // Obtener la suscripción vigente de la cuenta dueña de esta empresa
+  const subscription = await suscripcionDeEmpresa(req.prisma, companyId);
 
   // Sin suscripción activa
   if (!subscription) {
@@ -62,7 +61,7 @@ export async function requireQuota(req: Request, res: Response, next: NextFuncti
 }
 
 /**
- * Incrementa el contador de movimientos usados para la suscripción activa.
+ * Incrementa el contador de movimientos usados para la suscripción de la cuenta.
  * Se llama DESPUÉS de crear un movimiento contable exitosamente.
  *
  * `cantidad` es fraccionaria para la planilla semanal, que consume media cuota: 52
@@ -79,43 +78,5 @@ export async function incrementUsage(req: Request, cantidad = 1): Promise<void> 
  * nacen de una petición HTTP (el barrido del correo, el cron de recurrentes).
  */
 export async function incrementUsageForCompany(prisma: any, companyId: string, cantidad = 1): Promise<void> {
-  const subscription = await prisma.subscription.findFirst({
-    where: {
-      companyId,
-      status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] },
-    },
-  });
-
-  if (subscription) {
-    await prisma.subscription.update({
-      where: { id: subscription.id },
-      data: { movementsUsed: { increment: cantidad } },
-    });
-  }
-}
-
-/**
- * Obtiene info de la suscripción actual para mostrar en el frontend.
- */
-export async function getSubscriptionInfo(req: Request) {
-  const companyId = req.user!.companyId;
-
-  const subscription = await req.prisma.subscription.findFirst({
-    where: {
-      companyId,
-      status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] },
-    },
-    include: { plan: true },
-  });
-
-  if (!subscription) return null;
-
-  return {
-    status: subscription.status,
-    plan: subscription.plan.name,
-    movementsUsed: subscription.movementsUsed,
-    movementsLimit: subscription.movementsLimit,
-    periodEnd: subscription.periodEnd,
-    daysLeft: Math.max(0, Math.ceil((new Date(subscription.periodEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24))),
-  };
+  await incrementarUsoDeEmpresa(prisma, companyId, cantidad);
 }

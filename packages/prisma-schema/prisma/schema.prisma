@@ -7,9 +7,38 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// La cuenta que PAGA: es el cliente de la plataforma, y las empresas cuelgan de
+/// ella (`Cuenta ──1:N── Company`).
+///
+/// Un cliente individual es una cuenta con UNA empresa; un despacho es una cuenta
+/// con N empresas (sus clientes) —no hay dos modelos—. **La suscripción vive acá**
+/// (`Subscription.cuentaId`), no en la empresa: el despacho paga una vez y esa cuota
+/// cubre a todas sus empresas, con el consumo sumado.
+///
+/// Ojo con el nombre: acá «cuenta» es la cuenta de FACTURACIÓN. Las cuentas
+/// contables son `Account` y no tienen nada que ver con esta tabla.
+///
+/// **No da permisos**: quién entra a cada empresa sigue saliendo de las membresías
+/// (`UserCompany`). Un contador del despacho entra a los libros del cliente porque
+/// tiene membresía ahí, no porque la cuenta sea la misma.
+model Cuenta {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companies     Company[]
+  subscriptions Subscription[]
+
+  @@map("cuenta")
+}
+
 model Company {
   id        String   @id @default(cuid())
   name      String
+  /// La cuenta dueña (la que paga el plan). Toda empresa tiene una: es lo que
+  /// resuelve su cuota.
+  cuentaId  String
   taxId     String
   taxIdHash String?  @unique  // HMAC-SHA256 con clave derivada — dedupe de RUC sin filtrar el valor
   address   String?
@@ -64,6 +93,8 @@ model Company {
   createdAt    DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  cuenta         Cuenta   @relation(fields: [cuentaId], references: [id])
+
   users          User[]
   /// Membresías: quiénes tienen acceso a esta empresa (el dueño y, si es de un
   /// despacho, los contadores que la llevan).
@@ -72,7 +103,6 @@ model Company {
   concepts       Concept[]
   transactions   Transaction[]
   journalEntries JournalEntry[]
-  subscriptions  Subscription[]
   apiKeys        ApiKey[]
   clients        Client[]
   suppliers      Supplier[]
@@ -95,6 +125,8 @@ model Company {
   declaracionesItbms DeclaracionItbms[]
   emailFacturaConfig EmailFacturaConfig?
   emailFacturaMensajes EmailFacturaMensaje[]
+
+  @@index([cuentaId])
 }
 
 /// Membresía de un usuario a una empresa: es lo que permite que un despacho
@@ -306,6 +338,11 @@ model Plan {
   name          String   @unique   // "Demo", "Emprendedor", "Pyme", "Despacho"
   description   String?           // Descripción visible en la UI
   monthlyLimit  Int                // Movimientos por período
+  /// Escrituras por segundo que permite el plan (`middleware/plan-rate-limit.ts`).
+  /// Es un CAMPO del plan y no una tabla por nombre: cuando el rate limit se
+  /// resolvía por `Plan.name`, renombrar un plan o crear uno nuevo lo dejaba en
+  /// 5 req/s en silencio.
+  reqPorSegundo Int      @default(5)
   price         Float              // Precio en USD (0 = gratis/demo)
   features      String   @default("[]") // JSON array de funcionalidades
   isActive      Boolean  @default(true)
@@ -332,9 +369,14 @@ enum PaymentMethod {
   OTHER
 }
 
+/// La suscripción de una CUENTA —antes colgaba de la empresa—: el plan y la cuota
+/// son de quien paga, y las empresas de la cuenta los comparten. La cuota se
+/// resuelve subiendo de la empresa a su cuenta, que es un salto de una fila
+/// (`services/suscripcion.ts`), y el `movementsUsed` es uno solo para toda la
+/// cuenta: el consumo de sus empresas se suma.
 model Subscription {
   id              String             @id @default(cuid())
-  companyId       String
+  cuentaId        String
   planId          String
   status          SubscriptionStatus @default(DEMO)
   /// Fraccionario: la planilla SEMANAL consume media cuota (52 corridas al año contra
@@ -349,11 +391,11 @@ model Subscription {
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
-  company         Company           @relation(fields: [companyId], references: [id])
+  cuenta          Cuenta            @relation(fields: [cuentaId], references: [id])
   plan            Plan              @relation(fields: [planId], references: [id])
   payments        PaymentRecord[]
 
-  @@index([companyId])
+  @@index([cuentaId])
   @@index([status])
   @@map("subscription")
 }

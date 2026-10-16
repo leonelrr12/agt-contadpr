@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { suscripcionDeEmpresa } from '../services/suscripcion';
 
 /** Catálogo de add-ons contratables (v1: hardcodeado — migrar a tabla si crece). */
 export const KNOWN_ADDONS = ['facturas-pdf'] as const;
@@ -7,16 +8,16 @@ export const KNOWN_ADDONS = ['facturas-pdf'] as const;
  * Middleware que exige un add-on contratado en la suscripción activa.
  * Debe ejecutarse DESPUÉS de requireAuth.
  *
+ * El add-on es de la **cuenta** que paga (como el plan): contratado una vez, lo usan
+ * todas sus empresas.
+ *
  * Uso:
  *   router.use(requireAddon('facturas-pdf'));
  */
 export function requireAddon(addon: string) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const sub = await req.prisma.subscription.findFirst({
-        where: { companyId: req.user!.companyId, status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] } },
-        select: { status: true, periodEnd: true, addons: true },
-      });
+      const sub = await suscripcionDeEmpresa(req.prisma, req.user!.companyId);
       if (!sub) {
         res.status(402).json({ error: 'No tienes una suscripción activa.', code: 'NO_SUBSCRIPTION' });
         return;

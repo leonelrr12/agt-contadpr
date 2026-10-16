@@ -1,6 +1,7 @@
 import { ClassificationAgent } from '@agt-contador/agents';
 import { AccountingAgent } from '@agt-contador/agents';
 import { checkNotBlocked } from './journal-guard';
+import { incrementarUsoDeEmpresa, suscripcionDeEmpresa } from './suscripcion';
 import type { DialogResult } from '@agt-contador/agents';
 
 export interface SingleProcessResult {
@@ -121,13 +122,8 @@ export async function processSingleTemplate(
   }
 
   try {
-    // Verificar quota
-    const subscription = await prisma.subscription.findFirst({
-      where: {
-        companyId: template.companyId,
-        status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] },
-      },
-    });
+    // Verificar quota (la de la cuenta dueña de la empresa del recurrente)
+    const subscription = await suscripcionDeEmpresa(prisma, template.companyId);
 
     if (!subscription || subscription.movementsUsed >= subscription.movementsLimit) {
       return { executed: false, error: 'Quota excedida. No se puede crear el asiento.' };
@@ -222,13 +218,7 @@ export async function processSingleTemplate(
         },
       });
 
-      await tx.subscription.updateMany({
-        where: {
-          companyId: template.companyId,
-          status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] },
-        },
-        data: { movementsUsed: { increment: 1 } },
-      });
+      await incrementarUsoDeEmpresa(tx, template.companyId, 1);
 
       // Actualizar lastEntryId
       await tx.recurringTemplate.update({
@@ -272,13 +262,8 @@ export async function processDueItems(
 
   for (const template of templates) {
     try {
-      // Verificar quota
-      const subscription = await prisma.subscription.findFirst({
-        where: {
-          companyId: template.companyId,
-          status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] },
-        },
-      });
+      // Verificar quota (la de la cuenta dueña de la empresa del recurrente)
+      const subscription = await suscripcionDeEmpresa(prisma, template.companyId);
 
       if (!subscription || subscription.movementsUsed >= subscription.movementsLimit) {
         result.skipped++;
@@ -390,13 +375,7 @@ export async function processDueItems(
       });
 
       // Incrementar quota
-      await prisma.subscription.updateMany({
-        where: {
-          companyId: template.companyId,
-          status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] },
-        },
-        data: { movementsUsed: { increment: 1 } },
-      });
+      await incrementarUsoDeEmpresa(prisma, template.companyId, 1);
 
       // Actualizar template
       const next = calculateNextRun(template.frequency, template.dayOfMonth, template.dayOfWeek);

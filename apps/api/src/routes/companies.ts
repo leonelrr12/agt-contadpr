@@ -18,7 +18,10 @@ import { empresasDeUsuario, esSuperadmin, sesionEnEmpresa } from '../services/em
  * abre libros a su nombre sin ser su dueño.
  *
  * La empresa nace igual que por el registro: misma función
- * (`services/crear-empresa.ts`), mismo plan de cuentas, mismo plan Demo.
+ * (`services/crear-empresa.ts`), mismo plan de cuentas. Lo que cambia según quién
+ * la crea es **la cuenta que paga**: la del despacho (el cliente se suma a su plan,
+ * que es lo que un despacho compra) o una propia con su Demo si la abre el dueño de
+ * la plataforma, que no es cliente de sí mismo.
  */
 export const companiesRouter = Router();
 
@@ -52,8 +55,17 @@ companiesRouter.post('/', requireRole('admin', 'superadmin'), async (req, res) =
   }
 
   try {
+    // ¿A qué cuenta va la empresa nueva? A la del despacho que la crea: el plan y la
+    // cuota son de la cuenta, así que el cliente que se suma entra cubierto por el
+    // plan que el despacho ya paga (y consume de su misma cuota). **Salvo el dueño de
+    // la plataforma**, que no es cliente de sí mismo: cuando da de alta una empresa
+    // lo que hace es abrir un cliente nuevo, y ese nace con su propia cuenta y su Demo.
+    const cuenta = (await esSuperadmin(req.prisma, userId))
+      ? undefined
+      : (await req.prisma.company.findUnique({ where: { id: req.user!.companyId }, select: { cuentaId: true } }))?.cuentaId;
+
     const company = await req.prisma.$transaction(async (tx: any) => {
-      const nueva = await crearEmpresaConPlantilla(tx, { name: nombre, taxId }, { plantillaCompanyId: plantilla });
+      const nueva = await crearEmpresaConPlantilla(tx, { name: nombre, taxId }, { plantillaCompanyId: plantilla, cuentaId: cuenta });
       await hacerAdministrador(tx, userId, nueva.id);
       // Quedar como dueño de una empresa nueva es una decisión que se registra.
       await tx.auditLog.create({
@@ -62,7 +74,7 @@ companiesRouter.post('/', requireRole('admin', 'superadmin'), async (req, res) =
           action: 'CREAR_EMPRESA',
           entity: 'Company',
           entityId: nueva.id,
-          after: JSON.stringify({ nombre, taxId, catalogoDe: plantilla }),
+          after: JSON.stringify({ nombre, taxId, catalogoDe: plantilla, cuenta: cuenta || 'nueva' }),
         },
       });
       return nueva;

@@ -1,8 +1,8 @@
 # Planes y cuentas (despacho) — diseño
 
-**Estado: PROPUESTA del 16-10-2026, sin empezar.** Las dos decisiones de fondo ya están tomadas por el
-dueño: **el despacho es una entidad aparte con su propia suscripción** (no una empresa que cubre a
-otras) y **el tope de movimientos se mantiene, holgado**, como red anti-abuso.
+**Estado: fase 1 implementada (16-10-2026); fases 2-4 pendientes.** Las dos decisiones de fondo ya están
+tomadas por el dueño: **el despacho es una entidad aparte con su propia suscripción** (no una empresa que
+cubre a otras) y **el tope de movimientos se mantiene, holgado**, como red anti-abuso.
 
 ## 1. El problema
 
@@ -103,23 +103,55 @@ elige lo suyo: el negocio que necesita stock, o el contador que lleva tres clien
 
 | Fase | Contenido | Verificación |
 |---|---|---|
-| **1** | `Cuenta` + backfill + `Subscription.cuentaId` + cuota/plan resolviendo por la cuenta | Todo funciona igual que hoy: la cuota de cada empresa se lee y se consume como siempre |
+| ~~**1**~~ ✅ | `Cuenta` + backfill + `Subscription.cuentaId` + cuota/plan resolviendo por la cuenta | Todo funciona igual que hoy: la cuota de cada empresa se lee y se consume como siempre |
 | **2** | `maxEmpresas` y `maxUsuariosPorEmpresa` en el plan, validados; contadores en la UI | No se puede pasar del tope; el mensaje dice cuántos hay y qué hacer |
 | **3** | `Plan.modulos` + gate en menú y API (inventario, planilla) | Un plan sin inventario no lo ve ni lo puede usar por API |
 | **4** | Panel SaaS por cuenta (asignar plan, ver empresas y usuarios) + pantalla de precios nueva | El dueño puede dar de alta un despacho y ver qué tiene contratado |
 
+### Fase 1 — lo que quedó hecho (16-10-2026)
+
+Migración `0041_cuenta_facturacion`: tabla `cuenta`, `Company.cuentaId` (obligatorio) y
+`Subscription.cuentaId` en lugar de `companyId`. El backfill crea **una cuenta por empresa** con el id
+derivado (`cta_` + id de la empresa, para poder mover cada suscripción sin mapear por nombre) y se lleva
+todas sus suscripciones —vigentes e históricas— a esa cuenta. Nada cambia de comportamiento hasta que
+alguien sume una segunda empresa.
+
+**`services/suscripcion.ts` es la única fuente** del salto «empresa → cuenta → suscripción»
+(`suscripcionDeEmpresa`, `incrementarUsoDeEmpresa`, `empresasDeLaCuenta`). Todo lo que antes filtraba
+`subscription` por `companyId` pasa por ahí: cuota, add-ons, rate limit, panel SaaS, WhatsApp, correo,
+recurrentes, cierre de año. Si mañana la cuota se reparte de otra forma, se cambia en un solo lugar.
+
+Decisiones que no estaban escritas y se tomaron al implementar:
+
+1. **El consumo suma, no se reparte**: `movementsUsed` sigue siendo un solo contador, ahora de la cuenta.
+   Dos empresas del mismo despacho descuentan del mismo cupo.
+2. **Una empresa nueva desde la app se suma a la cuenta de quien la crea** (el despacho paga por su
+   cliente). **Excepción: el superadmin**, que no es cliente de sí mismo — sus altas abren cuenta nueva
+   con plan Demo, que es el comportamiento de siempre para el dueño de la plataforma.
+3. **El plan Demo es de la cuenta y solo si esa cuenta no tiene NINGUNA suscripción** (ni vencida): si no,
+   dar de alta un cliente sería la puerta para que una cuenta suspendida vuelva a tener cuota.
+4. **Trampa 1 cerrada**: `Plan.reqPorSegundo` reemplaza la tabla por nombre (`Demo` 5, `Emprendedor` 10,
+   `Pyme` 25, `Despacho` 50, default 5). El plan nuevo nace con 5 y se ajusta por BD o desde el panel.
+5. **El panel SaaS sigue aceptando `companyId`** (resuelve la cuenta sola) y ahora muestra la cuenta con
+   sus empresas; la fase 4 lo reescribe por cuenta.
+
 ## 8. Trampas detectadas
 
-1. **`plan-rate-limit.ts` está cableado por NOMBRE de plan** (`Demo: 5, Emprendedor: 10, Pyme: 25,
+1. ~~**`plan-rate-limit.ts` está cableado por NOMBRE de plan** (`Demo: 5, Emprendedor: 10, Pyme: 25,
    Despacho: 50`). Si los planes se renombran o se crean nuevos, el rate limit cae a 5 req/s **en
-   silencio**. Hay que moverlo a un campo del plan (`reqPorSegundo`) antes de tocar los nombres.
+   silencio**. Hay que moverlo a un campo del plan (`reqPorSegundo`) antes de tocar los nombres.~~
+   **CERRADA en la fase 1**: es `Plan.reqPorSegundo` (migración `0041`), y con eso los nombres de los
+   planes ya se pueden tocar.
 2. **La cuota es por período y fraccionaria** (la planilla semanal consume media cuota): al mudarla a la
    cuenta, el reinicio de período y el `movementsUsed` tienen que seguir por empresa… o pasar a la
    cuenta entera. Decisión: **la cuota es de la cuenta** (es la que paga), y el consumo se suma de todas
-   sus empresas.
+   sus empresas. **Aplicado en la fase 1**: un solo `movementsUsed` por cuenta, con el incremento
+   resuelto por la empresa que hizo el movimiento.
 3. **El panel SaaS** (`/api/admin`) y la pantalla de precios (`/api/plans`) leen la suscripción por
-   empresa: hay que pasarlos por la cuenta, o quedan mostrando datos viejos.
-4. **`userAddons` en el frontend** (`window.userAddons`, usado para mostrar Facturas PDF) sale de la
-   suscripción: con la cuenta, sale de la cuenta.
+   empresa: hay que pasarlos por la cuenta, o quedan mostrando datos viejos. **El panel ya lee por
+   cuenta** (fase 1); la pantalla de precios se rehace en la fase 4, cuando cambien los planes.
+4. ~~**`userAddons` en el frontend** (`window.userAddons`, usado para mostrar Facturas PDF) sale de la
+   suscripción: con la cuenta, sale de la cuenta.~~ **Resuelto**: `/api/subscription` resuelve por la
+   cuenta, así que el add-on contratado por el despacho vale en todas sus empresas.
 5. **Los roles exclusivos** (`inventario`, `planilla`) solo tienen sentido si el plan incluye el módulo:
    crear un usuario de planilla en un plan sin planilla tiene que rechazarse con ese motivo.

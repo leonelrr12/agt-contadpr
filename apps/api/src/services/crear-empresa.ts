@@ -6,10 +6,11 @@
  * Una empresa recién creada tiene que poder trabajar el mismo día, así que nace
  * con: el **plan de cuentas copiado de la plantilla** —con sus jerarquías, sus
  * alias y el «Lleva Anexo»—, los **conceptos** apuntando a esas cuentas nuevas,
- * el **plan Demo** (14 días, 50 movimientos) y su **administrador** como
- * membresía. `isBlocked` no se copia a propósito: bloquear una cuenta es una
- * decisión operativa de cada empresa y heredarla dejaría flujos rotos desde el
- * día uno (misma doctrina que el registro).
+ * su **cuenta de facturación** —propia, con el plan Demo de 14 días y 50 movimientos,
+ * o la del despacho que la suma como cliente— y su **administrador** como membresía.
+ * `isBlocked` no se copia a propósito: bloquear una cuenta es una decisión operativa
+ * de cada empresa y heredarla dejaría flujos rotos desde el día uno (misma doctrina
+ * que el registro).
  *
  * Corre SIEMPRE dentro de una transacción: media empresa creada —sin cuentas o
  * sin admin— es peor que ninguna.
@@ -35,6 +36,14 @@ export interface OpcionesEmpresa {
    * mismo. Quien llama valida que se pueda usar (`empresaComoPlantilla`).
    */
   plantillaCompanyId?: string;
+  /**
+   * La **cuenta que paga** a la que se suma la empresa. Sin esto, la empresa abre
+   * su propia cuenta (es un cliente individual, o el dueño de la plataforma dando
+   * de alta a uno nuevo) y estrena el plan Demo. Con esto, es un cliente más de un
+   * despacho: **no estrena plan**, porque el plan y la cuota son de la cuenta y ya
+   * los tiene.
+   */
+  cuentaId?: string;
 }
 
 export async function crearEmpresaConPlantilla(
@@ -43,9 +52,18 @@ export async function crearEmpresaConPlantilla(
   opts: OpcionesEmpresa = {},
 ): Promise<any> {
   const plantillaId = opts.plantillaCompanyId || PLANTILLA_DEL_SISTEMA;
+
+  // ── La cuenta que paga ──
+  // Nace con el nombre de la empresa: para un cliente individual la cuenta ES su
+  // empresa, y así el panel de suscripciones se lee sin traducir nada.
+  const cuentaId = opts.cuentaId
+    ? opts.cuentaId
+    : (await tx.cuenta.create({ data: { name: datos.name } })).id;
+
   const company = await tx.company.create({
     data: {
       name: datos.name,
+      cuentaId,
       // Sin RUC queda un marcador: el dueño lo completa en Configuración, y así
       // nadie queda con el RUC de otro por un campo vacío.
       taxId: datos.taxId || `SIN-RUC-${crypto.randomUUID()}`,
@@ -96,13 +114,18 @@ export async function crearEmpresaConPlantilla(
   }
 
   // ── Plan Demo (14 días, 50 movimientos) ──
-  const demoPlan = await tx.plan.findUnique({ where: { name: 'Demo' } });
+  // Va a la CUENTA, y solo si esa cuenta no tiene plan todavía. Un cliente nuevo de
+  // un despacho entra con el plan del despacho —no con un Demo aparte, que además
+  // sería una puerta para que una cuenta vencida se dé de alta un cliente y vuelva
+  // a tener cuota.
+  const estrenaPlan = (await tx.subscription.count({ where: { cuentaId } })) === 0;
+  const demoPlan = estrenaPlan ? await tx.plan.findUnique({ where: { name: 'Demo' } }) : null;
   if (demoPlan) {
     const fin = new Date();
     fin.setDate(fin.getDate() + 14);
     await tx.subscription.create({
       data: {
-        companyId: company.id,
+        cuentaId,
         planId: demoPlan.id,
         status: 'DEMO',
         movementsLimit: demoPlan.monthlyLimit,

@@ -5,6 +5,8 @@
  * El asiento nace CONFIRMADO y marcado isClosing (excluido de reportes).
  */
 
+import { incrementarUsoDeEmpresa } from './suscripcion';
+
 export interface YearBalances {
   year: string;
   totalIngresos: number;
@@ -166,10 +168,7 @@ export async function closeYear(
         },
         include: { lines: { include: { account: true } } },
       });
-      await tx.subscription.updateMany({
-        where: { companyId, status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] } },
-        data: { movementsUsed: { increment: 1 } },
-      });
+      await incrementarUsoDeEmpresa(tx, companyId, 1);
       return je;
     });
     return { entry, balances };

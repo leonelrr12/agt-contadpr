@@ -6,6 +6,15 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('Seeding database...');
 
+  // La cuenta que paga (migración 0041: `Cuenta ──1:N── Company`). En una BD nueva
+  // nace acá con la empresa; en una que ya existe la puso la migración —una cuenta
+  // por empresa— así que se respeta la que tiene: inventarle otra dejaría a la
+  // empresa Demo sin plan.
+  const empresaPrevia = await prisma.company.findUnique({ where: { id: 'demo-company' } });
+  const cuenta = empresaPrevia
+    ? await prisma.cuenta.findUnique({ where: { id: empresaPrevia.cuentaId } })
+    : await prisma.cuenta.create({ data: { id: 'demo-cuenta', name: 'Empresa Demo' } });
+
   const company = await prisma.company.upsert({
     // taxId dejó de ser único cuando se añadió taxIdHash (cifrado en reposo);
     // el upsert va por id, que es el que define este mismo seed.
@@ -17,6 +26,7 @@ async function main() {
       taxId: '00-0000000-0-00',
       country: 'PA',
       currency: 'USD',
+      cuentaId: cuenta!.id,
     },
   });
 
@@ -68,6 +78,9 @@ async function main() {
   const plans = [
     {
       name: 'Demo',
+      // Escrituras por segundo del plan (antes vivían como tabla por NOMBRE en
+      // `middleware/plan-rate-limit.ts`; ahora son un campo del plan)
+      reqPorSegundo: 5,
       description: 'Prueba gratuita de 14 días — descubre el poder de la contabilidad con IA',
       monthlyLimit: 50,
       price: 0,
@@ -83,6 +96,9 @@ async function main() {
     },
     {
       name: 'Emprendedor',
+      // Escrituras por segundo del plan (antes vivían como tabla por NOMBRE en
+      // `middleware/plan-rate-limit.ts`; ahora son un campo del plan)
+      reqPorSegundo: 10,
       description: 'Para profesionales independientes y freelancers',
       monthlyLimit: 100,
       price: 19.99,
@@ -99,6 +115,9 @@ async function main() {
     },
     {
       name: 'Pyme',
+      // Escrituras por segundo del plan (antes vivían como tabla por NOMBRE en
+      // `middleware/plan-rate-limit.ts`; ahora son un campo del plan)
+      reqPorSegundo: 25,
       description: 'Para pequeñas y medianas empresas',
       monthlyLimit: 500,
       price: 49.99,
@@ -116,6 +135,9 @@ async function main() {
     },
     {
       name: 'Despacho',
+      // Escrituras por segundo del plan (antes vivían como tabla por NOMBRE en
+      // `middleware/plan-rate-limit.ts`; ahora son un campo del plan)
+      reqPorSegundo: 50,
       description: 'Para despachos contables con múltiples clientes',
       monthlyLimit: 2000,
       price: 149.99,
@@ -138,6 +160,7 @@ async function main() {
       where: { name: plan.name },
       update: {
         monthlyLimit: plan.monthlyLimit,
+        reqPorSegundo: plan.reqPorSegundo,
         price: plan.price,
         features: plan.features,
         sortOrder: plan.sortOrder,
@@ -147,16 +170,17 @@ async function main() {
   }
   console.log(`Planes: ${plans.length} creados/actualizados`);
 
-  // Demo company: asignar suscripción Demo activa (14 días desde ahora)
+  // Demo company: asignar suscripción Demo activa (14 días desde ahora).
+  // La suscripción es de la CUENTA, no de la empresa.
   const existingSub = await prisma.subscription.findFirst({
-    where: { companyId: company.id, status: 'DEMO' },
+    where: { cuentaId: company.cuentaId, status: 'DEMO' },
   });
   if (!existingSub) {
     const demoEnd = new Date();
     demoEnd.setDate(demoEnd.getDate() + 14);
     await prisma.subscription.create({
       data: {
-        companyId: company.id,
+        cuentaId: company.cuentaId,
         planId: (await prisma.plan.findUnique({ where: { name: 'Demo' } }))!.id,
         status: 'DEMO',
         movementsLimit: 50,

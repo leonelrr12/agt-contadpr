@@ -16,6 +16,7 @@
  */
 
 import { ESTADOS_QUE_AVISAN } from './email-facturas-avisos';
+import { suscripcionDeEmpresa } from './suscripcion';
 import type { EmpresaAccesible } from './empresas-usuario';
 
 export interface PendientesEmpresa {
@@ -90,10 +91,9 @@ async function computar(
       where: { companyId, status: { in: ['PENDING', 'OVERDUE'] }, dueDate: { lte: enUnaSemana } },
       select: { status: true },
     }),
-    prisma.subscription.findFirst({
-      where: { companyId, status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] } },
-      select: { movementsUsed: true, movementsLimit: true, plan: { select: { name: true } } },
-    }),
+    // La cuota que se muestra es la de la CUENTA: si el despacho tiene un plan que
+    // cubre a todas sus empresas, todas muestran el mismo cupo consumido.
+    suscripcionDeEmpresa(prisma, companyId),
   ]);
 
   base.borradores = borradores;

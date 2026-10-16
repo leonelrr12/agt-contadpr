@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { getSubscriptionInfo } from '../middleware/quota';
+import { empresasDeLaCuenta, suscripcionDeEmpresa } from '../services/suscripcion';
 
 export const billingRouter = Router();
 
@@ -24,18 +24,16 @@ billingRouter.get('/plans', async (req, res) => {
 });
 
 /**
- * GET /api/subscription — Info de la suscripción del usuario autenticado
+ * GET /api/subscription — Info de la suscripción del usuario autenticado.
+ *
+ * El plan y la cuota son de la CUENTA que paga, así que el uso diario suma el de
+ * todas sus empresas: el gráfico es de la cuenta, no de la empresa en la que el
+ * usuario está parado.
  */
 billingRouter.get('/subscription', requireAuth, async (req, res) => {
   const companyId = req.user!.companyId;
 
-  const subscription = await req.prisma.subscription.findFirst({
-    where: {
-      companyId,
-      status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] },
-    },
-    include: { plan: true },
-  });
+  const subscription = await suscripcionDeEmpresa(req.prisma, companyId);
 
   if (!subscription) {
     res.json({ subscription: null, plansUrl: '/planes.html' });
@@ -46,7 +44,7 @@ billingRouter.get('/subscription', requireAuth, async (req, res) => {
   const dailyUsage = await req.prisma.transaction.groupBy({
     by: ['date'],
     where: {
-      companyId,
+      companyId: { in: await empresasDeLaCuenta(req.prisma, companyId) },
       date: { gte: subscription.periodStart, lte: new Date() },
     },
     _count: { id: true },
@@ -65,7 +63,7 @@ billingRouter.get('/subscription', requireAuth, async (req, res) => {
     daysLeft: Math.max(0, Math.ceil((new Date(subscription.periodEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24))),
     daysTotal: Math.ceil((new Date(subscription.periodEnd).getTime() - new Date(subscription.periodStart).getTime()) / (1000 * 60 * 60 * 24)),
     dailyUsage: dailyUsage.map(d => ({ date: d.date.toISOString().split('T')[0], count: d._count.id })),
-    rateLimit: { Demo: 5, Emprendedor: 10, Pyme: 25, Despacho: 50 }[subscription.plan.name] || 5,
+    rateLimit: subscription.plan.reqPorSegundo || 5,
   };
 
   res.json({ subscription: info });

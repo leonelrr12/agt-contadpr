@@ -260,8 +260,15 @@ async function loadSubscriptions() {
       `<button class="btn btn-sm ${(s.addons||[]).includes(a) ? 'btn-success' : ''}" onclick="toggleAddon('${s.id}','${a}')" title="Clic para activar/desactivar">${a === 'facturas-pdf' ? '🧾 Facturas PDF' : a} ${(s.addons||[]).includes(a) ? '✓' : ''}</button>`
     ).join(' ') || '<span class="text-muted">—</span>';
 
+    // La suscripción es de la CUENTA que paga: para un cliente individual la cuenta
+    // se llama como su empresa, y para un despacho es la cuenta con sus clientes.
+    const empresas = s.cuenta?.companies || [];
+    const detalle = empresas.length === 1
+      ? esc(empresas[0].taxId || '')
+      : `${empresas.length} empresas`;
+
     return `<tr>
-      <td><strong>${esc(s.company?.name || '—')}</strong><br><span class="text-muted">${esc(s.company?.taxId || '')}</span></td>
+      <td><strong>${esc(s.cuenta?.name || '—')}</strong><br><span class="text-muted">${detalle}</span></td>
       <td>${esc(s.plan?.name || '—')}</td>
       <td><span class="badge ${badgeClass[s.status] || ''}">${statusLabel[s.status] || s.status}</span></td>
       <td>${s.movementsUsed} / ${s.movementsLimit}</td>
@@ -269,8 +276,8 @@ async function loadSubscriptions() {
       <td>${vence}</td>
       <td style="color:${daysColor};font-weight:700">${daysLeft}</td>
       <td style="white-space:nowrap">${addons}<br>
-        <button class="btn btn-sm btn-primary" onclick="showPayment('${s.id}','${esc(s.company?.name||'')}','${esc(s.plan?.name||'')}',${s.plan?.price||0})" style="margin-top:4px">💰 Pago</button>
-        <button class="btn btn-sm btn-success" onclick="showGrant('${s.id}','${esc(s.company?.name||'')}')" style="margin-left:4px;margin-top:4px">🎁 Extender</button>
+        <button class="btn btn-sm btn-primary" onclick="showPayment('${s.id}','${esc(s.cuenta?.name||'')}','${esc(s.plan?.name||'')}',${s.plan?.price||0})" style="margin-top:4px">💰 Pago</button>
+        <button class="btn btn-sm btn-success" onclick="showGrant('${s.id}','${esc(s.cuenta?.name||'')}')" style="margin-left:4px;margin-top:4px">🎁 Extender</button>
       </td>
     </tr>`;
   }).join('');
@@ -293,7 +300,7 @@ async function loadPayments() {
 
   tbody.innerHTML = payments.slice(0, 20).map(p => `
     <tr>
-      <td>${esc(p.subscription?.company?.name || '—')}</td>
+      <td>${esc(p.subscription?.cuenta?.name || '—')}</td>
       <td>${esc(p.subscription?.plan?.name || '—')}</td>
       <td><strong>$${p.amount.toFixed(2)}</strong></td>
       <td>${methodLabel[p.method] || p.method}</td>
@@ -321,7 +328,7 @@ async function showNewSubscription() {
     <div class="form-group">
       <label>ID de la Empresa</label>
       <input type="text" id="newCompanyId" placeholder="Ej: cmrl1dasg0000kpo9loo4ow72">
-      <span class="text-muted">Busca el ID en la tabla de suscripciones o en la BD</span>
+      <span class="text-muted">El plan se asigna a la CUENTA dueña de esa empresa: si es un despacho, cubre a todos sus clientes</span>
     </div>
     <div class="form-group">
       <label>Plan</label>

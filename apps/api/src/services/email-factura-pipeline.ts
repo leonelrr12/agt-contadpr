@@ -19,6 +19,7 @@ import { buildDedupeKey, buscarFacturaDuplicada, registrarFacturaRecibida, aviso
 import { cuentaBancoDeEmpresa, parseReceptorRucs } from './email-facturas-config';
 import { resolveCompanyUserId } from './company-user';
 import { incrementUsageForCompany } from '../middleware/quota';
+import { suscripcionDeEmpresa } from './suscripcion';
 import { quickClassify } from './pre-clasificador';
 import type { FacturaDetectada } from './email-factura-extract';
 
@@ -89,10 +90,7 @@ async function esDeLaEmpresa(
 
 /** Hay cuota de movimientos en el plan. Sin suscripción no se carga nada. */
 async function hayCuota(prisma: any, companyId: string): Promise<boolean> {
-  const sub = await prisma.subscription.findFirst({
-    where: { companyId, status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] } },
-    select: { movementsUsed: true, movementsLimit: true },
-  });
+  const sub = await suscripcionDeEmpresa(prisma, companyId);
   return !!sub && sub.movementsUsed < sub.movementsLimit;
 }
 
