@@ -29,12 +29,19 @@ const ETIQUETAS: { test: RegExp; etiqueta: string; sinDosPuntos?: boolean }[] = 
   // `iva` suelto NO entra: en camelCase se cuela dentro de otras palabras
   // ("domicilioPrivado" contiene «iva») y etiquetaría mal una dirección.
   { test: /itbms|impuesto/i, etiqueta: 'ITBMS' },
-  { test: /sub\s*total|base.*grava|grav.*base/i, etiqueta: 'Subtotal', sinDosPuntos: true },
-  { test: /(razon|nombre|nom).*(emisor|proveedor)|(emisor|proveedor).*(razon|nombre|nom)/i, etiqueta: 'Emisor', sinDosPuntos: true },
+  { test: /gravado|grav.*base|base.*grava|sub\s*total/i, etiqueta: 'Subtotal', sinDosPuntos: true },
+  // El receptor va ANTES que el emisor: `dNombRec` no puede caer en «Emisor».
+  { test: /(nomb|razon|nombre).*rec|rec.*(nomb|razon|nombre)|cliente/i, etiqueta: 'Cliente' },
+  { test: /(nomb|razon|nombre).*(em\b|emisor|proveedor)|(emisor|proveedor).*(nomb|razon|nombre)/i, etiqueta: 'Emisor', sinDosPuntos: true },
   { test: /ruc/i, etiqueta: 'RUC', sinDosPuntos: true },
-  { test: /(nro|num|numero).*(factura|documento)|(factura|documento).*(nro|num|numero)/i, etiqueta: 'Número', sinDosPuntos: true },
-  { test: /fecha.*(emision|expedicion)|(emision|expedicion).*fecha/i, etiqueta: 'Fecha de Emisión', sinDosPuntos: true },
-  { test: /total/i, etiqueta: 'Total', sinDosPuntos: true },
+  // `dNroDF` es el «documento fiscal» del formato CAFE de la DGI.
+  { test: /(nro|num|numero).*(df\b|factura|documento)|(factura|documento).*(nro|num|numero)/i, etiqueta: 'Número', sinDosPuntos: true },
+  // `dFechaEm` / `fechaEmision` / `fechaExpedicion`.
+  { test: /fecha.*(em\b|emision|expedicion)|(emision|expedicion).*fecha/i, etiqueta: 'Fecha de Emisión', sinDosPuntos: true },
+  // `dTotNeto`, `dVTot`, `dTotRec`, `dVTotItems` y los totales de otros esquemas.
+  // OJO: `dValTotItem` (el total de CADA ítem) no entra — no dice «total» ni
+  // empieza con «vtot» — y `dTotGravado` ya cayó en Subtotal más arriba.
+  { test: /^d?vtot|totneto|totrec|vtotitems|total/i, etiqueta: 'Total', sinDosPuntos: true },
 ];
 
 /** Entidades que la DGI y los proveedores usan dentro de los valores. */
@@ -88,6 +95,46 @@ export function xmlATexto(xml: string): string {
     }
   }
   return lineas.join('\n');
+}
+
+/** Todos los valores de las etiquetas cuyo nombre dé en el patrón. */
+function valoresDe(xml: string, test: RegExp): string[] {
+  const valores: string[] = [];
+  for (const m of String(xml || '').matchAll(/<([A-Za-z0-9_:]+)(?:\s[^>]*)?>([^<]*)<\/\1>/g)) {
+    const local = m[1].includes(':') ? m[1].split(':').pop()! : m[1];
+    const valor = desescapar(m[2].trim());
+    if (valor && test.test(local)) valores.push(valor);
+  }
+  return valores;
+}
+
+/**
+ * Los datos del RECEPTOR, que en el formato CAFE viajan en su propio bloque
+ * (`dNombRec`, y un segundo `dRuc` después del del emisor).
+ *
+ * Van aparte del texto porque son la única defensa contra cargar la factura del
+ * cliente de al lado: la comparación tiene que ser determinista, no lo que el
+ * LLM crea leer.
+ */
+export function receptorDeXml(xml: string): { nombre: string | null; ruc: string | null } {
+  const nombre = valoresDe(xml, /(nomb|razon|nombre).*rec|rec.*(nomb|razon|nombre)/i)[0] || null;
+  // El primer `dRuc` es el del emisor (la factura la emite él); el del receptor
+  // viene después, así que el último es el que sirve.
+  const rucs = valoresDe(xml, /ruc/i);
+  return { nombre, ruc: rucs.length > 1 ? rucs[rucs.length - 1] : null };
+}
+
+/**
+ * Las descripciones de los ítems del XML. Las usa la clasificación: en el
+ * formato CAFE cada ítem trae la suya en `dDescProd`, que es justo lo que el
+ * clasificador mira cuando el proveedor no nombra ningún rubro.
+ */
+export function itemsDeXml(xml: string): string[] {
+  // `(?!uen)`: un descuento (`dDescuento`) no es un ítem.
+  return valoresDe(xml, /^d?desc(?!uen)/i)
+    .map((v) => v.trim())
+    .filter((v) => v.length >= 3 && v.length <= 80)
+    .slice(0, 60);
 }
 
 /** ¿Este adjunto es un XML de factura y no otra cosa (un .xml de configuración)? */

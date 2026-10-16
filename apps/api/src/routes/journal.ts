@@ -36,13 +36,17 @@ journalRouter.get('/pendientes', async (req, res) => {
       lines: { include: { account: true } },
       createdBy: { select: { name: true, email: true } },
       transactions: { select: { metadata: true }, take: 1 },
+      // El canal por el que entró la factura, cuando la registró una: es lo que
+      // deja ver de un vistazo que este borrador lo cargó el buzón de correo.
+      expenseClaim: { select: { origen: true } },
     },
     orderBy: { date: 'asc' },
   });
   const result = entries.map(e => {
     let provider = null;
     try { const m = JSON.parse(e.transactions?.[0]?.metadata || '{}'); provider = m.provider || null; } catch {}
-    return { ...e, provider };
+    const { expenseClaim, ...resto } = e as any;
+    return { ...resto, provider, origen: expenseClaim?.origen || null };
   });
   res.json(result);
 });

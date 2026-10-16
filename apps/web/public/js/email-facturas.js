@@ -81,7 +81,7 @@ function efFilaLedger(m) {
   const detalleFacturas = facturas
     .map((f) => `${f.proveedor || 'Sin proveedor'}${f.total != null ? ` — $${Number(f.total).toFixed(2)}` : ''}${f.numeroFactura ? ` (${f.numeroFactura})` : ''} <span style="color:#6b7280">· ${f.via}</span>`)
     .join('<br>');
-  const reprocesable = ['INTERRUMPIDO', 'ERROR'].includes(m.estado);
+  const reprocesable = ['INTERRUMPIDO', 'ERROR', 'SIN_CUENTA', 'SIN_CONCEPTO', 'SIN_DATOS'].includes(m.estado);
 
   return `
   <div style="border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;margin-bottom:8px;background:#fff">

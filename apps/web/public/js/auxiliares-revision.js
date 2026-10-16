@@ -134,6 +134,7 @@ function revisionEntryCard(e) {
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px">
       <div style="flex:1;min-width:0">
         <div style="font-weight:700;font-size:14px">${escapeHtml(e.description||'Sin descripción')}${e.provider ? ` — <span style="font-size:11px;color:#6b7280;font-weight:400">${escapeHtml(e.provider)}</span>` : ''}</div>
+        ${e.origen === 'CORREO' ? '<div style="display:inline-block;margin-top:6px;padding:2px 8px;border-radius:10px;background:#eff6ff;color:#1565c0;font-size:11px;font-weight:600">📧 Factura recibida por correo</div>' : ''}
         <div style="font-size:12px;color:#6b7280;margin-top:4px">📅 ${date} · 👤 ${escapeHtml(e.createdBy?.name||'—')} · ${e.lines?.length||0} líneas</div>
         ${lineasHtml}
       </div>

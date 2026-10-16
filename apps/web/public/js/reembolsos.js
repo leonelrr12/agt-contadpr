@@ -10,7 +10,7 @@
 let _reembTrabajadores = [];
 let _reembDetalle = null;      // { worker, facturas }
 let _reembTab = 'trabajadores'; // 'trabajadores' | 'facturas'
-let _reembFiltros = { texto: '', desde: '', hasta: '', estado: '' };
+let _reembFiltros = { texto: '', desde: '', hasta: '', estado: '', origen: '' };
 let _reembFacturas = [];
 let _reembSeleccion = new Set();
 let _reembCuentasPago = null;
@@ -103,7 +103,8 @@ async function reembCargarFacturas() {
   if (_reembFiltros.texto) q.set('texto', _reembFiltros.texto);
   if (_reembFiltros.desde) q.set('desde', _reembFiltros.desde);
   if (_reembFiltros.hasta) q.set('hasta', _reembFiltros.hasta);
-  if (_reembFiltros.estado) q.set('estado', _reembFiltros.estado);
+  if (_reembFiltros.estado) q.set('status', _reembFiltros.estado);
+  if (_reembFiltros.origen) q.set('origen', _reembFiltros.origen);
   try {
     const res = await authFetch(`${API_URL}/reembolsos/facturas?${q.toString()}`);
     if (!res.ok) throw new Error();
@@ -129,6 +130,12 @@ function reembPintarFacturas() {
           <option value="PENDIENTE" ${f.estado === 'PENDIENTE' ? 'selected' : ''}>Pendiente de reembolso</option>
           <option value="PAGADO" ${f.estado === 'PAGADO' ? 'selected' : ''}>Pagada</option>
         </select></div>
+        <div><label>Canal</label><select id="reemb-f-origen">
+          <option value="">Todos</option>
+          <option value="CORREO" ${f.origen === 'CORREO' ? 'selected' : ''}>📧 Correo</option>
+          <option value="WHATSAPP" ${f.origen === 'WHATSAPP' ? 'selected' : ''}>💬 WhatsApp</option>
+          <option value="MANUAL" ${f.origen === 'MANUAL' ? 'selected' : ''}>✍️ A mano</option>
+        </select></div>
       </div>
       <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
         <button class="btn-primary" style="padding:7px 14px;font-size:13px" onclick="reembBuscar()">🔍 Buscar</button>
@@ -150,10 +157,15 @@ function reembPintarFacturas() {
     </tr></thead><tbody>`;
   for (const x of _reembFacturas) {
     const ruc = x.rucEmisor ? `RUC ${x.rucEmisor}` : '';
+    // El canal va en la segunda línea de «De quién»: dice por dónde entró la
+    // factura (la mandó el proveedor por correo, la pasó un trabajador por
+    // WhatsApp, o la cargó alguien a mano).
+    const canal = reembCanal(x.origen);
     const deQuien = x.worker
       ? `<div class="grilla-principal" title="${escapeHtml(x.worker.nombre)}">${escapeHtml(x.worker.nombre)}</div>
-         <div class="grilla-secundario">${x.status === 'PAGADO' ? 'reembolsada' : 'por reembolsar'}</div>`
-      : '<span class="grilla-secundario">Empresa</span>';
+         <div class="grilla-secundario">${x.status === 'PAGADO' ? 'reembolsada' : 'por reembolsar'} · ${canal.texto}</div>`
+      : `<div class="grilla-principal">Empresa</div>
+         <div class="grilla-secundario">${canal.texto}</div>`;
     html += `<tr>
       <td style="white-space:nowrap">${reembFechaCorta(x.fecha)}</td>
       <td class="grilla-2l">
@@ -172,18 +184,26 @@ function reembPintarFacturas() {
   el.innerHTML = html + '</tbody></table>';
 }
 
+/** Cómo entró la factura: el canal que quedó guardado en `origen`. */
+function reembCanal(origen) {
+  if (origen === 'CORREO') return { texto: '📧 correo' };
+  if (origen === 'WHATSAPP') return { texto: '💬 WhatsApp' };
+  return { texto: '✍️ a mano' };
+}
+
 function reembBuscar() {
   _reembFiltros = {
     texto: document.getElementById('reemb-f-texto')?.value?.trim() || '',
     desde: document.getElementById('reemb-f-desde')?.value || '',
     hasta: document.getElementById('reemb-f-hasta')?.value || '',
     estado: document.getElementById('reemb-f-estado')?.value || '',
+    origen: document.getElementById('reemb-f-origen')?.value || '',
   };
   reembCargarFacturas();
 }
 
 function reembLimpiarFiltros() {
-  _reembFiltros = { texto: '', desde: '', hasta: '', estado: '' };
+  _reembFiltros = { texto: '', desde: '', hasta: '', estado: '', origen: '' };
   reembCargarFacturas();
 }
 

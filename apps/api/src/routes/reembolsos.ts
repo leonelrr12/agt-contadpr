@@ -168,18 +168,23 @@ reembolsosRouter.post('/pagar', requireRole('admin', 'contador', 'superadmin'), 
  *
  * Son TODAS las que entraron con datos propios (las del trabajador y las de la
  * empresa): cada una con su URL del CUTE, su XML y el asiento que la registró.
- * Filtros: `workerId`, `soloEmpresa=true`, `status`, `desde`/`hasta` y `texto`
- * (busca en proveedor, número de factura y RUC — para encontrar "esa factura de
- * la ferretería de marzo" sin acordarse del número).
+ * Filtros: `workerId`, `soloEmpresa=true`, `status`, `origen`, `desde`/`hasta` y
+ * `texto` (busca en proveedor, número de factura y RUC — para encontrar "esa
+ * factura de la ferretería de marzo" sin acordarse del número).
+ *
+ * El `select` es explícito y NO incluye `dgiXml`: son 10-17 KB por fila y hasta
+ * 1000 filas, o sea una respuesta de megabytes para una grilla que ni lo muestra
+ * (el XML se sigue guardando; se consulta por su asiento).
  */
 reembolsosRouter.get('/facturas', async (req, res) => {
   const companyId = req.user!.companyId;
-  const { workerId, status, desde, hasta, texto, soloEmpresa, limit } = req.query;
+  const { workerId, status, desde, hasta, texto, soloEmpresa, origen, limit } = req.query;
 
   const where: any = { companyId };
   if (soloEmpresa === 'true') where.workerId = null;
   else if (workerId) where.workerId = String(workerId);
   if (status) where.status = String(status);
+  if (origen) where.origen = String(origen);
 
   const rango: any = {};
   if (desde && /^\d{4}-\d{2}-\d{2}$/.test(String(desde))) rango.gte = parseLocalDate(String(desde));
@@ -197,7 +202,18 @@ reembolsosRouter.get('/facturas', async (req, res) => {
 
   const facturas = await req.prisma.expenseClaim.findMany({
     where,
-    include: {
+    select: {
+      id: true,
+      dgiUrl: true,
+      proveedor: true,
+      rucEmisor: true,
+      numeroFactura: true,
+      fecha: true,
+      total: true,
+      itbms: true,
+      status: true,
+      origen: true,
+      createdAt: true,
       worker: { select: { id: true, nombre: true, phoneNumber: true } },
       journalEntry: { select: { id: true, date: true, description: true, status: true } },
       reimbursement: { select: { id: true, fecha: true, monto: true } },

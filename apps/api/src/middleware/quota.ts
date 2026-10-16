@@ -71,9 +71,15 @@ export async function requireQuota(req: Request, res: Response, next: NextFuncti
  * dos corridas, que es más difícil de explicar en la factura.
  */
 export async function incrementUsage(req: Request, cantidad = 1): Promise<void> {
-  const companyId = req.user!.companyId;
+  await incrementUsageForCompany(req.prisma, req.user!.companyId, cantidad);
+}
 
-  const subscription = await req.prisma.subscription.findFirst({
+/**
+ * Igual que `incrementUsage`, pero sin request: lo usan los procesos que no
+ * nacen de una petición HTTP (el barrido del correo, el cron de recurrentes).
+ */
+export async function incrementUsageForCompany(prisma: any, companyId: string, cantidad = 1): Promise<void> {
+  const subscription = await prisma.subscription.findFirst({
     where: {
       companyId,
       status: { in: ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'] },
@@ -81,7 +87,7 @@ export async function incrementUsage(req: Request, cantidad = 1): Promise<void> 
   });
 
   if (subscription) {
-    await req.prisma.subscription.update({
+    await prisma.subscription.update({
       where: { id: subscription.id },
       data: { movementsUsed: { increment: cantidad } },
     });

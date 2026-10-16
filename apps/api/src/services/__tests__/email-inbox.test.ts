@@ -1,6 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import PDFDocument from 'pdfkit';
 import { clasificarErrorImap, faltanCredenciales, barrerFacturasPorCorreo, reprocesarMensaje } from '../email-inbox';
+
+// El pipeline (detectada → asiento) tiene su propia prueba: acá se aísla para que
+// estos tests sigan siendo del barrido —cursor, ledger y lease— y no del motor
+// contable. Simula que la factura entró bien.
+vi.mock('../email-factura-pipeline', () => ({
+  cargarFacturaDesdeCorreo: async () => ({ estado: 'CARGADA', detalle: null, journalEntryId: 'je-1', claimId: 'claim-1' }),
+}));
 
 /**
  * El servidor de correo contesta en su idioma («Invalid credentials», «NO
@@ -242,10 +249,10 @@ describe('barrerFacturasPorCorreo — el caso normal', () => {
     expect(r.ok).toBe(true);
     expect(r.revisados).toBe(1);
     expect(r.facturas).toBe(1);
-    expect(r.estados).toEqual({ DETECTADA: 1 });
+    expect(r.estados).toEqual({ CARGADA: 1 });
 
     const fila = prisma._filas[0];
-    expect(fila.estado).toBe('DETECTADA');
+    expect(fila.estado).toBe('CARGADA');
     expect(fila.origen).toBe('IMAP');
     expect(fila.uid).toBe(7);
     expect(JSON.parse(fila.facturas)[0].proveedor).toContain('SUPERMERCADOS XTRA');
@@ -410,11 +417,11 @@ describe('barrerFacturasPorCorreo — lo que no debe barrer', () => {
 describe('reprocesarMensaje', () => {
   it('solo reprocesa lo INTERRUMPIDO o ERROR', async () => {
     const prisma = prismaFalso();
-    prisma._filas.push({ id: 'fila-1', companyId: 'c1', estado: 'DETECTADA', uid: 5, folder: 'INBOX' });
+    prisma._filas.push({ id: 'fila-1', companyId: 'c1', estado: 'CARGADA', uid: 5, folder: 'INBOX' });
 
     const r = await reprocesarMensaje(prisma, 'c1', 'fila-1');
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain('DETECTADA');
+    if (!r.ok) expect(r.error).toContain('CARGADA');
   });
 
   it('no toca filas de otra empresa', async () => {
@@ -434,8 +441,9 @@ describe('reprocesarMensaje', () => {
 
     expect(r.ok).toBe(true);
     const fila = prisma._filas[0];
-    expect(fila.estado).toBe('DETECTADA');
+    expect(fila.estado).toBe('CARGADA');
     expect(JSON.parse(fila.facturas)[0].total).toBe(3.22);
+    expect(JSON.parse(fila.facturas)[0].journalEntryId).toBe('je-1');
   });
 
   it('si el correo ya no está en el buzón, lo dice', async () => {

@@ -17,7 +17,7 @@
  */
 
 import { extractFromPDF, extractFromText, extractInvoiceItems } from './pdf-extractor';
-import { xmlATexto, pareceXmlDeFactura } from './dgi-xml';
+import { xmlATexto, pareceXmlDeFactura, receptorDeXml, itemsDeXml } from './dgi-xml';
 import { descargarFacturaDgi } from './dgi-cute';
 import type { FacturaExtraida } from './reembolsos';
 
@@ -155,13 +155,17 @@ export async function extraerFacturasDeMensaje(
       if (!texto.trim()) continue;
       huboTexto = true;
       const r = await extractFromText(texto, prisma);
+      // El receptor y los ítems salen del XML, no del LLM: son los dos datos que
+      // tienen que ser exactos (uno decide si la factura es de esta empresa, el
+      // otro alimenta la clasificación cuando el proveedor no nombra el rubro).
+      const receptor = receptorDeXml(xml);
       agregar({
         via: 'XML',
         origen: a.filename || 'adjunto.xml',
         texto: r.text,
-        items: [],
-        clienteRuc: r.clientRuc,
-        clienteNombre: r.clientName,
+        items: itemsDeXml(xml),
+        clienteRuc: receptor.ruc || r.clientRuc,
+        clienteNombre: receptor.nombre || r.clientName,
         factura: {
           proveedor: r.provider,
           ruc: r.ruc,

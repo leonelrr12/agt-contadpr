@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { xmlATexto, pareceXmlDeFactura } from '../dgi-xml';
+import { xmlATexto, pareceXmlDeFactura, receptorDeXml, itemsDeXml } from '../dgi-xml';
 import { extractFromText } from '../pdf-extractor';
 
 /**
@@ -96,6 +96,87 @@ describe('xmlATexto → extractFromText (el camino completo)', () => {
   it('el total del XML no lo pisa un monto del desglose', async () => {
     const r = await extractFromText(xmlATexto(FACTURA_XML));
     expect(r.total).toBe(3.22); // y no 0.21 (el ITBMS) ni 3.01 (el subtotal)
+  });
+});
+
+/**
+ * El formato CAFE de la DGI (el que mandan los proveedores de verdad, RIBA SMITH
+ * entre ellos): etiquetas `dNroDF`, `dFechaEm`, `dTotNeto`, `dDescProd`, y un
+ * segundo `dRuc` que es el del RECEPTOR. Esta fixture es un recorte de una
+ * factura real.
+ */
+const XML_CAFE = `<rContFe xmlns="http://dgi-fep.mef.gob.pa/wsdl/FeRecepFE">
+  <xFe><rFE xmlns="http://dgi-fep.mef.gob.pa">
+    <gDGen>
+      <dNroDF>0000373708</dNroDF>
+      <dPtoFacDF>002</dPtoFacDF>
+      <dFechaEm>2026-09-27T19:20:07-05:00</dFechaEm>
+      <dTipoRuc>2</dTipoRuc>
+      <dRuc>342-240-75526</dRuc>
+      <dDV>50</dDV>
+      <dNombEm>RIBA SMITH S A</dNombEm>
+      <iTipoRec>02</iTipoRec>
+      <dTipoRuc>1</dTipoRuc>
+      <dRuc>794485</dRuc>
+      <dNombRec>Leonel Rodriguez</dNombRec>
+    </gDGen>
+    <gItem>
+      <dDescProd>GUINEO</dDescProd><dCantCodInt>1.54</dCantCodInt><dValTotItem>1.519980</dValTotItem>
+      <dDescProd>NARANJA DE JUGO</dDescProd><dCantCodInt>1.0</dCantCodInt><dValTotItem>1.420000</dValTotItem>
+      <dDescProd>ENDIABLADO DE JAMON</dDescProd><dCantCodInt>1.0</dCantCodInt><dValTotItem>3.050000</dValTotItem>
+    </gItem>
+    <gTot><dTotNeto>12.49</dTotNeto><dTotITBMS>0.00</dTotITBMS><dTotGravado>0.00</dTotGravado><dVTot>12.49</dVTot><dVTotItems>12.49</dVTotItems></gTot>
+    <dCUFE>FE0120000000342-240-75526-5010112026092700003737080020311294451567</dCUFE>
+  </rFE></xFe>
+</rContFe>`;
+
+describe('xmlATexto — formato CAFE de la DGI', () => {
+  const texto = xmlATexto(XML_CAFE);
+
+  it('saca emisor, RUC del emisor, número, fecha y total', () => {
+    expect(texto).toContain('Emisor RIBA SMITH S A');
+    expect(texto).toContain('RUC 342-240-75526');
+    expect(texto).toContain('Número 0000373708');
+    expect(texto).toContain('Fecha de Emisión 27/09/2026');
+    expect(texto).toContain('Total 12.49');
+  });
+
+  it('el total NO se confunde con el de cada ítem ni con el gravado', async () => {
+    const r = await extractFromText(texto);
+    expect(r.total).toBe(12.49); // y no 3.05 (el último ítem) ni 0.00 (el gravado)
+  });
+
+  it('el extractor completo saca los datos del emisor (el RUC es el primero, no el del cliente)', async () => {
+    const r = await extractFromText(texto);
+    expect(r.provider).toBe('RIBA SMITH S A');
+    expect(r.ruc).toBe('342-240-75526');
+    expect(r.invoiceNumber).toBe('0000373708');
+    expect(r.date).toBe('2026-09-27');
+  });
+
+  it('el receptor se rotula como Cliente, no como Emisor', () => {
+    expect(texto).toContain('Cliente: Leonel Rodriguez');
+    expect(texto).not.toContain('Emisor Leonel Rodriguez');
+  });
+});
+
+describe('receptorDeXml', () => {
+  it('devuelve el nombre y el RUC del receptor (el SEGUNDO dRuc)', () => {
+    expect(receptorDeXml(XML_CAFE)).toEqual({ nombre: 'Leonel Rodriguez', ruc: '794485' });
+  });
+
+  it('sin datos del receptor no inventa nada', () => {
+    expect(receptorDeXml('<f><dRuc>1555-1234-5678</dRuc><dNombEm>PROVEEDOR</dNombEm></f>')).toEqual({ nombre: null, ruc: null });
+  });
+});
+
+describe('itemsDeXml', () => {
+  it('saca las descripciones de los ítems', () => {
+    expect(itemsDeXml(XML_CAFE)).toEqual(['GUINEO', 'NARANJA DE JUGO', 'ENDIABLADO DE JAMON']);
+  });
+
+  it('un descuento no es un ítem', () => {
+    expect(itemsDeXml('<f><dDescProd>CLAVOS</dDescProd><dDescuento>2.00</dDescuento></f>')).toEqual(['CLAVOS']);
   });
 });
 

@@ -23,6 +23,7 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { getOrCreateEmailConfig } from './email-facturas-config';
 import { extraerFacturasDeMensaje, type MensajeFactura } from './email-factura-extract';
+import { cargarFacturaDesdeCorreo } from './email-factura-pipeline';
 
 export type CodigoConexion = 'SIN_CREDENCIALES' | 'ERROR_CREDENCIALES' | 'ERROR_CONEXION';
 
@@ -259,6 +260,7 @@ async function correrBarrido(
   const estados: Record<string, number> = {};
   let revisados = 0;
   let detectadas = 0;
+  let cortadaPorCuota = false;
   // OJO: el cursor NO se inicializa con el guardado. Si la UIDVALIDITY cambió, el
   // número viejo no significa nada en el buzón nuevo y arrastrarlo dejaría los
   // correos con UID menor en silencio. Se fija abajo, con el buzón ya abierto.
@@ -333,14 +335,26 @@ async function correrBarrido(
         let resultado: AnalisisCorreo;
         try {
           const bajado = await client.fetchOne(String(uid), { source: true }, { uid: true });
-          resultado = await analizarCorreo(prisma, bajado?.source || Buffer.alloc(0));
+          resultado = await analizarCorreo(prisma, cfg, fila.id, bajado?.source || Buffer.alloc(0));
         } catch (err: any) {
           resultado = { estado: 'ERROR', detalle: String(err?.message || err).slice(0, 500), facturas: [], adjuntos: [], messageId: null };
           console.error('[EmailFacturas] Correo', uid, 'error:', err?.message);
         }
 
+        if (resultado.cuotaAgotada) {
+          // La cuota es del plan, no del correo: se corta la corrida SIN avanzar
+          // el cursor y se borra la fila — si quedara, el correo no se volvería a
+          // mirar nunca y esas facturas se perderían en silencio.
+          await prisma.emailFacturaMensaje
+            .delete({ where: { id: fila.id } })
+            .catch((e: any) => console.error('[EmailFacturas] No se pudo soltar la fila CUOTA:', e?.message));
+          sumar('CUOTA');
+          cortadaPorCuota = true;
+          break;
+        }
+
         sumar(resultado.estado);
-        detectadas += resultado.facturas.length;
+        detectadas += resultado.facturas.filter((f: any) => f.estado === 'CARGADA').length;
         await anotarResultado(prisma, fila.id, resultado, !meta.envelope?.messageId);
 
         // Lo ÚLTIMO: el buzón solo se toca cuando el correo ya quedó anotado. Si
@@ -358,8 +372,15 @@ async function correrBarrido(
       });
 
       console.log(
-        `[EmailFacturas] empresa=${companyId} revisados=${revisados} facturas=${detectadas} ${JSON.stringify(estados)}`,
+        `[EmailFacturas] empresa=${companyId} revisados=${revisados} cargadas=${detectadas} ${JSON.stringify(estados)}`,
       );
+      if (cortadaPorCuota) {
+        return cerrar(
+          false,
+          'CUOTA',
+          'La cuota de movimientos del plan se agotó: se cortó la revisión sin descartar correos.',
+        );
+      }
       return cerrar(
         true,
         undefined,
@@ -402,7 +423,13 @@ export async function marcarInterrumpidos(prisma: any, companyId: string): Promi
 }
 
 /**
- * Reintento explícito de un correo que quedó en `INTERRUMPIDO` o `ERROR`.
+ * Estados que «Reprocesar» puede reintentar (ver el comentario en la función):
+ * los que dependen de la configuración del buzón, no de los datos del correo.
+ */
+export const ESTADOS_REPROCESABLES = ['INTERRUMPIDO', 'ERROR', 'SIN_CUENTA', 'SIN_CONCEPTO', 'SIN_DATOS'];
+
+/**
+ * Reintento explícito de un correo que quedó a medio camino.
  *
  * Se vuelve a leer del buzón por UID (el cuerpo no se guarda: guardar los correos
  * de un cliente es otra conversación) y se corre el MISMO análisis del barrido.
@@ -417,8 +444,16 @@ export async function reprocesarMensaje(
 ): Promise<{ ok: true; mensaje: any } | { ok: false; error: string }> {
   const fila = await prisma.emailFacturaMensaje.findFirst({ where: { id: mensajeId, companyId } });
   if (!fila) return { ok: false, error: 'El correo no está en el registro de esta empresa.' };
-  if (!['INTERRUMPIDO', 'ERROR'].includes(fila.estado)) {
-    return { ok: false, error: `Solo se reprocesan los correos INTERRUMPIDO o ERROR (este está ${fila.estado}).` };
+  // Se reprocesa lo que un cambio de configuración puede arreglar: la corrida que
+  // murió, el error de red, y los «falta algo» que el dueño resuelve cargando la
+  // cuenta de contrapartida, un concepto por defecto o unas credenciales que
+  // sirvan. Lo que es un hecho de los datos —duplicada, factura de otro
+  // cliente— no se reintenta: daría lo mismo.
+  if (!ESTADOS_REPROCESABLES.includes(fila.estado)) {
+    return {
+      ok: false,
+      error: `Este correo quedó en ${fila.estado}: solo se reprocesan los que puede arreglar un cambio de configuración (${ESTADOS_REPROCESABLES.join(', ')}).`,
+    };
   }
 
   const cfg = await getOrCreateEmailConfig(prisma, companyId);
@@ -435,7 +470,7 @@ export async function reprocesarMensaje(
       if (!bajado?.source) {
         return { ok: false, error: 'El correo ya no está en esa carpeta del buzón.' };
       }
-      const resultado = await analizarCorreo(prisma, bajado.source);
+      const resultado = await analizarCorreo(prisma, cfg, fila.id, bajado.source);
       await anotarResultado(prisma, fila.id, resultado, false);
       if (cfg.marcarLeido || cfg.carpetaMover) await tocarCorreo(client, cfg, Number(fila.uid));
       const mensaje = await prisma.emailFacturaMensaje.findUnique({ where: { id: fila.id } });
@@ -463,6 +498,8 @@ export interface AnalisisCorreo {
   adjuntos: any[];
   /** `Message-ID` real del cuerpo; null si el correo no lo trae. */
   messageId: string | null;
+  /** El plan se quedó sin movimientos: hay que cortar la corrida acá. */
+  cuotaAgotada?: boolean;
 }
 
 /**
@@ -472,7 +509,12 @@ export interface AnalisisCorreo {
  * Es el mismo camino para el barrido y para «Reprocesar»: un correo reprocesado
  * tiene que dar exactamente lo mismo que dio la primera vez.
  */
-export async function analizarCorreo(prisma: any, source: Buffer): Promise<AnalisisCorreo> {
+export async function analizarCorreo(
+  prisma: any,
+  cfg: any,
+  filaId: string,
+  source: Buffer,
+): Promise<AnalisisCorreo> {
   const parsed: any = await simpleParser(source || Buffer.alloc(0));
   const adjuntos = (parsed.attachments || []).map((a: any) => ({
     nombre: a.filename || null,
@@ -502,22 +544,46 @@ export async function analizarCorreo(prisma: any, source: Buffer): Promise<Anali
     };
   }
 
+  // Las facturas del correo se cargan una por una. La cuota, si se agota, corta
+  // la corrida: las que quedan sin cargar se vuelven a ver en la próxima (el
+  // barrido no avanza el cursor ni deja la fila del ledger).
+  const cargas: any[] = [];
+  let cuotaAgotada = false;
+  for (const det of deteccion.facturas) {
+    const r = await cargarFacturaDesdeCorreo(prisma, cfg, det, { mensajeId: filaId });
+    cargas.push({
+      via: det.via,
+      origen: det.origen,
+      proveedor: det.factura.proveedor,
+      ruc: det.factura.ruc,
+      numeroFactura: det.factura.numeroFactura,
+      fecha: det.factura.fecha,
+      total: det.factura.total,
+      items: det.items.length,
+      estado: r.estado,
+      detalle: r.detalle,
+      journalEntryId: r.journalEntryId,
+      claimId: r.claimId,
+    });
+    if (r.estado === 'CUOTA') {
+      cuotaAgotada = true;
+      break;
+    }
+  }
+
+  const cargadas = cargas.filter((c) => c.estado === 'CARGADA');
+  const fallidas = cargas.filter((c) => c.estado !== 'CARGADA');
   return {
-    // Fase 3: se detecta y se anota; el asiento llega en la fase siguiente.
-    estado: 'DETECTADA',
-    detalle: 'Detectada sin cargar: la carga del asiento llega en la fase siguiente.',
-    facturas: deteccion.facturas.map((f) => ({
-      via: f.via,
-      origen: f.origen,
-      proveedor: f.factura.proveedor,
-      ruc: f.factura.ruc,
-      numeroFactura: f.factura.numeroFactura,
-      fecha: f.factura.fecha,
-      total: f.factura.total,
-      items: f.items.length,
-    })),
+    // Un correo con varias facturas resume en CARGADA si entró alguna: el
+    // detalle dice, factura por factura, qué pasó con cada una.
+    estado: cargadas.length ? 'CARGADA' : cargas[0]?.estado || 'SIN_DATOS',
+    detalle: fallidas.length
+      ? fallidas.map((c) => `${c.proveedor || 'factura'} (${c.numeroFactura || 's/n'}): ${c.estado}${c.detalle ? ` — ${c.detalle}` : ''}`).join(' · ').slice(0, 900)
+      : null,
+    facturas: cargas,
     adjuntos,
     messageId,
+    cuotaAgotada,
   };
 }
 

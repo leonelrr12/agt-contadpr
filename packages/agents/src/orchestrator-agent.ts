@@ -79,7 +79,38 @@ export class OrchestratorAgent {
    */
   private paymentMethodForzado?: string;
 
-  constructor(config: ClassificationAgentConfig & { userId: string; paymentMethodForzado?: string }) {
+  /**
+   * Cuenta de la contrapartida que se IMPONE al asiento, por id.
+   *
+   * Existe por las facturas que entran por correo: la empresa configura una vez
+   * contra qué cuenta de banco se acreditan, y el asiento tiene que caer ahí y no
+   * en la cuenta por defecto del motor. **No alcanza con `paymentMethodForzado`**:
+   * con `TRANSFERENCIA` el motor acredita `banco-general` y `aplicarBancoMencionado`
+   * puede cambiarla por otro banco. Esto reemplaza la línea pase lo que pase.
+   *
+   * Se emite el **id**, que `resolveAlias` devuelve tal cual solo si pertenece al
+   * catálogo de la empresa: un id de otra empresa falla en vez de cruzar tenants.
+   */
+  private cuentaPagoForzada?: { id: string; name: string } | null;
+
+  /** Alias con los que `generateEntry` escribe la contrapartida de un gasto. */
+  private static readonly ALIAS_DE_PAGO = ['caja', 'banco-general', 'tarjeta-credito', 'proveedores'];
+
+  /**
+   * Familias de cuenta que son contrapartida de un gasto: Caja, Bancos, CxP a
+   * proveedores y tarjetas. `aplicarBancoMencionado` puede haber reemplazado el
+   * alias por un CÓDIGO antes de que se imponga la cuenta, y entonces el alias ya
+   * no está para reconocer la línea.
+   */
+  private static readonly FAMILIAS_DE_PAGO = /^(1\.1\.01|1\.1\.02|2\.1\.01|2\.1\.03)/;
+
+  constructor(
+    config: ClassificationAgentConfig & {
+      userId: string;
+      paymentMethodForzado?: string;
+      cuentaPagoForzada?: { id: string; name: string } | null;
+    },
+  ) {
     if (!config.userId) {
       throw new Error('OrchestratorAgent: userId es requerido (FK createdById en asiento/transacción)');
     }
@@ -90,6 +121,22 @@ export class OrchestratorAgent {
     this.companyId = config.companyId;
     this.userId = config.userId;
     this.paymentMethodForzado = config.paymentMethodForzado;
+    this.cuentaPagoForzada = config.cuentaPagoForzada;
+  }
+
+  /**
+   * Reemplaza la línea de contrapartida (la que el motor escribió con un alias de
+   * pago) por la cuenta impuesta. Sin `cuentaPagoForzada` es un no-op: el chat, la
+   * web y WhatsApp no cambian.
+   */
+  private forzarCuentaDePago(raw: { credit: any[] }): void {
+    if (!this.cuentaPagoForzada) return;
+    const esContrapartida = (c: any) =>
+      OrchestratorAgent.ALIAS_DE_PAGO.includes(c.accountId) || OrchestratorAgent.FAMILIAS_DE_PAGO.test(String(c.accountId || ''));
+    const linea = raw.credit.find(esContrapartida);
+    if (!linea) return;
+    linea.accountId = this.cuentaPagoForzada.id;
+    linea.name = this.cuentaPagoForzada.name;
   }
 
   async process(input: string, context?: DialogContext): Promise<{
@@ -182,6 +229,11 @@ export class OrchestratorAgent {
     await this.accountingAgent.init();
     if (this.paymentMethodForzado) dialog.paymentMethod = this.paymentMethodForzado;
     const raw = this.accountingAgent.generateEntry(dialog, classification);
+    // La cuenta impuesta va PRIMERO: reemplaza la línea por un id, y así el
+    // «banco mencionado» de abajo ya no encuentra su alias y no la pisa. Si se
+    // hiciera al revés, `aplicarBancoMencionado` habría dejado un CÓDIGO en la
+    // línea (el banco por defecto de la empresa) y la cuenta configurada perdía.
+    this.forzarCuentaDePago(raw);
     // Banco mencionado / default configurado / 1.1.02.01 → línea con código
     await this.aplicarBancoMencionado(dialog, raw);
     // Resolución alias → id; si el valor es un CÓDIGO (p.ej. 1.1.02.03) se

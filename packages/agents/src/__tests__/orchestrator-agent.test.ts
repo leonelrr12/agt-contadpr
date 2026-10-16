@@ -19,6 +19,7 @@ function makePrismaStub() {
       findMany: async () => [
         { id: 'acct-caja', code: '1.1.01', aliases: ['caja'], name: 'Caja', type: 'ACTIVO', isActive: true },
         { id: 'acct-banco', code: '1.1.02.01', aliases: ['banco-general'], name: 'Banco General', type: 'ACTIVO', isActive: true },
+        { id: 'acct-banco-2', code: '1.1.02.02', aliases: [], name: 'Banco Nacional', type: 'ACTIVO', isActive: true },
         { id: 'acct-clientes', code: '1.1.03.01', aliases: ['clientes'], name: 'Clientes', type: 'ACTIVO', isActive: true },
         { id: 'acct-tarjeta', code: '2.1.03', aliases: ['tarjeta-credito'], name: 'Tarjetas de Crédito', type: 'PASIVO', isActive: true },
         { id: 'acct-proveedores', code: '2.1.01', aliases: ['proveedores'], name: 'Proveedores', type: 'PASIVO', isActive: true },
@@ -74,6 +75,38 @@ describe('OrchestratorAgent', () => {
     if ('prompt' in result && result.prompt?.includes('No reconozco')) {
       expect(result.needsConfirmation).toBe(false);
     }
+  });
+
+  /**
+   * La cuenta impuesta es la que sostiene las facturas por correo: la empresa
+   * configura contra qué banco se acreditan y el asiento TIENE que caer ahí.
+   * El caso que esto fija es el que apareció en producción: sin la cuenta
+   * impuesta, `aplicarBancoMencionado` acredita el banco por defecto de la
+   * empresa (o el 1.1.02.01) y el asiento deja de cuadrar con lo configurado.
+   */
+  it('la cuenta de pago impuesta gana sobre el banco por defecto', async () => {
+    const forzado = new OrchestratorAgent({
+      prisma: makePrismaStub(),
+      companyId: 'demo-company',
+      userId: 'demo-user',
+      paymentMethodForzado: 'TRANSFERENCIA',
+      cuentaPagoForzada: { id: 'acct-banco-2', name: 'Banco Nacional' },
+    });
+
+    const r = await forzado.process('Compré combustible por $40', {
+      messages: [],
+      extractedData: { type: 'GASTO', paymentMethod: 'TRANSFERENCIA', selectedEntityId: null },
+    } as any);
+
+    const creditos = (r.result?.entry?.credit || []).map((c: any) => c.accountId);
+    expect(creditos).toContain('acct-banco-2');
+    expect(creditos).not.toContain('acct-banco'); // el banco por defecto quedó fuera
+  });
+
+  it('sin cuenta impuesta, el asiento sigue acreditando el banco de siempre', async () => {
+    const r = await orchestrator.process('Compré combustible por $40 con efectivo');
+    const creditos = (r.result?.entry?.credit || []).map((c: any) => c.accountId);
+    expect(creditos).toContain('acct-caja');
   });
 
   it('confirm creates journal entry with BORRADOR status', async () => {
