@@ -5,6 +5,7 @@ import {
   cuentaBancoDeEmpresa,
   cuentaEsDeBanco,
   getOrCreateEmailConfig,
+  parseReceptorRucs,
 } from '../email-facturas-config';
 
 /**
@@ -133,5 +134,29 @@ describe('getOrCreateEmailConfig', () => {
     expect(llamada.where).toEqual({ companyId: 'c1' });
     expect(llamada.update).toEqual({}); // abrir la pantalla no cambia nada
     expect(llamada.create).toEqual({ companyId: 'c1' });
+  });
+});
+
+describe('parseReceptorRucs', () => {
+  it('acepta la lista del navegador (texto separado por comas)', () => {
+    expect(parseReceptorRucs('8-123-4567, 1555-1234-5678; 794485')).toEqual(['81234567', '155512345678', '794485']);
+  });
+
+  it('acepta el JSON que se guarda en la base', () => {
+    expect(parseReceptorRucs('["794485","8-123-4567"]')).toEqual(['794485', '81234567']);
+  });
+
+  it('saca repetidos, basura y lo que es demasiado corto para ser un RUC', () => {
+    expect(parseReceptorRucs('794485, 794485, 12, abc, ') ).toEqual(['794485']);
+  });
+
+  it('sin nada devuelve la lista vacía (comportamiento de siempre)', () => {
+    expect(parseReceptorRucs(null)).toEqual([]);
+    expect(parseReceptorRucs('')).toEqual([]);
+    expect(parseReceptorRucs('[]')).toEqual([]);
+  });
+
+  it('configPublica lo devuelve como lista, no como el JSON guardado', () => {
+    expect(configPublica(config({ receptorRucs: '["794485"]' })).receptorRucs).toEqual(['794485']);
   });
 });

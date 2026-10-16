@@ -194,6 +194,32 @@ describe('cargarFacturaDesdeCorreo — el receptor', () => {
     expect(r.estado).toBe('CARGADA');
   });
 
+  it('un RUC cargado como excepción («compro a mi nombre») se acepta', async () => {
+    const { prisma } = prismaFalso();
+    // El caso real: RIBA SMITH emite a la cédula del dueño, no a la empresa.
+    const cfg = { ...CFG, receptorRucs: '["794485"]' };
+
+    const r = await cargarFacturaDesdeCorreo(prisma, cfg, FACTURA({ clienteRuc: '794485', clienteNombre: 'Leonel Rodriguez' }), CORREO);
+
+    expect(r.estado).toBe('CARGADA');
+  });
+
+  it('la excepción se compara por dígitos (con o sin guiones)', async () => {
+    const { prisma } = prismaFalso();
+    const cfg = { ...CFG, receptorRucs: '["8-123-4567"]' };
+    const r = await cargarFacturaDesdeCorreo(prisma, cfg, FACTURA({ clienteRuc: '81234567' }), CORREO);
+    expect(r.estado).toBe('CARGADA');
+  });
+
+  it('un RUC que NO está en la lista sigue siendo de otro cliente', async () => {
+    const { prisma } = prismaFalso();
+    const cfg = { ...CFG, receptorRucs: '["794485"]' };
+    const r = await cargarFacturaDesdeCorreo(prisma, cfg, FACTURA({ clienteRuc: '999999999', clienteNombre: 'Otra Persona' }), CORREO);
+    expect(r.estado).toBe('OTRO_CLIENTE');
+    // El detalle dice qué hacer, no solo que no.
+    expect(r.detalle).toContain('Aceptar facturas a nombre de');
+  });
+
   it('un RUC de pocos dígitos no matchea la cola del RUC de la empresa', async () => {
     const { prisma } = prismaFalso({ company: { name: 'Empresa Demo', taxId: '1555-1234-5678' } });
     // «78» está al final de 155512345678: sin el mínimo de dígitos, entraría.

@@ -1522,6 +1522,12 @@ model EmailFacturaConfig {
   metodoPago        String  @default("TRANSFERENCIA")
   conceptoDefaultId String?
 
+  /// RUC/cédulas EXTRA que se aceptan como receptor de la factura, además del
+  /// `Company.taxId` (JSON en String, la convención del repo). Existe por el caso
+  /// normal del dueño que compra a su nombre: la factura viene a su cédula y sin
+  /// esto el filtro de receptor la descarta como «de otro cliente».
+  receptorRucs      String  @default("[]")
+
   ultimaCorridaAt DateTime?
   ultimoEstado    String?
   ultimoDetalle   String?

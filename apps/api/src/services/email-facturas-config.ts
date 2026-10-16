@@ -33,7 +33,38 @@ export const CAMPOS_EMAIL_FACTURA: { field: string; label: string }[] = [
   { field: 'carpetaMover', label: 'Mover a la carpeta' },
   { field: 'cuentaPagoId', label: 'Cuenta de contrapartida' },
   { field: 'conceptoDefaultId', label: 'Concepto por defecto' },
+  { field: 'receptorRucs', label: 'Aceptar facturas a nombre de' },
 ];
+
+/**
+ * Los RUC/cédulas extra que se aceptan como receptor, ya normalizados a dígitos.
+ *
+ * Se guarda como JSON en String (la convención del repo) pero en la pantalla se
+ * escribe como una lista separada por comas, así que el parser acepta las dos
+ * formas y descarta lo que no sean dígitos o sea demasiado corto para ser un RUC.
+ */
+export function parseReceptorRucs(valor: unknown): string[] {
+  let crudos: string[] = [];
+  if (Array.isArray(valor)) crudos = valor.map(String);
+  else if (typeof valor === 'string' && valor.trim()) {
+    const texto = valor.trim();
+    if (texto.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(texto);
+        crudos = Array.isArray(parsed) ? parsed.map(String) : [];
+      } catch {
+        crudos = [];
+      }
+    } else {
+      crudos = texto.split(/[,;\n]+/);
+    }
+  }
+  const limpios = crudos
+    .map((r) => r.replace(/\D/g, ''))
+    .filter((r) => r.length >= 6)
+    .slice(0, 20);
+  return [...new Set(limpios)];
+}
 
 /** La fila de configuración, creándola si la empresa nunca entró a la pantalla. */
 export async function getOrCreateEmailConfig(prisma: any, companyId: string): Promise<any> {
@@ -51,6 +82,9 @@ export async function getOrCreateEmailConfig(prisma: any, companyId: string): Pr
 export function configPublica(cfg: any): Record<string, any> {
   const pub: Record<string, any> = {};
   for (const { field } of CAMPOS_EMAIL_FACTURA) pub[field] = cfg?.[field] ?? null;
+  // La lista de RUC aceptados viaja como lista, no como el JSON que se guarda: la
+  // pantalla escribe "8-123-4567, 1555-1234-5678" y así vuelve.
+  pub.receptorRucs = parseReceptorRucs(cfg?.receptorRucs);
   pub.tienePassword = !!cfg?.imapPassword;
   pub.metodoPago = cfg?.metodoPago || 'TRANSFERENCIA';
   pub.inboxAlias = cfg?.inboxAlias ?? null;

@@ -16,7 +16,7 @@
 
 import { OrchestratorAgent } from '@agt-contador/agents';
 import { buildDedupeKey, buscarFacturaDuplicada, registrarFacturaRecibida, avisoDuplicado } from './reembolsos';
-import { cuentaBancoDeEmpresa } from './email-facturas-config';
+import { cuentaBancoDeEmpresa, parseReceptorRucs } from './email-facturas-config';
 import { resolveCompanyUserId } from './company-user';
 import { incrementUsageForCompany } from '../middleware/quota';
 import { quickClassify } from './pre-clasificador';
@@ -39,18 +39,33 @@ export interface ResultadoCarga {
   claimId: string | null;
 }
 
+/** ¿El receptor de la factura es este RUC (o uno de los extra aceptados)? */
+function esRucAceptado(receptor: string, aceptados: string[]): boolean {
+  // Las comparaciones por cola exigen un mínimo de dígitos: sin él, un receptor
+  // de dos dígitos («79») matchearía cualquier RUC que termine igual.
+  const largos = (a: string) => a.length >= 6;
+  return aceptados.some((aceptado) => {
+    if (!aceptado) return false;
+    if (receptor === aceptado) return true;
+    return largos(receptor) && largos(aceptado) && (receptor.endsWith(aceptado) || aceptado.endsWith(receptor));
+  });
+}
+
 /**
  * ¿La factura es de ESTA empresa? El correo trae facturas de cualquiera, y la
  * del cliente de al lado se ve igual que la propia. Se compara por dígitos
  * porque el mismo RUC viaja con y sin guiones, con y sin dígito verificador.
  *
- * Sin RUC en la factura, o sin RUC cargado en la empresa, **se sigue**: no hay
- * con qué comparar, y las otras redes (el dedupe y la revisión del contador)
- * siguen puestas.
+ * Se aceptan el RUC de la empresa **y los extra** que el dueño haya cargado en la
+ * configuración del buzón: el caso normal es que compre a su nombre personal, y
+ * sin esa lista sus propias facturas caerían como «de otro cliente».
+ *
+ * Sin RUC en la factura, o sin ningún RUC con qué comparar, **se sigue**: las
+ * otras redes (el dedupe y la revisión del contador) siguen puestas.
  */
 async function esDeLaEmpresa(
   prisma: any,
-  companyId: string,
+  cfg: any,
   clienteRuc: string | null,
   clienteNombre: string | null,
 ): Promise<{ ok: boolean; detalle?: string }> {
@@ -58,21 +73,17 @@ async function esDeLaEmpresa(
   if (!receptor) return { ok: true };
 
   const empresa = await prisma.company.findUnique({
-    where: { id: companyId },
+    where: { id: cfg.companyId },
     select: { name: true, taxId: true },
   });
-  const propio = String(empresa?.taxId || '').replace(/\D/g, '');
-  if (!propio) return { ok: true };
+  const aceptados = [String(empresa?.taxId || '').replace(/\D/g, ''), ...parseReceptorRucs(cfg.receptorRucs)].filter(Boolean);
+  if (!aceptados.length) return { ok: true }; // no hay con qué comparar
 
-  // Las dos comparaciones por cola exigen un mínimo de dígitos: sin él, un
-  // receptor de dos dígitos («79») matchearía cualquier RUC que termine igual.
-  const largos = receptor.length >= 6 && propio.length >= 6;
-  const coincide = receptor === propio || (largos && (receptor.endsWith(propio) || propio.endsWith(receptor)));
-  if (coincide) return { ok: true };
+  if (esRucAceptado(receptor, aceptados)) return { ok: true };
 
   return {
     ok: false,
-    detalle: `La factura está a nombre de ${clienteNombre || 'otro cliente'} (RUC ${clienteRuc}), y esta empresa es ${empresa?.name || companyId} (RUC ${empresa?.taxId}).`,
+    detalle: `La factura está a nombre de ${clienteNombre || 'otro cliente'} (RUC ${clienteRuc}), y esta empresa es ${empresa?.name || cfg.companyId} (RUC ${empresa?.taxId || 'sin RUC'}). Si es una compra tuya a tu nombre, agregá ese RUC en «Aceptar facturas a nombre de».`,
   };
 }
 
@@ -118,7 +129,7 @@ export async function cargarFacturaDesdeCorreo(
     }
 
     // 2) ¿Es de esta empresa?
-    const propia = await esDeLaEmpresa(prisma, companyId, det.clienteRuc, det.clienteNombre);
+    const propia = await esDeLaEmpresa(prisma, cfg, det.clienteRuc, det.clienteNombre);
     if (!propia.ok) return { estado: 'OTRO_CLIENTE', detalle: propia.detalle || null, ...vacio };
 
     // 3) La contrapartida: sin cuenta de banco configurada no se carga nada.

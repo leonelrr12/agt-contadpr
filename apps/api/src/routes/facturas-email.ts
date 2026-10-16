@@ -19,6 +19,7 @@ import {
   cuentaBancoDeEmpresa,
   cuentasBancoDeEmpresa,
   getOrCreateEmailConfig,
+  parseReceptorRucs,
   rotarAlias,
 } from '../services/email-facturas-config';
 import { barrerBuzonCentral, barrerFacturasPorCorreo, marcarInterrumpidos, probarConexion, reprocesarMensaje } from '../services/email-inbox';
@@ -78,7 +79,7 @@ facturasEmailRouter.put(
     const data: Record<string, any> = {};
 
     for (const { field } of CAMPOS_EMAIL_FACTURA) {
-      if (field === 'cuentaPagoId' || body[field] === undefined) continue;
+      if (field === 'cuentaPagoId' || field === 'receptorRucs' || body[field] === undefined) continue;
       data[field] = body[field];
     }
 
@@ -97,6 +98,12 @@ facturasEmailRouter.put(
       } else {
         data.cuentaPagoId = null;
       }
+    }
+
+    // RUC extra aceptados como receptor: se guardan normalizados (solo dígitos),
+    // así la comparación del pipeline es una igualdad de dígitos.
+    if (body.receptorRucs !== undefined) {
+      data.receptorRucs = JSON.stringify(parseReceptorRucs(body.receptorRucs));
     }
 
     if (body.conceptoDefaultId !== undefined) {

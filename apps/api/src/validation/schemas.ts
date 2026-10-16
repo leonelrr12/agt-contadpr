@@ -663,6 +663,8 @@ export const updateEmailFacturaConfigSchema = z.object({
   carpetaMover: z.string().trim().max(200).nullable().optional(),
   cuentaPagoId: z.string().nullable().optional(),
   conceptoDefaultId: z.string().nullable().optional(),
+  /** RUC/cédulas extra aceptados como receptor: lista o texto separado por comas. */
+  receptorRucs: z.union([z.array(z.string()), z.string()]).nullable().optional(),
 });
 
 /** «Probar conexión»: lo que se escribió en la tarjeta, sin haber guardado todavía. */

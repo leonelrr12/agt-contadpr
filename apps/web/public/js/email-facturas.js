@@ -133,6 +133,7 @@ function efPintar(cfg) {
   set('ef-folder', cfg.imapFolder || 'INBOX');
   set('ef-marcar', cfg.marcarLeido ? 'true' : 'false');
   set('ef-mover', cfg.carpetaMover || '');
+  set('ef-receptores', Array.isArray(cfg.receptorRucs) ? cfg.receptorRucs.join(', ') : (cfg.receptorRucs || ''));
   set('ef-cuenta', cfg.cuentaPagoId || '');
   set('ef-concepto', cfg.conceptoDefaultId || '');
   efCambioModo();
@@ -226,6 +227,15 @@ function efFormularioHTML(cfg) {
         <div style="font-size:11px;color:#6b7280;margin-top:4px">
           Los asientos acreditan esta cuenta de banco (método ${efEsc(cfg.metodoPago)}). La compra es al contado:
           nunca Caja ni cuentas por pagar.
+        </div>
+      </div>
+      <div style="min-width:100%">
+        <label>Aceptar facturas a nombre de (opcional)</label>
+        <input type="text" id="ef-receptores" placeholder="Tu cédula o RUC personal, ej: 8-123-4567 — separá varios con comas"
+          style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit">
+        <div style="font-size:11px;color:#6b7280;margin-top:4px">
+          Por defecto solo se cargan las facturas a nombre de la empresa. Si comprás a tu nombre personal (lo normal
+          cuando la factura no lleva el RUC de la empresa), agregá acá esa cédula o RUC y esas facturas también entran.
         </div>
       </div>
       <div>
@@ -349,6 +359,7 @@ function efCuerpo() {
     imapFolder: val('ef-folder').trim() || 'INBOX',
     marcarLeido: val('ef-marcar') === 'true',
     carpetaMover: val('ef-mover').trim() || null,
+    receptorRucs: val('ef-receptores').trim() || null,
     cuentaPagoId: val('ef-cuenta') || null,
     conceptoDefaultId: val('ef-concepto') || null,
   };

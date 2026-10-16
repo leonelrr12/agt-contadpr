@@ -59,6 +59,22 @@ export function faltanCredenciales(cfg: any): boolean {
 }
 
 /**
+ * Qué falta exactamente, con el nombre del campo tal como se ve en la pantalla.
+ *
+ * «Faltan el servidor, el usuario o la contraseña» obliga a adivinar cuál de los
+ * tres; con el formulario a medio llenar —que es lo normal la primera vez— el
+ * mensaje tiene que decir cuál falta.
+ */
+export function detalleCredenciales(cfg: any): string | null {
+  const faltan: string[] = [];
+  if (!cfg?.imapHost) faltan.push('el **Servidor** (por ejemplo imap.gmail.com)');
+  if (!cfg?.imapUser) faltan.push('el **Usuario** (el correo completo)');
+  if (!cfg?.imapPassword) faltan.push('la **Contraseña** (la app password de ese correo)');
+  if (!faltan.length) return null;
+  return `Falta ${faltan.join(', ')}. Completalo arriba y volvé a probar.`;
+}
+
+/**
  * Traduce el error del servidor de correo a un código y una frase corta.
  * Gmail y compañía responden «Invalid credentials» / «Authentication failed»;
  * imapflow además marca `authenticationFailed` cuando el servidor rechaza el login.
@@ -87,11 +103,7 @@ export function clasificarErrorImap(err: any): { codigo: CodigoConexion; detalle
  */
 export async function probarConexion(cfg: any): Promise<ResultadoConexion> {
   if (faltanCredenciales(cfg)) {
-    return {
-      ok: false,
-      codigo: 'SIN_CREDENCIALES',
-      error: 'Faltan el servidor, el usuario o la contraseña del buzón.',
-    };
+    return { ok: false, codigo: 'SIN_CREDENCIALES', error: detalleCredenciales(cfg) || 'Faltan las credenciales del buzón.' };
   }
 
   const client = clienteImap(cfg);
@@ -207,7 +219,7 @@ export async function barrerFacturasPorCorreo(
     return { ...RESUMEN_VACIO, codigo: 'INACTIVO', detalle: 'El buzón no está activo.' };
   }
   if (faltanCredenciales(cfg)) {
-    return { ...RESUMEN_VACIO, ok: false, codigo: 'SIN_CREDENCIALES', detalle: 'Faltan el servidor, el usuario o la contraseña del buzón.' };
+    return { ...RESUMEN_VACIO, ok: false, codigo: 'SIN_CREDENCIALES', detalle: detalleCredenciales(cfg) || 'Faltan las credenciales del buzón.' };
   }
 
   const ahora = new Date();
@@ -465,7 +477,9 @@ export async function reprocesarMensaje(
   if (faltanCredenciales(fuente)) {
     return {
       ok: false,
-      error: central ? 'Faltan las credenciales del buzón central.' : 'Faltan las credenciales del buzón.',
+      error: central
+        ? 'Faltan las credenciales del buzón central (EMAIL_CENTRAL_IMAP_USER / EMAIL_CENTRAL_IMAP_PASS en el entorno de la API).'
+        : detalleCredenciales(fuente) || 'Faltan las credenciales del buzón.',
     };
   }
 
