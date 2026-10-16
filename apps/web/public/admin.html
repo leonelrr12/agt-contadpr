@@ -283,6 +283,25 @@ const tope = (usados, max) => {
   return `<span style="color:${pasado ? 'var(--red)' : 'inherit'};font-weight:${pasado ? 700 : 400}">${usados} / ${max || '—'}</span>`;
 };
 
+/**
+ * La segunda línea de la columna Cuenta.
+ *
+ * Para un cliente individual la cuenta se llama **como su empresa** (es lo que dejó el
+ * backfill de la 0041: una cuenta por empresa, con su nombre), así que repetir el
+ * nombre abajo no dice nada — se veía dos veces, en negrita y en gris. Con una sola
+ * empresa va el RUC; con varias, la lista de clientes, que es la información que sí
+ * aporta en un despacho.
+ */
+function detalleEmpresas(cuenta, empresas) {
+  if (!empresas.length) return 'sin empresas';
+  if (empresas.length > 1) return empresas.map(e => esc(e.name)).join(' · ');
+
+  const [e] = empresas;
+  return [e.name === cuenta.name ? null : esc(e.name), e.taxId ? esc(e.taxId) : null]
+    .filter(Boolean)
+    .join(' · ');
+}
+
 function filaCuenta(c) {
   const s = c.suscripcion;
   const plan = s?.plan;
@@ -304,7 +323,13 @@ function filaCuenta(c) {
 
   // Los usuarios del plan son POR EMPRESA: se muestra la que más tiene, que es la
   // que se topa primero, y el total al lado.
-  const maxUsuarios = plan?.maxUsuariosPorEmpresa || 0;
+  //
+  // La cortesía de la suscripción manda sobre el plan, igual que en la app
+  // (`services/suscripcion.ts`): si el panel mirara solo el plan, diría «5 / 3» en
+  // rojo mientras el cliente entra sin problema — y el dueño decidiría sobre un
+  // número que no es el que rige.
+  const maxUsuarios = s.maxUsuariosPorEmpresa ?? plan?.maxUsuariosPorEmpresa ?? 0;
+  const maxEmpresas = s.maxEmpresas ?? plan?.maxEmpresas ?? 0;
   const masCargada = empresas.reduce((a, e) => (e.usuarios > (a?.usuarios || 0) ? e : a), null);
   const totalUsuarios = empresas.reduce((n, e) => n + e.usuarios, 0);
 
@@ -330,10 +355,10 @@ function filaCuenta(c) {
     : '<span class="text-muted">—</span>';
 
   return `<tr>
-    <td><strong>${esc(c.name)}</strong><br><span class="text-muted">${empresas.map(e => esc(e.name)).join(' · ') || 'sin empresas'}</span></td>
+    <td><strong>${esc(c.name)}</strong><br><span class="text-muted">${detalleEmpresas(c, empresas)}</span></td>
     <td>${esc(plan?.name || '—')}${c.historial ? `<br><span class="text-muted" style="font-size:11px">${c.historial} anterior(es)</span>` : ''}</td>
     <td><span class="badge ${BADGE[s.status] || ''}">${ESTADO[s.status] || s.status}</span></td>
-    <td>${tope(empresas.length, plan?.maxEmpresas)}</td>
+    <td>${tope(empresas.length, maxEmpresas)}</td>
     <td>${tope(masCargada?.usuarios || 0, maxUsuarios)}<br><span class="text-muted" style="font-size:11px">${totalUsuarios} en total</span>${avisoUsuarios}</td>
     <td>${s.movementsUsed} / ${s.movementsLimit}</td>
     <td style="max-width:220px">${chipsModulos}</td>
