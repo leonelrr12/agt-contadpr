@@ -45,6 +45,11 @@ function pintarSelectorEmpresa(user) {
   const empresas = user.empresas || [];
   const actual = user.company?.id;
 
+  // «Mis empresas» solo tiene sentido cuando hay más de una: con una sola, el
+  // tablero sería una pantalla que repite lo que ya se ve.
+  const nav = document.getElementById('nav-despacho-link');
+  if (nav) nav.style.display = empresas.length > 1 ? '' : 'none';
+
   if (empresas.length < 2) {
     el.textContent = user.company?.name || '';
     el.classList.remove('sb-empresa-select');

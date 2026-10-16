@@ -130,6 +130,7 @@
             <svg class="nav-group-chev" viewBox="0 0 24 24"><use href="#ic-chev"></use></svg>
           </button>
           <div class="nav-group-body">
+            <button class="nav-link" data-view="panel-despacho" id="nav-despacho-link" style="display:none" title="Mis empresas"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-box"></use></svg><span class="nav-label">Mis empresas</span></button>
             <button class="nav-link" data-view="panel-facturas" id="nav-facturas-link" style="display:none" title="Facturas"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-receipt"></use></svg><span class="nav-label">Facturas</span></button>
             <a class="nav-link" href="/inventario.html" id="nav-inventario-link" style="display:none" title="Inventario"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-box"></use></svg><span class="nav-label">Inventario</span></a>
             <a class="nav-link" href="/planilla.html" id="nav-planilla-link" style="display:none" title="Planilla"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-calc"></use></svg><span class="nav-label">Planilla</span></a>
@@ -378,6 +379,7 @@
 
       <!-- Panel de Calendario Fiscal -->
       <!-- Panel de Salud Financiera -->
+      <div id="panel-despacho-content" class="hidden panel-datos"></div>
       <div id="panel-reembolsos-content" class="hidden panel-datos">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
           <div>
@@ -630,7 +632,10 @@
         <div id="usuarios-admin-content" class="hidden" style="margin-top:4px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
             <span id="usuarios-admin-count" style="font-size:12px;color:#6b7280"></span>
-            <button class="btn-primary btn-sm" onclick="openCrearUsuario()" style="padding:6px 14px;font-size:12px">+ Nuevo usuario</button>
+            <span style="display:flex;gap:8px">
+              <button class="btn-secondary btn-sm" onclick="openVincularUsuario()" title="Dar acceso a esta empresa a alguien que ya tiene cuenta (un contador que lleva otras empresas)" style="padding:6px 14px;font-size:12px">🔗 Vincular existente</button>
+              <button class="btn-primary btn-sm" onclick="openCrearUsuario()" style="padding:6px 14px;font-size:12px">+ Nuevo usuario</button>
+            </span>
           </div>
           <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead><tr>
@@ -700,9 +705,9 @@
   <script src="js/capture.js?v=74"></script>
   <script src="js/capture-qr.js?v=74"></script>
   <script src="js/chat.js?v=76"></script>
-  <script src="js/router.js?v=80"></script>
-  <script src="js/admin.js?v=90"></script>
-  <script src="js/init.js?v=78"></script>
+  <script src="js/router.js?v=81"></script>
+  <script src="js/admin.js?v=91"></script>
+  <script src="js/init.js?v=79"></script>
   <script src="js/panels-sidebar.js?v=74"></script>
   <script src="js/import.js?v=97"></script>
   <script src="js/carga-inicial.js?v=3"></script>
@@ -715,6 +720,7 @@
   <script src="js/salud.js?v=74"></script>
   <script src="js/reembolsos.js?v=6"></script>
   <script src="js/email-facturas.js?v=7"></script>
+  <script src="js/despacho.js?v=1"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="js/facturas.js?v=80"></script>
 </body>

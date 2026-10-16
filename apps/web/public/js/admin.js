@@ -519,19 +519,70 @@ async function loadPanelUsuariosAdmin() {
       const [rl, rc, rb] = roleBadge(u.role);
       const esYo = me && u.id === me.id;
       return `<tr>
-        <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0">${escapeHtml(u.name)}${esYo ? ' <span style="font-size:10px;color:#6b7280">(tú)</span>' : ''}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0">${escapeHtml(u.name)}${esYo ? ' <span style="font-size:10px;color:#6b7280">(tú)</span>' : ''}${u.deOtraEmpresa ? ' <span title="Su cuenta es de otra empresa: acá solo tiene acceso" style="font-size:10px;background:#f0f9ff;color:#0369a1;padding:1px 6px;border-radius:8px">de otra empresa</span>' : ''}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0">${escapeHtml(u.email)}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0"><span style="font-size:11px;background:${rb};color:${rc};padding:2px 8px;border-radius:10px;font-weight:600">${rl}</span></td>
         <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0">${u.isActive ? '<span style="color:#059669;font-size:12px;font-weight:600">✅ Activo</span>' : '<span style="color:#dc2626;font-size:12px;font-weight:600">⛔ Desactivado</span>'}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap">
           ${esYo || u.role === 'admin' || u.role === 'superadmin' ? '' : `<button onclick="openEditarUsuario('${u.id}')" style="padding:4px 9px;font-size:11px;background:#4b5563;color:#fff;border:none;border-radius:4px;cursor:pointer">✏️</button>
-          <button onclick="${u.isActive ? 'desactivarUsuario' : 'reactivarUsuario'}('${u.id}')" style="padding:4px 9px;font-size:11px;background:${u.isActive ? '#ef4444' : '#059669'};color:#fff;border:none;border-radius:4px;cursor:pointer">${u.isActive ? '⛔' : '▶️'}</button>`}
+          ${u.deOtraEmpresa ? '' : `<button onclick="${u.isActive ? 'desactivarUsuario' : 'reactivarUsuario'}('${u.id}')" style="padding:4px 9px;font-size:11px;background:${u.isActive ? '#ef4444' : '#059669'};color:#fff;border:none;border-radius:4px;cursor:pointer">${u.isActive ? '⛔' : '▶️'}</button>`}`}
           <button onclick="resetPassUsuario('${u.id}')" title="Enviar email de reset de contraseña" style="padding:4px 9px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">🔁</button>
         </td>
       </tr>`;
     });
     list.innerHTML = rows.join('');
   } catch (e) { list.innerHTML = '<tr><td colspan="5" style="padding:16px;text-align:center;color:#dc2626">Error de conexión</td></tr>'; }
+}
+
+/**
+ * Dar acceso a esta empresa a alguien que YA tiene cuenta: el contador que lleva
+ * otras empresas entra con su mismo usuario y contraseña, sin crear una cuenta
+ * nueva con otro correo.
+ */
+function openVincularUsuario() {
+  const overlay = document.createElement('div');
+  overlay.className = 'app-dialog-overlay';
+  overlay.innerHTML = `<div class="app-dialog" style="max-width:440px">
+    <div style="font-weight:700;font-size:16px;margin-bottom:6px">🔗 Vincular usuario existente</div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:12px">Para un contador que ya usa Contador507 en otra empresa: entra con su mismo correo y contraseña, y elige la empresa al entrar.</div>
+    <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Correo de su cuenta</label>
+    <input id="vu-email" type="email" placeholder="contador@despacho.com" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+    <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Rol EN ESTA EMPRESA</label>
+    <select id="vu-rol" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px">
+      <option value="contador">Contador — registra y revisa la contabilidad</option>
+      <option value="asistente">Asistente — acceso básico</option>
+      <option value="inventario">Inventario — solo inventario, facturas y clientes/proveedores</option>
+      <option value="planilla">Planilla — solo nómina y registro de empleados</option>
+    </select>
+    <div style="font-size:11px;color:#6b7280;margin-top:8px">El rol es solo para esta empresa: la misma persona puede ser contador acá y dueña en la suya.</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+      <button class="app-dialog-btn" onclick="this.closest('.app-dialog-overlay').remove()">Cancelar</button>
+      <button class="app-dialog-btn primary" onclick="guardarVinculado(this)">🔗 Vincular</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function guardarVinculado(btn) {
+  const email = document.getElementById('vu-email')?.value.trim();
+  const role = document.getElementById('vu-rol')?.value;
+  if (!email) { await showAlert('Escribí el correo de su cuenta'); return; }
+  btn.disabled = true;
+  try {
+    const res = await authFetch(`${API_URL}/users/vincular`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, role }),
+    });
+    const data = await res.json();
+    if (!res.ok) { await showAlert(data.error || 'No se pudo vincular'); return; }
+    document.querySelector('.app-dialog-overlay')?.remove();
+    loadPanelUsuariosAdmin();
+  } catch {
+    await showAlert('Error de conexión');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function openCrearUsuario() {

@@ -1,6 +1,8 @@
 # Multi-Empresa para Despachos — diseño
 
-**Estado: PROPUESTA del 16-10-2026, sin empezar.** Nada de esto está en el schema ni en el código.
+**Estado: FASES 1a, 1b y 2 COMPLETAS Y DESPLEGADAS el 16-10-2026** (commits `cf2e3ba` y el del tablero).
+La fase 3 (resumen comparativo) queda sin empezar, como estaba previsto: se hace cuando haya con qué.
+Lo que se aprendió al implementarlo está en la memoria del proyecto; el diseño se deja como está.
 
 ## 1. Qué resuelve
 
