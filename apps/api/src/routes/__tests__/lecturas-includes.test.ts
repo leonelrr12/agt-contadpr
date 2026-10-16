@@ -38,7 +38,16 @@ beforeAll(async () => {
     // El arnés se crea por request para que cada endpoint tenga el suyo, pero todos
     // validan igual contra el DMMF.
     ultimo = prismaValidador({
-      subscription: { findFirst: () => ({ id: 's1', status: 'ACTIVE', periodEnd: new Date(Date.now() + 86400000), plan: {} }) },
+      // El plan trae los módulos que estas rutas exigen (`middleware/modulo.ts`):
+      // acá se prueban las CONSULTAS, no los permisos. El arnés devuelve este objeto
+      // tal cual en las consultas de lectura del delegate.
+      subscription: {
+        id: 's1',
+        status: 'ACTIVE',
+        periodEnd: new Date(Date.now() + 86400000),
+        addons: [],
+        plan: { modulos: ['inventario', 'planilla', 'facturas-pdf'] },
+      },
     });
     req.prisma = ultimo.prisma;
     next();

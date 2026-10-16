@@ -7,20 +7,22 @@ async function loadPanelFacturas() {
   document.getElementById('input-area').classList.add('hidden');
   document.getElementById('panel-facturas-content').classList.remove('hidden');
 
-  // Si el add-on aún no se cargó (loadSubscriptionInfo no corrió o falló), consultarlo ahora
-  if (!Array.isArray(window.userAddons)) {
+  // Si los módulos aún no se cargaron (loadSubscriptionInfo no corrió o falló),
+  // consultarlos ahora. La lista trae el PLAN **más** lo contratado suelto: el
+  // módulo se tiene por cualquiera de los dos caminos (PLANES.md §4).
+  if (!Array.isArray(window.userModulos)) {
     try {
       const r = await authFetch(`${API_URL}/subscription`);
       if (r && r.ok) {
         const d = await r.json();
-        window.userAddons = d.subscription?.addons || [];
+        window.userModulos = d.subscription?.modulos || [];
       } else {
-        window.userAddons = [];
+        window.userModulos = [];
       }
-    } catch { window.userAddons = []; }
+    } catch { window.userModulos = []; }
   }
 
-  if (!window.userAddons.includes('facturas-pdf')) {
+  if (!window.userModulos.includes('facturas-pdf')) {
     document.getElementById('facturas-lista-content').innerHTML = `
       <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:32px;text-align:center;color:#92400e">
         <div style="font-size:32px">🧾</div>

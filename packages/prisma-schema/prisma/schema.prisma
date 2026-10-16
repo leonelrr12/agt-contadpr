@@ -352,6 +352,13 @@ model Plan {
   /// despacho con tres contadores agotaría el cupo de cada cliente y el cliente no
   /// podría entrar a sus libros—. Se valida al crear un usuario (`routes/users.ts`).
   maxUsuariosPorEmpresa Int @default(3)
+  /// Módulos que el plan incluye, además de la contabilidad base: `inventario`,
+  /// `planilla` y `facturas-pdf`. Se validan en el MENÚ y en las RUTAS de cada
+  /// módulo (`middleware/modulo.ts`): si solo se escondiera el menú, la
+  /// funcionalidad seguiría accesible por API. Un add-on contratado
+  /// (`Subscription.addons`) habilita el módulo igual que el plan, así que la
+  /// cuenta puede contratarlo suelto sin cambiar de plan.
+  modulos String[] @default([])
   price         Float              // Precio en USD (0 = gratis/demo)
   features      String   @default("[]") // JSON array de funcionalidades
   isActive      Boolean  @default(true)

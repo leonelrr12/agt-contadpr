@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth';
 import { logAudit } from '../services/audit-log';
-import { KNOWN_ADDONS } from '../middleware/addon';
+import { KNOWN_ADDONS } from '../middleware/modulo';
 
 export const adminRouter = Router();
 

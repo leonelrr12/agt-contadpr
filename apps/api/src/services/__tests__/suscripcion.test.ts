@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ESTADOS_VIGENTES, empresasDeLaCuenta, incrementarUsoDeEmpresa, suscripcionDeEmpresa, topesDeLaCuenta } from '../suscripcion';
+import { ESTADOS_VIGENTES, empresasDeLaCuenta, incrementarUsoDeEmpresa, modulosDeLaCuenta, suscripcionDeEmpresa, topesDeLaCuenta } from '../suscripcion';
 
 /**
  * El salto «empresa → cuenta → suscripción» (PLANES.md §2) es la pieza que sostiene
@@ -83,6 +83,35 @@ describe('incrementarUsoDeEmpresa', () => {
     expect(visto.incremento.where.cuenta).toEqual({ companies: { some: { id: 'c-2' } } });
     expect(visto.incremento.where.companyId).toBeUndefined();
     expect(visto.incremento.data).toEqual({ movementsUsed: { increment: 0.5 } }); // la planilla semanal cobra media
+  });
+});
+
+describe('modulosDeLaCuenta', () => {
+  const conPlan = (sub: any) => ({ prisma: { subscription: { findFirst: async () => sub } } }) as any;
+
+  it('junta los módulos del PLAN con los add-ons contratados, sin repetidos', async () => {
+    // El módulo se tiene por cualquiera de los dos caminos (PLANES.md §4), y el que
+    // está en los dos no puede aparecer dos veces: el menú lo lee tal cual.
+    const { prisma } = conPlan({
+      periodEnd: new Date(Date.now() + 86400000),
+      addons: ['facturas-pdf', 'inventario'],
+      plan: { name: 'Despacho', modulos: ['inventario', 'planilla'] },
+    });
+
+    const cuenta = await modulosDeLaCuenta(prisma, 'c-1');
+
+    expect(cuenta).toMatchObject({ plan: 'Despacho', vencida: false });
+    expect(cuenta!.modulos.sort()).toEqual(['facturas-pdf', 'inventario', 'planilla']);
+  });
+
+  it('sin suscripción vigente devuelve null', async () => {
+    const { prisma } = conPlan(null);
+    expect(await modulosDeLaCuenta(prisma, 'c-1')).toBeNull();
+  });
+
+  it('marca la suscripción vencida (el guardia responde 402 y no «falta el módulo»)', async () => {
+    const { prisma } = conPlan({ periodEnd: new Date(Date.now() - 1000), addons: [], plan: { name: 'Pyme', modulos: ['inventario'] } });
+    expect((await modulosDeLaCuenta(prisma, 'c-1'))!.vencida).toBe(true);
   });
 });
 

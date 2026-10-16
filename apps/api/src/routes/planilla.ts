@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { requireRole } from '../middleware/auth';
+import { requireModulo } from '../middleware/modulo';
 import { requireQuota, incrementUsage } from '../middleware/quota';
 import { validate } from '../middleware/validate';
 import { localDateKey } from '../services/tabular-utils';
@@ -56,6 +57,10 @@ import {
 } from '../validation/schemas';
 
 export const planillaRouter = Router();
+
+// Planilla entera detrás del plan —incluido el registro de empleados, que es parte
+// del módulo—: sin el módulo, 402 con el motivo.
+planillaRouter.use(requireModulo('planilla'));
 
 // En memoria: el archivo se parsea y se descarta, no se guarda en disco.
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });

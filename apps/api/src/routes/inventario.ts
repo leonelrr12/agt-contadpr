@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { requireRole } from '../middleware/auth';
+import { requireModulo } from '../middleware/modulo';
 import { requireQuota, incrementUsage } from '../middleware/quota';
 import { validate } from '../middleware/validate';
 import { logAudit } from '../services/audit-log';
@@ -17,6 +18,10 @@ import {
 } from '../validation/schemas';
 
 export const inventarioRouter = Router();
+
+// El módulo entero está detrás del plan: sin inventario en el plan (ni contratado),
+// la API responde 402 aunque la pantalla esté escondida.
+inventarioRouter.use(requireModulo('inventario'));
 
 // En memoria: el archivo se parsea y se descarta, no se guarda en disco.
 const cargaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });

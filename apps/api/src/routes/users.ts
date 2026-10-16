@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { requireRole } from '../middleware/auth';
-import { topesDeLaCuenta } from '../services/suscripcion';
+import { modulosDeLaCuenta, topesDeLaCuenta } from '../services/suscripcion';
 
 /**
  * Quiénes tienen acceso a esta empresa.
@@ -19,6 +19,32 @@ import { topesDeLaCuenta } from '../services/suscripcion';
 export const usersRouter = Router();
 
 const COMPANY_ROLES = ['contador', 'asistente', 'inventario', 'planilla'];
+
+/**
+ * Los roles `inventario` y `planilla` son **exclusivos de un módulo**: ese usuario
+ * solo ve y opera ese módulo (`middleware/auth.ts`). Si el plan no lo incluye, el
+ * rol no tiene sentido —quedaría un usuario encerrado en una pantalla que responde
+ * 402—, así que se rechaza con ese motivo (PLANES.md §8 trampa 5).
+ *
+ * Devuelve el cuerpo del error, o null si el rol se puede asignar.
+ */
+async function rolRequiereModuloFaltante(prisma: any, companyId: string, role: string): Promise<any | null> {
+  const modulo = { inventario: 'inventario', planilla: 'planilla' }[role as string];
+  if (!modulo) return null;
+
+  const cuenta = await modulosDeLaCuenta(prisma, companyId);
+  if (!cuenta) return { error: 'No tienes una suscripción activa.', code: 'NO_SUBSCRIPTION' };
+  if (cuenta.modulos.includes(modulo)) return null;
+
+  return {
+    error:
+      `Tu plan ${cuenta.plan} no incluye el módulo de ${modulo === 'planilla' ? 'Planilla' : 'Inventario'}, ` +
+      `así que un usuario con ese rol no tendría a qué entrar. Pasá a un plan que lo incluya, o creá el usuario con otro rol.`,
+    code: 'ROL_REQUIERE_MODULO',
+    modulo,
+    plan: cuenta.plan,
+  };
+}
 
 const CAMPOS_USUARIO = { id: true, name: true, email: true, role: true, isActive: true, emailVerified: true, createdAt: true };
 
@@ -62,6 +88,14 @@ usersRouter.post('/', requireRole('admin', 'superadmin'), async (req, res) => {
   }
 
   try {
+    // El rol exclusivo necesita su módulo en el plan (antes que el cupo: si el rol
+    // no tiene sentido, no importa cuánto lugar quede).
+    const faltaModulo = await rolRequiereModuloFaltante(req.prisma, req.user!.companyId, role);
+    if (faltaModulo) {
+      res.status(402).json(faltaModulo);
+      return;
+    }
+
     // Cupo de usuarios del plan. Cuenta los PROPIOS (los que tienen acá su empresa
     // casa): el contador del despacho que entra como miembro no gasta cupo ajeno.
     // Va dentro del try: un throw de la consulta tiene que caer en el catch.
@@ -128,6 +162,13 @@ usersRouter.post('/vincular', requireRole('admin', 'superadmin'), async (req, re
     return;
   }
 
+  // Un rol exclusivo sin su módulo no tiene a qué entrar (PLANES.md §8 trampa 5).
+  const faltaModulo = await rolRequiereModuloFaltante(req.prisma, req.user!.companyId, role);
+  if (faltaModulo) {
+    res.status(402).json(faltaModulo);
+    return;
+  }
+
   const user = await req.prisma.user.findUnique({ where: { email: correo }, select: { ...CAMPOS_USUARIO, companyId: true } });
   if (!user) {
     res.status(404).json({ error: 'No existe un usuario con ese correo. Creá la cuenta y después vinculala.' });
@@ -190,6 +231,13 @@ usersRouter.patch('/:id', requireRole('admin', 'superadmin'), async (req, res) =
     }
     if (target.id === req.user!.userId) {
       res.status(400).json({ error: 'No puedes cambiar tu propio rol' });
+      return;
+    }
+    // Cambiar el rol a uno exclusivo pasa por el mismo control que crearlo: el
+    // módulo tiene que estar en el plan (PLANES.md §8 trampa 5).
+    const faltaModulo = await rolRequiereModuloFaltante(req.prisma, req.user!.companyId, role);
+    if (faltaModulo) {
+      res.status(402).json(faltaModulo);
       return;
     }
   }

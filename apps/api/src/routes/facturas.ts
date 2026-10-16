@@ -3,7 +3,7 @@ import multer from 'multer';
 import sharp from 'sharp';
 import { validate } from '../middleware/validate';
 import { requireRole } from '../middleware/auth';
-import { requireAddon } from '../middleware/addon';
+import { requireModulo } from '../middleware/modulo';
 import { requireQuota, incrementUsage } from '../middleware/quota';
 import { logAudit } from '../services/audit-log';
 import { buildFacturaPdf } from '../services/factura-pdf';
@@ -16,8 +16,9 @@ import { prepararSalidaVenta, confirmarSalidaVenta } from '../services/inventari
 
 export const facturasRouter = Router();
 
-// TODO el módulo exige el add-on contratado (backend niega aunque el sidebar esté oculto)
-facturasRouter.use(requireAddon('facturas-pdf'));
+// TODO el módulo exige tenerlo: el plan lo incluye o la cuenta lo contrató como
+// add-on. El backend niega aunque el sidebar esté oculto (PLANES.md §4).
+facturasRouter.use(requireModulo('facturas-pdf'));
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 

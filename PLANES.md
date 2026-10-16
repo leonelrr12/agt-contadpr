@@ -105,7 +105,7 @@ elige lo suyo: el negocio que necesita stock, o el contador que lleva tres clien
 |---|---|---|
 | ~~**1**~~ ✅ | `Cuenta` + backfill + `Subscription.cuentaId` + cuota/plan resolviendo por la cuenta | Todo funciona igual que hoy: la cuota de cada empresa se lee y se consume como siempre |
 | ~~**2**~~ ✅ | `maxEmpresas` y `maxUsuariosPorEmpresa` en el plan, validados; contadores en la UI | No se puede pasar del tope; el mensaje dice cuántos hay y qué hacer |
-| **3** | `Plan.modulos` + gate en menú y API (inventario, planilla) | Un plan sin inventario no lo ve ni lo puede usar por API |
+| ~~**3**~~ ✅ | `Plan.modulos` + gate en menú y API (inventario, planilla) | Un plan sin inventario no lo ve ni lo puede usar por API |
 | **4** | Panel SaaS por cuenta (asignar plan, ver empresas y usuarios) + pantalla de precios nueva | El dueño puede dar de alta un despacho y ver qué tiene contratado |
 
 ### Fase 1 — lo que quedó hecho (16-10-2026)
@@ -158,6 +158,30 @@ salen tanto la validación como los contadores de la UI (`/api/subscription` →
   ilimitados» en Despacho, «1 usuario» en Demo), que ya no coincide con los topes. Eso se arregla en la
   fase 4, cuando se reescriban los planes y la pantalla de precios.
 
+### Fase 3 — lo que quedó hecho (16-10-2026)
+
+Migración `0043_plan_modulos`: `Plan.modulos String[]` (default `'{}'`), con los valores de §6 para los
+planes que existen —Emprendedor sin módulos (básico), Pyme y Despacho con inventario y planilla, Despacho
+además facturas— y **Demo con inventario y planilla aunque §6 lo llame «básico»**, porque las dos empresas
+vivas usan la planilla y un cambio de planes no puede recortarle el trabajo a un cliente. Los planes
+nuevos de la fase 4 traen los suyos.
+
+**Un módulo se tiene por el plan O por un add-on contratado** (`Subscription.addons`): la cuenta puede
+contratar un módulo suelto sin cambiar de plan, y el add-on `facturas-pdf` que ya existía sigue valiendo
+igual. `modulosDeLaCuenta()` devuelve la unión.
+
+- **API**: `middleware/modulo.ts` (antes `addon.ts`) monta `requireModulo` en los tres routers —
+  `inventario`, `planilla` (incluido el registro de empleados) y `facturas`— y responde 402
+  `MODULO_NO_INCLUIDO` con el plan y el módulo. Sin suscripción vigente, 402 `NO_SUBSCRIPTION`; vencida,
+  `SUBSCRIPTION_EXPIRED`.
+- **Menú**: `core.js` recibe `modulos` en `/api/subscription` y tapa los del plan; el rol sigue mandando
+  por su lado (`init.js`), así que hacen falta las dos cosas. `facturas.js` mira la misma lista (antes
+  miraba solo el add-on, y un plan que incluyera facturas no se habría visto).
+- **Trampa 5 cerrada**: los roles exclusivos (`inventario`, `planilla`) se rechazan con
+  `ROL_REQUIERE_MODULO` al crear el usuario, al vincularlo y al cambiarle el rol, si el plan no incluye su
+  módulo — un usuario así quedaría encerrado en una pantalla que responde 402.
+- Esconder el menú es cortesía; **la barrera es la API**, que es lo que pide §4.
+
 ## 8. Trampas detectadas
 
 1. ~~**`plan-rate-limit.ts` está cableado por NOMBRE de plan** (`Demo: 5, Emprendedor: 10, Pyme: 25,
@@ -178,3 +202,4 @@ salen tanto la validación como los contadores de la UI (`/api/subscription` →
    cuenta, así que el add-on contratado por el despacho vale en todas sus empresas.
 5. **Los roles exclusivos** (`inventario`, `planilla`) solo tienen sentido si el plan incluye el módulo:
    crear un usuario de planilla en un plan sin planilla tiene que rechazarse con ese motivo.
+   **CERRADA en la fase 3**: se rechaza con `ROL_REQUIERE_MODULO` al crear, al vincular y al cambiar el rol.

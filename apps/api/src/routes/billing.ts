@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { empresasDeLaCuenta, suscripcionDeEmpresa, topesDeLaCuenta } from '../services/suscripcion';
+import { empresasDeLaCuenta, modulosDeLaCuenta, suscripcionDeEmpresa, topesDeLaCuenta } from '../services/suscripcion';
 
 export const billingRouter = Router();
 
@@ -41,9 +41,10 @@ billingRouter.get('/subscription', requireAuth, async (req, res) => {
   }
 
   // Calcular uso diario dentro del período actual
-  const [empresasDeLaCuentaIds, topes] = await Promise.all([
+  const [empresasDeLaCuentaIds, topes, cuenta] = await Promise.all([
     empresasDeLaCuenta(req.prisma, companyId),
     topesDeLaCuenta(req.prisma, companyId),
+    modulosDeLaCuenta(req.prisma, companyId),
   ]);
 
   const dailyUsage = await req.prisma.transaction.groupBy({
@@ -61,6 +62,10 @@ billingRouter.get('/subscription', requireAuth, async (req, res) => {
     plan: subscription.plan.name,
     // Los topes con lo usado: los contadores de la UI («3 de 5 usuarios») salen de acá.
     topes,
+    // Qué módulos puede usar esta cuenta (plan + add-ons contratados): el menú se
+    // arma con esto, y por eso la misma respuesta sirve para esconder lo que la API
+    // va a negar.
+    modulos: cuenta?.modulos || [],
     addons: subscription.addons || [],
     movementsUsed: subscription.movementsUsed,
     movementsLimit: subscription.movementsLimit,

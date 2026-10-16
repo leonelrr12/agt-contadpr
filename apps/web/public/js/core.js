@@ -166,6 +166,33 @@ function actualizarGruposNav() {
   });
 }
 
+/**
+ * Oculta del menú los módulos que el plan no incluye. Va DESPUÉS de la visibilidad
+ * por rol de `init.js`: hacen falta las dos cosas —que el rol alcance **y** que el
+ * plan lo traiga—, y el plan recién se sabe cuando llega `/api/subscription`.
+ *
+ * Es la mitad visible de la fase 3 (PLANES.md §4): la API responde 402 igual, así que
+ * esto es cortesía, no la barrera.
+ */
+const MODULOS_EN_EL_MENU = {
+  // `porRol`: el link lo prende la visibilidad por rol de `init.js`, así que acá
+  // solo se apaga. Facturas PDF no depende del rol —el add-on lo traía cualquiera—,
+  // y por eso hay que prenderlo también.
+  inventario: { id: 'nav-inventario-link', porRol: true },
+  planilla: { id: 'nav-planilla-link', porRol: true },
+  'facturas-pdf': { id: 'nav-facturas-link', porRol: false },
+};
+function aplicarModulosDelPlan() {
+  const modulos = window.userModulos || [];
+  for (const [modulo, cfg] of Object.entries(MODULOS_EN_EL_MENU)) {
+    const el = document.getElementById(cfg.id);
+    if (!el) continue;
+    if (!modulos.includes(modulo)) { el.style.display = 'none'; continue; }
+    if (!cfg.porRol) el.style.display = ''; // '' y no 'block': .nav-link es flex
+  }
+  actualizarGruposNav();
+}
+
 aplicarSidebarColapsada();
 aplicarGruposNav();
 // Cerrar el drawer al hacer clic en cualquier opción del menú
@@ -190,14 +217,15 @@ async function loadSubscriptionInfo() {
     // usuarios», «2 de 1 empresas») salen de `sub.topes`, y así no hay que volver
     // a pedirla en cada panel.
     window.userSubscription = sub;
-
-    // Add-ons contratados (módulo Facturas PDF)
+    // El módulo Facturas PDF ya no se mira por add-on suelto: `sub.modulos` trae el
+    // plan **más** lo contratado, así que la misma lista sirve para el menú y para
+    // `facturas.js`. `userAddons` queda por lo contratado suelto.
+    window.userModulos = sub.modulos || [];
     window.userAddons = sub.addons || [];
-    if (window.userAddons.includes('facturas-pdf')) {
-      const navFacturas = document.getElementById('nav-facturas-link');
-      if (navFacturas) navFacturas.style.display = ''; // '' y no 'block': .nav-link es flex
-      actualizarGruposNav();
-    }
+    // El módulo se muestra si el PLAN lo trae (o la cuenta lo contrató) y el rol
+    // alcanza: `init.js` ya aplicó lo del rol, acá se tapa lo que el plan no incluye.
+    // Son los mismos módulos que la API responde 402 (PLANES.md §4: menú Y rutas).
+    aplicarModulosDelPlan();
 
     // Mostrar el indicador
     const el = document.getElementById('sidebar-subscription');

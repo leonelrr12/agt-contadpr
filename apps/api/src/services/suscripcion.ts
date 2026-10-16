@@ -49,6 +49,32 @@ export async function incrementarUsoDeEmpresa(prisma: any, companyId: string, ca
   });
 }
 
+/** Los módulos que puede usar la cuenta, con lo mínimo para explicar un 402. */
+export interface ModulosDeLaCuenta {
+  plan: string;
+  vencida: boolean;
+  /** Plan + add-ons contratados, sin repetidos. */
+  modulos: string[];
+}
+
+/**
+ * Los módulos que puede usar la cuenta: los del **plan** más los **add-ons**
+ * contratados (una cuenta puede contratar un módulo suelto sin cambiar de plan).
+ * `null` si la cuenta no tiene suscripción vigente.
+ *
+ * Es lo que valida `middleware/modulo.ts` (menú **y** rutas) y lo que el frontend
+ * usa para mostrar u ocultar cada módulo.
+ */
+export async function modulosDeLaCuenta(prisma: any, companyId: string): Promise<ModulosDeLaCuenta | null> {
+  const sub = await suscripcionDeEmpresa(prisma, companyId);
+  if (!sub) return null;
+  return {
+    plan: sub.plan?.name || '',
+    vencida: new Date() > new Date(sub.periodEnd),
+    modulos: [...new Set([...(sub.plan?.modulos || []), ...(sub.addons || [])])] as string[],
+  };
+}
+
 /** Un tope del plan, con lo que ya hay usado. */
 export interface Tope { usados: number; max: number }
 
