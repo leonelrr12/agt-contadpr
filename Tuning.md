@@ -407,12 +407,17 @@ PDF —**por el plan o por un add-on contratado**—, y se valida en los dos lad
 (`core.js`) tapa los que el plan no trae (el rol sigue mandando por su lado). Un rol exclusivo
 (`inventario`, `planilla`) en un plan sin ese módulo se rechaza con `ROL_REQUIERE_MODULO`.
 
+Los módulos también se contratan sueltos (**$3.99** Inventario y Planilla, **$9.99** Facturas PDF —catálogo
+en `services/modulos.ts`, publicado en `GET /api/addons`—), y el dueño puede dar **cortesías de cupo por
+suscripción** (`Subscription.maxEmpresas` / `maxUsuariosPorEmpresa`, migración `0045`: `null` = el del plan,
+`0` = sin tope) desde «Extender / Otorgar» para el cliente que no encaja en ningún plan.
+
 La fase 4 dejó el **panel SaaS por cuenta** (`/admin.html` → «Cuentas»: una fila por cliente que paga con
 sus empresas, los usuarios propios de cada una, la cuota, los módulos y el botón para asignarle plan) y la
 **pantalla de precios** armada con los campos del plan en vez del texto de `features`. Dos decisiones
 siguen abiertas y son del dueño: si el Demo pasa a «básico» (hoy lleva inventario y planilla porque las
 dos cuentas vivas los usan) y qué plan le toca a Odesa, que con 5 usuarios propios no entra en ninguno
-individual; y el precio de inventario/planilla como add-on.
+individual — aunque para eso ya tiene la cortesía de cupo.
 
 **Pendiente comercial:** portal de facturación de autoservicio.
 

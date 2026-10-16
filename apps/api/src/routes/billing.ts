@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { empresasDeLaCuenta, modulosDeLaCuenta, suscripcionDeEmpresa, topesDeLaCuenta } from '../services/suscripcion';
+import { MODULOS_CONTRATABLES } from '../services/modulos';
 
 export const billingRouter = Router();
 
@@ -28,6 +29,15 @@ billingRouter.get('/plans', async (req, res) => {
     },
   });
   res.json(plans);
+});
+
+/**
+ * GET /api/addons — Público: los módulos que se contratan aparte, con su precio.
+ * La pantalla de precios los publica tal cual; el catálogo es uno solo
+ * (`services/modulos.ts`), el mismo que valida el panel.
+ */
+billingRouter.get('/addons', async (_req, res) => {
+  res.json(MODULOS_CONTRATABLES);
 });
 
 /**

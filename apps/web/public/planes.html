@@ -397,57 +397,30 @@ fetch('/api/plans')
 
 // ── Add-ons (módulos contratados por separado) ──
 // Un módulo se tiene por el plan **o** contratado suelto (PLANES.md §4): el despacho
-// que necesita inventario para un solo cliente no tiene que saltar de plan.
-// Inventario y Planilla no llevan precio acá porque el dueño todavía no lo fijó:
-// se pide por WhatsApp y se activa desde el panel.
-document.getElementById('plans-container').insertAdjacentHTML('afterend', `
-  <h2 style="margin-top:48px">⚡ Módulos adicionales</h2>
-  <p style="color:var(--muted);margin-bottom:20px">Se suman a cualquier plan, sin cambiar de plan.</p>
-  <div class="plans-grid">
-    <div class="plan-card" style="border-top:4px solid #7c3aed">
-      <h3>🧾 Facturas PDF</h3>
-      <div class="plan-price">$9.99<span>/mes</span></div>
-      <p style="color:var(--muted);font-size:14px">Emite facturas de venta profesionales con cumplimiento DGI.</p>
-      <ul class="plan-features">
-        <li>Numeración correlativa por serie</li>
-        <li>Logo y datos de tu empresa</li>
-        <li>Resolución DGI en cada factura</li>
-        <li>Items detallados con ITBMS desglosado</li>
-        <li>PDF descargable e imprimible</li>
-        <li>Asiento contable automático (BORRADOR)</li>
-      </ul>
-      <button class="btn btn-primary" onclick="mostrarContratacion('🧾 Facturas PDF', 9.99)" style="display:block;text-align:center;width:100%;cursor:pointer">Contratar Módulo</button>
-    </div>
-    <div class="plan-card" style="border-top:4px solid var(--primary)">
-      <h3>📦 Inventario</h3>
-      <p style="color:var(--muted);font-size:14px">Kardex, costo promedio y valoración de existencias, con compras y ventas que mueven el stock.</p>
-      <ul class="plan-features">
-        <li>Entradas, salidas y ajustes</li>
-        <li>Kardex por producto</li>
-        <li>Costo promedio y valoración</li>
-        <li>Cuadre contra el mayor</li>
-      </ul>
-      <button class="btn btn-primary" onclick="pedirModulo('📦 Inventario')" style="display:block;text-align:center;width:100%;cursor:pointer">Consultar precio</button>
-    </div>
-    <div class="plan-card" style="border-top:4px solid var(--primary)">
-      <h3>🧮 Planilla</h3>
-      <p style="color:var(--muted);font-size:14px">Nómina panameña completa: SS, SE, ISR, décimo, vacaciones y aportes del patrono.</p>
-      <ul class="plan-features">
-        <li>Empleados y salarios</li>
-        <li>Cálculo quincenal, mensual o semanal</li>
-        <li>Pago a la CSS y descarga de planillas</li>
-        <li>Asientos y pasivo del patrono</li>
-      </ul>
-      <button class="btn btn-primary" onclick="pedirModulo('🧮 Planilla')" style="display:block;text-align:center;width:100%;cursor:pointer">Consultar precio</button>
-    </div>
-  </div>
-`);
-
-/** Un módulo sin precio de lista se pide por WhatsApp (el dueño lo activa del panel). */
-function pedirModulo(nombre) {
-  const texto = `Hola, quiero contratar el módulo ${nombre} además de mi plan. ¿Cuál es el precio?`;
-  window.open(`https://wa.me/50764034863?text=${encodeURIComponent(texto)}`, '_blank');
-}
+// que necesita inventario para un solo cliente no tiene que saltar de plan. El
+// catálogo y los precios salen de la API (`services/modulos.ts`), no de esta página:
+// el precio que se publica es el mismo que valida el panel.
+fetch('/api/addons')
+  .then(r => r.json())
+  .then(addons => {
+    if (!addons.length) return;
+    document.getElementById('plans-container').insertAdjacentHTML('afterend', `
+      <h2 style="margin-top:48px">⚡ Módulos adicionales</h2>
+      <p style="color:var(--muted);margin-bottom:20px">Se suman a cualquier plan, sin cambiar de plan.</p>
+      <div class="plans-grid">
+        ${addons.map(a => `
+          <div class="plan-card" style="border-top:4px solid #7c3aed">
+            <h3>${a.nombre}</h3>
+            <div class="plan-price">$${a.precio.toFixed(2)}<span class="period">/mes</span></div>
+            <p style="color:var(--muted);font-size:14px">${a.descripcion}</p>
+            <ul class="plan-features">${a.incluye.map(i => `<li>${i}</li>`).join('')}</ul>
+            <button class="btn btn-primary" onclick="mostrarContratacion('${a.nombre}', ${a.precio})" style="display:block;text-align:center;width:100%;cursor:pointer">Contratar Módulo</button>
+          </div>
+        `).join('')}
+      </div>
+    `);
+  })
+  .catch(() => {});
 
 // ── Modal de contratación de módulos (proceso manual: Yappy/transferencia) ──
 function mostrarContratacion(modulo, precio) {

@@ -40,8 +40,8 @@ membresía ahí.
 
 | Límite | Vive en | Se valida en |
 |---|---|---|
-| **Empresas por cuenta** | `Plan.maxEmpresas` | `POST /api/companies` (contando las empresas de la cuenta) |
-| **Usuarios por empresa** | `Plan.maxUsuariosPorEmpresa` | `POST /api/users` — **`/vincular` no valida**, porque vincular no cambia la empresa casa de nadie y por lo tanto no suma cupo (ver la regla del conteo, abajo) |
+| **Empresas por cuenta** | `Plan.maxEmpresas`, con cortesía por suscripción (`Subscription.maxEmpresas`) | `POST /api/companies` (contando las empresas de la cuenta) |
+| **Usuarios por empresa** | `Plan.maxUsuariosPorEmpresa`, con cortesía por suscripción (`Subscription.maxUsuariosPorEmpresa`) | `POST /api/users` — **`/vincular` no valida**, porque vincular no cambia la empresa casa de nadie y por lo tanto no suma cupo (ver la regla del conteo, abajo) |
 | **Movimientos por período** | `Plan.monthlyLimit` (holgado) | `middleware/quota.ts` — ya existe y funciona |
 | **Módulos incluidos** | `Plan.modulos String[]` | menú (frontend) **y** las rutas de cada módulo |
 

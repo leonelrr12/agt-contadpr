@@ -46,13 +46,23 @@ let server: any;
 let base = '';
 let rol = 'superadmin';
 let ultimaConsulta: any = null;
+/** Se cambia por test: cada bloque arma el Prisma que necesita. */
+let prismaActual: any = null;
+const parcheado: any = { data: null };
 
 beforeAll(async () => {
-  const prisma: any = {
+  prismaActual = {
     cuenta: {
       findMany: async (args: any) => {
         ultimaConsulta = args;
         return CUENTAS;
+      },
+    },
+    subscription: {
+      findUnique: async () => ({ id: 's-sub', addons: [], planId: 'p1' }),
+      update: async ({ data }: any) => {
+        parcheado.data = data;
+        return { id: 's-sub', ...data };
       },
     },
   };
@@ -60,7 +70,7 @@ beforeAll(async () => {
   app.use(express.json());
   app.use((req: any, _res, next) => {
     req.user = { userId: 'u-super', companyId: 'c-1', role: rol, name: 'Dueño', email: 'd@x.com' };
-    req.prisma = prisma;
+    req.prisma = prismaActual;
     next();
   });
   app.use('/api/admin', adminRouter);
@@ -132,5 +142,49 @@ describe('GET /api/admin/cuentas', () => {
     const { status } = await pedir('/cuentas');
     expect(status).toBe(403);
     rol = 'superadmin';
+  });
+});
+
+describe('PATCH /api/admin/subscriptions/:id — cortesías de cupo', () => {
+  const parchar = async (body: any): Promise<{ status: number; body: any }> => {
+    parcheado.data = null;
+    const res = await fetch(`${base}/subscriptions/s-sub`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json() };
+  };
+
+  it('un entero sube el cupo de esa suscripción', async () => {
+    const r = await parchar({ maxUsuariosPorEmpresa: 10, maxEmpresas: 3 });
+    expect(r.status).toBe(200);
+    expect(parcheado.data).toMatchObject({ maxUsuariosPorEmpresa: 10, maxEmpresas: 3 });
+  });
+
+  it('null lo devuelve al tope del plan', async () => {
+    const r = await parchar({ maxUsuariosPorEmpresa: null });
+    expect(r.status).toBe(200);
+    expect(parcheado.data.maxUsuariosPorEmpresa).toBeNull();
+    expect(parcheado.data.maxEmpresas).toBeUndefined(); // no se tocó
+  });
+
+  it('0 es «sin tope» (el guardia lo lee así)', async () => {
+    const r = await parchar({ maxEmpresas: 0 });
+    expect(r.status).toBe(200);
+    expect(parcheado.data.maxEmpresas).toBe(0);
+  });
+
+  it('un valor que no es entero se rechaza en vez de llegar a la columna', async () => {
+    const r = await parchar({ maxUsuariosPorEmpresa: 'muchos' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('entero');
+    expect(parcheado.data).toBeNull(); // no se escribió nada
+  });
+
+  it('un add-on fuera del catálogo se rechaza', async () => {
+    const r = await parchar({ addons: ['modulo-inventado'] });
+    expect(r.status).toBe(400);
+    expect(r.body.addonsValidos).toContain('facturas-pdf');
   });
 });

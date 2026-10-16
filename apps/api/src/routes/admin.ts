@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth';
 import { logAudit } from '../services/audit-log';
-import { KNOWN_ADDONS } from '../middleware/modulo';
+import { KNOWN_ADDONS } from '../services/modulos';
 import { ESTADOS_VIGENTES } from '../services/suscripcion';
 
 export const adminRouter = Router();
@@ -207,7 +207,7 @@ adminRouter.post('/subscriptions', async (req, res) => {
 });
 
 adminRouter.patch('/subscriptions/:id', async (req, res) => {
-  const { status, movementsLimit, periodEnd, note, addons } = req.body;
+  const { status, movementsLimit, periodEnd, note, addons, maxEmpresas, maxUsuariosPorEmpresa } = req.body;
 
   const existing = await req.prisma.subscription.findUnique({
     where: { id: req.params.id },
@@ -219,6 +219,19 @@ adminRouter.patch('/subscriptions/:id', async (req, res) => {
   if (movementsLimit !== undefined) data.movementsLimit = movementsLimit;
   if (periodEnd) data.periodEnd = new Date(periodEnd);
   if (note) data.grantedNote = note;
+
+  // Cortesías de cupo: `null` las borra y la cuenta vuelve al tope del plan. Se
+  // validan acá porque un texto suelto llegaría a la columna como NaN.
+  for (const [campo, valor] of [['maxEmpresas', maxEmpresas], ['maxUsuariosPorEmpresa', maxUsuariosPorEmpresa]] as const) {
+    if (valor === undefined) continue;
+    if (valor === null || valor === '') { data[campo] = null; continue; }
+    const n = Number(valor);
+    if (!Number.isInteger(n) || n < 0) {
+      res.status(400).json({ error: `${campo} tiene que ser un entero ≥ 0 (0 = sin tope) o null para usar el del plan` });
+      return;
+    }
+    data[campo] = n;
+  }
   if (addons !== undefined) {
     if (!Array.isArray(addons) || addons.some((a: unknown) => typeof a !== 'string' || !KNOWN_ADDONS.includes(a as any))) {
       res.status(400).json({ error: 'Add-ons inválidos', addonsValidos: KNOWN_ADDONS });

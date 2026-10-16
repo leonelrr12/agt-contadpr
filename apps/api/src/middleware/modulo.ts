@@ -1,12 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { modulosDeLaCuenta } from '../services/suscripcion';
 
-/** Catálogo de add-ons contratables (v1: hardcodeado — migrar a tabla si crece). */
-export const KNOWN_ADDONS = ['facturas-pdf'] as const;
-
-/** Los módulos que existen. Es el vocabulario de `Plan.modulos` y de los add-ons. */
-export const MODULOS = ['inventario', 'planilla', 'facturas-pdf'] as const;
-
 /** Cómo se llama cada módulo cuando hay que explicárselo a una persona. */
 const NOMBRE: Record<string, string> = {
   inventario: 'Inventario',

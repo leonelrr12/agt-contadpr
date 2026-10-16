@@ -142,6 +142,26 @@ describe('cupo de usuarios por empresa', () => {
     expect(creado.membresias).toEqual([{ userId: 'u-externo', companyId: 'c-1', role: 'contador' }]);
   });
 
+  it('⭐ una cortesía de cupo en la suscripción levanta el tope del plan', async () => {
+    // El caso Odesa: el plan permite 2 y la cuenta tiene 5, pero el dueño le otorgó
+    // 10 a mano. El guardia tiene que mirar la cortesía, no el plan.
+    const { prisma, creado } = prismaFalso({ usuariosUsados: 5 });
+    prisma.subscription.findFirst = async () => ({
+      id: 's1',
+      cuentaId: 'cta-1',
+      status: 'GRANTED',
+      periodEnd: new Date(Date.now() + 86400000),
+      maxUsuariosPorEmpresa: 10,
+      plan: { name: 'Demo', maxEmpresas: 1, maxUsuariosPorEmpresa: 2 },
+    });
+    actual = { prisma, user: USUARIO };
+
+    const r = await pedir('/users', NUEVO);
+
+    expect(r.status).toBe(201);
+    expect(creado.usuarios).toHaveLength(1);
+  });
+
   it('sin suscripción vigente tampoco se crean usuarios', async () => {
     const { prisma, creado } = prismaFalso({ sinPlan: true });
     actual = { prisma, user: USUARIO };

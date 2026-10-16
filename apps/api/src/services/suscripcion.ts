@@ -107,8 +107,10 @@ export async function topesDeLaCuenta(prisma: any, companyId: string): Promise<T
 
   return {
     plan: sub.plan?.name || '',
-    empresas: { usados: empresas, max: sub.plan?.maxEmpresas ?? 0 },
-    usuarios: { usados: usuarios, max: sub.plan?.maxUsuariosPorEmpresa ?? 0 },
+    // Gana la cortesía de la suscripción si la hay (`null` = el del plan): es el mismo
+    // mecanismo que `movementsLimit`, para el cliente que no encaja en ningún plan.
+    empresas: { usados: empresas, max: sub.maxEmpresas ?? sub.plan?.maxEmpresas ?? 0 },
+    usuarios: { usados: usuarios, max: sub.maxUsuariosPorEmpresa ?? sub.plan?.maxUsuariosPorEmpresa ?? 0 },
   };
 }
 

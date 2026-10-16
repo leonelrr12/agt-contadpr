@@ -139,6 +139,29 @@ describe('topesDeLaCuenta', () => {
     const { prisma } = prismaFalsoTopes({ suscripcion: null });
     expect(await topesDeLaCuenta(prisma, 'c-1')).toBeNull();
   });
+
+  it('⭐ la cortesía de la SUSCRIPCIÓN gana sobre el tope del plan', async () => {
+    // El cliente que no encaja en ningún plan (Odesa: 5 usuarios contra un tope de 2)
+    // se resuelve con un cupo a medida, sin inventar un plan nuevo.
+    const { prisma } = prismaFalsoTopes({
+      suscripcion: { id: 's1', cuentaId: 'cta-1', maxEmpresas: 3, maxUsuariosPorEmpresa: 10, plan: { name: 'Demo', maxEmpresas: 1, maxUsuariosPorEmpresa: 2 } },
+      empresas: 2,
+      usuarios: 5,
+    });
+
+    const topes = await topesDeLaCuenta(prisma, 'c-1');
+    expect(topes!.empresas).toEqual({ usados: 2, max: 3 });
+    expect(topes!.usuarios).toEqual({ usados: 5, max: 10 });
+  });
+
+  it('sin cortesía (null) manda el plan, y `0` es sin tope', async () => {
+    const plan = { name: 'Demo', maxEmpresas: 1, maxUsuariosPorEmpresa: 2 };
+    const sinCortesia = await topesDeLaCuenta(prismaFalsoTopes({ suscripcion: { cuentaId: 'cta-1', maxEmpresas: null, maxUsuariosPorEmpresa: null, plan } }).prisma, 'c-1');
+    expect(sinCortesia!.usuarios.max).toBe(2);
+
+    const sinTope = await topesDeLaCuenta(prismaFalsoTopes({ suscripcion: { cuentaId: 'cta-1', maxEmpresas: 0, maxUsuariosPorEmpresa: 0, plan } }).prisma, 'c-1');
+    expect(sinTope!.empresas.max).toBe(0); // las rutas lo leen como «sin tope»
+  });
 });
 
 describe('empresasDeLaCuenta', () => {

@@ -238,8 +238,17 @@ async function loadStats() {
 
 // ── Cuentas (el panel por cuenta: quién paga y qué tiene contratado) ──
 let cuentasCache = [];
+/** El catálogo de módulos contratables con su precio (`GET /api/addons`). */
+let addonsCatalogo = null;
+
+async function loadAddons() {
+  const res = await api(`${API}/addons`);
+  if (res && res.ok) addonsCatalogo = await res.json();
+}
 
 async function loadCuentas() {
+  // El catálogo se pide una vez: los chips de add-ons muestran lo que vale cada uno.
+  if (!addonsCatalogo) await loadAddons();
   const search = document.getElementById('searchInput').value;
   const status = document.getElementById('statusFilter').value;
   const params = new URLSearchParams();
@@ -299,9 +308,19 @@ function filaCuenta(c) {
     ? `<br><span style="color:var(--red);font-size:11px">⚠️ ${pasadas.map(e => esc(e.name)).join(', ')}</span>`
     : '';
 
+  // Los contratados aparte se distinguen de los que ya trae el plan, y llevan su
+  // precio: es lo que la cuenta está pagando de más.
+  const precioAddon = (m) => (addonsCatalogo || []).find(a => a.id === m)?.precio;
   const modulos = [...(plan?.modulos || []), ...(s.addons || [])];
   const chipsModulos = modulos.length
-    ? modulos.map(m => `<button class="btn btn-sm ${(s.addons || []).includes(m) ? 'btn-success' : ''}" ${(s.addons || []).includes(m) ? `onclick="toggleAddon('${s.id}','${m}')" title="Contratado aparte — clic para quitarlo"` : 'disabled title="Viene en el plan"'}>${MODULO_NOMBRE[m] || m}${(s.addons || []).includes(m) ? ' ✓' : ''}</button>`).join(' ')
+    ? modulos.map(m => {
+        const contratado = (s.addons || []).includes(m);
+        const precio = precioAddon(m);
+        const titulo = contratado
+          ? `Contratado aparte${precio ? ` por $${precio.toFixed(2)}/mes` : ''} — clic para quitarlo`
+          : 'Viene incluido en el plan';
+        return `<button class="btn btn-sm ${contratado ? 'btn-success' : ''}" ${contratado ? `onclick="toggleAddon('${s.id}','${m}')"` : 'disabled'} title="${titulo}">${MODULO_NOMBRE[m] || m}${contratado ? ` ✓${precio ? ` $${precio.toFixed(2)}` : ''}` : ''}</button>`;
+      }).join(' ')
     : '<span class="text-muted">—</span>';
 
   return `<tr>
@@ -523,17 +542,36 @@ async function showGrant(subId, companyName) {
   const overlay = document.getElementById('modalOverlay');
   const content = document.getElementById('modalContent');
 
+  // Lo que tiene hoy la suscripción: los cupos vacíos significan «el del plan».
+  const res = await api(`${API}/admin/subscriptions/${subId}`);
+  const sub = res && res.ok ? await res.json() : {};
+  const plan = sub.plan || {};
+
   content.innerHTML = `
     <button class="close" onclick="closeModal()">×</button>
     <h3>🎁 Extender / Otorgar Acceso</h3>
-    <p class="text-muted" style="margin-bottom:16px">Empresa: <strong>${esc(companyName)}</strong></p>
+    <p class="text-muted" style="margin-bottom:16px">Cuenta: <strong>${esc(companyName)}</strong> — Plan: <strong>${esc(plan.name || '—')}</strong></p>
     <div class="form-group">
       <label>Nuevo límite de movimientos</label>
-      <input type="number" id="grantLimit" value="50" min="1">
+      <input type="number" id="grantLimit" value="${sub.movementsLimit || 50}" min="1">
     </div>
     <div class="form-group">
       <label>Extender por (días desde hoy)</label>
       <input type="number" id="grantDays" value="30" min="1" max="365">
+    </div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:18px 0">
+    <p class="text-muted" style="margin-bottom:10px">
+      Cupos a medida para esta cuenta. Se usan cuando el cliente no encaja en ningún plan (por ejemplo, más
+      usuarios de los que trae el suyo). <strong>Vacío = el del plan</strong> (${plan.maxEmpresas ?? '—'} empresas,
+      ${plan.maxUsuariosPorEmpresa ?? '—'} usuarios por empresa); <strong>0 = sin tope</strong>.
+    </p>
+    <div class="form-group">
+      <label>Empresas (opcional)</label>
+      <input type="number" id="grantEmpresas" min="0" placeholder="El del plan" value="${sub.maxEmpresas ?? ''}">
+    </div>
+    <div class="form-group">
+      <label>Usuarios por empresa (opcional)</label>
+      <input type="number" id="grantUsuarios" min="0" placeholder="El del plan" value="${sub.maxUsuariosPorEmpresa ?? ''}">
     </div>
     <div class="form-group">
       <label>Nota</label>
@@ -551,6 +589,9 @@ async function doGrant(subId) {
   const limit = parseInt(document.getElementById('grantLimit').value) || 50;
   const days = parseInt(document.getElementById('grantDays').value) || 30;
   const note = document.getElementById('grantNote').value.trim();
+  // Vacío = `null` = volver al cupo del plan (el backend lo borra con null).
+  const empresas = document.getElementById('grantEmpresas').value.trim();
+  const usuarios = document.getElementById('grantUsuarios').value.trim();
 
   const endDate = new Date();
   endDate.setDate(endDate.getDate() + days);
@@ -562,6 +603,8 @@ async function doGrant(subId) {
       movementsLimit: limit,
       periodEnd: endDate.toISOString(),
       note: note || 'Acceso otorgado por admin',
+      maxEmpresas: empresas === '' ? null : Number(empresas),
+      maxUsuariosPorEmpresa: usuarios === '' ? null : Number(usuarios),
     }),
   });
 

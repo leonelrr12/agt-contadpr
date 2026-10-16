@@ -403,6 +403,11 @@ model Subscription {
   periodEnd       DateTime
   grantedBy       String?            // userId del admin que otorgó
   grantedNote     String?            // Nota del admin
+  /// Cortesías por suscripción: suben el cupo de ESTA cuenta sin cambiarle el plan
+  /// (es el mismo mecanismo que `movementsLimit`, que puede diferir del plan).
+  /// `null` = el del plan, que es lo normal; `0` = sin tope.
+  maxEmpresas            Int?
+  maxUsuariosPorEmpresa  Int?
   addons          String[]           @default([]) // add-ons contratados, ej. ["facturas-pdf"]
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
