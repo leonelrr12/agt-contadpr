@@ -11,6 +11,8 @@
  * empresas, que es lo que dice el plan que se paga.
  */
 
+import { localDateKey } from './tabular-utils';
+
 /** Estados que pueden operar. `EXPIRED` es el único que bloquea. */
 export const ESTADOS_VIGENTES = ['DEMO', 'ACTIVE', 'GRANTED', 'GRACE'];
 
@@ -73,6 +75,32 @@ export async function modulosDeLaCuenta(prisma: any, companyId: string): Promise
     vencida: new Date() > new Date(sub.periodEnd),
     modulos: [...new Set([...(sub.plan?.modulos || []), ...(sub.addons || [])])] as string[],
   };
+}
+
+/**
+ * El uso diario del período, **un punto por DÍA calendario**.
+ *
+ * Dos cosas que estaban mal cuando esto se armaba en la ruta:
+ *
+ * 1. Se agrupaba por el timestamp completo, así que un día con movimientos a distintas
+ *    horas salía repetido (el 17-09 aparecía cuatro veces) — para un gráfico por día
+ *    eso no es un dato, es ruido.
+ * 2. La fecha se recortaba con `toISOString()`, que es **UTC**: un movimiento de las
+ *    21:00 en Panamá (01:00 UTC del día siguiente) se dibujaba en el día equivocado.
+ *    Se usa la misma convención que el resto del repo (`localDateKey`, y las fechas de
+ *    solo día guardadas a mediodía local): el día del usuario, no el del servidor UTC.
+ *
+ * Pura y exportada para poder probarla: entra lo que devuelve el `groupBy` de Prisma.
+ */
+export function usoDiarioPorDia(filas: { date: Date; count: number }[]): { date: string; count: number }[] {
+  // El `Map` conserva el orden de inserción, así que las filas —que vienen ordenadas
+  // por fecha ascendente— dan un resultado ordenado sin volver a ordenar.
+  const porDia = new Map<string, number>();
+  for (const fila of filas) {
+    const dia = localDateKey(new Date(fila.date));
+    porDia.set(dia, (porDia.get(dia) || 0) + fila.count);
+  }
+  return [...porDia.entries()].map(([date, count]) => ({ date, count }));
 }
 
 /** Un tope del plan, con lo que ya hay usado. */

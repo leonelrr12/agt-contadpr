@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ESTADOS_VIGENTES, empresasDeLaCuenta, incrementarUsoDeEmpresa, modulosDeLaCuenta, suscripcionDeEmpresa, topesDeLaCuenta } from '../suscripcion';
+import { ESTADOS_VIGENTES, empresasDeLaCuenta, incrementarUsoDeEmpresa, modulosDeLaCuenta, suscripcionDeEmpresa, topesDeLaCuenta, usoDiarioPorDia } from '../suscripcion';
 
 /**
  * El salto «empresa → cuenta → suscripción» (PLANES.md §2) es la pieza que sostiene
@@ -173,5 +173,43 @@ describe('empresasDeLaCuenta', () => {
   it('sin empresa devuelve vacío (el gráfico no inventa datos)', async () => {
     const { prisma } = prismaFalso({ company: null });
     expect(await empresasDeLaCuenta(prisma, 'c-9')).toEqual([]);
+  });
+});
+
+describe('usoDiarioPorDia', () => {
+  it('⭐ junta en UN punto los movimientos del mismo día a distintas horas', () => {
+    // El `groupBy` de Prisma agrupa por timestamp: el 17-09 llegaba en cuatro filas y
+    // el gráfico dibujaba el mismo día cuatro veces.
+    const filas = [
+      { date: new Date(2026, 8, 17, 9, 15), count: 3 },
+      { date: new Date(2026, 8, 17, 12, 0), count: 1 },
+      { date: new Date(2026, 8, 17, 18, 40), count: 2 },
+    ];
+
+    expect(usoDiarioPorDia(filas)).toEqual([{ date: '2026-09-17', count: 6 }]);
+  });
+
+  it('⭐ un movimiento de la noche queda en SU día, no en el siguiente por UTC', () => {
+    // 21:00 en Panamá es 01:00 UTC del día siguiente: con `toISOString()` el punto
+    // caía en el día equivocado.
+    const filas = [{ date: new Date(2026, 8, 17, 21, 0), count: 1 }];
+
+    expect(usoDiarioPorDia(filas)).toEqual([{ date: '2026-09-17', count: 1 }]);
+  });
+
+  it('mantiene los días en orden ascendente (el gráfico los dibuja así)', () => {
+    const filas = [
+      { date: new Date(2026, 8, 16, 12, 0), count: 4 },
+      { date: new Date(2026, 8, 17, 9, 0), count: 1 },
+      { date: new Date(2026, 8, 17, 15, 0), count: 1 },
+      { date: new Date(2026, 9, 2, 12, 0), count: 7 },
+    ];
+
+    expect(usoDiarioPorDia(filas).map(d => d.date)).toEqual(['2026-09-16', '2026-09-17', '2026-10-02']);
+    expect(usoDiarioPorDia(filas)[1].count).toBe(2);
+  });
+
+  it('sin movimientos devuelve una lista vacía (no un punto en cero)', () => {
+    expect(usoDiarioPorDia([])).toEqual([]);
   });
 });

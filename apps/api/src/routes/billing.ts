@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { empresasDeLaCuenta, modulosDeLaCuenta, suscripcionDeEmpresa, topesDeLaCuenta } from '../services/suscripcion';
+import { empresasDeLaCuenta, modulosDeLaCuenta, suscripcionDeEmpresa, topesDeLaCuenta, usoDiarioPorDia } from '../services/suscripcion';
 import { MODULOS_CONTRATABLES } from '../services/modulos';
 
 export const billingRouter = Router();
@@ -91,7 +91,10 @@ billingRouter.get('/subscription', requireAuth, async (req, res) => {
     periodEnd: subscription.periodEnd,
     daysLeft: Math.max(0, Math.ceil((new Date(subscription.periodEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24))),
     daysTotal: Math.ceil((new Date(subscription.periodEnd).getTime() - new Date(subscription.periodStart).getTime()) / (1000 * 60 * 60 * 24)),
-    dailyUsage: dailyUsage.map(d => ({ date: d.date.toISOString().split('T')[0], count: d._count.id })),
+    // Un punto por DÍA calendario: el `groupBy` de arriba agrupa por timestamp, así que
+    // el mismo día puede venir en varias filas (y la fecha se recorta en UTC). Ver
+    // `usoDiarioPorDia`.
+    dailyUsage: usoDiarioPorDia(dailyUsage.map(d => ({ date: d.date, count: d._count.id }))),
     rateLimit: subscription.plan.reqPorSegundo || 5,
   };
 
