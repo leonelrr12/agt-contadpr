@@ -213,6 +213,16 @@
 <script>
 const API = '/api';
 
+// ── Estado del panel ──
+// Va ARRIBA del bloque de init a propósito: `loadCuentas()` se llama desde ahí y corre
+// sincrónicamente hasta su primer `await`, así que cualquier `let` que lea antes de
+// ese await tiene que estar ya declarado. Con la declaración más abajo, el `if` de la
+// primera línea lanzaba un ReferenceError de zona muerta temporal y la tabla se
+// quedaba en «Cargando…» sin que nada lo dijera.
+let cuentasCache = [];
+/** El catálogo de módulos contratables con su precio (`GET /api/addons`). */
+let addonsCatalogo = null;
+
 // ── Init ──
 const user = getUser();
 if (!user || user.role !== 'superadmin') {
@@ -237,10 +247,6 @@ async function loadStats() {
 }
 
 // ── Cuentas (el panel por cuenta: quién paga y qué tiene contratado) ──
-let cuentasCache = [];
-/** El catálogo de módulos contratables con su precio (`GET /api/addons`). */
-let addonsCatalogo = null;
-
 async function loadAddons() {
   const res = await api(`${API}/addons`);
   if (res && res.ok) addonsCatalogo = await res.json();
