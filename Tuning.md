@@ -164,17 +164,12 @@ Trabajo ya pagado que hoy no rinde nada:
 
 ### 4.3 📋 Módulos no empezados
 
-Ninguno tiene modelo en el schema todavía.
-
-- **Facturas DGI por correo (IMAP)** — **fase 1 hecha el 15-10-2026** (schema, migración `0038`
-  escrita y scripts de borrado; **falta aplicarla**, con autorización). Sigue: fase 0 (refactors),
-  fase 2 (config + rutas + tarjeta), fase 3 (el barrido, que necesita un buzón de prueba). Diseño
-  cerrado el 14-10-2026: leer el buzón que
-  la empresa asigne y cargar las facturas que mandan los proveedores (PDF/XML adjunto o link del CUTE)
-  como asiento BORRADOR + archivo en «Facturas recibidas», con el correo y el flag de activo
-  configurables en Administración. Decisiones del dueño: **al contado contra una cuenta de banco
-  configurable (nunca CxP)**, IMAP propio **y** buzón central con reenvío, corrida diaria + botón
-  «Revisar ahora», **sin add-on**. El diseño completo, las fases y las trampas están en
+- **Facturas DGI por correo (IMAP)** — ✅ **COMPLETO Y EN USO desde el 16-10-2026** (migraciones `0038`
+  y `0039` aplicadas; seis fases desplegadas). Lee el buzón que la empresa asigne —IMAP propio o el
+  buzón central de la plataforma con dirección de reenvío— y carga las facturas que mandan los
+  proveedores (PDF/XML adjunto o link del CUTE) como asiento BORRADOR + archivo en «Facturas
+  recibidas», con corrida diaria de madrugada, «Revisar ahora», reproceso manual y **aviso por correo
+  cuando una factura no se pudo cargar**. El diseño y las trampas están en
   [`FACTURAS-CORREO.md`](FACTURAS-CORREO.md).
 - **§10 Centro de Costos / Proyectos** — etiquetar transacciones por proyecto, sucursal o departamento;
   rentabilidad segmentada; cruce con presupuesto. El más transversal: toca informes, presupuesto y facturas.
