@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { empresasDeUsuario, esSuperadmin } from '../services/empresas-usuario';
 import { pendientesPorEmpresa } from '../services/despacho-pendientes';
+import { comparativoEmpresas } from '../services/despacho-comparativo';
 
 /**
  * El tablero del despacho: qué está pendiente en cada empresa del usuario.
@@ -11,6 +12,14 @@ import { pendientesPorEmpresa } from '../services/despacho-pendientes';
  * acá: `limitarRolesExclusivos` los deja en su módulo.
  */
 export const despachoRouter = Router();
+
+// GET /api/despacho/comparativo?mes=YYYY-MM — ventas, gastos y resultado por empresa
+despachoRouter.get('/comparativo', async (req, res) => {
+  const superadmin = await esSuperadmin(req.prisma, req.user!.userId);
+  const empresas = await empresasDeUsuario(req.prisma, req.user!.userId, superadmin);
+  const mes = req.query.mes ? String(req.query.mes) : undefined;
+  res.json({ empresas: await comparativoEmpresas(req.prisma, empresas, mes), actual: req.user!.companyId, mes: mes || null });
+});
 
 // GET /api/despacho/pendientes — una fila por empresa con lo que pide atención
 despachoRouter.get('/pendientes', async (req, res) => {

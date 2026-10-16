@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { buildDateFilter } from '../lib/date-filter';
 import { cuentasEfectivo } from '../lib/cuentas-efectivo';
 import { getAnioFiscal, anioFiscalRange } from '../lib/fiscal-year';
+import { calcularEstadoResultados } from '../services/estado-resultados';
 import { exportReport } from '../services/export';
 import { buildBudgetComparison } from '../services/budget-comparison';
 import { buildBorrador430 } from '../services/borrador-430';
@@ -497,71 +498,14 @@ reportsRouter.get('/balance-general', async (req, res) => {
 
 reportsRouter.get('/estado-resultados', async (req, res) => {
   const { startDate, endDate } = req.query;
-  const journalEntry: Record<string, unknown> = {
-    companyId: req.user!.companyId,
-    status: { notIn: ['RECHAZADO', 'ANULADO'] }, isClosing: false,
-  };
-  // Sin filtro de fechas → año fiscal activo (consistente con el balance)
-  const anioFiscal = await getAnioFiscal(req.prisma, req.user!.companyId);
-  const rango = anioFiscalRange(anioFiscal);
-  const dateFilter = startDate || endDate
-    ? buildDateFilter(startDate as string, endDate as string)
-    : { gte: rango.start, lte: rango.end };
-  if (dateFilter) journalEntry.date = dateFilter;
-
-  const where: Record<string, unknown> = {
-    journalEntry,
-    account: { type: { in: ['INGRESO', 'GASTO', 'COSTO'] } },
-  };
-
-  // Agregación en BD (GROUP BY accountId)
-  const grouped = await req.prisma.journalLine.groupBy({
-    by: ['accountId'],
-    _sum: { debit: true, credit: true },
-    where,
-  });
-
-  const accounts = await req.prisma.account.findMany({
-    where: { id: { in: grouped.map(g => g.accountId) } },
-    select: { id: true, name: true, type: true },
-  });
-  const byId = new Map(accounts.map(a => [a.id, a]));
-
-  let totalIngresos = 0;
-  let totalGastos = 0;
-  let totalCostos = 0;
-  const ingresos: Record<string, number> = {};
-  const gastos: Record<string, number> = {};
-  const costos: Record<string, number> = {};
-
-  for (const g of grouped) {
-    const acc = byId.get(g.accountId);
-    if (!acc) continue;
-    const amount = (g._sum.credit || 0) - (g._sum.debit || 0);
-    switch (acc.type) {
-      case 'INGRESO':
-        totalIngresos += amount;
-        ingresos[acc.name] = (ingresos[acc.name] || 0) + amount;
-        break;
-      case 'GASTO':
-        totalGastos += Math.abs(amount);
-        gastos[acc.name] = (gastos[acc.name] || 0) + Math.abs(amount);
-        break;
-      case 'COSTO':
-        totalCostos += Math.abs(amount);
-        costos[acc.name] = (costos[acc.name] || 0) + Math.abs(amount);
-        break;
-    }
-  }
-
-  res.json({
-    periodo: { start: rango.start, end: rango.end, anioFiscal },
-    ingresos: { detalle: ingresos, total: totalIngresos },
-    costos: { detalle: costos, total: totalCostos },
-    gananciaBruta: totalIngresos - totalCostos,
-    gastos: { detalle: gastos, total: totalGastos },
-    utilidadNeta: totalIngresos - totalCostos - totalGastos,
-  });
+  // El cálculo vive en `services/estado-resultados.ts`: la misma función que usa
+  // el comparativo del despacho, para que los números no puedan divergir.
+  res.json(
+    await calcularEstadoResultados(req.prisma, req.user!.companyId, {
+      startDate: startDate as string | undefined,
+      endDate: endDate as string | undefined,
+    }),
+  );
 });
 
 /**

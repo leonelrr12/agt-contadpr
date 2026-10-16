@@ -14,9 +14,76 @@ async function loadPanelDespacho() {
     if (!res.ok) throw new Error();
     const { empresas, actual } = await res.json();
     el.innerHTML = despachoHTML(empresas || [], actual);
+    despachoComparativo(el);
   } catch {
     el.innerHTML = '<div class="empty" style="padding:32px;text-align:center">No se pudo cargar el tablero</div>';
   }
+}
+
+/**
+ * El comparativo: ventas, costos+gastos y resultado de cada empresa, del mes y
+ * del año. Se pide aparte porque son cuentas más pesadas y la pantalla de
+ * pendientes no tiene por qué esperarlas.
+ */
+async function despachoComparativo(el) {
+  const cont = document.createElement('div');
+  cont.id = 'despacho-comparativo';
+  cont.innerHTML = '<div class="admin-form-card"><h4>📊 Comparativo</h4><div style="color:#6b7280;font-size:13px">Calculando…</div></div>';
+  el.appendChild(cont);
+  try {
+    const res = await authFetch(`${API_URL}/despacho/comparativo`);
+    if (!res.ok) throw new Error();
+    const { empresas, actual, mes } = await res.json();
+    cont.innerHTML = comparativoHTML(empresas || [], actual, mes);
+  } catch {
+    cont.innerHTML = '<div class="admin-form-card"><h4>📊 Comparativo</h4><div style="color:#6b7280;font-size:13px">No se pudo calcular.</div></div>';
+  }
+}
+
+function comparativoHTML(empresas, actualId, mesPedido) {
+  if (!empresas.length) return '';
+  const periodo = empresas[0]?.mes?.periodo || mesPedido || '';
+  const [anio, mm] = String(periodo).split('-');
+  const nombreMes = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'][Number(mm) - 1] || periodo;
+
+  const fila = (e) => {
+    const num = (n, conSigno) => {
+      const v = Number(n || 0);
+      const color = !conSigno ? '#1a1a2e' : v < 0 ? '#b91c1c' : '#059669';
+      return `<td class="num" style="color:${color};font-weight:${conSigno ? 600 : 400}">${despachoMoney(v)}</td>`;
+    };
+    return `<tr${e.id === actualId ? ' style="background:#f8fafc"' : ''}>
+      <td style="white-space:nowrap">${despachoEsc(e.name)}${e.id === actualId ? ' <span style="font-size:10px;color:#1565c0">(activa)</span>' : ''}</td>
+      ${num(e.mes.ingresos)}${num(e.mes.gastos)}${num(e.mes.resultado, true)}
+      ${num(e.anio.ingresos)}${num(e.anio.gastos)}${num(e.anio.resultado, true)}
+    </tr>`;
+  };
+
+  const anios = [...new Set(empresas.map((e) => e.anio.desde))];
+  const etiquetaAnio = anios.length === 1 ? `Año ${anios[0]}` : 'Año en curso';
+
+  return `<div class="admin-form-card" style="margin-top:4px">
+    <h4>📊 Comparativo</h4>
+    <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">
+      Ventas, costos y gastos, y resultado — de <strong>${despachoEsc(nombreMes)} ${despachoEsc(anio)}</strong> y del
+      <strong>${despachoEsc(etiquetaAnio)}</strong> de cada empresa. Son los mismos números que muestra el
+      Estado de Resultados de cada una; acá no se suman entre empresas.
+    </p>
+    <div style="overflow-x:auto">
+      <table class="grilla"><thead>
+        <tr>
+          <th rowspan="2" style="text-align:left;vertical-align:bottom">Empresa</th>
+          <th colspan="3" style="text-align:center;border-bottom:1px solid #e5e7eb">${despachoEsc(nombreMes)} ${despachoEsc(anio)}</th>
+          <th colspan="3" style="text-align:center;border-bottom:1px solid #e5e7eb">${despachoEsc(etiquetaAnio)}</th>
+        </tr>
+        <tr>
+          <th class="num">Ventas</th><th class="num">Costos y gastos</th><th class="num">Resultado</th>
+          <th class="num">Ventas</th><th class="num">Costos y gastos</th><th class="num">Resultado</th>
+        </tr>
+      </thead><tbody>${empresas.map(fila).join('')}</tbody></table>
+    </div>
+    ${anios.length > 1 ? '<div style="font-size:11px;color:#92400e;margin-top:8px">⚠️ Las empresas tienen años fiscales distintos: la columna «Año en curso» de cada una es su propio período.</div>' : ''}
+  </div>`;
 }
 
 const despachoEsc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

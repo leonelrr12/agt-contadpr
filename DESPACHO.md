@@ -1,8 +1,11 @@
 # Multi-Empresa para Despachos — diseño
 
-**Estado: FASES 1a, 1b y 2 COMPLETAS Y DESPLEGADAS el 16-10-2026** (commits `cf2e3ba` y el del tablero).
-La fase 3 (resumen comparativo) queda sin empezar, como estaba previsto: se hace cuando haya con qué.
-Lo que se aprendió al implementarlo está en la memoria del proyecto; el diseño se deja como está.
+**Estado: LAS CUATRO FASES COMPLETAS Y DESPLEGADAS (16-10-2026).** Lo que se aprendió al
+implementarlo está en la memoria del proyecto; el diseño se deja como estaba, con dos precisiones de la
+fase 3: el comparativo muestra el **mes en curso y el año fiscal de cada empresa** (no un rango único,
+porque dos empresas pueden tener años fiscales distintos), y los números salen de
+`services/estado-resultados.ts` —la misma función que el informe de cada empresa— para que la tabla no
+pueda decir algo distinto que el informe que esa empresa muestra en su pantalla.
 
 ## 1. Qué resuelve
 
@@ -65,11 +68,13 @@ Cada fila lleva a la empresa y a la pantalla que corresponde (un clic: cambia de
 panel). Costo: un endpoint que recorra las empresas del usuario —con las consultas que ya existen,
 reutilizadas— y una pantalla en el frontend.
 
-## 6. Fase 3 — resumen comparativo
+## 6. Fase 3 — resumen comparativo (HECHA)
 
-Ventas, gastos y resultado del mes por empresa, en una tabla. **No** un balance consolidado: sumar
-libros de empresas distintas que no comparten patrimonio es una decisión contable que nadie pidió, y
-hacerlo mal es peor que no hacerlo. Si algún día se quiere consolidar de verdad, es otro diseño.
+Ventas, costos+gastos y resultado del **mes en curso** y del **año fiscal** de cada empresa, en una
+tabla dentro de «🏢 Mis empresas». **No** es un balance consolidado: sumar libros de empresas distintas
+que no comparten patrimonio es una decisión contable que nadie pidió, y hacerlo mal es peor que no
+hacerlo — las empresas se muestran una al lado de la otra y la suma queda en quien mira. Si algún día se
+quiere consolidar de verdad, es otro diseño.
 
 ## 7. Trampas a tener presentes
 
