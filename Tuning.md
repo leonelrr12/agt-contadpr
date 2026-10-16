@@ -376,6 +376,15 @@ El rate limit se cuenta **por empresa**, no por IP.
 **API Keys:** prefijo `sk_live_`, hash SHA-256 en BD, revocación por soft-delete, la llave completa se
 devuelve **una sola vez**.
 
+**En revisión (16-10-2026):** el dueño propuso planes nuevos por **empresas y usuarios** (no solo
+movimientos) con un plan de despacho que cubre varios clientes. El diseño está en
+[`PLANES.md`](PLANES.md): entidad **Cuenta** (todo cliente es una cuenta; un despacho es una cuenta con
+N empresas), la suscripción mudándose de la empresa a la cuenta, `maxEmpresas` /
+`maxUsuariosPorEmpresa` / módulos por plan **validados de verdad**, y la tabla de precios revisada.
+**Decisiones del dueño:** el despacho es una entidad aparte con su suscripción, y el tope de
+movimientos se mantiene holgado como red anti-abuso. **Antes de tocar los planes**: `plan-rate-limit.ts`
+está cableado por NOMBRE de plan y cae a 5 req/s en silencio si se renombran (ver `PLANES.md` §8).
+
 **Pendiente comercial:** portal de facturación de autoservicio.
 
 ---
