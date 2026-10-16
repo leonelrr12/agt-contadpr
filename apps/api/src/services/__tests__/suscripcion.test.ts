@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ESTADOS_VIGENTES, empresasDeLaCuenta, incrementarUsoDeEmpresa, suscripcionDeEmpresa } from '../suscripcion';
+import { ESTADOS_VIGENTES, empresasDeLaCuenta, incrementarUsoDeEmpresa, suscripcionDeEmpresa, topesDeLaCuenta } from '../suscripcion';
 
 /**
  * El salto «empresa → cuenta → suscripción» (PLANES.md §2) es la pieza que sostiene
@@ -25,6 +25,27 @@ function prismaFalso(opts: any = {}) {
       findUnique: async (args: any) => {
         visto.empresa = args;
         return 'company' in opts ? opts.company : { cuenta: { companies: [{ id: 'c-1' }, { id: 'c-2' }] } };
+      },
+    },
+  };
+  return { prisma, visto };
+}
+
+/** Para los topes: además de la suscripción, los dos conteos. */
+function prismaFalsoTopes(opts: any = {}) {
+  const visto: any = {};
+  const prisma: any = {
+    subscription: { findFirst: async () => ('suscripcion' in opts ? opts.suscripcion : null) },
+    company: {
+      count: async (args: any) => {
+        visto.empresas = args;
+        return opts.empresas ?? 0;
+      },
+    },
+    user: {
+      count: async (args: any) => {
+        visto.usuarios = args;
+        return opts.usuarios ?? 0;
       },
     },
   };
@@ -62,6 +83,32 @@ describe('incrementarUsoDeEmpresa', () => {
     expect(visto.incremento.where.cuenta).toEqual({ companies: { some: { id: 'c-2' } } });
     expect(visto.incremento.where.companyId).toBeUndefined();
     expect(visto.incremento.data).toEqual({ movementsUsed: { increment: 0.5 } }); // la planilla semanal cobra media
+  });
+});
+
+describe('topesDeLaCuenta', () => {
+  const conPlan = (plan: any, empresas = 2, usuarios = 5) =>
+    prismaFalsoTopes({ suscripcion: { id: 's1', cuentaId: 'cta-1', plan }, empresas, usuarios });
+
+  it('devuelve el tope del plan con lo usado: empresas de la CUENTA, usuarios de ESTA empresa', async () => {
+    const { prisma, visto } = conPlan({ name: 'Demo', maxEmpresas: 1, maxUsuariosPorEmpresa: 2 }, 2, 5);
+    const topes = await topesDeLaCuenta(prisma, 'c-1');
+
+    expect(topes).toEqual({
+      plan: 'Demo',
+      empresas: { usados: 2, max: 1 },
+      usuarios: { usados: 5, max: 2 },
+    });
+    // El cupo de usuarios se cuenta por empresa casa (`User.companyId`), NO por
+    // membresías: si contara membresías, el personal del despacho agotaría el cupo
+    // de cada cliente (PLANES.md §3).
+    expect(visto.usuarios).toEqual({ where: { companyId: 'c-1' } });
+    expect(visto.empresas).toEqual({ where: { cuentaId: 'cta-1' } });
+  });
+
+  it('sin suscripción vigente devuelve null (las altas responden 402)', async () => {
+    const { prisma } = prismaFalsoTopes({ suscripcion: null });
+    expect(await topesDeLaCuenta(prisma, 'c-1')).toBeNull();
   });
 });
 

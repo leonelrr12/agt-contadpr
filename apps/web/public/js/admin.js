@@ -500,7 +500,15 @@ async function loadPanelUsuariosAdmin() {
     const res = await authFetch(`${API_URL}/users`);
     if (!res.ok) { list.innerHTML = '<tr><td colspan="5" style="padding:16px;text-align:center;color:#dc2626">Sin permiso para ver usuarios</td></tr>'; return; }
     const users = await res.json();
-    count.textContent = `${users.length} usuario(s) de la empresa`;
+    // El contador cuenta lo que consume cupo: los PROPIOS de la empresa (los que
+    // tienen acá su cuenta). El contador del despacho que solo tiene acceso no
+    // ocupa lugar en el plan, así que se muestra aparte.
+    const propios = users.filter(u => !u.deOtraEmpresa).length;
+    const invitados = users.length - propios;
+    const max = window.userSubscription?.topes?.usuarios?.max;
+    count.textContent = max
+      ? `${propios} de ${max} usuarios${invitados ? ` (+${invitados} con acceso de otra empresa)` : ''}`
+      : `${propios} usuario(s) de la empresa`;
     if (!users.length) {
       list.innerHTML = '<tr><td colspan="5" style="padding:16px;text-align:center;color:#6b7280">Sin usuarios adicionales. Crea el primero con "+ Nuevo usuario".</td></tr>';
       return;

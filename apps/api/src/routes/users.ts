@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { requireRole } from '../middleware/auth';
+import { topesDeLaCuenta } from '../services/suscripcion';
 
 /**
  * Quiénes tienen acceso a esta empresa.
@@ -59,7 +60,30 @@ usersRouter.post('/', requireRole('admin', 'superadmin'), async (req, res) => {
     res.status(400).json({ error: `Rol inválido. Roles disponibles: ${COMPANY_ROLES.join(', ')}` });
     return;
   }
+
   try {
+    // Cupo de usuarios del plan. Cuenta los PROPIOS (los que tienen acá su empresa
+    // casa): el contador del despacho que entra como miembro no gasta cupo ajeno.
+    // Va dentro del try: un throw de la consulta tiene que caer en el catch.
+    const topes = await topesDeLaCuenta(req.prisma, req.user!.companyId);
+    if (!topes) {
+      res.status(402).json({ error: 'No tienes una suscripción activa.', code: 'NO_SUBSCRIPTION' });
+      return;
+    }
+    if (topes.usuarios.max > 0 && topes.usuarios.usados >= topes.usuarios.max) {
+      const { usados, max } = topes.usuarios;
+      res.status(402).json({
+        error:
+          `Tu plan ${topes.plan} incluye ${max} usuario${max === 1 ? '' : 's'} por empresa y esta ya tiene ${usados}. ` +
+          `Para sumar otro, pasá a un plan con más usuarios — el personal de otra empresa que solo tiene acceso acá no ocupa cupo.`,
+        code: 'PLAN_LIMIT_USUARIOS',
+        plan: topes.plan,
+        usados,
+        max,
+      });
+      return;
+    }
+
     const hash = await bcrypt.hash(String(password), 10);
     const user = await req.prisma.$transaction(async (tx: any) => {
       const creado = await tx.user.create({
@@ -83,7 +107,15 @@ usersRouter.post('/', requireRole('admin', 'superadmin'), async (req, res) => {
   }
 });
 
-// POST /api/users/vincular — dar acceso a esta empresa a un usuario que YA existe
+/**
+ * POST /api/users/vincular — dar acceso a esta empresa a un usuario que YA existe.
+ *
+ * **No valida el cupo de usuarios a propósito**: vincular no cambia la empresa casa
+ * de nadie, así que no suma cupo. El caso típico es el contador del despacho que
+ * entra a los libros de un cliente — justo el que el cupo no tiene que contar, o un
+ * despacho con tres contadores dejaría a cada cliente sin poder dar de alta a su
+ * propia gente (PLANES.md §3).
+ */
 usersRouter.post('/vincular', requireRole('admin', 'superadmin'), async (req, res) => {
   const correo = String(req.body?.email || '').trim().toLowerCase();
   const { role } = req.body || {};

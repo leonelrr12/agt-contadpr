@@ -81,6 +81,8 @@ async function main() {
       // Escrituras por segundo del plan (antes vivían como tabla por NOMBRE en
       // `middleware/plan-rate-limit.ts`; ahora son un campo del plan)
       reqPorSegundo: 5,
+      maxEmpresas: 1,
+      maxUsuariosPorEmpresa: 2,
       description: 'Prueba gratuita de 14 días — descubre el poder de la contabilidad con IA',
       monthlyLimit: 50,
       price: 0,
@@ -99,6 +101,8 @@ async function main() {
       // Escrituras por segundo del plan (antes vivían como tabla por NOMBRE en
       // `middleware/plan-rate-limit.ts`; ahora son un campo del plan)
       reqPorSegundo: 10,
+      maxEmpresas: 1,
+      maxUsuariosPorEmpresa: 3,
       description: 'Para profesionales independientes y freelancers',
       monthlyLimit: 100,
       price: 19.99,
@@ -118,6 +122,8 @@ async function main() {
       // Escrituras por segundo del plan (antes vivían como tabla por NOMBRE en
       // `middleware/plan-rate-limit.ts`; ahora son un campo del plan)
       reqPorSegundo: 25,
+      maxEmpresas: 1,
+      maxUsuariosPorEmpresa: 10,
       description: 'Para pequeñas y medianas empresas',
       monthlyLimit: 500,
       price: 49.99,
@@ -138,6 +144,8 @@ async function main() {
       // Escrituras por segundo del plan (antes vivían como tabla por NOMBRE en
       // `middleware/plan-rate-limit.ts`; ahora son un campo del plan)
       reqPorSegundo: 50,
+      maxEmpresas: 50,
+      maxUsuariosPorEmpresa: 5,
       description: 'Para despachos contables con múltiples clientes',
       monthlyLimit: 2000,
       price: 149.99,
@@ -161,6 +169,8 @@ async function main() {
       update: {
         monthlyLimit: plan.monthlyLimit,
         reqPorSegundo: plan.reqPorSegundo,
+        maxEmpresas: plan.maxEmpresas,
+        maxUsuariosPorEmpresa: plan.maxUsuariosPorEmpresa,
         price: plan.price,
         features: plan.features,
         sortOrder: plan.sortOrder,

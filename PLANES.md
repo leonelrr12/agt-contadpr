@@ -41,7 +41,7 @@ membresía ahí.
 | Límite | Vive en | Se valida en |
 |---|---|---|
 | **Empresas por cuenta** | `Plan.maxEmpresas` | `POST /api/companies` (contando las empresas de la cuenta) |
-| **Usuarios por empresa** | `Plan.maxUsuariosPorEmpresa` | `POST /api/users` y `POST /api/users/vincular` |
+| **Usuarios por empresa** | `Plan.maxUsuariosPorEmpresa` | `POST /api/users` — **`/vincular` no valida**, porque vincular no cambia la empresa casa de nadie y por lo tanto no suma cupo (ver la regla del conteo, abajo) |
 | **Movimientos por período** | `Plan.monthlyLimit` (holgado) | `middleware/quota.ts` — ya existe y funciona |
 | **Módulos incluidos** | `Plan.modulos String[]` | menú (frontend) **y** las rutas de cada módulo |
 
@@ -104,7 +104,7 @@ elige lo suyo: el negocio que necesita stock, o el contador que lleva tres clien
 | Fase | Contenido | Verificación |
 |---|---|---|
 | ~~**1**~~ ✅ | `Cuenta` + backfill + `Subscription.cuentaId` + cuota/plan resolviendo por la cuenta | Todo funciona igual que hoy: la cuota de cada empresa se lee y se consume como siempre |
-| **2** | `maxEmpresas` y `maxUsuariosPorEmpresa` en el plan, validados; contadores en la UI | No se puede pasar del tope; el mensaje dice cuántos hay y qué hacer |
+| ~~**2**~~ ✅ | `maxEmpresas` y `maxUsuariosPorEmpresa` en el plan, validados; contadores en la UI | No se puede pasar del tope; el mensaje dice cuántos hay y qué hacer |
 | **3** | `Plan.modulos` + gate en menú y API (inventario, planilla) | Un plan sin inventario no lo ve ni lo puede usar por API |
 | **4** | Panel SaaS por cuenta (asignar plan, ver empresas y usuarios) + pantalla de precios nueva | El dueño puede dar de alta un despacho y ver qué tiene contratado |
 
@@ -134,6 +134,29 @@ Decisiones que no estaban escritas y se tomaron al implementar:
    `Pyme` 25, `Despacho` 50, default 5). El plan nuevo nace con 5 y se ajusta por BD o desde el panel.
 5. **El panel SaaS sigue aceptando `companyId`** (resuelve la cuenta sola) y ahora muestra la cuenta con
    sus empresas; la fase 4 lo reescribe por cuenta.
+
+### Fase 2 — lo que quedó hecho (16-10-2026)
+
+Migración `0042_plan_limites`: `Plan.maxEmpresas` (default **1**) y `Plan.maxUsuariosPorEmpresa`
+(default **3**), más los valores de la tabla comercial para los cuatro planes que existen hoy —Demo 1/2,
+Emprendedor 1/3, Pyme 1/10, Despacho 50/5—. Los defaults son el **piso**, no «ilimitado»: un plan creado
+a mano nace acotado. `topesDeLaCuenta()` (services/suscripcion.ts) devuelve el tope con lo usado, y de ahí
+salen tanto la validación como los contadores de la UI (`/api/subscription` → `topes`).
+
+- **Empresas**: `POST /api/companies` responde 402 `PLAN_LIMIT_EMPRESAS` con `{plan, usados, max}` y el
+  mensaje dice cuántas hay y que hay que pasar a un plan con más. Mira las empresas de la **cuenta**.
+- **Usuarios**: `POST /api/users` responde 402 `PLAN_LIMIT_USUARIOS`. Cuenta los **propios**
+  (`User.companyId`), nunca las membresías. **`/api/users/vincular` no valida a propósito**: vincular no
+  cambia la empresa casa de nadie, así que no suma cupo — es el camino del contador del despacho, justo el
+  que el cupo no debe contar.
+- Sin suscripción vigente las dos altas responden 402 `NO_SUBSCRIPTION` (coherente con §5: al vencer se
+  bloquea escribir).
+- Contadores: «N de M usuarios» en Administración → Usuarios (los de otra empresa se muestran aparte) y
+  «N de M empresas» al lado de «+ Crear empresa» — al superadmin no se le muestra, porque da de alta
+  clientes con cuenta propia y no tiene tope.
+- **Queda pendiente y es visible**: el texto de `Plan.features` sigue siendo el viejo («Usuarios
+  ilimitados» en Despacho, «1 usuario» en Demo), que ya no coincide con los topes. Eso se arregla en la
+  fase 4, cuando se reescriban los planes y la pantalla de precios.
 
 ## 8. Trampas detectadas
 

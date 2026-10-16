@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth';
 import { crearEmpresaConPlantilla, hacerAdministrador, PLANTILLA_DEL_SISTEMA } from '../services/crear-empresa';
+import { topesDeLaCuenta } from '../services/suscripcion';
 import { empresasDeUsuario, esSuperadmin, sesionEnEmpresa } from '../services/empresas-usuario';
 
 /**
@@ -63,6 +64,30 @@ companiesRouter.post('/', requireRole('admin', 'superadmin'), async (req, res) =
     const cuenta = (await esSuperadmin(req.prisma, userId))
       ? undefined
       : (await req.prisma.company.findUnique({ where: { id: req.user!.companyId }, select: { cuentaId: true } }))?.cuentaId;
+
+    // Cupo de empresas del plan: la empresa nueva se suma a la cuenta que paga, así
+    // que el tope es de la cuenta entera. El superadmin no pasa por acá: lo que hace
+    // es abrir un cliente nuevo, con su propia cuenta (ver arriba).
+    if (cuenta) {
+      const topes = await topesDeLaCuenta(req.prisma, req.user!.companyId);
+      if (!topes) {
+        res.status(402).json({ error: 'No tienes una suscripción activa.', code: 'NO_SUBSCRIPTION' });
+        return;
+      }
+      if (topes.empresas.max > 0 && topes.empresas.usados >= topes.empresas.max) {
+        const { usados, max } = topes.empresas;
+        res.status(402).json({
+          error:
+            `Tu plan ${topes.plan} incluye ${max} empresa${max === 1 ? '' : 's'} y tu cuenta ya tiene ${usados}. ` +
+            `Para sumar otra, pasá a un plan con más empresas.`,
+          code: 'PLAN_LIMIT_EMPRESAS',
+          plan: topes.plan,
+          usados,
+          max,
+        });
+        return;
+      }
+    }
 
     const company = await req.prisma.$transaction(async (tx: any) => {
       const nueva = await crearEmpresaConPlantilla(tx, { name: nombre, taxId }, { plantillaCompanyId: plantilla, cuentaId: cuenta });

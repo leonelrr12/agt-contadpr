@@ -143,6 +143,15 @@ function despachoHTML(empresas, actualId) {
   // abrir libros nuevos es una responsabilidad, y quien la crea queda de dueño.
   const puedeCrear = ['admin', 'superadmin'].includes(getUser()?.role);
 
+  // El cupo de empresas es de la CUENTA, así que se muestra al lado del botón que
+  // lo consume —y no al superadmin, que da de alta clientes con cuenta propia y por
+  // eso no tiene tope—. Cuenta las empresas de la cuenta, que pueden ser más que las
+  // que este usuario ve acá (las que no lleva no salen en las tarjetas).
+  const tope = window.userSubscription?.topes?.empresas;
+  const contadorEmpresas = (puedeCrear && getUser()?.role !== 'superadmin' && tope?.max)
+    ? `<span style="font-size:12px;color:#6b7280;margin-right:10px">${tope.usados} de ${tope.max} empresas</span>`
+    : '';
+
   return `<div class="admin-form-card">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
       <div>
@@ -152,16 +161,17 @@ function despachoHTML(empresas, actualId) {
           no hace falta cerrar sesión.
         </p>
       </div>
-      ${puedeCrear ? `<button class="btn-secondary" style="padding:7px 14px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;font-size:13px;white-space:nowrap" onclick="openCrearEmpresa(${JSON.stringify(empresas.map((e) => ({ id: e.id, name: e.name }))).replace(/"/g, '&quot;')})">+ Crear empresa</button>` : ''}
+      <div style="display:flex;align-items:center;white-space:nowrap">${contadorEmpresas}${puedeCrear ? `<button class="btn-secondary" style="padding:7px 14px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;font-size:13px;white-space:nowrap" onclick="openCrearEmpresa(${JSON.stringify(empresas.map((e) => ({ id: e.id, name: e.name }))).replace(/"/g, '&quot;')})">+ Crear empresa</button>` : ''}</div>
     </div>
     ${tarjetas.join('')}
   </div>`;
 }
 
 /**
- * Alta de una empresa desde acá. Nace igual que por el registro —plan de cuentas
- * de la plantilla, conceptos y plan Demo— y quien la crea queda como su
- * administrador: al terminar, entra directo a ella.
+ * Alta de una empresa desde acá. Nace con el plan de cuentas y los conceptos de la
+ * plantilla y **dentro de la cuenta de quien la crea** (no estrena plan: el plan y
+ * la cuota son de la cuenta, y la empresa nueva consume de esa misma cuota). Quien
+ * la crea queda como su administrador: al terminar, entra directo a ella.
  */
 function openCrearEmpresa(misEmpresas = []) {
   // De dónde copiar el catálogo: la plantilla del sistema o una empresa propia
@@ -175,7 +185,7 @@ function openCrearEmpresa(misEmpresas = []) {
   overlay.className = 'app-dialog-overlay';
   overlay.innerHTML = `<div class="app-dialog" style="max-width:440px">
     <div style="font-weight:700;font-size:16px;margin-bottom:6px">🏢 Nueva empresa</div>
-    <div style="font-size:12px;color:#6b7280;margin-bottom:12px">Nace con el plan de cuentas y los conceptos de la plantilla, y con el plan Demo (14 días). Vas a quedar como su administrador.</div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:12px">Nace con el plan de cuentas y los conceptos de la plantilla, y entra en tu plan (no estrena uno propio: consume de tu misma cuota). Vas a quedar como su administrador.</div>
     <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Nombre</label>
     <input id="ce-nombre" placeholder="Distribuidora La Central, S.A." style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
     <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">RUC (opcional — se puede completar después)</label>

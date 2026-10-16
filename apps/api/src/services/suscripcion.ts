@@ -49,6 +49,43 @@ export async function incrementarUsoDeEmpresa(prisma: any, companyId: string, ca
   });
 }
 
+/** Un tope del plan, con lo que ya hay usado. */
+export interface Tope { usados: number; max: number }
+
+export interface TopesDeLaCuenta {
+  plan: string;
+  /** Empresas de la cuenta entera (la cuenta es la que paga). */
+  empresas: Tope;
+  /** Usuarios PROPIOS de la empresa en la que está parado el usuario. */
+  usuarios: Tope;
+}
+
+/**
+ * Los topes del plan con lo que hay usado, para validar y para mostrar en la UI.
+ * `null` si la cuenta no tiene suscripción vigente: quien llama decide qué hacer
+ * (las altas de empresa y usuario responden 402, como el resto de las escrituras).
+ *
+ * El cupo de usuarios es el de ESTA empresa y cuenta solo los **propios** (los que
+ * tienen acá su empresa casa): el contador del despacho que entra a los libros de un
+ * cliente no le gasta el cupo al cliente. Si contara membresías, un despacho con tres
+ * contadores dejaría a cada cliente sin poder dar de alta a su propia gente.
+ */
+export async function topesDeLaCuenta(prisma: any, companyId: string): Promise<TopesDeLaCuenta | null> {
+  const sub = await suscripcionDeEmpresa(prisma, companyId);
+  if (!sub) return null;
+
+  const [empresas, usuarios] = await Promise.all([
+    prisma.company.count({ where: { cuentaId: sub.cuentaId } }),
+    prisma.user.count({ where: { companyId } }),
+  ]);
+
+  return {
+    plan: sub.plan?.name || '',
+    empresas: { usados: empresas, max: sub.plan?.maxEmpresas ?? 0 },
+    usuarios: { usados: usuarios, max: sub.plan?.maxUsuariosPorEmpresa ?? 0 },
+  };
+}
+
 /**
  * Las empresas de la cuenta a la que pertenece esta empresa (ella incluida).
  * Lo usa el uso diario de `/api/subscription`: el gráfico es de la cuenta, así que

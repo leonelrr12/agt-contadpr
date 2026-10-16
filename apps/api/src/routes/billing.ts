@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { empresasDeLaCuenta, suscripcionDeEmpresa } from '../services/suscripcion';
+import { empresasDeLaCuenta, suscripcionDeEmpresa, topesDeLaCuenta } from '../services/suscripcion';
 
 export const billingRouter = Router();
 
@@ -41,10 +41,15 @@ billingRouter.get('/subscription', requireAuth, async (req, res) => {
   }
 
   // Calcular uso diario dentro del período actual
+  const [empresasDeLaCuentaIds, topes] = await Promise.all([
+    empresasDeLaCuenta(req.prisma, companyId),
+    topesDeLaCuenta(req.prisma, companyId),
+  ]);
+
   const dailyUsage = await req.prisma.transaction.groupBy({
     by: ['date'],
     where: {
-      companyId: { in: await empresasDeLaCuenta(req.prisma, companyId) },
+      companyId: { in: empresasDeLaCuentaIds },
       date: { gte: subscription.periodStart, lte: new Date() },
     },
     _count: { id: true },
@@ -54,6 +59,8 @@ billingRouter.get('/subscription', requireAuth, async (req, res) => {
   const info = {
     status: subscription.status,
     plan: subscription.plan.name,
+    // Los topes con lo usado: los contadores de la UI («3 de 5 usuarios») salen de acá.
+    topes,
     addons: subscription.addons || [],
     movementsUsed: subscription.movementsUsed,
     movementsLimit: subscription.movementsLimit,

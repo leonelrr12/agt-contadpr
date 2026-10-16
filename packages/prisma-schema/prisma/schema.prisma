@@ -343,6 +343,15 @@ model Plan {
   /// resolvía por `Plan.name`, renombrar un plan o crear uno nuevo lo dejaba en
   /// 5 req/s en silencio.
   reqPorSegundo Int      @default(5)
+  /// Empresas que puede tener la CUENTA que paga (no la empresa). Se valida al
+  /// crear una empresa (`routes/companies.ts`). El default es el piso, no
+  /// «ilimitado»: un plan nuevo sin tocar nace con 1 y se sube a mano.
+  maxEmpresas   Int      @default(1)
+  /// Usuarios **propios** por empresa: los que tienen ahí su empresa casa. Las
+  /// membresías del personal del despacho NO consumen cupo —si contaran, un
+  /// despacho con tres contadores agotaría el cupo de cada cliente y el cliente no
+  /// podría entrar a sus libros—. Se valida al crear un usuario (`routes/users.ts`).
+  maxUsuariosPorEmpresa Int @default(3)
   price         Float              // Precio en USD (0 = gratis/demo)
   features      String   @default("[]") // JSON array de funcionalidades
   isActive      Boolean  @default(true)

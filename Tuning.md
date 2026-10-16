@@ -385,11 +385,17 @@ empresa a la cuenta, `maxEmpresas` / `maxUsuariosPorEmpresa` / módulos por plan
 y la tabla de precios revisada. **Decisiones del dueño:** el despacho es una entidad aparte con su
 suscripción, y el tope de movimientos se mantiene holgado como red anti-abuso.
 
-**Fase 1 HECHA** (migración `0041_cuenta_facturacion`): `Cuenta ──1:N── Company`, `Subscription.cuentaId`
-en vez de `companyId` y la cuota/plan resolviéndose por la cuenta —`services/suscripcion.ts` es la única
-fuente del salto empresa → cuenta → suscripción—. El consumo es **uno solo por cuenta** (el de sus
-empresas se suma) y una empresa que se suma a un despacho **hereda su plan** en vez de estrenar un Demo.
-Faltan las fases 2-4 (límites validados, módulos por plan, panel por cuenta).
+**Fases 1 y 2 HECHAS** (migraciones `0041_cuenta_facturacion` y `0042_plan_limites`):
+`Cuenta ──1:N── Company`, `Subscription.cuentaId` en vez de `companyId`, y la cuota/plan resolviéndose por
+la cuenta —`services/suscripcion.ts` es la única fuente del salto empresa → cuenta → suscripción—. El
+consumo es **uno solo por cuenta** (el de sus empresas se suma) y una empresa que se suma a un despacho
+**hereda su plan** en vez de estrenar un Demo.
+
+Los límites ya no son texto de adorno: `Plan.maxEmpresas` (empresas de la **cuenta**) y
+`Plan.maxUsuariosPorEmpresa` (**usuarios propios**, no membresías) se validan al crear la empresa y el
+usuario, y responden 402 con el detalle. La UI muestra «N de M». El texto de `Plan.features` sigue siendo
+el viejo hasta que la fase 4 reescriba los planes. Faltan las fases 3-4 (módulos por plan, panel por
+cuenta).
 
 **Pendiente comercial:** portal de facturación de autoservicio.
 

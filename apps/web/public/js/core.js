@@ -186,6 +186,11 @@ async function loadSubscriptionInfo() {
     const sub = data.subscription;
     if (!sub) return;
 
+    // La suscripción entera queda a mano: los contadores de la UI («3 de 5
+    // usuarios», «2 de 1 empresas») salen de `sub.topes`, y así no hay que volver
+    // a pedirla en cada panel.
+    window.userSubscription = sub;
+
     // Add-ons contratados (módulo Facturas PDF)
     window.userAddons = sub.addons || [];
     if (window.userAddons.includes('facturas-pdf')) {
