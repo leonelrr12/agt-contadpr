@@ -33,7 +33,7 @@ async function exportReport(reportType, format = 'xlsx') {
   }
 }
 
-async /**
+/**
  * El nombre de la empresa en el sidebar. Si la cuenta trabaja en más de una
  * —un contador de despacho— pasa a ser un desplegable: cambiar de empresa pide
  * un token nuevo (el mismo usuario, otra empresa) y recarga la pantalla, así
