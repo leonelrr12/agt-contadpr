@@ -33,6 +33,63 @@ async function exportReport(reportType, format = 'xlsx') {
   }
 }
 
+async /**
+ * El nombre de la empresa en el sidebar. Si la cuenta trabaja en más de una
+ * —un contador de despacho— pasa a ser un desplegable: cambiar de empresa pide
+ * un token nuevo (el mismo usuario, otra empresa) y recarga la pantalla, así
+ * todos los paneles se rearman con los datos de la empresa elegida.
+ */
+function pintarSelectorEmpresa(user) {
+  const el = document.getElementById('sidebar-user-company');
+  if (!el || !user) return;
+  const empresas = user.empresas || [];
+  const actual = user.company?.id;
+
+  if (empresas.length < 2) {
+    el.textContent = user.company?.name || '';
+    el.classList.remove('sb-empresa-select');
+    return;
+  }
+
+  const opciones = empresas
+    .map((e) => `<option value="${e.id}"${e.id === actual ? ' selected' : ''}>${e.name}${e.role === 'contador' ? ' (contador)' : ''}</option>`)
+    .join('');
+
+  if (el.tagName === 'SELECT') {
+    el.innerHTML = opciones;
+    return;
+  }
+  const sel = document.createElement('select');
+  sel.id = 'sidebar-user-company';
+  sel.className = 'sb-empresa-select';
+  sel.title = 'Cambiar de empresa';
+  sel.innerHTML = opciones;
+  sel.addEventListener('change', () => cambiarEmpresa(sel.value));
+  el.replaceWith(sel);
+}
+
+/** Cambia la empresa activa: token nuevo y recarga. */
+async function cambiarEmpresa(companyId) {
+  try {
+    const res = await authFetch(`${API_URL}/auth/switch-company`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ companyId }),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      await showAlert(e.error || 'No se pudo cambiar de empresa');
+      return;
+    }
+    const data = await res.json();
+    localStorage.setItem('agt_token', data.token);
+    localStorage.setItem('agt_user', JSON.stringify(data.user));
+    window.location.reload();
+  } catch {
+    await showAlert('Error de conexión');
+  }
+}
+
 async function logout() {
   if (!await showConfirm('¿Cerrar sesión? Se perderá cualquier transacción no guardada.')) return;
   localStorage.removeItem('agt_token');
@@ -58,7 +115,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (user) {
     document.getElementById('sidebar-user-name').textContent = user.name;
-    document.getElementById('sidebar-user-company').textContent = user.company?.name || '';
+    pintarSelectorEmpresa(user);
+    // El rol y las empresas llegan con /auth/me (core.js), que puede resolver
+    // después de este punto: cuando llega, se repinta.
+    window.addEventListener('agt:sesion', (e) => pintarSelectorEmpresa(e.detail));
     // Iniciales del avatar (el nombre ya viene resuelto por la API)
     const avatar = document.getElementById('sidebar-user-avatar');
     if (avatar) {
@@ -67,20 +127,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Mostrar panel de administración solo a admins/contadores de la empresa
     if (user.role === 'admin' || user.role === 'contador' || user.role === 'superadmin') {
-      document.getElementById('nav-admin-link').style.display = 'block';
+      // display = '' para que mande el CSS (.nav-link es flex: mantiene el gap icono/texto)
+      document.getElementById('nav-admin-link').style.display = '';
     }
     // Inventario: lo usan los roles que pueden mover mercancía, y también el
     // usuario de depósito, que no ve nada más del sistema.
     if (['admin', 'contador', 'superadmin', 'inventario'].includes(user.role)) {
-      document.getElementById('nav-inventario-link').style.display = 'block';
+      document.getElementById('nav-inventario-link').style.display = '';
     }
     // Planilla: la usan los roles de la contabilidad y el usuario de nómina.
     if (['admin', 'contador', 'superadmin', 'planilla'].includes(user.role)) {
-      document.getElementById('nav-planilla-link').style.display = 'block';
+      document.getElementById('nav-planilla-link').style.display = '';
     }
     // SaaS Admin (control de accesos) SOLO para el dueño de la plataforma
     if (user.role === 'superadmin') {
-      document.getElementById('nav-saas-link').style.display = 'block';
+      document.getElementById('nav-saas-link').style.display = '';
     }
     // Con la visibilidad por rol ya aplicada, los grupos que quedaron sin
     // opciones (p. ej. Administración para un contador) no deben mostrarse.

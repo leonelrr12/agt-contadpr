@@ -214,6 +214,20 @@ body {
 .sb-user-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 #sidebar-user-name { font-size: 13.5px; font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #sidebar-user-company { font-size: 11.5px; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Selector de empresa: cuando la cuenta trabaja en más de una, el nombre pasa a
+   ser un desplegable. Es un <select> nativo a propósito: se ve igual en
+   escritorio y en el celular, y no necesita abrir nada para funcionar. */
+#sidebar-user-company.sb-empresa-select {
+  background: rgba(148,163,184,0.15);
+  border: 1px solid rgba(148,163,184,0.3);
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 11.5px;
+  padding: 2px 4px;
+  max-width: 100%;
+  cursor: pointer;
+}
+#sidebar-user-company.sb-empresa-select option { color: #1a1a2e; }
 .sb-logout {
   display: flex;
   align-items: center;

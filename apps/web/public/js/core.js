@@ -36,9 +36,17 @@ function authFetch(url, options = {}) {
       window.location.href = '/login.html';
       return;
     }
-    // Aviso de (re)aceptación de los Términos: reusa esta misma respuesta, sin
-    // pedir /auth/me dos veces (ver js/terminos.js).
-    if (window.verificarTerminos) window.verificarTerminos(await res.json());
+    // La misma respuesta sirve para tres cosas (una sola llamada a /auth/me):
+    // los Términos, el ROL de la empresa ACTIVA —que puede no ser el de la casa
+    // del usuario— y las EMPRESAS a las que puede cambiar (ver js/init.js).
+    const me = await res.json();
+    const guardado = getUser() || {};
+    guardado.role = me.role;
+    guardado.company = me.company;
+    guardado.empresas = me.empresas || [];
+    localStorage.setItem('agt_user', JSON.stringify(guardado));
+    window.dispatchEvent(new CustomEvent('agt:sesion', { detail: guardado }));
+    if (window.verificarTerminos) window.verificarTerminos(me);
   } catch { /* red caída: dejar pasar — el SPA mostrará los errores de conexión */ }
 })();
 
@@ -182,7 +190,7 @@ async function loadSubscriptionInfo() {
     window.userAddons = sub.addons || [];
     if (window.userAddons.includes('facturas-pdf')) {
       const navFacturas = document.getElementById('nav-facturas-link');
-      if (navFacturas) navFacturas.style.display = 'block';
+      if (navFacturas) navFacturas.style.display = ''; // '' y no 'block': .nav-link es flex
       actualizarGruposNav();
     }
 

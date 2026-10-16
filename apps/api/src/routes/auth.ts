@@ -5,6 +5,7 @@ import { generateToken, requireAuth } from '../middleware/auth';
 import { sendEmail, APP_URL } from '../services/mailer';
 import { bloqueoRestante, registrarFallo, limpiarFallos } from '../services/login-guard';
 import { TERMS_VERSION, necesitaAceptar } from '../lib/terms';
+import { empresasDeUsuario, rolEnEmpresa } from '../services/empresas-usuario';
 
 export const authRouter = Router();
 
@@ -53,28 +54,15 @@ authRouter.post('/login', async (req, res) => {
 
   limpiarFallos(email);
 
-  const token = generateToken({
-    userId: user.id,
-    companyId: user.companyId,
-    role: user.role,
-    name: user.name,
-    email: user.email,
-  });
-
-  res.json({
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      company: {
-        id: user.company.id,
-        name: user.company.name,
-        taxId: user.company.taxId,
-      },
-    },
-  });
+  // Se entra por la empresa POR DEFECTO (la última usada) y con el rol que el
+  // usuario tiene EN ESA empresa: desde las membresías, un contador de despacho
+  // es admin de su empresa y contador de la del cliente.
+  const sesion = await sesionEnEmpresa(req.prisma, user.id, user.companyId);
+  if (!sesion) {
+    res.status(403).json({ error: 'Tu usuario no tiene acceso a ninguna empresa. Hablá con el administrador.' });
+    return;
+  }
+  res.json(sesion);
 });
 
 /**
@@ -200,6 +188,10 @@ authRouter.post('/register', async (req, res) => {
       },
     });
 
+    // La membresía es lo que da el acceso (`user_company`): sin ella el dueño de
+    // la empresa recién creada no podría entrar a su propia empresa.
+    await tx.userCompany.create({ data: { userId: user.id, companyId: company.id, role: 'admin' } });
+
     // Crear suscripción Demo automática (14 días, 50 movimientos)
     const demoPlan = await tx.plan.findUnique({ where: { name: 'Demo' } });
     if (demoPlan) {
@@ -270,16 +262,22 @@ authRouter.get('/me', requireAuth, async (req, res) => {
     return;
   }
 
+  // El rol que manda es el de la empresa ACTIVA (la del token), no el de la casa.
+  const empresas = await empresasDeUsuario(req.prisma, user.id, user.role === 'superadmin');
+  const rolActivo = empresas.find((e: any) => e.id === req.user!.companyId)?.role || user.role;
+
   res.json({
     id: user.id,
     name: user.name,
     email: user.email,
-    role: user.role,
+    role: rolActivo,
     company: {
       id: user.company.id,
       name: user.company.name,
       taxId: user.company.taxId,
     },
+    /** Las empresas a las que puede entrar (para el selector) con su rol en cada una. */
+    empresas,
     // Estado de la aceptación de los Términos: el front lo usa para mostrar el
     // aviso de re-aceptación sin una consulta extra (ver js/terminos.js).
     terms: {
@@ -289,6 +287,59 @@ authRouter.get('/me', requireAuth, async (req, res) => {
       needsAcceptance: necesitaAceptar(user.termsVersion),
     },
   });
+});
+
+/**
+ * La sesión de un usuario EN UNA EMPRESA: token + lo que el frontend guarda.
+ *
+ * La empresa y el rol salen de la membresía (`user_company`), no de `User`: es lo
+ * que permite que la misma cuenta tenga un rol distinto en cada empresa. El
+ * superadmin entra a cualquiera con su propio rol.
+ *
+ * Devuelve null si el usuario no tiene acceso a esa empresa.
+ */
+async function sesionEnEmpresa(prisma: any, userId: string, companyId: string): Promise<any | null> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, include: { company: true } });
+  if (!user || !user.isActive) return null;
+
+  const superadmin = user.role === 'superadmin';
+  const rol = await rolEnEmpresa(prisma, userId, companyId, superadmin);
+  if (!rol) return null;
+
+  const company = companyId === user.companyId ? user.company : await prisma.company.findUnique({ where: { id: companyId } });
+  if (!company) return null;
+
+  return {
+    token: generateToken({ userId: user.id, companyId, role: rol, name: user.name, email: user.email }),
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: rol,
+      company: { id: company.id, name: company.name, taxId: company.taxId },
+    },
+  };
+}
+
+/**
+ * POST /api/auth/switch-company
+ * Cambia la empresa activa: devuelve un token NUEVO para esa empresa (el resto de
+ * la API no cambia: sigue leyendo `req.user.companyId`, que ahora apunta a otra).
+ * Solo a empresas donde el usuario tenga membresía —o a cualquiera, si es el
+ * dueño de la plataforma—.
+ */
+authRouter.post('/switch-company', requireAuth, async (req, res) => {
+  const companyId = String(req.body?.companyId || '').trim();
+  if (!companyId) {
+    res.status(400).json({ error: 'Falta la empresa' });
+    return;
+  }
+  const sesion = await sesionEnEmpresa(req.prisma, req.user!.userId, companyId);
+  if (!sesion) {
+    res.status(403).json({ error: 'No tenés acceso a esa empresa.' });
+    return;
+  }
+  res.json(sesion);
 });
 
 /**

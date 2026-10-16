@@ -65,6 +65,9 @@ model Company {
   updatedAt DateTime @updatedAt
 
   users          User[]
+  /// Membresías: quiénes tienen acceso a esta empresa (el dueño y, si es de un
+  /// despacho, los contadores que la llevan).
+  miembros       UserCompany[]
   accounts       Account[]
   concepts       Concept[]
   transactions   Transaction[]
@@ -94,6 +97,28 @@ model Company {
   emailFacturaMensajes EmailFacturaMensaje[]
 }
 
+/// Membresía de un usuario a una empresa: es lo que permite que un despacho
+/// trabaje VARIAS empresas con una sola cuenta (`User.email` es único global).
+///
+/// **El rol vive acá**, no en `User`: el mismo contador es `contador` en los
+/// libros del cliente y `admin` en los propios, y un despacho no puede terminar
+/// siendo admin de los libros que solo debe revisar. `User.companyId` queda como
+/// la empresa por defecto (la última usada), no como la única.
+model UserCompany {
+  id        String   @id @default(cuid())
+  userId    String
+  companyId String
+  role      String   @default("contador")
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([userId, companyId])
+  @@index([companyId])
+  @@map("user_company")
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -112,6 +137,8 @@ model User {
   updatedAt DateTime @updatedAt
 
   company        Company         @relation(fields: [companyId], references: [id])
+  /// Empresas a las que este usuario tiene acceso (incluida la suya).
+  empresas      UserCompany[]
   authTokens     AuthToken[]
   transactions   Transaction[]
   journalEntries JournalEntry[]
