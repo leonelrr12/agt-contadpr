@@ -157,7 +157,9 @@
 
     /* Payment Info */
     .payment-section {
-      max-width: 800px;
+      /* 900 y no 800: con tres tarjetas a 240px de mínimo, el renglón del correo
+         quedaba en 178px y «admin@contador507.com» necesita ~180. */
+      max-width: 900px;
       margin: 0 auto 60px;
       padding: 0 20px;
     }
@@ -188,11 +190,15 @@
     .payment-detail {
       background: #f1f5f9;
       border-radius: 8px;
-      padding: 8px 12px;
+      padding: 8px 10px;         /* 12 → 10: dos píxeles más de ancho para el texto */
       font-size: 14px;
       font-weight: 600;
       margin-top: 8px;
-      word-break: break-all;
+      /* `break-all` partía la dirección en cualquier carácter —y llenaba el renglón
+         hasta el último píxel, que es por lo que caía una sola «m»—. `anywhere` corta
+         solo si de verdad no entra, y deja que la grilla achique el renglón sin
+         desbordar en el celular. */
+      overflow-wrap: anywhere;
     }
 
     /* How it works */
