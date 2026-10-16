@@ -5,8 +5,11 @@
 # Mantiene: empresa, usuarios, cuentas, conceptos, planes, suscripciones,
 #          los catálogos de personas e inventario —empleados, trabajadores y
 #          productos— (el stock del producto SÍ se pone en 0: ver inventario),
-#          las cuentas contables de la empresa (los planilla*Id viven en Company)
-#          y los PARÁMETROS de planilla: tasas, tabla del ISR, factores, día de pago.
+#          las cuentas contables de la empresa (los planilla*Id viven en Company),
+#          los PARÁMETROS de planilla (tasas, tabla del ISR, factores, día de pago)
+#          y la CONFIGURACIÓN DEL BUZÓN de facturas por correo
+#          (`email_factura_config`: credenciales, cuenta de contrapartida, RUC
+#          aceptados y el cursor del buzón).
 #
 # Los parámetros NO son datos de prueba: son configuración del dueño. Borrarlos
 # (como se hacía con la fila de payroll_settings) hacía que la próxima lectura la
@@ -78,10 +81,16 @@ UPDATE inventory_product SET "stockActual" = 0, "stockValor" = 0, "costoPromedio
 -- trabajador. El reclamo va primero: referencia al pago.
 -- El ledger de correos va ANTES de expense_claim: la factura recibida tiene FK a él
 -- (ON DELETE SET NULL, así que no rompe, pero el orden es el de la dependencia).
+-- El ledger SÍ se borra: es el registro de correos vistos, o sea movimiento.
 DELETE FROM email_factura_mensaje WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM expense_claim WHERE "companyId" = '${COMPANY_ID}';
-DELETE FROM email_factura_config WHERE "companyId" = '${COMPANY_ID}';
 DELETE FROM reimbursement WHERE "companyId" = '${COMPANY_ID}';
+-- `email_factura_config` NO se toca NUNCA (igual que `payroll_settings`): es la
+-- configuración del buzón —servidor, usuario, la app password cifrada, la cuenta
+-- de contrapartida y los RUC aceptados— y borrarla le cuesta al dueño volver a
+-- generar la app password en Google, que no se puede recuperar de ningún lado.
+-- El cursor del buzón vive ahí: si se borrara, la próxima corrida releería la
+-- ventana entera y volvería a cargar facturas ya contabilizadas.
 
 DELETE FROM invoice_item WHERE "invoiceId" IN (SELECT id FROM invoice WHERE "companyId" = '${COMPANY_ID}');
 DELETE FROM invoice_payment WHERE "invoiceId" IN (SELECT id FROM invoice WHERE "companyId" = '${COMPANY_ID}');
