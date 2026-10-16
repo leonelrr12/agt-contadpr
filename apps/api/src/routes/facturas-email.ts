@@ -41,6 +41,16 @@ function direccionReenvio(inboxAlias: string | null): string | null {
   return `${usuario}+${inboxAlias}@${dominio}`;
 }
 
+/**
+ * El nombre con el que un campo se ve en la pantalla. Sale de `CAMPOS_EMAIL_FACTURA`
+ * y, para los que no están en esa lista (la contraseña no es un campo público),
+ * de este diccionario.
+ */
+const ETIQUETAS_VALIDACION: Record<string, string> = { imapPassword: 'Contraseña' };
+function etiquetaDeCampo(field: string): string {
+  return CAMPOS_EMAIL_FACTURA.find((c) => c.field === field)?.label || ETIQUETAS_VALIDACION[field] || field;
+}
+
 /** Lo que la tarjeta necesita para pintarse: config pública + candidatas. */
 async function payloadConfig(prisma: any, companyId: string) {
   const cfg = await getOrCreateEmailConfig(prisma, companyId);
@@ -141,12 +151,20 @@ facturasEmailRouter.put(
           return;
         }
       } else {
-        if (!resultante.imapHost || !resultante.imapUser) {
-          res.status(400).json({ error: 'Para leer el buzón hacen falta el servidor y el usuario.' });
-          return;
-        }
-        if (!resultante.imapPassword) {
-          res.status(400).json({ error: 'Falta la contraseña del buzón.' });
+        // `campos` viaja con el error para que la pantalla marque EXACTAMENTE qué
+        // falta: decir «faltan el servidor y el usuario» obliga a buscarlos.
+        const campos: string[] = [];
+        if (!resultante.imapHost) campos.push('imapHost');
+        if (!resultante.imapUser) campos.push('imapUser');
+        if (!resultante.imapPassword) campos.push('imapPassword');
+        if (campos.length) {
+          res.status(400).json({
+            error:
+              campos.length === 3
+                ? 'Faltan los datos del buzón: servidor, usuario y contraseña.'
+                : `Falta completar: ${campos.map(etiquetaDeCampo).join(', ')}.`,
+            campos,
+          });
           return;
         }
       }

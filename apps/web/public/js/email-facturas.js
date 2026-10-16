@@ -159,6 +159,9 @@ function efFormularioHTML(cfg) {
       Lee el buzón que le indiques y carga las facturas DGI que mandan los proveedores
       (PDF adjunto, XML o link del CUTE) como <strong>asiento BORRADOR</strong>, para aprobar en Revisión.
     </p>
+    ${cfg.isActive && (cfg.tienePassword || cfg.inboxAlias)
+      ? '<div style="font-size:12px;color:#059669;font-weight:600;margin:6px 0">● Configurado y activo</div>'
+      : '<div style="font-size:12px;color:#92400e;font-weight:600;margin:6px 0">● Sin terminar de configurar: completá los campos marcados y guardá con «Leer el buzón» en Sí</div>'}
     <div class="form-grid">
       ${sinCuentas}
       <div>
@@ -190,6 +193,10 @@ function efFormularioHTML(cfg) {
           ${cfg.inboxAlias ? 'Rotarla invalida la anterior en el acto.' : ''}
           Solo se abre el cuerpo de los correos dirigidos a una dirección registrada.
         </div>
+      </div>
+      <div style="grid-column:1/-1;border-top:1px solid #e5e7eb;padding-top:10px;margin-top:2px">
+        <div style="font-size:12px;font-weight:700;color:#374151">🔑 Datos del buzón (modo IMAP)</div>
+        <div style="font-size:11px;color:#6b7280">Lo que pide el servidor de correo de la empresa. En modo «Reenvío al buzón del sistema» no se usan.</div>
       </div>
       <div>
         <label>Servidor IMAP</label>
@@ -375,6 +382,33 @@ function efMensaje(texto, color) {
   el.textContent = texto;
 }
 
+/** De los nombres de campo de la API a los ids de la pantalla. */
+const EF_CAMPOS = { imapHost: 'ef-host', imapUser: 'ef-user', imapPassword: 'ef-pass', imapFolder: 'ef-folder', cuentaPagoId: 'ef-cuenta' };
+
+/**
+ * Marca en rojo los campos que faltan y lleva la pantalla hasta ellos.
+ *
+ * El mensaje solo («faltan el servidor y el usuario») obliga a buscarlos en un
+ * formulario largo; que el campo se pinte y la pantalla se acomode es lo que
+ * hace que se vea DÓNDE se configura.
+ */
+function efSenalarCampos(campos) {
+  for (const id of Object.values(EF_CAMPOS)) {
+    const el = document.getElementById(id);
+    if (el) el.style.borderColor = '#d1d5db';
+  }
+  const primeros = (campos || []).map((c) => EF_CAMPOS[c]).filter(Boolean);
+  for (const id of primeros) {
+    const el = document.getElementById(id);
+    if (el) el.style.borderColor = '#dc2626';
+  }
+  const primero = primeros.length ? document.getElementById(primeros[0]) : null;
+  if (primero) {
+    primero.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    primero.focus({ preventScroll: true });
+  }
+}
+
 async function efGuardar() {
   const btn = document.getElementById('ef-btn-guardar');
   btn.disabled = true;
@@ -386,7 +420,11 @@ async function efGuardar() {
       body: JSON.stringify(efCuerpo()),
     });
     const data = await res.json();
-    if (!res.ok) { efMensaje(data.error || 'No se pudo guardar', '#b91c1c'); return; }
+    if (!res.ok) {
+      efMensaje(data.error || 'No se pudo guardar', '#b91c1c');
+      efSenalarCampos(data.campos);
+      return;
+    }
     // El servidor devuelve lo que quedó guardado (con `tienePassword` al día):
     // se repinta con eso y recién ahí se confirma, que el repintado borra el aviso.
     efConfig = data;
@@ -418,6 +456,7 @@ async function efRevisar() {
     if (!guardado.ok) {
       const e = await guardado.json();
       efMensaje(`❌ ${e.error || 'No se pudo guardar antes de revisar'}`, '#b91c1c');
+      efSenalarCampos(e.campos);
       return;
     }
     const res = await authFetch(`${API_URL}/facturas-email/revisar`, { method: 'POST' });
