@@ -643,14 +643,14 @@ async function anotarMensaje(
   uidValidity: number,
   uid: number,
   meta: any,
-  datos: { messageId?: string; estado: string; detalle?: string | null },
+  datos: { messageId?: string; estado: string; detalle?: string | null; origen?: 'IMAP' | 'CENTRAL'; folder?: string },
 ): Promise<any | null> {
   try {
     return await prisma.emailFacturaMensaje.create({
       data: {
         companyId,
-        origen: 'IMAP',
-        folder: cfg.imapFolder || 'INBOX',
+        origen: datos.origen || 'IMAP',
+        folder: datos.folder || cfg.imapFolder || 'INBOX',
         uidValidity,
         uid,
         messageId: datos.messageId || messageIdDe(meta.envelope, uidValidity, uid),
@@ -664,5 +664,178 @@ async function anotarMensaje(
   } catch (err: any) {
     if (err?.code === 'P2002') return null;
     throw err;
+  }
+}
+
+// ── El buzón central ────────────────────────────────────────────────────────
+//
+// La plataforma tiene UN buzón (la misma cuenta Gmail del mailer) y cada empresa
+// recibe una dirección propia por plus-addressing (`usuario+alias@gmail.com`).
+// El poller lee ese buzón y enruta cada correo a la empresa dueña del alias.
+//
+// **Solo se baja el cuerpo de los correos dirigidos a un alias registrado.** Ese
+// buzón también recibe el correo de quien lo administra: abrirlo entero para ver
+// si era una factura sería leerlo todo. Lo que no tiene alias se mira por arriba
+// —remitente, asunto, tamaño— y se deja intacto.
+
+/** El `+tag` de una dirección: `usuario+facturas@dominio` → `facturas`. */
+export function aliasDeDireccion(direccion: string | null | undefined): string | null {
+  const d = String(direccion || '').trim().toLowerCase();
+  const m = d.match(/^[^@+]+(?:\.[^@+]*)?\+([^@]+)@/);
+  return m ? m[1] : null;
+}
+
+/** Las direcciones del `To` y del `Cc` del sobre (el reenvío cae en el `To`). */
+function direccionesDe(envelope: any): string[] {
+  return [...(envelope?.to || []), ...(envelope?.cc || [])]
+    .map((d: any) => String(d?.address || ''))
+    .filter(Boolean);
+}
+
+/**
+ * De quién es este correo, por su dirección de reenvío. Null cuando el alias no
+ * está registrado (o el buzón de esa empresa está apagado): ese correo no es de
+ * nadie y se ignora.
+ */
+export async function empresaPorAlias(prisma: any, direcciones: string[]): Promise<any | null> {
+  const alias = direcciones.map(aliasDeDireccion).filter(Boolean) as string[];
+  if (!alias.length) return null;
+  return prisma.emailFacturaConfig.findFirst({
+    where: { inboxAlias: { in: alias }, isActive: true },
+    select: { companyId: true, inboxAlias: true },
+  });
+}
+
+export interface ResumenCentral extends ResumenBarrido {
+  /** Correos del buzón central que no eran de ninguna empresa. */
+  ignorados: number;
+}
+
+/**
+ * Marcador del último UID visto en el buzón central, por proceso.
+ *
+ * No es una red de idempotencia —esa es el ledger, con el `Message-ID` único por
+ * empresa— sino un ahorro: evita volver a listar los mismos metadatos en cada
+ * pasada. Si el proceso se reinicia, se vuelve a mirar la ventana y el ledger
+ * frena lo ya procesado.
+ */
+let ultimoUidCentral = 0;
+
+/**
+ * Barre el buzón central. Nunca lanza: como el barrido por empresa, el resultado
+ * es lo que se cuenta y se loguea.
+ */
+export async function barrerBuzonCentral(prisma: any, opts: { cliente?: any } = {}): Promise<ResumenCentral> {
+  const base: ResumenCentral = { ok: true, revisados: 0, facturas: 0, estados: {}, ignorados: 0 };
+  const usuario = process.env.EMAIL_CENTRAL_IMAP_USER;
+  const clave = process.env.EMAIL_CENTRAL_IMAP_PASS;
+  if (!usuario || !clave) {
+    return {
+      ...base,
+      ok: false,
+      codigo: 'SIN_CREDENCIALES',
+      detalle: 'Faltan EMAIL_CENTRAL_IMAP_USER / EMAIL_CENTRAL_IMAP_PASS en el entorno de la API.',
+    };
+  }
+
+  const carpeta = process.env.EMAIL_CENTRAL_IMAP_FOLDER || 'INBOX';
+  const client: any =
+    opts.cliente ||
+    clienteImap({
+      imapHost: process.env.EMAIL_CENTRAL_IMAP_HOST || 'imap.gmail.com',
+      imapPort: Number(process.env.EMAIL_CENTRAL_IMAP_PORT) || 993,
+      imapSecure: true,
+      imapUser: usuario,
+      imapPassword: clave,
+      imapFolder: carpeta,
+    });
+
+  const estados = base.estados;
+  const sinCuota = new Set<string>();
+  const sumar = (estado: string) => {
+    estados[estado] = (estados[ estado] || 0) + 1;
+  };
+  let ultimo = ultimoUidCentral;
+
+  try {
+    await client.connect();
+    const lock = await client.getMailboxLock(carpeta, { readOnly: true });
+    try {
+      const uidValidity = Number(client.mailbox?.uidValidity || 0);
+      const rango: any =
+        ultimo > 0 ? `${ultimo}:*` : { since: new Date(Date.now() - VENTANA_DIAS * 86400000) };
+
+      for await (const meta of client.fetch(rango, { uid: true, envelope: true, size: true }, { uid: true })) {
+        const uid = Number(meta.uid);
+        if (!uid || uid <= ultimo) continue; // el quirk de `N:*`, otra vez
+        if (base.revisados >= MAX_CORREOS) break;
+
+        const direcciones = direccionesDe(meta.envelope);
+        const empresa = await empresaPorAlias(prisma, direcciones);
+        if (!empresa || sinCuota.has(empresa.companyId)) {
+          base.ignorados++;
+          ultimo = Math.max(ultimo, uid);
+          continue;
+        }
+
+        base.revisados++;
+        const cfg = await getOrCreateEmailConfig(prisma, empresa.companyId);
+        const fila = await anotarMensaje(prisma, empresa.companyId, cfg, uidValidity, uid, meta, {
+          estado: 'PROCESANDO',
+          origen: 'CENTRAL',
+          folder: carpeta,
+        });
+        if (!fila) {
+          sumar('YA_VISTO');
+          ultimo = Math.max(ultimo, uid);
+          continue;
+        }
+
+        let resultado: AnalisisCorreo;
+        try {
+          const bajado = await client.fetchOne(String(uid), { source: true }, { uid: true });
+          resultado = await analizarCorreo(prisma, cfg, fila.id, bajado?.source || Buffer.alloc(0));
+        } catch (err: any) {
+          resultado = { estado: 'ERROR', detalle: String(err?.message || err).slice(0, 500), facturas: [], adjuntos: [], messageId: null };
+          console.error('[EmailFacturas] Central uid', uid, 'error:', err?.message);
+        }
+
+        if (resultado.cuotaAgotada) {
+          // Igual que en el barrido por empresa: se suelta la fila y esa empresa
+          // deja de procesarse en esta pasada (sus correos se vuelven a ver).
+          await prisma.emailFacturaMensaje
+            .delete({ where: { id: fila.id } })
+            .catch((e: any) => console.error('[EmailFacturas] No se pudo soltar la fila CUOTA (central):', e?.message));
+          sinCuota.add(empresa.companyId);
+          sumar('CUOTA');
+          continue;
+        }
+
+        sumar(resultado.estado);
+        base.facturas += resultado.facturas.filter((f: any) => f.estado === 'CARGADA').length;
+        await anotarResultado(prisma, fila.id, resultado, !meta.envelope?.messageId);
+        ultimo = Math.max(ultimo, uid);
+      }
+
+      ultimoUidCentral = ultimo;
+      if (base.revisados || base.ignorados) {
+        console.log(
+          `[EmailFacturas] Central: revisados=${base.revisados} cargadas=${base.facturas} ignorados=${base.ignorados} ${JSON.stringify(estados)}`,
+        );
+      }
+      return base;
+    } finally {
+      lock.release();
+    }
+  } catch (err: any) {
+    const { codigo, detalle } = clasificarErrorImap(err);
+    console.error('[EmailFacturas] Central:', codigo, err?.message);
+    return { ...base, ok: false, codigo, detalle: detalle.slice(0, 500) };
+  } finally {
+    try {
+      await client.logout();
+    } catch {
+      /* la conexión ya estaba cerrada */
+    }
   }
 }

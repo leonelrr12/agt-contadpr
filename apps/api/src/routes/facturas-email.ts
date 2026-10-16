@@ -19,8 +19,9 @@ import {
   cuentaBancoDeEmpresa,
   cuentasBancoDeEmpresa,
   getOrCreateEmailConfig,
+  rotarAlias,
 } from '../services/email-facturas-config';
-import { barrerFacturasPorCorreo, marcarInterrumpidos, probarConexion, reprocesarMensaje } from '../services/email-inbox';
+import { barrerBuzonCentral, barrerFacturasPorCorreo, marcarInterrumpidos, probarConexion, reprocesarMensaje } from '../services/email-inbox';
 
 export const facturasEmailRouter = Router();
 
@@ -126,18 +127,21 @@ facturasEmailRouter.put(
     const resultante = { ...actual, ...data };
     if (resultante.isActive) {
       if (resultante.modo === 'CENTRAL') {
-        res.status(400).json({
-          error: 'El buzón central todavía no está disponible. Por ahora usa el modo IMAP (la dirección de reenvío llega en la próxima entrega).',
-        });
-        return;
-      }
-      if (!resultante.imapHost || !resultante.imapUser) {
-        res.status(400).json({ error: 'Para leer el buzón hacen falta el servidor y el usuario.' });
-        return;
-      }
-      if (!resultante.imapPassword) {
-        res.status(400).json({ error: 'Falta la contraseña del buzón.' });
-        return;
+        // El buzón central no necesita credenciales propias: lo que hace falta
+        // es la dirección por la que van a llegar los correos.
+        if (!resultante.inboxAlias) {
+          res.status(400).json({ error: 'Generá la dirección de reenvío antes de activar el buzón central.' });
+          return;
+        }
+      } else {
+        if (!resultante.imapHost || !resultante.imapUser) {
+          res.status(400).json({ error: 'Para leer el buzón hacen falta el servidor y el usuario.' });
+          return;
+        }
+        if (!resultante.imapPassword) {
+          res.status(400).json({ error: 'Falta la contraseña del buzón.' });
+          return;
+        }
       }
       if (!resultante.cuentaPagoId) {
         res.status(400).json({
@@ -179,11 +183,36 @@ facturasEmailRouter.post(
   },
 );
 
+// POST /api/facturas-email/inbox/generar — la dirección de reenvío (genera o rota)
+facturasEmailRouter.post('/inbox/generar', requireRole(...ROLES), async (req, res) => {
+  const companyId = req.user!.companyId;
+  const empresa = await req.prisma.company.findUnique({ where: { id: companyId }, select: { name: true } });
+  await getOrCreateEmailConfig(req.prisma, companyId);
+  try {
+    await rotarAlias(req.prisma, companyId, empresa?.name || companyId);
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || 'No se pudo generar la dirección de reenvío.' });
+    return;
+  }
+  res.json(await payloadConfig(req.prisma, companyId));
+});
+
 // POST /api/facturas-email/revisar — «Revisar ahora»: un barrido a pedido
 facturasEmailRouter.post('/revisar', requireRole(...ROLES_LECTURA), async (req, res) => {
-  // `forzar` para poder probar una configuración completa que todavía no se
-  // activó; el cron no lo usa (barre lo que el dueño encendió).
-  const resumen = await barrerFacturasPorCorreo(req.prisma, req.user!.companyId, { forzar: true });
+  const companyId = req.user!.companyId;
+  const cfg = await getOrCreateEmailConfig(req.prisma, companyId);
+
+  // Cada modo se revisa donde vive su correo: el buzón propio de la empresa, o
+  // el buzón central —que es uno solo para todas y por eso se barre entero, no
+  // «el de esta empresa»—. Sin esto, el botón en modo CENTRAL contestaba que
+  // faltaban credenciales IMAP, que en ese modo no se usan.
+  const resumen =
+    cfg.modo === 'CENTRAL'
+      ? await barrerBuzonCentral(req.prisma)
+      : // `forzar` para poder probar una configuración completa que todavía no
+        // se activó; el cron no lo usa (barre lo que el dueño encendió).
+        await barrerFacturasPorCorreo(req.prisma, companyId, { forzar: true });
+
   // 200 con el resumen aunque haya fallado: el veredicto va en el cuerpo.
   res.json(resumen);
 });

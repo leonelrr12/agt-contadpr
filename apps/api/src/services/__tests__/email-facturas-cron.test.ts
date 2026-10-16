@@ -8,7 +8,12 @@ import { tocaCorrer, correrBarridoDiario } from '../email-facturas-cron';
  * un `throw` sin atrapar en la empresa 1 y las 20 siguientes no se barren nunca.
  */
 
-const barridos = vi.hoisted(() => ({ llamadas: [] as string[], falla: new Set<string>() }));
+const barridos = vi.hoisted(() => ({
+  llamadas: [] as string[],
+  falla: new Set<string>(),
+  central: 0,
+  resultadoCentral: { ok: true, revisados: 0, facturas: 0, estados: {}, ignorados: 0 } as any,
+}));
 
 vi.mock('../email-inbox', () => ({
   barrerFacturasPorCorreo: async (_prisma: any, companyId: string) => {
@@ -16,10 +21,14 @@ vi.mock('../email-inbox', () => ({
     if (barridos.falla.has(companyId)) throw new Error('el barrido explotó');
     return { ok: true, revisados: 0, facturas: 0, estados: {} };
   },
+  barrerBuzonCentral: async () => {
+    barridos.central++;
+    return barridos.resultadoCentral;
+  },
 }));
 
-const prismaFalso = (configs: any[]) => ({
-  emailFacturaConfig: { findMany: async () => configs },
+const prismaFalso = (configs: any[], empresasCentral = 0) => ({
+  emailFacturaConfig: { findMany: async () => configs, count: async () => empresasCentral },
 });
 
 const HOY = (hora: number, minuto = 0) => new Date(2026, 9, 16, hora, minuto, 0);
@@ -35,6 +44,10 @@ const config = (companyId: string, ultimaCorridaAt: Date | null = null, extra: a
 beforeEach(() => {
   barridos.llamadas = [];
   barridos.falla = new Set();
+  barridos.central = 0;
+  barridos.resultadoCentral = { ok: true, revisados: 0, facturas: 0, estados: {}, ignorados: 0 };
+  delete process.env.EMAIL_CENTRAL_IMAP_USER;
+  delete process.env.EMAIL_CENTRAL_IMAP_PASS;
 });
 
 describe('tocaCorrer', () => {
@@ -115,5 +128,42 @@ describe('correrBarridoDiario', () => {
     const r = await correrBarridoDiario(prisma, HOY(2));
     expect(barridos.llamadas).toEqual([]);
     expect(r.corridas).toBe(0);
+  });
+});
+
+describe('correrBarridoDiario — el buzón central', () => {
+  it('sin ninguna empresa en modo CENTRAL no se toca ese buzón', async () => {
+    const prisma = prismaFalso([config('c1')], 0);
+
+    const r = await correrBarridoDiario(prisma, HOY(9));
+
+    expect(barridos.central).toBe(0); // ni se conecta
+    expect(r.central).toBeUndefined();
+  });
+
+  it('con una empresa usándolo, se barre una vez', async () => {
+    barridos.resultadoCentral = { ok: true, revisados: 3, facturas: 1, estados: {}, ignorados: 2 };
+    const prisma = prismaFalso([], 1);
+
+    const r = await correrBarridoDiario(prisma, HOY(9));
+
+    expect(barridos.central).toBe(1);
+    expect(r.central).toMatchObject({ revisados: 3, ignorados: 2 });
+  });
+
+  it('sin las credenciales del buzón central, avisa y no gasta el día', async () => {
+    // Sin EMAIL_CENTRAL_IMAP_* el poller no puede entrar: la pasada se reintenta
+    // en el próximo tick en vez de esperar 24 horas. (El marcador de la corrida
+    // central vive en el proceso, así que este test usa el día siguiente.)
+    const MANANA = (hora: number) => new Date(2026, 9, 17, hora, 0, 0);
+    barridos.resultadoCentral = { ok: false, revisados: 0, facturas: 0, estados: {}, ignorados: 0, codigo: 'SIN_CREDENCIALES' };
+    const prisma = prismaFalso([], 1);
+
+    const primera = await correrBarridoDiario(prisma, MANANA(9));
+    const segunda = await correrBarridoDiario(prisma, MANANA(10));
+
+    expect(primera.central?.codigo).toBe('SIN_CREDENCIALES');
+    expect(barridos.central).toBe(2); // se volvió a intentar
+    expect(segunda.central?.codigo).toBe('SIN_CREDENCIALES');
   });
 });

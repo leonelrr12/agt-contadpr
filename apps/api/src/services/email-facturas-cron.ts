@@ -18,7 +18,7 @@
  * evita un barrido sorpresa en cada reinicio.
  */
 
-import { barrerFacturasPorCorreo } from './email-inbox';
+import { barrerBuzonCentral, barrerFacturasPorCorreo } from './email-inbox';
 
 /** Cada cuánto se pregunta si toca (no es la frecuencia del barrido: es el reloj). */
 const INTERVALO_MIN = Number(process.env.EMAIL_FACTURAS_INTERVALO_MIN) || 30;
@@ -49,7 +49,17 @@ export interface ResumenCron {
   corridas: number;
   /** Cuántas terminaron mal (credenciales, conexión): no cortan a las demás. */
   fallidas: number;
+  /** La pasada del buzón central, si había alguna empresa en modo CENTRAL. */
+  central?: { revisados: number; ignorados: number; codigo?: string };
 }
+
+/**
+ * Última pasada del buzón central, por proceso. El buzón central es UNO para
+ * todas las empresas, así que no tiene una fila de configuración donde anotar su
+ * `ultimaCorridaAt`: se guarda acá. Un reinicio solo provoca una pasada de más,
+ * y el ledger se encarga de que eso no procese nada dos veces.
+ */
+let ultimaCorridaCentral: Date | null = null;
 
 /**
  * Una pasada: barre las empresas a las que les toca. Nunca lanza — quien la
@@ -104,12 +114,40 @@ export async function correrBarridoDiario(prisma: any, ahora: Date = new Date())
     if (!r.value.ok) resumen.fallidas++;
   }
 
-  if (resumen.corridas || resumen.fallidas) {
+  resumen.central = await pasarPorBuzonCentral(prisma, ahora);
+
+  if (resumen.corridas || resumen.fallidas || resumen.central) {
     console.log(
       `[EmailFacturas] Pasada: ${resumen.corridas} corrida(s), ${resumen.fallidas} con problema, de ${resumen.empresas} buzón(es) activo(s).`,
     );
   }
   return resumen;
+}
+
+/**
+ * La pasada del buzón central, si hay alguna empresa usándolo.
+ *
+ * Sin ninguna empresa en modo CENTRAL **no se toca ese buzón**: es la cuenta
+ * personal de quien lo administra, y no hay razón para abrirla si nadie va a
+ * recibir facturas por ahí.
+ */
+async function pasarPorBuzonCentral(prisma: any, ahora: Date): Promise<ResumenCron['central']> {
+  try {
+    const empresasCentral = await prisma.emailFacturaConfig.count({
+      where: { isActive: true, modo: 'CENTRAL', inboxAlias: { not: null } },
+    });
+    if (!empresasCentral || !tocaCorrer(ahora, ultimaCorridaCentral)) return undefined;
+
+    const r = await barrerBuzonCentral(prisma);
+    // Sin credenciales del buzón central no se marca la corrida: cuando el dueño
+    // las agregue, la próxima pasada lo intenta en vez de esperar al otro día.
+    if (r.codigo !== 'SIN_CREDENCIALES') ultimaCorridaCentral = ahora;
+    if (!r.ok) console.warn(`[EmailFacturas] Central: ${r.codigo} ${r.detalle || ''}`);
+    return { revisados: r.revisados, ignorados: r.ignorados, codigo: r.codigo };
+  } catch (err: any) {
+    console.error('[EmailFacturas] Central: error inesperado:', err?.message);
+    return { revisados: 0, ignorados: 0, codigo: 'ERROR' };
+  }
 }
 
 /** El reloj: cada media hora, preguntar si toca. */

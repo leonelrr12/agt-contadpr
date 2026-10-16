@@ -60,6 +60,48 @@ export function configPublica(cfg: any): Record<string, any> {
   return pub;
 }
 
+/** Slug de la dirección de reenvío: sin acentos, minúsculas y con guiones. */
+export function slugDeAlias(texto: string): string {
+  const limpio = String(texto || '')
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 20)
+    .replace(/-+$/, '');
+  return limpio || 'empresa';
+}
+
+/**
+ * Genera (o ROTA) la dirección de reenvío de la empresa.
+ *
+ * El alias es lo único que rutea un correo del buzón central a una empresa, así
+ * que tiene que ser único en toda la plataforma y no puede quedar pegado al
+ * nombre de otra. Se arma con el nombre de la empresa —para que el dueño lo
+ * reconozca— y si ya está tomado se le agrega un sufijo al azar.
+ *
+ * **Rotar invalida el anterior**: el alias viejo deja de rutear en el acto (es
+ * el mismo campo), que es justo lo que se pide cuando una dirección se filtró.
+ */
+export async function rotarAlias(prisma: any, companyId: string, nombreEmpresa: string): Promise<string> {
+  const base = slugDeAlias(nombreEmpresa);
+  for (let intento = 0; intento < 8; intento++) {
+    // El primer intento usa el nombre pelado; después, sufijo al azar. Un alias
+    // que ya es de ESTA empresa también cuenta como tomado: rotar es cambiarlo.
+    const candidato = intento === 0 ? base : `${base}-${Math.random().toString(36).slice(2, 6)}`;
+    const ocupado = await prisma.emailFacturaConfig.findUnique({
+      where: { inboxAlias: candidato },
+      select: { companyId: true },
+    });
+    if (!ocupado) {
+      await prisma.emailFacturaConfig.update({ where: { companyId }, data: { inboxAlias: candidato, modo: 'CENTRAL' } });
+      return candidato;
+    }
+  }
+  throw new Error('No se pudo generar una dirección de reenvío libre. Probá de nuevo.');
+}
+
 /**
  * ¿Este código es una cuenta de BANCO? Solo `1.1.02.*`.
  *

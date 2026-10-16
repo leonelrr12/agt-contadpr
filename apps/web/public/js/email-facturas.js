@@ -135,6 +135,7 @@ function efPintar(cfg) {
   set('ef-mover', cfg.carpetaMover || '');
   set('ef-cuenta', cfg.cuentaPagoId || '');
   set('ef-concepto', cfg.conceptoDefaultId || '');
+  efCambioModo();
 }
 
 function efFormularioHTML(cfg) {
@@ -168,10 +169,26 @@ function efFormularioHTML(cfg) {
       </div>
       <div>
         <label>Modo</label>
-        <select id="ef-modo" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit">
+        <select id="ef-modo" onchange="efCambioModo()" style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit">
           <option value="IMAP">IMAP — el buzón de la empresa</option>
-          <option value="CENTRAL" disabled>Reenvío al buzón del sistema (próximamente)</option>
+          <option value="CENTRAL">Reenvío al buzón del sistema</option>
         </select>
+        <div style="font-size:11px;color:#6b7280;margin-top:4px" id="ef-modo-nota"></div>
+      </div>
+      <div style="min-width:100%">
+        <label>Dirección de reenvío ${cfg.inboxAlias ? '' : '<span style="color:#b91c1c">*</span>'}</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="text" id="ef-direccion" readonly value="${efEsc(cfg.direccionReenvio || '')}"
+            placeholder="— sin generar —"
+            style="flex:1;min-width:220px;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;font-family:ui-monospace,monospace;background:#f9fafb">
+          <button type="button" class="btn-secondary" onclick="efCopiarDireccion()" style="padding:8px 14px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;font-size:13px;font-family:inherit">📋 Copiar</button>
+          <button type="button" class="btn-secondary" onclick="efGenerarAlias(this)" style="padding:8px 14px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;font-size:13px;font-family:inherit">${cfg.inboxAlias ? '🔄 Rotar' : '✨ Generar'}</button>
+        </div>
+        <div style="font-size:11px;color:#6b7280;margin-top:4px">
+          Los proveedores reenvían la factura a esa dirección (o la mandan directo) y el sistema la carga a nombre de esta empresa.
+          ${cfg.inboxAlias ? 'Rotarla invalida la anterior en el acto.' : ''}
+          Solo se abre el cuerpo de los correos dirigidos a una dirección registrada.
+        </div>
       </div>
       <div>
         <label>Servidor IMAP</label>
@@ -232,6 +249,7 @@ function efFormularioHTML(cfg) {
     </div>
     <div style="font-size:11px;color:#6b7280;margin-top:8px">
       El sistema lleva su propio registro de los correos ya leídos: no hace falta marcar ni mover nada en el buzón.
+      Con el modo <strong>Reenvío al buzón del sistema</strong> no hacen falta credenciales: alcanza con la dirección de reenvío.
     </div>
     <div style="margin-top:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <button class="btn-primary" id="ef-btn-guardar" onclick="efGuardar()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar</button>
@@ -252,6 +270,57 @@ function efEstadoHTML(cfg) {
     Última revisión: ${cuando}${cfg.ultimoEstado ? ` — ${efEsc(cfg.ultimoEstado)}` : ''}
     ${cfg.ultimoDetalle ? `<div style="color:#6b7280">${efEsc(cfg.ultimoDetalle)}</div>` : ''}
   </div>`;
+}
+
+/** La nota que explica qué hace el modo elegido. */
+function efCambioModo() {
+  const modo = document.getElementById('ef-modo').value;
+  const nota = document.getElementById('ef-modo-nota');
+  if (!nota) return;
+  nota.textContent =
+    modo === 'CENTRAL'
+      ? 'La empresa no da credenciales: los correos llegan por la dirección de reenvío.'
+      : 'Se lee el buzón de la empresa con sus propias credenciales.';
+}
+
+/** Copia la dirección; en http (sin contexto seguro) `navigator.clipboard` no existe. */
+function efCopiarDireccion() {
+  const input = document.getElementById('ef-direccion');
+  const texto = input?.value || '';
+  if (!texto) { efMensaje('Todavía no hay dirección generada', '#92400e'); return; }
+  const listo = () => efMensaje('📋 Dirección copiada', '#059669');
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(texto).then(listo).catch(() => efCopiarViejo(input, listo));
+  } else {
+    efCopiarViejo(input, listo);
+  }
+}
+
+function efCopiarViejo(input, listo) {
+  input.removeAttribute('readonly');
+  input.select();
+  try { document.execCommand('copy'); listo(); } catch { efMensaje('No se pudo copiar: seleccionala a mano', '#b91c1c'); }
+  input.setAttribute('readonly', 'readonly');
+}
+
+/** Genera o rota la dirección de reenvío (el alias que rutea los correos). */
+async function efGenerarAlias(btn) {
+  const hay = !!document.getElementById('ef-direccion')?.value;
+  if (hay && !(await showConfirm('Rotar la dirección invalida la anterior: los correos que lleguen a la vieja dejan de cargarse. ¿Seguir?'))) return;
+  btn.disabled = true;
+  try {
+    const res = await authFetch(`${API_URL}/facturas-email/inbox/generar`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) { await showAlert(data.error || 'No se pudo generar la dirección'); return; }
+    efConfig = data;
+    efBorrarPassword = false;
+    efPintar(data);
+    efMensaje('✅ Dirección generada', '#059669');
+  } catch (e) {
+    await showAlert('Error de conexión');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function efMarcarBorrarPassword() {
