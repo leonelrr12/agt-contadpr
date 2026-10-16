@@ -630,11 +630,22 @@ const NARRATIVA_MAX_TOKENS = 1500;
 
 const NARRATIVA_SYSTEM = 'Eres un analista financiero sénior para pequeñas empresas en Panamá. Recibes un resumen JSON de la salud financiera de una empresa y debes explicarla en lenguaje natural. Reglas: habla en español, tono claro y profesional; explica POR QUÉ cambiaron los números cuando haya deltas (mes actual vs anterior); sé específico con montos, porcentajes y meses reales del resumen; NO inventes datos que no estén en el resumen. Devuelve SOLO JSON válido con esta estructura: {"resumen": "párrafo de 2-4 frases con el estado general y las razones de los cambios", "alertas": ["una frase cada una"], "recomendaciones": ["recomendaciones concretas y accionables hoy"]}. Máximo 4 alertas y 4 recomendaciones.';
 
-/** Versión corta para el reintento: si la primera respuesta se pasó del techo, se pide menos. */
-const NARRATIVA_SYSTEM_BREVE = NARRATIVA_SYSTEM.replace(
-  'un párrafo de 2-4 frases con el estado general y las razones de los cambios',
-  'un párrafo de 2 frases como máximo',
-).replace('Máximo 4 alertas y 4 recomendaciones.', 'Máximo 2 alertas y 2 recomendaciones, cada una de una sola frase.');
+/**
+ * Versión corta para el reintento: si la primera respuesta se pasó del techo, se pide
+ * menos.
+ *
+ * Los textos a reemplazar son EXACTAMENTE los del prompt largo (adentro del ejemplo de
+ * JSON, sin el «un» que llevaba la primera versión de esto): un `.replace()` que no
+ * coincide no avisa nada, y así el «reintento breve» quedaba pidiendo el mismo párrafo
+ * —y dos caracteres más de alertas— que el intento que se había pasado del techo.
+ * `salud-reintento.test.ts` compara los dos prompts para que no vuelva a pasar.
+ */
+export const NARRATIVA_SYSTEM_BREVE = NARRATIVA_SYSTEM
+  .replace(
+    'párrafo de 2-4 frases con el estado general y las razones de los cambios',
+    'párrafo de 2 frases',
+  )
+  .replace('Máximo 4 alertas y 4 recomendaciones.', 'Máximo 2 alertas y 2 recomendaciones.');
 
 /**
  * Lee la respuesta del modelo. Pura y exportada para poder probar los tres finales
@@ -669,7 +680,12 @@ export function interpretarNarrativa(
   };
 }
 
-async function generateNarrativa(payload: SaludPayload): Promise<Narrativa | null> {
+/**
+ * Exportada para el test del reintento: es la única pieza del arreglo del 15-10 que no
+ * se puede ejercitar desde `interpretarNarrativa` (que es pura), porque vive en el ida
+ * y vuelta con el modelo.
+ */
+export async function generateNarrativa(payload: SaludPayload): Promise<Narrativa | null> {
   const client = getLLMClient();
   if (!client) return null;
   const input = buildNarrativaInput(payload);
