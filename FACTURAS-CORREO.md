@@ -1,8 +1,19 @@
 # Facturas DGI por correo (IMAP) — diseño
 
-**Estado: DISEÑADO el 14-10-2026, NO empezado.** No hay nada de esto en el schema ni en el código.
-Este documento es el plan de implementación acordado con el dueño; el estado del roadmap vive en
-[`Tuning.md`](Tuning.md) §4.3.
+**Estado: COMPLETO Y EN USO desde el 16-10-2026.** Las seis fases están desplegadas (commits `928c272`,
+`1dbaca1`… `e1fc601`) y la empresa Demo ya recibe sus facturas reales por esta vía: el buzón
+`leonellrodriguez@gmail.com` se barre todas las madrugadas y las facturas entran como BORRADOR a
+Revisión.
+
+Este documento es el plan que se acordó con el dueño y **se deja como está**: es la fuente de las
+decisiones (por qué al contado y contra banco, por qué el ledger va aparte de `expense_claim`, las
+trampas que costaron). Lo que se aprendió al implementarlo —y que no está acá— vive en la memoria del
+proyecto y en los comentarios del código: el XML real de la DGI es el formato CAFE, el `facturaXML` del
+CUTE es un blob opaco, `cuentaPagoForzada` va antes de `aplicarBancoMencionado`, `extractedData.paymentMethod`
+es obligatorio en el flujo headless, y la limpieza de prueba no borra la configuración del buzón.
+
+Dos agregados que no estaban en el plan: `receptorRucs` (aceptar facturas a nombre del dueño, migración
+`0039`) y el alias del buzón central con `POST /inbox/generar`.
 
 ## 1. Qué resuelve
 
