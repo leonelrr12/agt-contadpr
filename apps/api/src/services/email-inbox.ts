@@ -24,6 +24,7 @@ import { simpleParser } from 'mailparser';
 import { getOrCreateEmailConfig } from './email-facturas-config';
 import { extraerFacturasDeMensaje, type MensajeFactura } from './email-factura-extract';
 import { cargarFacturaDesdeCorreo } from './email-factura-pipeline';
+import { avisarProblemas, type ProblemaFactura } from './email-facturas-avisos';
 
 export type CodigoConexion = 'SIN_CREDENCIALES' | 'ERROR_CREDENCIALES' | 'ERROR_CONEXION';
 
@@ -230,8 +231,10 @@ export async function barrerFacturasPorCorreo(
   // El barrido nunca lanza (lo dice el contrato del módulo), así que el techo de
   // tiempo se resuelve por carrera y no por aborto: si se pasa, se responde y el
   // barrido termina solo — el lease lo protege de solaparse con el siguiente.
+  // Lo que salió mal en esta corrida, para el aviso por correo del final.
+  const problemas: ProblemaFactura[] = [];
   const resumen = await Promise.race([
-    correrBarrido(prisma, companyId, cfg, ahora, opts),
+    correrBarrido(prisma, companyId, cfg, ahora, { ...opts, problemas }),
     new Promise<ResumenBarrido>((resolve) =>
       setTimeout(
         () => resolve({ ...RESUMEN_VACIO, ok: false, codigo: 'TIMEOUT', detalle: `El barrido pasó de ${TIMEOUT_CORRIDA_MS / 1000} s.` }),
@@ -241,6 +244,14 @@ export async function barrerFacturasPorCorreo(
   ]);
 
   await anotarCorrida(prisma, companyId, resumen);
+
+  // El aviso va DESPUÉS de anotar la corrida (primero el estado, después el
+  // correo) y solo cuando hay algo que una persona pueda arreglar. No lanza.
+  await avisarProblemas(prisma, companyId, {
+    problemas,
+    fallo: resumen.ok ? null : { codigo: resumen.codigo, detalle: resumen.detalle, revisados: resumen.revisados },
+  });
+
   return resumen;
 }
 
@@ -264,7 +275,7 @@ async function correrBarrido(
   companyId: string,
   cfg: any,
   ahora: Date,
-  opts: { cliente?: any; maxCorreos?: number },
+  opts: { cliente?: any; maxCorreos?: number; problemas?: ProblemaFactura[] },
 ): Promise<ResumenBarrido> {
   const client: any = opts.cliente || clienteImap(cfg);
   const carpeta = String(cfg.imapFolder || 'INBOX');
@@ -367,6 +378,9 @@ async function correrBarrido(
 
         sumar(resultado.estado);
         detectadas += resultado.facturas.filter((f: any) => f.estado === 'CARGADA').length;
+        for (const f of resultado.facturas) {
+          if (f.estado !== 'CARGADA') opts.problemas?.push({ ...f, asunto: resultado.detalle } as any);
+        }
         await anotarResultado(prisma, fila.id, resultado, !meta.envelope?.messageId);
 
         // Lo ÚLTIMO: el buzón solo se toca cuando el correo ya quedó anotado. Si
@@ -793,6 +807,9 @@ export async function barrerBuzonCentral(prisma: any, opts: { cliente?: any } = 
 
   const estados = base.estados;
   const sinCuota = new Set<string>();
+  // Los problemas se juntan POR EMPRESA: el buzón central es uno solo, pero el
+  // aviso tiene que irle a la empresa cuya factura no se cargó.
+  const problemasPorEmpresa = new Map<string, ProblemaFactura[]>();
   const sumar = (estado: string) => {
     estados[estado] = (estados[ estado] || 0) + 1;
   };
@@ -868,10 +885,19 @@ export async function barrerBuzonCentral(prisma: any, opts: { cliente?: any } = 
 
         sumar(resultado.estado);
         base.facturas += resultado.facturas.filter((f: any) => f.estado === 'CARGADA').length;
+        for (const f of resultado.facturas) {
+          if (f.estado === 'CARGADA') continue;
+          const lista = problemasPorEmpresa.get(empresa.companyId) || [];
+          lista.push(f);
+          problemasPorEmpresa.set(empresa.companyId, lista);
+        }
         await anotarResultado(prisma, fila.id, resultado, !meta.envelope?.messageId);
       }
 
       ultimoUidCentral = ultimo;
+      for (const [companyId, problemas] of problemasPorEmpresa) {
+        await avisarProblemas(prisma, companyId, { problemas });
+      }
       if (base.revisados || base.ignorados) {
         console.log(
           `[EmailFacturas] Central: revisados=${base.revisados} cargadas=${base.facturas} ignorados=${base.ignorados} ${JSON.stringify(estados)}`,

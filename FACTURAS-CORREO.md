@@ -12,8 +12,11 @@ proyecto y en los comentarios del código: el XML real de la DGI es el formato C
 CUTE es un blob opaco, `cuentaPagoForzada` va antes de `aplicarBancoMencionado`, `extractedData.paymentMethod`
 es obligatorio en el flujo headless, y la limpieza de prueba no borra la configuración del buzón.
 
-Dos agregados que no estaban en el plan: `receptorRucs` (aceptar facturas a nombre del dueño, migración
-`0039`) y el alias del buzón central con `POST /inbox/generar`.
+Agregados que no estaban en el plan: `receptorRucs` (aceptar facturas a nombre del dueño, migración
+`0039`), el alias del buzón central con `POST /inbox/generar`, y **el aviso por correo cuando una
+factura no se pudo cargar** (`email-facturas-avisos.ts`) — §9 decía que no se mandaban avisos; el dueño
+los pidió el 16-10: una vez por corrida, solo cuando hay algo que una persona puede arreglar, a los
+admin/superadmin activos de la empresa.
 
 ## 1. Qué resuelve
 
