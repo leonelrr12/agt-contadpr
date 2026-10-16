@@ -218,11 +218,15 @@ app.use(errorHandler);
 
 // ── Tareas de inicio (webhook WhatsApp, obligaciones fiscales, recurrentes) ──
 import { runStartupTasks, startRecurringCron } from './services/startup';
+import { startEmailFacturasCron } from './services/email-facturas-cron';
 prisma.$connect().then(() => {
   runStartupTasks(prisma).catch(err => {
     console.error('[Startup] Error en tareas de inicio:', err.message);
   });
   startRecurringCron(prisma);
+  // El buzón de facturas por correo: una pasada diaria de madrugada (con catch-up).
+  // Usa el cliente EXTENDIDO: con el crudo, la contraseña IMAP llega cifrada.
+  startEmailFacturasCron(prisma);
 });
 
 const PORT = process.env.PORT || 3001;
