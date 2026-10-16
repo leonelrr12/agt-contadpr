@@ -266,19 +266,26 @@ authRouter.get('/me', requireAuth, async (req, res) => {
     return;
   }
 
-  // El rol que manda es el de la empresa ACTIVA (la del token), no el de la casa.
+  // Todo lo que sale de acá es de la empresa ACTIVA (la del token), no de la
+  // «casa» del usuario: `User.companyId` es solo la empresa por defecto. Con un
+  // usuario de despacho, devolver la casa hacía que el sidebar dijera una empresa
+  // mientras los paneles mostraban los datos de otra.
   const empresas = await empresasDeUsuario(req.prisma, user.id, user.role === 'superadmin');
-  const rolActivo = empresas.find((e: any) => e.id === req.user!.companyId)?.role || user.role;
+  const activa = empresas.find((e: any) => e.id === req.user!.companyId);
+  const company =
+    req.user!.companyId === user.companyId || !activa
+      ? user.company
+      : await req.prisma.company.findUnique({ where: { id: req.user!.companyId } });
 
   res.json({
     id: user.id,
     name: user.name,
     email: user.email,
-    role: rolActivo,
+    role: activa?.role || user.role,
     company: {
-      id: user.company.id,
-      name: user.company.name,
-      taxId: user.company.taxId,
+      id: company?.id || req.user!.companyId,
+      name: company?.name || '',
+      taxId: company?.taxId ?? null,
     },
     /** Las empresas a las que puede entrar (para el selector) con su rol en cada una. */
     empresas,
