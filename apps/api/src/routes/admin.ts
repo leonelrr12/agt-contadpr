@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireRole } from '../middleware/auth';
 import { logAudit } from '../services/audit-log';
 import { KNOWN_ADDONS } from '../middleware/modulo';
+import { ESTADOS_VIGENTES } from '../services/suscripcion';
 
 export const adminRouter = Router();
 
@@ -12,8 +13,11 @@ adminRouter.use(requireRole('superadmin'));
 // ── Dashboard de administración ──
 
 adminRouter.get('/stats', async (req, res) => {
-  const [totalCompanies, activeSubs, demosExpiring, totalMovements] = await Promise.all([
+  const [totalCompanies, totalCuentas, activeSubs, demosExpiring, totalMovements] = await Promise.all([
     req.prisma.company.count(),
+    // Cuántos clientes hay (cuentas): con el plan de despacho, una cuenta puede
+    // tener varias empresas, así que no es el mismo número que «empresas».
+    req.prisma.cuenta.count(),
     req.prisma.subscription.count({ where: { status: { in: ['ACTIVE', 'GRANTED'] } } }),
     req.prisma.subscription.count({
       where: {
@@ -31,6 +35,7 @@ adminRouter.get('/stats', async (req, res) => {
 
   res.json({
     totalCompanies,
+    totalCuentas,
     activeSubscriptions: activeSubs,
     demosExpiringSoon: demosExpiring,
     totalMovements,
@@ -71,6 +76,58 @@ adminRouter.get('/subscriptions', async (req, res) => {
   });
 
   res.json(subscriptions);
+});
+
+/**
+ * GET /api/admin/cuentas — el panel por CUENTA: quién paga, con qué plan, y **qué
+ * tiene** (sus empresas con sus usuarios propios, la cuota y los módulos).
+ *
+ * Una fila por cuenta y no por suscripción: la cuenta es la que paga, y sus
+ * suscripciones son su historial. La vigente se elige con la misma regla que la app
+ * (`services/suscripcion.ts`): la de período más largo entre las que pueden operar,
+ * así el panel no dice algo distinto de lo que ve el cliente.
+ */
+adminRouter.get('/cuentas', async (req, res) => {
+  const { search, status } = req.query;
+
+  const where: any = {};
+  if (search) {
+    where.OR = [
+      { name: { contains: search as string, mode: 'insensitive' } },
+      { companies: { some: { name: { contains: search as string, mode: 'insensitive' } } } },
+    ];
+  }
+
+  const cuentas = await req.prisma.cuenta.findMany({
+    where,
+    include: {
+      companies: {
+        // `_count.users` son los usuarios PROPIOS de la empresa (los que tienen ahí
+        // su empresa casa): es lo que consume el cupo del plan.
+        select: { id: true, name: true, taxId: true, _count: { select: { users: true } } },
+        orderBy: { name: 'asc' },
+      },
+      subscriptions: {
+        orderBy: { periodEnd: 'desc' },
+        include: { plan: true, payments: { orderBy: { paidAt: 'desc' }, take: 5 } },
+      },
+    },
+    orderBy: { name: 'asc' },
+  });
+
+  const filas = cuentas.map((c: any) => {
+    const vigente = c.subscriptions.find((s: any) => ESTADOS_VIGENTES.includes(s.status)) || null;
+    return {
+      id: c.id,
+      name: c.name,
+      empresas: c.companies.map((e: any) => ({ id: e.id, name: e.name, taxId: e.taxId, usuarios: e._count.users })),
+      suscripcion: vigente,
+      // Cuántas quedaron atrás: da la idea de si el cliente es nuevo o lleva años.
+      historial: c.subscriptions.length - (vigente ? 1 : 0),
+    };
+  });
+
+  res.json(status ? filas.filter((f: any) => f.suscripcion?.status === status) : filas);
 });
 
 adminRouter.get('/subscriptions/:id', async (req, res) => {

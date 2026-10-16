@@ -361,12 +361,18 @@ rentabilidad** por segmento.
 de admin para activar suscripciones, por ser lo adecuado para el mercado panameño. (LemonSqueezy quedó
 como alternativa por soportar LATAM sin entidad en EE.UU.) **No hay campos de Stripe en el schema.**
 
-| Plan | Movimientos/mes | Precio | Rate limit |
-|---|---|---|---|
-| Demo | 50 | $0 | 5 req/s |
-| Emprendedor | 100 | $19.99 | 10 req/s |
-| Pyme | 500 | $49.99 | 25 req/s |
-| Despacho | 2,000 | $149.99 | 50 req/s |
+| Plan | Empresas | Usuarios/empresa | Módulos | Movimientos/mes | Precio | Rate limit |
+|---|---|---|---|---|---|---|
+| Demo | 1 | 2 | — | 50 | $0 | 5 req/s |
+| Individual Básico | 1 | 3 | — | 500 | $9.99 | 5 req/s |
+| Individual Premium | 1 | 3 | inventario + planilla | 1,000 | $19.99 | 10 req/s |
+| Despacho 3 | 3 | 3 | — | 1,000 | $19.99 | 10 req/s |
+| Despacho 10 | 10 | 4 | inventario + planilla | 2,000 | $39.99 | 25 req/s |
+| Despacho 25 | 25 | 5 | inventario + planilla | 4,000 | $79.99 | 25 req/s |
+| Despacho 50+ | 50 | 5 | todo | ilimitados | $149.99 | 50 req/s |
+
+Los planes viejos (Emprendedor $19.99, Pyme $49.99, Despacho $149.99) quedaron **desactivados** en la
+migración `0044`: no se borran (una suscripción puede referenciarlos) pero no se muestran.
 
 El rate limit es un **campo del plan** (`Plan.reqPorSegundo`) y se cuenta **por empresa**, no por IP.
 Antes era una tabla por NOMBRE de plan dentro de `middleware/plan-rate-limit.ts`: renombrar un plan o
@@ -393,15 +399,20 @@ consumo es **uno solo por cuenta** (el de sus empresas se suma) y una empresa qu
 
 Los límites ya no son texto de adorno: `Plan.maxEmpresas` (empresas de la **cuenta**) y
 `Plan.maxUsuariosPorEmpresa` (**usuarios propios**, no membresías) se validan al crear la empresa y el
-usuario, y responden 402 con el detalle. La UI muestra «N de M». El texto de `Plan.features` sigue siendo
-el viejo hasta que la fase 4 reescriba los planes.
+usuario, y responden 402 con el detalle. La UI muestra «N de M».
 
-**Fase 3 HECHA** (migración `0043_plan_modulos`): `Plan.modulos` decide Inventario, Planilla y Facturas
+**Fases 3 y 4 HECHAS** (migraciones `0043_plan_modulos` y `0044_planes_nuevos`): `Plan.modulos` decide Inventario, Planilla y Facturas
 PDF —**por el plan o por un add-on contratado**—, y se valida en los dos lados que pide el diseño:
 `middleware/modulo.ts` responde 402 `MODULO_NO_INCLUIDO` en las rutas de cada módulo, y el menú
 (`core.js`) tapa los que el plan no trae (el rol sigue mandando por su lado). Un rol exclusivo
-(`inventario`, `planilla`) en un plan sin ese módulo se rechaza con `ROL_REQUIERE_MODULO`. Falta la fase 4
-(panel SaaS por cuenta + pantalla de precios).
+(`inventario`, `planilla`) en un plan sin ese módulo se rechaza con `ROL_REQUIERE_MODULO`.
+
+La fase 4 dejó el **panel SaaS por cuenta** (`/admin.html` → «Cuentas»: una fila por cliente que paga con
+sus empresas, los usuarios propios de cada una, la cuota, los módulos y el botón para asignarle plan) y la
+**pantalla de precios** armada con los campos del plan en vez del texto de `features`. Dos decisiones
+siguen abiertas y son del dueño: si el Demo pasa a «básico» (hoy lleva inventario y planilla porque las
+dos cuentas vivas los usan) y qué plan le toca a Odesa, que con 5 usuarios propios no entra en ninguno
+individual; y el precio de inventario/planilla como add-on.
 
 **Pendiente comercial:** portal de facturación de autoservicio.
 

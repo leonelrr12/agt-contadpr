@@ -75,92 +75,78 @@ async function main() {
   console.log('Usuarios: admin@demo.com (admin), contador@demo.com (contador), asistente@demo.com (asistente) — contraseña: admin123');
 
   // ── Planes SaaS ──
+  // La tabla comercial (PLANES.md §6, migración 0044). Los tres planes viejos quedan
+  // con `isActive: false`: no se borran (una suscripción puede referenciarlos) pero no
+  // se muestran. `monthlyLimit: 999999` es «ilimitado» (la cuota es una red
+  // anti-abuso, no una métrica de venta) y la UI lo muestra como tal.
   const plans = [
     {
       name: 'Demo',
-      // Escrituras por segundo del plan (antes vivían como tabla por NOMBRE en
-      // `middleware/plan-rate-limit.ts`; ahora son un campo del plan)
-      reqPorSegundo: 5,
-      maxEmpresas: 1,
-      maxUsuariosPorEmpresa: 2,
-      description: 'Prueba gratuita de 14 días — descubre el poder de la contabilidad con IA',
-      monthlyLimit: 50,
+      description: 'Prueba gratuita de 14 días — descubre la contabilidad con IA',
+      monthlyLimit: 50, reqPorSegundo: 5, maxEmpresas: 1, maxUsuariosPorEmpresa: 2,
+      modulos: [] as string[],
       price: 0,
-      features: JSON.stringify([
-        'Hasta 50 movimientos',
-        'Procesamiento por IA',
-        'Escáner OCR de facturas',
-        'Reportes básicos',
-        'Exportación a Excel',
-        '1 usuario',
-      ]),
-      sortOrder: 0,
+      features: JSON.stringify(['Procesamiento por IA', 'Escáner OCR de facturas', 'Reportes básicos', 'Exportación a Excel']),
+      isActive: true, sortOrder: 0,
     },
     {
-      name: 'Emprendedor',
-      // Escrituras por segundo del plan (antes vivían como tabla por NOMBRE en
-      // `middleware/plan-rate-limit.ts`; ahora son un campo del plan)
-      reqPorSegundo: 10,
-      maxEmpresas: 1,
-      maxUsuariosPorEmpresa: 3,
-      description: 'Para profesionales independientes y freelancers',
-      monthlyLimit: 100,
+      name: 'Individual Básico',
+      description: 'Para el negocio chico que lleva su propia contabilidad',
+      monthlyLimit: 500, reqPorSegundo: 5, maxEmpresas: 1, maxUsuariosPorEmpresa: 3,
+      modulos: [] as string[],
+      price: 9.99,
+      features: JSON.stringify(['Procesamiento por IA', 'Escáner OCR de facturas', 'Todos los reportes', 'Exportación a Excel y PDF', 'Soporte por WhatsApp']),
+      isActive: true, sortOrder: 1,
+    },
+    {
+      name: 'Individual Premium',
+      description: 'Para el negocio que además controla su mercancía y su planilla',
+      monthlyLimit: 1000, reqPorSegundo: 10, maxEmpresas: 1, maxUsuariosPorEmpresa: 3,
+      modulos: ['inventario', 'planilla'],
       price: 19.99,
-      features: JSON.stringify([
-        'Hasta 100 movimientos/mes',
-        'Procesamiento por IA',
-        'Escáner OCR de facturas',
-        'Reportes completos',
-        'Exportación a Excel',
-        '3 usuarios',
-        'Soporte por WhatsApp',
-      ]),
-      sortOrder: 1,
+      features: JSON.stringify(['Todo lo del plan Básico', 'Inventario y Planilla incluidos', 'Procesamiento por IA avanzado', 'Soporte prioritario por WhatsApp']),
+      isActive: true, sortOrder: 2,
     },
     {
-      name: 'Pyme',
-      // Escrituras por segundo del plan (antes vivían como tabla por NOMBRE en
-      // `middleware/plan-rate-limit.ts`; ahora son un campo del plan)
-      reqPorSegundo: 25,
-      maxEmpresas: 1,
-      maxUsuariosPorEmpresa: 10,
-      description: 'Para pequeñas y medianas empresas',
-      monthlyLimit: 500,
-      price: 49.99,
-      features: JSON.stringify([
-        'Hasta 500 movimientos/mes',
-        'Procesamiento por IA avanzado',
-        'Escáner OCR de facturas',
-        'Reportes completos',
-        'Exportación a Excel y PDF',
-        '10 usuarios',
-        'API Key para integraciones',
-        'Soporte prioritario',
-      ]),
-      sortOrder: 2,
+      name: 'Despacho 3',
+      description: 'Para el contador que lleva hasta 3 clientes',
+      monthlyLimit: 1000, reqPorSegundo: 10, maxEmpresas: 3, maxUsuariosPorEmpresa: 3,
+      modulos: [] as string[],
+      price: 19.99,
+      features: JSON.stringify(['Cambio de empresa sin cerrar sesión', 'Tablero de pendientes por cliente', 'Comparativo entre empresas', 'Alta de clientes con tu propio catálogo', 'Múltiples API Keys', 'Soporte por WhatsApp']),
+      isActive: true, sortOrder: 3,
     },
     {
-      name: 'Despacho',
-      // Escrituras por segundo del plan (antes vivían como tabla por NOMBRE en
-      // `middleware/plan-rate-limit.ts`; ahora son un campo del plan)
-      reqPorSegundo: 50,
-      maxEmpresas: 50,
-      maxUsuariosPorEmpresa: 5,
-      description: 'Para despachos contables con múltiples clientes',
-      monthlyLimit: 2000,
+      name: 'Despacho 10',
+      description: 'Para el despacho que lleva hasta 10 clientes',
+      monthlyLimit: 2000, reqPorSegundo: 25, maxEmpresas: 10, maxUsuariosPorEmpresa: 4,
+      modulos: ['inventario', 'planilla'],
+      price: 39.99,
+      features: JSON.stringify(['Todo lo del Despacho 3', 'Inventario y Planilla incluidos', 'Procesamiento por IA avanzado', 'Múltiples API Keys', 'Soporte prioritario por WhatsApp']),
+      isActive: true, sortOrder: 4,
+    },
+    {
+      name: 'Despacho 25',
+      description: 'Para el despacho que lleva hasta 25 clientes',
+      monthlyLimit: 4000, reqPorSegundo: 25, maxEmpresas: 25, maxUsuariosPorEmpresa: 5,
+      modulos: ['inventario', 'planilla'],
+      price: 79.99,
+      features: JSON.stringify(['Todo lo del Despacho 10', 'Procesamiento por IA avanzado', 'Múltiples API Keys', 'Soporte prioritario por WhatsApp']),
+      isActive: true, sortOrder: 5,
+    },
+    {
+      name: 'Despacho 50+',
+      description: 'Para el despacho grande: todo incluido y movimientos ilimitados',
+      monthlyLimit: 999999, reqPorSegundo: 50, maxEmpresas: 50, maxUsuariosPorEmpresa: 5,
+      modulos: ['inventario', 'planilla', 'facturas-pdf'],
       price: 149.99,
-      features: JSON.stringify([
-        'Hasta 2,000 movimientos/mes',
-        'Procesamiento por IA avanzado',
-        'Escáner OCR de facturas',
-        'Todos los reportes',
-        'Exportación a Excel y PDF',
-        'Usuarios ilimitados',
-        'Múltiples API Keys',
-        'Soporte dedicado 24/7',
-      ]),
-      sortOrder: 3,
+      features: JSON.stringify(['Todo lo del Despacho 25', 'Facturas PDF incluido', 'Procesamiento por IA avanzado', 'Múltiples API Keys', 'Soporte dedicado']),
+      isActive: true, sortOrder: 6,
     },
+    // ── Planes viejos: fuera de la vitrina ──
+    { name: 'Emprendedor', description: 'Plan anterior', monthlyLimit: 100, reqPorSegundo: 10, maxEmpresas: 1, maxUsuariosPorEmpresa: 3, modulos: [] as string[], price: 19.99, features: '[]', isActive: false, sortOrder: 90 },
+    { name: 'Pyme', description: 'Plan anterior', monthlyLimit: 500, reqPorSegundo: 25, maxEmpresas: 1, maxUsuariosPorEmpresa: 10, modulos: ['inventario', 'planilla'], price: 49.99, features: '[]', isActive: false, sortOrder: 91 },
+    { name: 'Despacho', description: 'Plan anterior', monthlyLimit: 2000, reqPorSegundo: 50, maxEmpresas: 50, maxUsuariosPorEmpresa: 5, modulos: ['inventario', 'planilla', 'facturas-pdf'], price: 149.99, features: '[]', isActive: false, sortOrder: 92 },
   ];
 
   for (const plan of plans) {
@@ -173,6 +159,8 @@ async function main() {
         maxUsuariosPorEmpresa: plan.maxUsuariosPorEmpresa,
         price: plan.price,
         features: plan.features,
+        modulos: plan.modulos,
+        isActive: plan.isActive,
         sortOrder: plan.sortOrder,
       },
       create: plan,

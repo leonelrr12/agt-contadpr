@@ -333,43 +333,59 @@ fetch('/api/plans')
       return;
     }
 
-    container.innerHTML = plans.map((plan, i) => {
+    // El plan destacado: por NOMBRE, no por índice (con la tabla nueva, «el tercero»
+    // no significa nada y un cambio de orden lo movía sin querer).
+    const DESTACADO = 'Individual Premium';
+    // «Ilimitado» es un número grande en la BD (999999): la cuota es una red
+    // anti-abuso, no una métrica de venta, y en la vitrina se dice como es.
+    const ILIMITADO = 100000;
+    const MODULO_NOMBRE = { inventario: 'Inventario', planilla: 'Planilla', 'facturas-pdf': 'Facturas PDF' };
+
+    // `$9.99` con los centavos chicos, como los tenía la página a mano.
+    const precioHTML = (p) => {
+      if (!p) return '<span class="currency">$</span>0';
+      const [entero, centavos] = p.toFixed(2).split('.');
+      return `<span class="currency">$</span>${entero}<sup>.${centavos}</sup>`;
+    };
+    const movimientos = (n) => (n >= ILIMITADO ? 'Movimientos ilimitados' : `${n.toLocaleString('en-US')} movimientos/mes`);
+    const empresas = (n) => (n === 1 ? '1 empresa' : `Hasta ${n} empresas`);
+    const usuarios = (n) => `${n} usuarios por empresa`;
+    const modulos = (m) => {
+      const nombres = (m || []).map(x => MODULO_NOMBRE[x] || x);
+      if (!nombres.length) return null;
+      if (nombres.length === 1) return `${nombres[0]} incluido`;
+      return `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]} incluidos`;
+    };
+
+    container.innerHTML = plans.map((plan) => {
       const features = JSON.parse(plan.features || '[]');
       const isFree = plan.price === 0;
-      const isFeatured = i === 2; // Destacar el plan Pyme (índice 2)
+      const isFeatured = plan.name === DESTACADO;
 
-      let ctaClass, ctaText, ctaHref;
-      if (isFree) {
-        ctaClass = 'plan-cta cta-demo';
-        ctaText = 'Comenzar Ahora';
-        ctaHref = '/login.html#register';
-      } else if (i === 1) {
-        ctaClass = 'plan-cta cta-primary';
-        ctaText = 'Elegir Plan';
-        ctaHref = '/login.html#register';
-      } else {
-        ctaClass = 'plan-cta cta-primary';
-        ctaText = 'Elegir Plan';
-        ctaHref = '/login.html#register';
-      }
+      // Lo que el plan INCLUYE, con los mismos números que valida la API.
+      const estructura = [
+        empresas(plan.maxEmpresas),
+        usuarios(plan.maxUsuariosPorEmpresa),
+        movimientos(plan.monthlyLimit),
+      ];
+      const incluido = modulos(plan.modulos);
 
       return `
         <div class="plan-card ${isFeatured ? 'featured' : ''}">
-          ${isFeatured ? '<div class="plan-badge">Más Popular</div>' : ''}
+          ${isFeatured ? '<div class="plan-badge">Más popular</div>' : ''}
           ${isFree ? '<div class="plan-badge" style="background:var(--green)">Gratis</div>' : ''}
           <div class="plan-name">${plan.name}</div>
           <div class="plan-price ${isFree ? 'free' : ''}">
-            ${plan.price === 149.99 ? '<span class="currency">$</span>149<sup>.99</sup>' :
-              plan.price === 49.99 ? '<span class="currency">$</span>49<sup>.99</sup>' :
-              plan.price === 19.99 ? '<span class="currency">$</span>19<sup>.99</sup>' :
-              '<span class="currency">$</span>0'}
+            ${precioHTML(plan.price)}
             <span class="period">/mes</span>
           </div>
           <div class="plan-desc">${plan.description || ''}</div>
           <ul class="plan-features">
+            ${estructura.map(f => `<li>${f}</li>`).join('')}
+            ${incluido ? `<li style="color:#059669;font-weight:600">${incluido}</li>` : ''}
             ${features.map(f => `<li>${f}</li>`).join('')}
           </ul>
-          <a href="${ctaHref}" class="${ctaClass}">${ctaText}</a>
+          <a href="/login.html#register" class="plan-cta ${isFree ? 'cta-demo' : 'cta-primary'}">${isFree ? 'Comenzar Ahora' : 'Elegir Plan'}</a>
         </div>
       `;
     }).join('');
@@ -380,9 +396,13 @@ fetch('/api/plans')
   });
 
 // ── Add-ons (módulos contratados por separado) ──
+// Un módulo se tiene por el plan **o** contratado suelto (PLANES.md §4): el despacho
+// que necesita inventario para un solo cliente no tiene que saltar de plan.
+// Inventario y Planilla no llevan precio acá porque el dueño todavía no lo fijó:
+// se pide por WhatsApp y se activa desde el panel.
 document.getElementById('plans-container').insertAdjacentHTML('afterend', `
   <h2 style="margin-top:48px">⚡ Módulos adicionales</h2>
-  <p style="color:var(--muted);margin-bottom:20px">Funcionalidades que se contratan aparte, además de tu plan.</p>
+  <p style="color:var(--muted);margin-bottom:20px">Se suman a cualquier plan, sin cambiar de plan.</p>
   <div class="plans-grid">
     <div class="plan-card" style="border-top:4px solid #7c3aed">
       <h3>🧾 Facturas PDF</h3>
@@ -398,8 +418,36 @@ document.getElementById('plans-container').insertAdjacentHTML('afterend', `
       </ul>
       <button class="btn btn-primary" onclick="mostrarContratacion('🧾 Facturas PDF', 9.99)" style="display:block;text-align:center;width:100%;cursor:pointer">Contratar Módulo</button>
     </div>
+    <div class="plan-card" style="border-top:4px solid var(--primary)">
+      <h3>📦 Inventario</h3>
+      <p style="color:var(--muted);font-size:14px">Kardex, costo promedio y valoración de existencias, con compras y ventas que mueven el stock.</p>
+      <ul class="plan-features">
+        <li>Entradas, salidas y ajustes</li>
+        <li>Kardex por producto</li>
+        <li>Costo promedio y valoración</li>
+        <li>Cuadre contra el mayor</li>
+      </ul>
+      <button class="btn btn-primary" onclick="pedirModulo('📦 Inventario')" style="display:block;text-align:center;width:100%;cursor:pointer">Consultar precio</button>
+    </div>
+    <div class="plan-card" style="border-top:4px solid var(--primary)">
+      <h3>🧮 Planilla</h3>
+      <p style="color:var(--muted);font-size:14px">Nómina panameña completa: SS, SE, ISR, décimo, vacaciones y aportes del patrono.</p>
+      <ul class="plan-features">
+        <li>Empleados y salarios</li>
+        <li>Cálculo quincenal, mensual o semanal</li>
+        <li>Pago a la CSS y descarga de planillas</li>
+        <li>Asientos y pasivo del patrono</li>
+      </ul>
+      <button class="btn btn-primary" onclick="pedirModulo('🧮 Planilla')" style="display:block;text-align:center;width:100%;cursor:pointer">Consultar precio</button>
+    </div>
   </div>
 `);
+
+/** Un módulo sin precio de lista se pide por WhatsApp (el dueño lo activa del panel). */
+function pedirModulo(nombre) {
+  const texto = `Hola, quiero contratar el módulo ${nombre} además de mi plan. ¿Cuál es el precio?`;
+  window.open(`https://wa.me/50764034863?text=${encodeURIComponent(texto)}`, '_blank');
+}
 
 // ── Modal de contratación de módulos (proceso manual: Yappy/transferencia) ──
 function mostrarContratacion(modulo, precio) {

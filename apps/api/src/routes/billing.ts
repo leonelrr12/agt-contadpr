@@ -11,11 +11,18 @@ billingRouter.get('/plans', async (req, res) => {
   const plans = await req.prisma.plan.findMany({
     where: { isActive: true },
     orderBy: { sortOrder: 'asc' },
+    // La pantalla de precios se arma con los CAMPOS del plan (empresas, usuarios,
+    // módulos, movimientos), no con el texto de `features`: así lo que se publica es
+    // lo que se valida. `features` queda para lo que no es un campo (el soporte, las
+    // API Keys).
     select: {
       id: true,
       name: true,
       description: true,
       monthlyLimit: true,
+      maxEmpresas: true,
+      maxUsuariosPorEmpresa: true,
+      modulos: true,
       price: true,
       features: true,
     },

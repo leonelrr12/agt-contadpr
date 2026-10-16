@@ -135,36 +135,43 @@
 
   <!-- Stats Row -->
   <div class="stats" id="statsRow">
+    <div class="stat-card"><div class="stat-label">Cuentas (clientes)</div><div class="stat-value blue" id="statCuentas">—</div></div>
     <div class="stat-card"><div class="stat-label">Empresas</div><div class="stat-value blue" id="statCompanies">—</div></div>
     <div class="stat-card"><div class="stat-label">Suscripciones Activas</div><div class="stat-value green" id="statActive">—</div></div>
     <div class="stat-card"><div class="stat-label">Demos por Vencer (≤3 días)</div><div class="stat-value amber" id="statDemos">—</div></div>
     <div class="stat-card"><div class="stat-label">Ingresos (30 días)</div><div class="stat-value green" id="statRevenue">—</div></div>
   </div>
 
-  <!-- Subscriptions Panel -->
+  <!-- Cuentas Panel -->
   <div class="panel">
-    <h2>📋 Suscripciones</h2>
+    <h2>🏢 Cuentas</h2>
+    <p style="font-size:12px;color:#6b7280;margin:0 0 12px 0">
+      Una fila por cliente que paga. Un cliente individual es una cuenta con una empresa; un despacho es
+      una cuenta con varias. El plan, la cuota y los módulos son de la cuenta, así que acá se ve todo lo
+      contratado junto — y en rojo lo que ya pasó su tope.
+    </p>
     <div class="toolbar">
-      <input type="text" id="searchInput" placeholder="Buscar empresa..." oninput="loadSubscriptions()">
-      <select id="statusFilter" onchange="loadSubscriptions()">
+      <input type="text" id="searchInput" placeholder="Buscar cuenta o empresa..." oninput="loadCuentas()">
+      <select id="statusFilter" onchange="loadCuentas()">
         <option value="">Todos los estados</option>
         <option value="DEMO">Demo</option>
         <option value="ACTIVE">Activo</option>
         <option value="EXPIRED">Expirado</option>
         <option value="GRANTED">Otorgado</option>
       </select>
-      <button class="btn btn-primary" onclick="showNewSubscription()">+ Nueva Suscripción</button>
+      <button class="btn btn-primary" onclick="showAsignarPlan()">+ Asignar plan</button>
     </div>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
-            <th>Empresa</th><th>Plan</th><th>Estado</th>
-            <th>Uso</th><th>Inicio</th><th>Vence</th><th>Días</th>
+            <th>Cuenta</th><th>Plan</th><th>Estado</th>
+            <th>Empresas</th><th>Usuarios por empresa</th><th>Movimientos</th>
+            <th>Módulos</th><th>Vence</th><th>Días</th>
             <th></th>
           </tr>
         </thead>
-        <tbody id="subsTable"><tr><td colspan="8" class="loading">Cargando…</td></tr></tbody>
+        <tbody id="cuentasTable"><tr><td colspan="10" class="loading">Cargando…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -213,7 +220,7 @@ if (!user || user.role !== 'superadmin') {
 } else {
   document.getElementById('userInfo').textContent = `${user.name} (${user.email})`;
   loadStats();
-  loadSubscriptions();
+  loadCuentas();
   loadPayments();
 }
 
@@ -222,65 +229,97 @@ async function loadStats() {
   const res = await api(`${API}/admin/stats`);
   if (!res) return;
   const d = await res.json();
+  document.getElementById('statCuentas').textContent = d.totalCuentas;
   document.getElementById('statCompanies').textContent = d.totalCompanies;
   document.getElementById('statActive').textContent = d.activeSubscriptions;
   document.getElementById('statDemos').textContent = d.demosExpiringSoon;
   document.getElementById('statRevenue').textContent = `$${d.revenueThisMonth.toFixed(2)}`;
 }
 
-// ── Subscriptions ──
-async function loadSubscriptions() {
+// ── Cuentas (el panel por cuenta: quién paga y qué tiene contratado) ──
+let cuentasCache = [];
+
+async function loadCuentas() {
   const search = document.getElementById('searchInput').value;
   const status = document.getElementById('statusFilter').value;
   const params = new URLSearchParams();
   if (status) params.set('status', status);
   if (search) params.set('search', search);
 
-  const res = await api(`${API}/admin/subscriptions?${params}`);
+  const res = await api(`${API}/admin/cuentas?${params}`);
   if (!res) return;
-  const subs = await res.json();
+  cuentasCache = await res.json();
 
-  const tbody = document.getElementById('subsTable');
-  if (!subs.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--muted)">Sin resultados</td></tr>';
+  const tbody = document.getElementById('cuentasTable');
+  if (!cuentasCache.length) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--muted)">Sin resultados</td></tr>';
     return;
   }
+  tbody.innerHTML = cuentasCache.map(filaCuenta).join('');
+}
 
-  const badgeClass = { ACTIVE:'badge-active', DEMO:'badge-demo', EXPIRED:'badge-expired', GRANTED:'badge-granted', GRACE:'badge-demo' };
-  const statusLabel = { ACTIVE:'Activo', DEMO:'Demo', EXPIRED:'Expirado', GRANTED:'Otorgado', GRACE:'Gracia' };
+const BADGE = { ACTIVE:'badge-active', DEMO:'badge-demo', EXPIRED:'badge-expired', GRANTED:'badge-granted', GRACE:'badge-demo' };
+const ESTADO = { ACTIVE:'Activo', DEMO:'Demo', EXPIRED:'Expirado', GRANTED:'Otorgado', GRACE:'Gracia' };
+const MODULO_NOMBRE = { inventario:'Inventario', planilla:'Planilla', 'facturas-pdf':'Facturas PDF' };
 
-  tbody.innerHTML = subs.map(s => {
-    const end = new Date(s.periodEnd);
-    const daysLeft = Math.max(0, Math.ceil((end - Date.now()) / (1000 * 60 * 60 * 24)));
-    const start = new Date(s.periodStart).toLocaleDateString('es-PA');
-    const vence = end.toLocaleDateString('es-PA');
-    const daysColor = daysLeft <= 3 ? 'var(--red)' : daysLeft <= 7 ? 'var(--amber)' : 'var(--green)';
+/** Un tope superado se ve, no se esconde: es lo que hay que ir a resolver. */
+const tope = (usados, max) => {
+  const pasado = max > 0 && usados >= max;
+  return `<span style="color:${pasado ? 'var(--red)' : 'inherit'};font-weight:${pasado ? 700 : 400}">${usados} / ${max || '—'}</span>`;
+};
 
-    const addons = (s.addons || []).map(a =>
-      `<button class="btn btn-sm ${(s.addons||[]).includes(a) ? 'btn-success' : ''}" onclick="toggleAddon('${s.id}','${a}')" title="Clic para activar/desactivar">${a === 'facturas-pdf' ? '🧾 Facturas PDF' : a} ${(s.addons||[]).includes(a) ? '✓' : ''}</button>`
-    ).join(' ') || '<span class="text-muted">—</span>';
+function filaCuenta(c) {
+  const s = c.suscripcion;
+  const plan = s?.plan;
+  const empresas = c.empresas || [];
 
-    // La suscripción es de la CUENTA que paga: para un cliente individual la cuenta
-    // se llama como su empresa, y para un despacho es la cuenta con sus clientes.
-    const empresas = s.cuenta?.companies || [];
-    const detalle = empresas.length === 1
-      ? esc(empresas[0].taxId || '')
-      : `${empresas.length} empresas`;
-
+  // La cuenta que paga sin plan vigente: hay que asignarle uno (y se ve el historial).
+  if (!s) {
     return `<tr>
-      <td><strong>${esc(s.cuenta?.name || '—')}</strong><br><span class="text-muted">${detalle}</span></td>
-      <td>${esc(s.plan?.name || '—')}</td>
-      <td><span class="badge ${badgeClass[s.status] || ''}">${statusLabel[s.status] || s.status}</span></td>
-      <td>${s.movementsUsed} / ${s.movementsLimit}</td>
-      <td>${start}</td>
-      <td>${vence}</td>
-      <td style="color:${daysColor};font-weight:700">${daysLeft}</td>
-      <td style="white-space:nowrap">${addons}<br>
-        <button class="btn btn-sm btn-primary" onclick="showPayment('${s.id}','${esc(s.cuenta?.name||'')}','${esc(s.plan?.name||'')}',${s.plan?.price||0})" style="margin-top:4px">💰 Pago</button>
-        <button class="btn btn-sm btn-success" onclick="showGrant('${s.id}','${esc(s.cuenta?.name||'')}')" style="margin-left:4px;margin-top:4px">🎁 Extender</button>
-      </td>
+      <td><strong>${esc(c.name)}</strong><br><span class="text-muted">${empresas.length} empresa(s)</span></td>
+      <td colspan="7" class="text-muted">Sin suscripción vigente${c.historial ? ` (${c.historial} vencida${c.historial === 1 ? '' : 's'})` : ''}</td>
+      <td></td>
+      <td><button class="btn btn-sm btn-primary" onclick="showAsignarPlan('${c.id}')">⚙️ Asignar plan</button></td>
     </tr>`;
-  }).join('');
+  }
+
+  const end = new Date(s.periodEnd);
+  const daysLeft = Math.max(0, Math.ceil((end - Date.now()) / (1000 * 60 * 60 * 24)));
+  const daysColor = daysLeft <= 3 ? 'var(--red)' : daysLeft <= 7 ? 'var(--amber)' : 'var(--green)';
+
+  // Los usuarios del plan son POR EMPRESA: se muestra la que más tiene, que es la
+  // que se topa primero, y el total al lado.
+  const maxUsuarios = plan?.maxUsuariosPorEmpresa || 0;
+  const masCargada = empresas.reduce((a, e) => (e.usuarios > (a?.usuarios || 0) ? e : a), null);
+  const totalUsuarios = empresas.reduce((n, e) => n + e.usuarios, 0);
+
+  // El título de la empresa que está pasada de cupo, para saber a cuál entrar.
+  const pasadas = empresas.filter(e => maxUsuarios > 0 && e.usuarios >= maxUsuarios);
+  const avisoUsuarios = pasadas.length
+    ? `<br><span style="color:var(--red);font-size:11px">⚠️ ${pasadas.map(e => esc(e.name)).join(', ')}</span>`
+    : '';
+
+  const modulos = [...(plan?.modulos || []), ...(s.addons || [])];
+  const chipsModulos = modulos.length
+    ? modulos.map(m => `<button class="btn btn-sm ${(s.addons || []).includes(m) ? 'btn-success' : ''}" ${(s.addons || []).includes(m) ? `onclick="toggleAddon('${s.id}','${m}')" title="Contratado aparte — clic para quitarlo"` : 'disabled title="Viene en el plan"'}>${MODULO_NOMBRE[m] || m}${(s.addons || []).includes(m) ? ' ✓' : ''}</button>`).join(' ')
+    : '<span class="text-muted">—</span>';
+
+  return `<tr>
+    <td><strong>${esc(c.name)}</strong><br><span class="text-muted">${empresas.map(e => esc(e.name)).join(' · ') || 'sin empresas'}</span></td>
+    <td>${esc(plan?.name || '—')}${c.historial ? `<br><span class="text-muted" style="font-size:11px">${c.historial} anterior(es)</span>` : ''}</td>
+    <td><span class="badge ${BADGE[s.status] || ''}">${ESTADO[s.status] || s.status}</span></td>
+    <td>${tope(empresas.length, plan?.maxEmpresas)}</td>
+    <td>${tope(masCargada?.usuarios || 0, maxUsuarios)}<br><span class="text-muted" style="font-size:11px">${totalUsuarios} en total</span>${avisoUsuarios}</td>
+    <td>${s.movementsUsed} / ${s.movementsLimit}</td>
+    <td style="max-width:220px">${chipsModulos}</td>
+    <td>${end.toLocaleDateString('es-PA')}</td>
+    <td style="color:${daysColor};font-weight:700">${daysLeft}</td>
+    <td style="white-space:nowrap">
+      <button class="btn btn-sm btn-primary" onclick="showPayment('${s.id}','${esc(c.name)}','${esc(plan?.name||'')}',${plan?.price||0})">💰 Pago</button>
+      <button class="btn btn-sm btn-success" onclick="showGrant('${s.id}','${esc(c.name)}')" style="margin-top:4px">🎁 Extender</button>
+      <button class="btn btn-sm" style="background:#e2e8f0;margin-top:4px" onclick="showAsignarPlan('${c.id}')">⚙️ Plan</button>
+    </td>
+  </tr>`;
 }
 
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
@@ -310,38 +349,44 @@ async function loadPayments() {
   `).join('');
 }
 
-// ── Modal: Nueva Suscripción ──
-async function showNewSubscription() {
+// ── Modal: Asignar plan a una cuenta ──
+// El plan es de la CUENTA que paga (una empresa cualquiera de esa cuenta lo resuelve),
+// así que se elige la cuenta de una lista en vez de pegar un id a mano.
+async function showAsignarPlan(cuentaId) {
   const overlay = document.getElementById('modalOverlay');
   const content = document.getElementById('modalContent');
 
-  // Obtener lista de empresas y planes
-  const [plansRes] = [await api(`${API}/admin/plans`)];
+  const [plansRes, cuentasRes] = await Promise.all([api(`${API}/admin/plans`), api(`${API}/admin/cuentas`)]);
   const plans = plansRes ? await plansRes.json() : [];
+  const cuentas = cuentasRes ? await cuentasRes.json() : [];
 
-  // Obtener empresas (usamos el endpoint de admin/subscriptions para inferir, o hacemos uno nuevo)
-  // Por ahora pedimos al admin que ingrese el companyId
+  const opciones = cuentas.map(c => {
+    const plan = c.suscripcion?.plan?.name || 'sin plan';
+    const empresas = (c.empresas || []).length;
+    const etiqueta = `${c.name} — ${plan} · ${empresas} empresa${empresas === 1 ? '' : 's'}`;
+    return `<option value="${c.id}" ${c.id === cuentaId ? 'selected' : ''}>${esc(etiqueta)}</option>`;
+  }).join('');
 
   content.innerHTML = `
     <button class="close" onclick="closeModal()">×</button>
-    <h3>➕ Nueva Suscripción</h3>
+    <h3>⚙️ Asignar plan</h3>
+    <p class="text-muted" style="margin-bottom:14px">Cambiar el plan expira la suscripción vigente de la cuenta y crea una nueva —cubre a todas sus empresas—.</p>
     <div class="form-group">
-      <label>ID de la Empresa</label>
-      <input type="text" id="newCompanyId" placeholder="Ej: cmrl1dasg0000kpo9loo4ow72">
-      <span class="text-muted">El plan se asigna a la CUENTA dueña de esa empresa: si es un despacho, cubre a todos sus clientes</span>
+      <label>Cuenta</label>
+      <select id="newCuentaId">${opciones || '<option value="">No hay cuentas</option>'}</select>
     </div>
     <div class="form-group">
       <label>Plan</label>
       <select id="newPlanId">
-        ${plans.map(p => `<option value="${p.id}">${p.name} — ${p.monthlyLimit} movs/mes — $${p.price}</option>`).join('')}
+        ${plans.map(p => `<option value="${p.id}">${p.name} — ${p.monthlyLimit} movs · ${p.maxEmpresas} empresa(s) · ${p.maxUsuariosPorEmpresa} usuario(s) — $${p.price}</option>`).join('')}
       </select>
     </div>
     <div class="form-group">
       <label>Estado</label>
       <select id="newStatus">
         <option value="ACTIVE">Activo</option>
-        <option value="DEMO">Demo</option>
         <option value="GRANTED">Otorgado (cortesía)</option>
+        <option value="DEMO">Demo</option>
       </select>
     </div>
     <div class="form-group">
@@ -356,23 +401,23 @@ async function showNewSubscription() {
       <label>Nota</label>
       <textarea id="newNote" rows="2" placeholder="Ej: Cliente referido por..."></textarea>
     </div>
-    <button class="btn btn-primary" onclick="createSubscription()" style="width:100%">Crear Suscripción</button>
+    <button class="btn btn-primary" onclick="createSubscription()" style="width:100%">Asignar plan</button>
   `;
 
   overlay.classList.remove('hidden');
 }
 
 async function createSubscription() {
-  const companyId = document.getElementById('newCompanyId').value.trim();
+  const cuentaId = document.getElementById('newCuentaId').value;
   const planId = document.getElementById('newPlanId').value;
   const status = document.getElementById('newStatus').value;
   const limit = document.getElementById('newLimit').value;
   const days = parseInt(document.getElementById('newDays').value) || 30;
   const note = document.getElementById('newNote').value.trim();
 
-  if (!companyId) { await showAlert('Ingresa el ID de la empresa'); return; }
+  if (!cuentaId) { await showAlert('Elegí una cuenta'); return; }
 
-  const body = { companyId, planId, status, periodDays: days, note };
+  const body = { cuentaId, planId, status, periodDays: days, note };
   if (limit) body.movementsLimit = parseInt(limit);
 
   const res = await api(`${API}/admin/subscriptions`, {
@@ -389,7 +434,7 @@ async function createSubscription() {
 
   closeModal();
   loadStats();
-  loadSubscriptions();
+  loadCuentas();
 }
 
 // ── Modal: Registrar Pago ──
@@ -406,7 +451,7 @@ async function toggleAddon(subId, addon) {
       body: JSON.stringify({ addons: next }),
     });
     if (!r.ok) { const e = await r.json().catch(() => ({})); alert('❌ ' + (e.error || 'Error')); return; }
-    loadSubscriptions();
+    loadCuentas();
   } catch (e) { alert('❌ Error de conexión'); }
 }
 
@@ -469,7 +514,7 @@ async function recordPayment(subId) {
 
   closeModal();
   loadStats();
-  loadSubscriptions();
+  loadCuentas();
   loadPayments();
 }
 
@@ -529,7 +574,7 @@ async function doGrant(subId) {
 
   closeModal();
   loadStats();
-  loadSubscriptions();
+  loadCuentas();
 }
 
 // ── Modal helpers ──

@@ -106,7 +106,7 @@ elige lo suyo: el negocio que necesita stock, o el contador que lleva tres clien
 | ~~**1**~~ ✅ | `Cuenta` + backfill + `Subscription.cuentaId` + cuota/plan resolviendo por la cuenta | Todo funciona igual que hoy: la cuota de cada empresa se lee y se consume como siempre |
 | ~~**2**~~ ✅ | `maxEmpresas` y `maxUsuariosPorEmpresa` en el plan, validados; contadores en la UI | No se puede pasar del tope; el mensaje dice cuántos hay y qué hacer |
 | ~~**3**~~ ✅ | `Plan.modulos` + gate en menú y API (inventario, planilla) | Un plan sin inventario no lo ve ni lo puede usar por API |
-| **4** | Panel SaaS por cuenta (asignar plan, ver empresas y usuarios) + pantalla de precios nueva | El dueño puede dar de alta un despacho y ver qué tiene contratado |
+| ~~**4**~~ ✅ | Panel SaaS por cuenta (asignar plan, ver empresas y usuarios) + pantalla de precios nueva | El dueño puede dar de alta un despacho y ver qué tiene contratado |
 
 ### Fase 1 — lo que quedó hecho (16-10-2026)
 
@@ -181,6 +181,32 @@ igual. `modulosDeLaCuenta()` devuelve la unión.
   `ROL_REQUIERE_MODULO` al crear el usuario, al vincularlo y al cambiarle el rol, si el plan no incluye su
   módulo — un usuario así quedaría encerrado en una pantalla que responde 402.
 - Esconder el menú es cortesía; **la barrera es la API**, que es lo que pide §4.
+
+### Fase 4 — lo que quedó hecho (16-10-2026)
+
+Migración `0044_planes_nuevos`: la tabla de §6, con los tres planes viejos **desactivados**
+(`isActive = false`: salen de la vitrina y del selector del panel, pero la fila sigue viva para las
+suscripciones que los referencian). `monthlyLimit = 999999` es «ilimitado» en Despacho 50+ y la UI lo
+dice así.
+
+- **Panel por cuenta** (`GET /api/admin/cuentas`): una fila por cliente que paga, con sus empresas, los
+  **usuarios propios** de cada una, la cuota, los módulos y el historial de suscripciones. Elige la
+  vigente con **la misma regla que la app** —la de período más largo entre las que pueden operar—, así el
+  panel no dice algo distinto de lo que ve el cliente; eso está en un test porque elegir mal la vigente
+  hace decidir sobre datos falsos.
+- Los topes superados se pintan en rojo con el nombre de la empresa que los pasó: es lo que hay que ir a
+  resolver, no algo para esconder.
+- **Asignar plan** elige la cuenta de una lista (antes había que pegar un `companyId` a mano) y expira la
+  vigente de la cuenta entera. Los add-ons se prenden y apagan desde la misma fila.
+- **Pantalla de precios** rearmada con los CAMPOS del plan —empresas, usuarios, movimientos, módulos— en
+  vez del texto de `features`: lo que se publica es lo que la API valida. `features` queda solo para lo
+  que no es un campo (soporte, API Keys). Módulos adicionales: Facturas PDF con su precio, e Inventario y
+  Planilla con «consultar» — **el precio de esos dos como add-on sigue sin definirse** (decisión del
+  dueño).
+- **Pendiente de decisión del dueño**: Demo quedó con inventario y planilla (como estaba) porque las dos
+  cuentas vivas los usan; bajarlo a «básico» —como dice §6— exige moverlas a un plan pago. Y con los topes
+  nuevos (3-5 usuarios por empresa), Odesa —5 usuarios propios en una sola empresa— no entra en ningún
+  plan individual: le toca Despacho 25/50+ o una excepción.
 
 ## 8. Trampas detectadas
 
