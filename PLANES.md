@@ -75,22 +75,29 @@ Decisión explícita, porque un plan de despacho cubre libros **de terceros**:
 | Plan | Empresas | Usuarios por empresa | Módulos | Movimientos | Precio |
 |---|---|---|---|---|---|
 | Demo | 1 | 2 | básico | 50 | $0 |
-| **Individual Básico** | 1 | 3 | básico | 500 | $12.99 |
+| **Individual Básico** | 1 | 3 | básico | 500 | $9.99 |
 | **Individual Premium** | 1 | 3 | + inventario + planilla | 1.000 | $19.99 |
 | **Despacho 3** | 3 | 3 | básico | 1.000 | $19.99 |
 | **Despacho 10** | 10 | 4 | + inventario + planilla | 2.000 | $39.99 |
 | **Despacho 25** | 25 | 5 | + inventario + planilla | 4.000 | $79.99 |
 | **Despacho 50+** | 50 | 5 | todo | ilimitado | $149.99 |
 
-Dos ajustes sobre la propuesta original, con el porqué:
+Tres ajustes sobre la propuesta original, con el porqué (**decididos por el dueño el 16-10**):
 
 1. **Se agrega un escalón (11-25 a $79.99).** Con el salto original, pasar de 10 a 11 clientes costaba
    3,75 veces más: el despacho que llega a 11 se queda en 10 (o esconde dos clientes), que es
    exactamente lo contrario de lo que se quiere premiar.
-2. **El plan de despacho de 3 ($19.99) y el Individual Básico ($12.99) quedan cerca.** Está bien que el
-   de despacho sea mejor negocio, pero conviene que el individual tenga algo propio (hoy no lo tiene):
-   el individual es **una** empresa con sus 3 usuarios, y el de despacho exige ser varios clientes. Si no
-   alcanza, la alternativa es subir el de 3 empresas a $24.99.
+2. **El Individual Básico baja a $9.99.** Es la **puerta de entrada del empresario chico** —una empresa,
+   tres usuarios, sin inventario ni planilla— y con eso deja de competir con el Despacho 3 ($19.99 por
+   tres empresas): el doble de precio por el triple de empresas se lee solo.
+3. **Los módulos también se pueden contratar como add-on** en cualquier plan pagado (el mecanismo
+   `Subscription.addons` ya existe y se usa). Sin esto, un despacho de 3 clientes que necesita inventario
+   para uno tendría que saltar al plan de 10 ($39.99) — el doble— por un módulo. También es lo que
+   resuelve el add-on `facturas-pdf` que ya está contratado en una empresa.
+
+**Lo que el mismo precio compra distinto** (a propósito, no es un descuido): $19.99 son **una empresa
+con inventario y planilla** (Individual Premium) o **tres empresas sin ellos** (Despacho 3). Cada perfil
+elige lo suyo: el negocio que necesita stock, o el contador que lleva tres clientes.
 
 ## 7. Fases
 
