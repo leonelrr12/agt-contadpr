@@ -437,8 +437,14 @@ export async function marcarInterrumpidos(prisma: any, companyId: string): Promi
 /**
  * Estados que «Reprocesar» puede reintentar (ver el comentario en la función):
  * los que dependen de la configuración del buzón, no de los datos del correo.
+ *
+ * `OTRO_CLIENTE` entró al principio por el caso real: el dueño compra a su
+ * nombre, la factura queda descartada, agrega su cédula en «Aceptar facturas a
+ * nombre de»… y las que ya se vieron no se vuelven a mirar nunca (el cursor pasó
+ * y el ledger las bloquea). Sin esto, arreglar la configuración no sirve para lo
+ * que ya llegó.
  */
-export const ESTADOS_REPROCESABLES = ['INTERRUMPIDO', 'ERROR', 'SIN_CUENTA', 'SIN_CONCEPTO', 'SIN_DATOS'];
+export const ESTADOS_REPROCESABLES = ['INTERRUMPIDO', 'ERROR', 'SIN_CUENTA', 'SIN_CONCEPTO', 'SIN_DATOS', 'OTRO_CLIENTE'];
 
 /**
  * Reintento explícito de un correo que quedó a medio camino.

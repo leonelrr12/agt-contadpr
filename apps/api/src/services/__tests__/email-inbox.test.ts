@@ -415,13 +415,25 @@ describe('barrerFacturasPorCorreo — lo que no debe barrer', () => {
 });
 
 describe('reprocesarMensaje', () => {
-  it('solo reprocesa lo INTERRUMPIDO o ERROR', async () => {
+  it('deja reprocesar OTRO_CLIENTE: arreglar el RUC y reintentar es el caso real', async () => {
     const prisma = prismaFalso();
-    prisma._filas.push({ id: 'fila-1', companyId: 'c1', estado: 'CARGADA', uid: 5, folder: 'INBOX' });
+    prisma._filas.push({ id: 'fila-1', companyId: 'c1', estado: 'OTRO_CLIENTE', uid: 77, folder: 'INBOX' });
+    const imap = new ImapFalso();
+    imap.mensajes = [mensaje(77, eml({ messageId: 'm77@x', adjuntos: [{ nombre: 'FE.pdf', tipo: 'application/pdf', contenido: await pdfFactura() }] }))];
+
+    const r = await reprocesarMensaje(prisma, 'c1', 'fila-1', { cliente: imap });
+
+    expect(r.ok).toBe(true);
+    expect(prisma._filas[0].estado).toBe('CARGADA');
+  });
+
+  it('solo reprocesa lo que un cambio de configuración puede arreglar', async () => {
+    const prisma = prismaFalso();
+    prisma._filas.push({ id: 'fila-1', companyId: 'c1', estado: 'DUPLICADA', uid: 5, folder: 'INBOX' });
 
     const r = await reprocesarMensaje(prisma, 'c1', 'fila-1');
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain('CARGADA');
+    if (!r.ok) expect(r.error).toContain('DUPLICADA');
   });
 
   it('no toca filas de otra empresa', async () => {
