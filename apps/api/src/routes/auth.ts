@@ -58,6 +58,10 @@ authRouter.post('/login', async (req, res) => {
   // usuario tiene EN ESA empresa: desde las membresías, un contador de despacho
   // es admin de su empresa y contador de la del cliente.
   const sesion = await sesionEnEmpresa(req.prisma, user.id, user.companyId);
+  // Una línea por login: con qué empresa entró y a cuántas puede cambiar. Es lo
+  // primero que se mira cuando alguien dice «no me aparece tal empresa».
+  const cuantas = (await empresasDeUsuario(req.prisma, user.id, user.role === 'superadmin')).length;
+  console.log(`[Auth] login ${user.email} → empresa=${user.companyId} rol=${sesion?.user?.role || '-'} puede_cambiar_a=${cuantas}`);
   if (!sesion) {
     res.status(403).json({ error: 'Tu usuario no tiene acceso a ninguna empresa. Hablá con el administrador.' });
     return;
