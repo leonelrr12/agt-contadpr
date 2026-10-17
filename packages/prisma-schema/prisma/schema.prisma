@@ -41,6 +41,19 @@ model Company {
   cuentaId  String
   taxId     String
   taxIdHash String?  @unique  // HMAC-SHA256 con clave derivada — dedupe de RUC sin filtrar el valor
+  /// Dígito verificador del RUC. Va APARTE del RUC base porque la ficha de la DGI
+  /// los imprime separados (`8-733-2267 DV 88`) y porque la identidad de una
+  /// factura se compara por el RUC base, no por el DV (ver `normalizarRuc`).
+  dv        String?
+  /// Perfil fiscal (Administración → Empresa). Son datos de la ficha del
+  /// contribuyente, no configuraciones contables: no cambian ningún cálculo.
+  tipoEntidad        String?
+  actividadEconomica String?
+  noPatronal         String?
+  /// Notas internas del despacho. No se imprimen ni afectan la contabilidad.
+  observaciones String?
+  /// Inicio de libros declarado por el cliente.
+  fechaApertura DateTime?
   address   String?
   phone     String?
   email     String?
@@ -49,6 +62,10 @@ model Company {
   declaraITBMS Boolean  @default(true)
   // Facturación (módulo Facturas PDF): logo y numeración autorizada por la DGI
   logo                  Bytes?
+  /// Sello de la empresa: mismo patrón que el logo (Bytes en BD, redimensionado
+  /// al subirlo). Todavía no se imprime en ningún documento; se guarda para los
+  /// que lo lleven.
+  sello                 Bytes?
   facturaSerie          String?
   facturaResolucion     String?
   facturaResolucionFecha DateTime?

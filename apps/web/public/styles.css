@@ -1420,3 +1420,40 @@ body {
 .pildora-alerta { background: #fff3e0; color: #e65100; }
 .pildora-error { background: #ffebee; color: var(--rojo); }
 .pildora-neutra { background: #f3f4f6; color: var(--texto-suave); }
+
+/* ── Ficha de la empresa (js/empresa.js) ── */
+.emp-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  text-align: center;
+  border: 2px dashed #d0d5dd;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.emp-dropzone:hover,
+.emp-dropzone-hover { border-color: #1565c0; background: #eff6ff; }
+.emp-preview {
+  max-height: 64px;
+  max-width: 100%;
+  object-fit: contain;
+  margin-bottom: 6px;
+}
+.emp-drop-text { margin: 0; font-size: 13px; color: #4b5563; }
+.emp-drop-file { margin: 4px 0 0; font-size: 11px; color: #6b7280; }
+.emp-textarea {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  background: #fff;
+  box-sizing: border-box;
+  resize: vertical;
+}
+.emp-note { margin-top: 4px; font-size: 11px; color: #6b7280; }

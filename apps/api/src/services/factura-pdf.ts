@@ -31,7 +31,11 @@ export function buildFacturaPdf(data: FacturaPdfData): PDFKit.PDFDocument {
 
   // ── Encabezado: logo + datos del emisor ──
   const emisor = company.name || '—';
-  const ruc = company.taxId || '—';
+  // El DV va al lado del RUC, como en la ficha de la DGI. Si el RUC guardado ya
+  // lo trae pegado (`...-50`) y además está el campo, no se imprime dos veces.
+  const rucBase = company.taxId || '—';
+  const dv = company.dv ? String(company.dv) : '';
+  const ruc = dv && !new RegExp(`[-\\s]${dv}$`).test(rucBase) ? `${rucBase} DV ${dv}` : rucBase;
   const addr = [company.address, company.phone, company.email].filter(Boolean).join(' · ');
 
   if (company.logo) {

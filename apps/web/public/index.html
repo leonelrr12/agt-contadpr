@@ -504,6 +504,7 @@
           <button class="panel-tab-btn active" data-panel="cuentas-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#1a1a2e;border-bottom:2px solid #1565c0;margin-bottom:-2px">🏦 Cuentas</button>
           <button class="panel-tab-btn" data-panel="conceptos-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📝 Conceptos</button>
           <button class="panel-tab-btn" data-panel="config" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚙️ Configuración</button>
+          <button class="panel-tab-btn" data-panel="empresa" id="tab-empresa-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🏢 Empresa</button>
           <button class="panel-tab-btn" data-panel="carga-inicial" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📋 Carga Inicial</button>
           <button class="panel-tab-btn" data-panel="cierres-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🗓 Cierres</button>
           <button class="panel-tab-btn" data-panel="usuarios-admin" id="tab-usuarios-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">👥 Usuarios</button>
@@ -570,6 +571,8 @@
               <a href="/planilla.html?tab=parametros" style="color:#1565c0;font-weight:600">Planilla → Parámetros</a>.</p>
           </div>
         </div>
+        <!-- Ficha de la empresa (perfil fiscal + logo/sello). Se pinta en js/empresa.js -->
+        <div id="empresa-content" class="hidden"></div>
         <!-- Carga Inicial Admin (balance de apertura — un solo uso por empresa) -->
         <div id="carga-inicial-content" class="hidden">
           <div class="admin-form-card">
@@ -722,6 +725,7 @@
   <script src="js/reembolsos.js?v=6"></script>
   <script src="js/email-facturas.js?v=7"></script>
   <script src="js/despacho.js?v=4"></script>
+<script src="js/empresa.js?v=1"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="js/facturas.js?v=80"></script>
 </body>

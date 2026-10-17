@@ -77,17 +77,21 @@ document.querySelectorAll('#panel-tabs-admin button').forEach(btn => {
     // Usuarios: solo admin/superadmin (el contador no ve el tab)
     const ubtn = document.getElementById('tab-usuarios-admin');
     if (ubtn) ubtn.style.display = (getUser()?.role === 'contador') ? 'none' : '';
+    // La ficha fiscal es del cliente: solo su admin (o el dueño de la plataforma).
+    const ebtn = document.getElementById('tab-empresa-admin');
+    if (ebtn) ebtn.style.display = ['admin', 'superadmin'].includes(getUser()?.role) ? '' : 'none';
     // Mostrar/ocultar secciones
     const contentIds = {
       'cuentas-admin': ['cuentas-admin-content', 'cuentas-admin-actions', 'cuentas-admin-form'],
       'conceptos-admin': ['conceptos-admin-content', 'conceptos-admin-actions', 'conceptos-admin-form'],
       'config': ['config-content'],
+      'empresa': ['empresa-content'],
       'carga-inicial': ['carga-inicial-content'],
       'cierres-admin': ['cierres-admin-content'],
       'usuarios-admin': ['usuarios-admin-content'],
     };
     // Ocultar todo
-    document.querySelectorAll('#cuentas-admin-content, #cuentas-admin-actions, #cuentas-admin-form, #conceptos-admin-content, #conceptos-admin-actions, #conceptos-admin-form, #config-content, #carga-inicial-content, #cierres-admin-content, #usuarios-admin-content').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('#cuentas-admin-content, #cuentas-admin-actions, #cuentas-admin-form, #conceptos-admin-content, #conceptos-admin-actions, #conceptos-admin-form, #config-content, #empresa-content, #carga-inicial-content, #cierres-admin-content, #usuarios-admin-content').forEach(el => el.classList.add('hidden'));
     // Mostrar lo relevante
     const ids = contentIds[btn.dataset.panel] || [];
     ids.forEach(id => { const el = document.getElementById(id); if (el) el.classList.remove('hidden'); });
@@ -96,6 +100,7 @@ document.querySelectorAll('#panel-tabs-admin button').forEach(btn => {
     if (btn.dataset.panel === 'conceptos-admin') loadPanelConceptosAdmin();
     // Configuración: cada tarjeta carga y guarda por su cuenta.
     if (btn.dataset.panel === 'config') { loadPanelConfig(); loadPanelEmailFacturas(); }
+    if (btn.dataset.panel === 'empresa') loadPanelEmpresa();
     if (btn.dataset.panel === 'carga-inicial') loadPanelCargaInicial();
     if (btn.dataset.panel === 'cierres-admin') loadPanelCierresAdmin();
     if (btn.dataset.panel === 'usuarios-admin') loadPanelUsuariosAdmin();

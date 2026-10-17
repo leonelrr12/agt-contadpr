@@ -1,8 +1,12 @@
 import { Router } from 'express';
+import multer from 'multer';
+import sharp from 'sharp';
 import { requireRole } from '../middleware/auth';
 import { crearEmpresaConPlantilla, hacerAdministrador, PLANTILLA_DEL_SISTEMA } from '../services/crear-empresa';
 import { topesDeLaCuenta } from '../services/suscripcion';
 import { empresasDeUsuario, esSuperadmin, sesionEnEmpresa } from '../services/empresas-usuario';
+import { parseLocalDate } from '../lib/dates';
+import { logAudit } from '../services/audit-log';
 
 /**
  * Alta de empresas desde adentro de la app.
@@ -111,5 +115,258 @@ companiesRouter.post('/', requireRole('admin', 'superadmin'), async (req, res) =
   } catch (err: any) {
     console.error('[Companies] No se pudo crear la empresa:', err?.message);
     res.status(500).json({ error: 'No se pudo crear la empresa. Probá de nuevo.' });
+  }
+});
+
+// ── Ficha de la empresa (Administración → Empresa) ──
+//
+// Lo que la DGI imprime en la ficha del contribuyente y que hasta ahora no tenía
+// dónde vivir: DV, tipo de entidad, actividad, número patronal, fecha de apertura,
+// observaciones internas, logo y sello. Son DATOS: no cambian ningún cálculo.
+//
+// Solo `admin`/`superadmin`: el perfil fiscal es del cliente, no del contador que
+// lleva sus libros. El logo es el MISMO `Company.logo` que usa Facturas PDF: una
+// sola fuente, dos pantallas que lo editan.
+
+const PERFIL_SELECT = {
+  id: true,
+  name: true,
+  taxId: true,
+  dv: true,
+  tipoEntidad: true,
+  actividadEconomica: true,
+  noPatronal: true,
+  observaciones: true,
+  fechaApertura: true,
+  address: true,
+  phone: true,
+  email: true,
+  logo: true,
+  sello: true,
+};
+
+const perfilUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
+
+/** Multer responde con su propio error: se traduce a 413/400 en vez de un 500. */
+function subirImagenesPerfil(req: any, res: any, next: any) {
+  perfilUpload.fields([{ name: 'logo', maxCount: 1 }, { name: 'sello', maxCount: 1 }])(req, res, (err: any) => {
+    if (!err) return next();
+    const grande = err?.code === 'LIMIT_FILE_SIZE';
+    res.status(grande ? 413 : 400).json({
+      error: grande ? 'Cada imagen puede pesar hasta 2 MB.' : 'No se pudo leer la imagen.',
+    });
+  });
+}
+
+/** Las empresas nuevas nacen con un marcador cuando todavía no tienen RUC real. */
+const esMarcadorRuc = (taxId: any) => typeof taxId === 'string' && taxId.startsWith('SIN-RUC-');
+
+/** Fecha de solo día, en la zona del servidor (se guardó a mediodía local). */
+function fechaISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** La imagen se normaliza a PNG: el navegador no tiene que adivinar el MIME. */
+async function imagenADataUrl(buf: any): Promise<string | null> {
+  if (!buf) return null;
+  try {
+    const png = await sharp(Buffer.from(buf)).png().toBuffer();
+    return `data:image/png;base64,${png.toString('base64')}`;
+  } catch {
+    return null; // imagen guardada que sharp no puede leer: se omite la vista previa
+  }
+}
+
+async function perfilJSON(c: any) {
+  return {
+    id: c.id,
+    name: c.name || '',
+    // El marcador no es un RUC: se muestra vacío para que el dueño cargue el real.
+    taxId: esMarcadorRuc(c.taxId) ? '' : c.taxId || '',
+    dv: c.dv || '',
+    tipoEntidad: c.tipoEntidad || '',
+    actividadEconomica: c.actividadEconomica || '',
+    noPatronal: c.noPatronal || '',
+    observaciones: c.observaciones || '',
+    fechaApertura: c.fechaApertura ? fechaISO(new Date(c.fechaApertura)) : '',
+    address: c.address || '',
+    phone: c.phone || '',
+    email: c.email || '',
+    hasLogo: !!c.logo,
+    logoDataUrl: await imagenADataUrl(c.logo),
+    hasSello: !!c.sello,
+    selloDataUrl: await imagenADataUrl(c.sello),
+  };
+}
+
+/** Imagen de perfil: se reduce y se guarda como PNG (mismo criterio que el logo). */
+async function imagenParaGuardar(file: any, max: { width: number; height: number }): Promise<Buffer> {
+  if (!String(file?.mimetype || '').startsWith('image/')) {
+    throw Object.assign(new Error('El archivo debe ser una imagen (PNG, JPG, etc.).'), { status: 400 });
+  }
+  return sharp(file.buffer)
+    .resize({ ...max, fit: 'inside', withoutEnlargement: true })
+    .png()
+    .toBuffer();
+}
+
+const limpiar = (v: any) => (v === undefined || v === null ? '' : String(v).trim());
+
+// GET /api/companies/current — ficha completa (con las imágenes como data URL)
+companiesRouter.get('/current', requireRole('admin', 'superadmin'), async (req, res) => {
+  const company = await req.prisma.company.findUnique({
+    where: { id: req.user!.companyId },
+    select: PERFIL_SELECT,
+  });
+  if (!company) {
+    res.status(404).json({ error: 'Empresa no encontrada' });
+    return;
+  }
+  res.json(await perfilJSON(company));
+});
+
+// PATCH /api/companies/current — guarda la ficha (multipart si hay logo/sello)
+companiesRouter.patch('/current', requireRole('admin', 'superadmin'), subirImagenesPerfil, async (req: any, res) => {
+  try {
+    const actual = await req.prisma.company.findUnique({
+      where: { id: req.user!.companyId },
+      select: PERFIL_SELECT,
+    });
+    if (!actual) {
+      res.status(404).json({ error: 'Empresa no encontrada' });
+      return;
+    }
+
+    const body = req.body || {};
+    const data: any = {};
+    const errores: string[] = [];
+
+    if (body.name !== undefined) {
+      const nombre = limpiar(body.name);
+      if (!nombre) errores.push('El nombre es obligatorio.');
+      else if (nombre.length > 120) errores.push('El nombre no puede superar 120 caracteres.');
+      else data.name = nombre;
+    }
+
+    if (body.taxId !== undefined) {
+      const ruc = limpiar(body.taxId);
+      if (!ruc) {
+        // Vaciar el RUC solo vale si la empresa todavía no tiene uno real.
+        if (!esMarcadorRuc(actual.taxId)) errores.push('El RUC no puede quedar vacío.');
+      } else if (ruc.length > 50) {
+        errores.push('El RUC no puede superar 50 caracteres.');
+      } else {
+        data.taxId = ruc;
+      }
+    }
+
+    if (body.dv !== undefined) {
+      const dv = limpiar(body.dv);
+      if (dv && !/^\d{1,2}$/.test(dv)) errores.push('El DV son hasta 2 dígitos.');
+      else data.dv = dv || null;
+    }
+
+    // Si el RUC viene completo (`342-240-75526-50`), el último grupo es el DV:
+    // se separa para que el RUC base sea comparable y el DV se imprima al lado.
+    if (data.taxId) {
+      const m = data.taxId.match(/^(.*)-(\d{1,2})$/);
+      if (m && m[1].split('-').length >= 3) {
+        if (!data.dv) data.dv = m[2];
+        if (data.dv === m[2]) data.taxId = m[1];
+      }
+    }
+
+    const textos: [string, number, string][] = [
+      ['tipoEntidad', 100, 'El tipo de entidad'],
+      ['actividadEconomica', 100, 'La actividad económica'],
+      ['noPatronal', 100, 'El número patronal'],
+      ['address', 300, 'La dirección'],
+      ['phone', 50, 'El teléfono'],
+    ];
+    for (const [campo, max, etiqueta] of textos) {
+      if (body[campo] === undefined) continue;
+      const valor = limpiar(body[campo]);
+      if (valor.length > max) {
+        errores.push(`${etiqueta} no puede superar ${max} caracteres.`);
+        continue;
+      }
+      data[campo] = valor || null;
+    }
+
+    if (body.email !== undefined) {
+      const email = limpiar(body.email);
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errores.push('El email no es válido.');
+      else if (email.length > 150) errores.push('El email no puede superar 150 caracteres.');
+      else data.email = email || null;
+    }
+
+    if (body.observaciones !== undefined) {
+      const obs = String(body.observaciones ?? '').trim();
+      if (obs.length > 10000) errores.push('Las observaciones no pueden superar 10.000 caracteres.');
+      else data.observaciones = obs || null;
+    }
+
+    if (body.fechaApertura !== undefined) {
+      const fecha = limpiar(body.fechaApertura);
+      if (!fecha) data.fechaApertura = null;
+      else if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) errores.push('La fecha de apertura no es válida.');
+      else {
+        const d = parseLocalDate(fecha);
+        // El round-trip descarta fechas que JS "corrige" solo (2026-02-31 → marzo).
+        if (Number.isNaN(d.getTime()) || fechaISO(d) !== fecha) errores.push('La fecha de apertura no es válida.');
+        else data.fechaApertura = d;
+      }
+    }
+
+    const logo = req.files?.logo?.[0];
+    if (logo) {
+      try {
+        data.logo = await imagenParaGuardar(logo, { width: 800, height: 200 });
+      } catch (e: any) {
+        errores.push(e?.message || 'La imagen del logo no es válida.');
+      }
+    } else if (String(body.removeLogo) === 'true') {
+      data.logo = null;
+    }
+
+    const sello = req.files?.sello?.[0];
+    if (sello) {
+      try {
+        data.sello = await imagenParaGuardar(sello, { width: 400, height: 400 });
+      } catch (e: any) {
+        errores.push(e?.message || 'La imagen del sello no es válida.');
+      }
+    } else if (String(body.removeSello) === 'true') {
+      data.sello = null;
+    }
+
+    if (errores.length) {
+      res.status(400).json({ error: errores.join(' ') });
+      return;
+    }
+
+    if (Object.keys(data).length) {
+      await req.prisma.company.update({ where: { id: req.user!.companyId }, data });
+      await logAudit(req.prisma, {
+        userId: req.user!.userId,
+        action: 'EMPRESA_PERFIL_UPDATED',
+        entity: 'Company',
+        entityId: req.user!.companyId,
+        after: {
+          campos: Object.keys(data).filter((k) => k !== 'logo' && k !== 'sello'),
+          logo: 'logo' in data ? !!data.logo : undefined,
+          sello: 'sello' in data ? !!data.sello : undefined,
+        },
+      }).catch(() => {});
+    }
+
+    const company = await req.prisma.company.findUnique({
+      where: { id: req.user!.companyId },
+      select: PERFIL_SELECT,
+    });
+    res.json(await perfilJSON(company));
+  } catch (err: any) {
+    console.error('[Companies] No se pudo guardar el perfil:', err?.message);
+    res.status(500).json({ error: 'No se pudo guardar el perfil de la empresa. Probá de nuevo.' });
   }
 });

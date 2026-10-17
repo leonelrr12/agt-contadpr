@@ -40,16 +40,23 @@ export interface ResultadoCarga {
   claimId: string | null;
 }
 
+/** ¿Dos RUC son el mismo, aunque uno traiga el dígito verificador y el otro no? */
+function mismoRuc(a: string, b: string): boolean {
+  const da = String(a || '').replace(/\D/g, '');
+  const db = String(b || '').replace(/\D/g, '');
+  if (!da || !db) return false;
+  if (da === db) return true;
+  const [largo, corto] = da.length >= db.length ? [da, db] : [db, da];
+  // El DV son 1–2 dígitos AL FINAL del RUC: `34224075526` y `3422407552650`.
+  // Comparar por cola (endsWith) no servía: el DV agranda el RUC por el final,
+  // no por el principio. Exigir un mínimo de dígitos evita que una cédula corta
+  // matchee cualquier RUC que empiece igual.
+  return corto.length >= 6 && largo.startsWith(corto) && largo.length - corto.length <= 2;
+}
+
 /** ¿El receptor de la factura es este RUC (o uno de los extra aceptados)? */
 function esRucAceptado(receptor: string, aceptados: string[]): boolean {
-  // Las comparaciones por cola exigen un mínimo de dígitos: sin él, un receptor
-  // de dos dígitos («79») matchearía cualquier RUC que termine igual.
-  const largos = (a: string) => a.length >= 6;
-  return aceptados.some((aceptado) => {
-    if (!aceptado) return false;
-    if (receptor === aceptado) return true;
-    return largos(receptor) && largos(aceptado) && (receptor.endsWith(aceptado) || aceptado.endsWith(receptor));
-  });
+  return aceptados.some((aceptado) => !!aceptado && mismoRuc(receptor, aceptado));
 }
 
 /**
