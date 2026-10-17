@@ -483,6 +483,9 @@ export async function exportReport(
     case 'flujo-caja': {
       const d = data as {
         saldoInicial?: number;
+        entradas?: number;
+        salidas?: number;
+        transferencias?: number;
         totalDebit?: number;
         totalCredit?: number;
         movimientos: {
@@ -512,18 +515,21 @@ export async function exportReport(
         credit: m.credit,
         saldo: m.saldo,
       }));
-      if (typeof d.saldoInicial === 'number') {
-        rows.unshift({ date: '', cuenta: '', description: 'SALDO INICIAL', debit: 0, credit: 0, saldo: d.saldoInicial });
-      }
-      // Totales del período en las columnas de entrada/salida, y el saldo de cierre.
-      rows.push({
-        date: '',
-        cuenta: '',
-        description: 'SALDO ACTUAL',
-        debit: d.totalDebit ?? 0,
-        credit: d.totalCredit ?? 0,
-        saldo: d.saldoActual,
-      });
+      // Resumen NETO por asiento, igual que la pantalla: una transferencia entre
+      // cuentas propias no suma a Entradas ni a Salidas. Las filas van arriba,
+      // como en el estado que ve el usuario.
+      const entradas = typeof d.entradas === 'number' ? d.entradas : (d.totalDebit ?? 0);
+      const salidas = typeof d.salidas === 'number' ? d.salidas : (d.totalCredit ?? 0);
+      const resumen = [
+        { date: '', cuenta: '', description: 'SALDO INICIAL', debit: '' as any, credit: '' as any, saldo: d.saldoInicial ?? 0 },
+        { date: '', cuenta: '', description: 'ENTRADAS DEL PERÍODO', debit: entradas, credit: '' as any, saldo: '' as any },
+        { date: '', cuenta: '', description: 'SALIDAS DEL PERÍODO', debit: '' as any, credit: salidas, saldo: '' as any },
+        ...(d.transferencias
+          ? [{ date: '', cuenta: '', description: 'TRANSFERENCIAS ENTRE CUENTAS (NO COMPUTAN)', debit: '' as any, credit: '' as any, saldo: '' as any }]
+          : []),
+        { date: '', cuenta: '', description: 'SALDO FINAL', debit: '' as any, credit: '' as any, saldo: d.saldoActual },
+      ];
+      rows.unshift(...resumen);
       const buffer = format === 'xlsx'
         ? await buildXlsx('Flujo de Caja', columns, rows, ['debit', 'credit', 'saldo'])
         : Buffer.from(buildCsv(columns, rows), 'utf-8');

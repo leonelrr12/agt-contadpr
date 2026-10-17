@@ -317,11 +317,36 @@ async function loadReportFlujoCaja() {
     if (!res.ok) { el.innerHTML = '<div class="empty">Error al cargar el reporte</div>'; return; }
     const money = n => '$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
     const cuentas = (d.cuentas||[]).map(c => `${c.code} ${c.name}`).join(' · ');
-    const desde = d.periodo?.start ? new Date(d.periodo.start).toLocaleDateString('es-PA') : null;
-    const hasta = d.periodo?.end ? new Date(d.periodo.end).toLocaleDateString('es-PA') : null;
-    const cab = `<div style="font-size:12px;color:#6b7280;margin-bottom:12px">📅 ${desde && hasta ? `Del ${desde} al ${hasta}` : 'Todo el histórico'} · Cuentas incluidas: <strong>${escapeHtml(cuentas) || 'ninguna'}</strong></div>`;
+
+    // El período se pinta con lo que eligió el usuario: el borde del rango viaja
+    // como medianoche UTC y `toLocaleDateString` lo corría un día en Panamá.
+    const desdeRaw = document.getElementById('informes-filter-from')?.value || '';
+    const hastaRaw = document.getElementById('informes-filter-to')?.value || '';
+    const fmtInput = (s) => s ? s.split('-').reverse().join('/') : '';
+    const diaAnterior = (s) => {
+      const [y, m, day] = s.split('-').map(Number);
+      const x = new Date(Date.UTC(y, m - 1, day));
+      x.setUTCDate(x.getUTCDate() - 1);
+      return `${String(x.getUTCDate()).padStart(2,'0')}/${String(x.getUTCMonth()+1).padStart(2,'0')}/${x.getUTCFullYear()}`;
+    };
+    const periodoTexto = (desdeRaw || hastaRaw)
+      ? `Del ${fmtInput(desdeRaw) || 'inicio'} al ${fmtInput(hastaRaw) || 'hoy'}`
+      : 'Todo el histórico';
+    const cab = `<div style="font-size:12px;color:#6b7280;margin-bottom:12px">📅 ${periodoTexto} · Cuentas incluidas: <strong>${escapeHtml(cuentas) || 'ninguna'}</strong></div>`;
+
+    // Resumen neto por asiento: las transferencias entre cuentas propias no
+    // suman ni a Entradas ni a Salidas (el backend las informa aparte).
+    const fila = (label, valor, clase = '') => `<div class="flujo-fila ${clase}"><span>${label}</span><strong>${money(valor)}</strong></div>`;
+    const resumen = `<div class="flujo-resumen">
+      ${fila(`Saldo inicial${desdeRaw ? ` (al ${diaAnterior(desdeRaw)})` : ''}`, d.saldoInicial)}
+      ${fila('+ Entradas del período', d.entradas)}
+      ${fila('− Salidas del período', d.salidas)}
+      ${d.transferencias ? `<div class="flujo-fila flujo-nota"><span>Transferencias entre cuentas propias (no computan)</span><strong>${money(d.transferencias)}</strong></div>` : ''}
+      ${fila(`= Saldo final${hastaRaw ? ` (al ${fmtInput(hastaRaw)})` : ''}`, d.saldoActual, 'flujo-total')}
+    </div>`;
+
     if (!d.movimientos?.length) {
-      el.innerHTML = cab + '<div class="empty">No hay movimientos de efectivo en el período</div>';
+      el.innerHTML = cab + resumen + '<div class="empty" style="margin-top:12px">No hay movimientos de efectivo en el período</div>';
       return;
     }
     const rows = d.movimientos.map(m => [
@@ -332,12 +357,13 @@ async function loadReportFlujoCaja() {
       m.credit ? `<span style="color:#c62828">${money(m.credit)}</span>` : '—',
       `<strong>${money(m.saldo)}</strong>`
     ]);
-    if (d.saldoInicial) rows.unshift(['', '', '<em>Saldo inicial</em>', '', '', `<strong>${money(d.saldoInicial)}</strong>`]);
-    const footer = ['', '', 'Saldo actual',
+    // Los totales de esta fila son los BRUTOS del libro (línea por línea): no
+    // tienen por qué coincidir con Entradas/Salidas del resumen, que son netos.
+    const footer = ['', '', 'Totales brutos del libro',
       `<span style="color:#2e7d32">${money(d.totalDebit)}</span>`,
       `<span style="color:#c62828">${money(d.totalCredit)}</span>`,
       `<strong>${money(d.saldoActual)}</strong>`];
-    el.innerHTML = cab + buildInformesTable(['Fecha','Código','Descripción','Entrada','Salida','Saldo'], rows, footer);
+    el.innerHTML = cab + resumen + buildInformesTable(['Fecha','Código','Descripción','Entrada','Salida','Saldo'], rows, footer);
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
 }
 

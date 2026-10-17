@@ -567,10 +567,35 @@ async function buildFlujoCaja(prisma: any, companyId: string, startDate?: string
     };
   });
 
+  // ── Resumen NETO POR ASIENTO ──
+  // Sumar los débitos y créditos sueltos infla Entradas y Salidas cuando la
+  // empresa mueve plata entre sus propias cuentas: una transferencia de Banco A
+  // a Banco B aporta un débito y un crédito del mismo monto. Neteando por
+  // asiento, la transferencia da 0 y no ensucia el resumen; el detalle línea por
+  // línea (y el saldo corrido) no cambia.
+  const netoPorAsiento = new Map<string, number>();
+  const debitoPorAsiento = new Map<string, number>();
+  for (const l of lines) {
+    const id = l.journalEntryId;
+    netoPorAsiento.set(id, r2((netoPorAsiento.get(id) || 0) + Number(l.debit || 0) - Number(l.credit || 0)));
+    debitoPorAsiento.set(id, r2((debitoPorAsiento.get(id) || 0) + Number(l.debit || 0)));
+  }
+  let entradas = 0, salidas = 0, transferencias = 0;
+  for (const [id, neto] of netoPorAsiento) {
+    if (neto > 0) entradas = r2(entradas + neto);
+    else if (neto < 0) salidas = r2(salidas - neto);
+    // Neto 0 = el asiento movió efectivo entre cuentas propias. Se informa
+    // aparte para que el lector sepa por qué el libro mueve más que el resumen.
+    else transferencias = r2(transferencias + (debitoPorAsiento.get(id) || 0));
+  }
+
   return {
     periodo: { start: rango?.gte ?? null, end: rango?.lte ?? null },
     cuentas,
     saldoInicial,
+    entradas,
+    salidas,
+    transferencias,
     movimientos,
     totalDebit: r2(totalDebit),
     totalCredit: r2(totalCredit),
