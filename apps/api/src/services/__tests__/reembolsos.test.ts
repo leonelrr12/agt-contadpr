@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildDedupeKey, registrarFacturaRecibida, saldoPendiente, avisoDuplicado } from '../reembolsos';
+import { buildDedupeKey, normalizarRuc, registrarFacturaRecibida, saldoPendiente, avisoDuplicado } from '../reembolsos';
 
 /**
  * El control de reembolsos se apoya en dos cosas que no pueden fallar en
@@ -42,6 +42,23 @@ describe('buildDedupeKey', () => {
   it('dos facturas del mismo proveedor con montos distintos NO colisionan', () => {
     const base = { ruc: '8-1-2', numeroFactura: '10', fecha: '2026-10-03' };
     expect(buildDedupeKey({ ...base, total: 107 })).not.toBe(buildDedupeKey({ ...base, total: 108 }));
+  });
+
+  it('el RUC con y sin dígito verificador es la MISMA factura', () => {
+    // El PDF imprime `342-240-75526`; el XML de la DGI, `342-240-75526-50`.
+    const base = { numeroFactura: '0000333326', fecha: '2026-10-16', total: 18.49 };
+    expect(buildDedupeKey({ ...base, ruc: '342-240-75526-50' }))
+      .toBe(buildDedupeKey({ ...base, ruc: '342-240-75526' }));
+    expect(buildDedupeKey({ ...base, ruc: '342-240-75526' })).toBe('F:34224075526:0000333326:2026-10-16:18.49');
+  });
+
+  it('normalizarRuc quita el DV pero no un último grupo que sea parte del RUC', () => {
+    expect(normalizarRuc('342-240-75526-50')).toBe('34224075526');
+    expect(normalizarRuc('342-240-75526')).toBe('34224075526');
+    expect(normalizarRuc('8-733-2267-88')).toBe('87332267');
+    // `155592408-2-2015`: el último grupo es de 4 dígitos, no es un DV.
+    expect(normalizarRuc('155592408-2-2015')).toBe('15559240822015');
+    expect(normalizarRuc(null)).toBe('');
   });
 
   it('sin número legible cae a la URL del CUTE', () => {

@@ -19,7 +19,7 @@
 import { extractFromPDF, extractFromText, extractInvoiceItems } from './pdf-extractor';
 import { xmlATexto, pareceXmlDeFactura, receptorDeXml, itemsDeXml } from './dgi-xml';
 import { descargarFacturaDgi } from './dgi-cute';
-import type { FacturaExtraida } from './reembolsos';
+import { normalizarRuc, type FacturaExtraida } from './reembolsos';
 
 /** Tope de facturas por correo: un buzón con 40 adjuntos no es una carga normal. */
 export const MAX_FACTURAS_POR_CORREO = 5;
@@ -119,7 +119,10 @@ export async function extraerFacturasDeMensaje(
   // duplicados (y en la fase siguiente, de asientos que alguien tiene que anular).
   const vistas = new Set<string>();
   const clave = (f: FacturaExtraida): string | null => {
-    const ruc = (f.ruc || '').replace(/\D/g, '');
+    // El RUC se compara sin el dígito verificador: el PDF lo imprime sin DV y
+    // el XML lo trae completo (`...-50`). Sin normalizarlo, el PDF y el XML de
+    // la misma factura no se reconocen y ambos pasan al pipeline.
+    const ruc = normalizarRuc(f.ruc);
     const numero = (f.numeroFactura || '').replace(/\D/g, '');
     return ruc && numero ? `${ruc}|${numero}` : null;
   };

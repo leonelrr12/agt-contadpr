@@ -44,6 +44,24 @@ export interface FacturaExtraida {
 export type FacturaPendiente = FacturaExtraida;
 
 /**
+ * RUC canónico para la identidad de una factura: solo los dígitos, sin el
+ * dígito verificador.
+ *
+ * El MISMO RUC viaja en dos formas según por dónde entre la factura: el PDF
+ * impreso lo trae como `342-240-75526` y el XML de la DGI como
+ * `342-240-75526-50` (el DV va en su propio grupo). Sin quitarlo, la misma
+ * factura produce dos claves de deduplicación distintas y entra dos veces: fue
+ * el duplicado del 17-10 (PDF y XML del mismo correo, 1.5 s de diferencia).
+ */
+export function normalizarRuc(ruc: string | null | undefined): string {
+  const grupos = String(ruc || '').split(/\D+/).filter(Boolean);
+  // El DV es un grupo final de 1–2 dígitos (`-50`, `-88`). El cuerpo del RUC
+  // siempre termina en un grupo más largo (`...-75526`, `...-2015`): no se toca.
+  if (grupos.length >= 3 && grupos[grupos.length - 1].length <= 2) grupos.pop();
+  return grupos.join('');
+}
+
+/**
  * Clave de deduplicación de una factura.
  *
  * Prefiere los datos propios de la factura (RUC + número + fecha + total), que
@@ -53,7 +71,7 @@ export type FacturaPendiente = FacturaExtraida;
  * deduplica, y el unique de Postgres deja convivir varios NULL.
  */
 export function buildDedupeKey(f: FacturaExtraida): string | null {
-  const ruc = (f.ruc || '').replace(/\D/g, '');
+  const ruc = normalizarRuc(f.ruc);
   const numero = (f.numeroFactura || '').replace(/\D/g, '');
   const fecha = (f.fecha || '').trim();
   const total = f.total != null && Number.isFinite(Number(f.total)) ? Number(f.total).toFixed(2) : '';
