@@ -95,8 +95,25 @@
     #entry-body .banco .etiqueta { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.4px; }
     #entry-body .manual { margin-top: 16px; font-size: 12px; color: #6b7280; }
     #entry-pie { padding: 14px 20px; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 8px; }
+
+    /* ── Celular ──
+       Esta pantalla se usa desde el celular (el contador sube el extracto y concilia
+       ahí mismo), y no tenía NINGUNA regla de pantalla chica: las tablas del detalle
+       —varias columnas de montos y fechas— se recortaban contra el borde sin forma de
+       llegar al resto. Ahora se deslizan de costado. */
+    @media (max-width: 768px) {
+      .reconcile-container { padding: 14px; }
+      .reconcile-header h1, h1 { font-size: 20px; }
+      #step-detail, #step-upload, #step-history { overflow-x: auto; }
+      table { font-size: 12.5px; }
+      table th, table td { padding: 8px 10px; }
+      #pick-card, #entry-card { max-height: 85vh; }
+      .reconcile-header { flex-wrap: wrap; gap: 8px; }
+      .reconcile-header .btn, .reconcile-header button { font-size: 13px; padding: 8px 12px; }
+    }
   </style>
   <script src="js/shared.js?v=1"></script>
+<script src="js/ayuda.js?v=1"></script>
 </head>
 <body>
 <div class="reconcile-container">
@@ -830,5 +847,6 @@ function esc(s) {
 loadBankAccounts();
 loadHistory();
 </script>
+<script>ayudaEnCabecera(document.querySelector('h1'), 'conciliacion');</script>
 </body>
 </html>

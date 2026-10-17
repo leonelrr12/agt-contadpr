@@ -1020,6 +1020,14 @@ body {
 
   #main { height: auto; min-height: 0; }
 
+  /* Las grillas del diario, la planilla o los auxiliares tienen 6-8 columnas: en el
+     celular no entran. `#main` es `overflow: hidden`, así que lo que sobraba quedaba
+     RECORTADO y sin forma de llegar — se veía media tabla y nada más. Los paneles se
+     deslizan de costado y la tabla entera queda alcanzable. */
+  #main > div[id^="panel-"] { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* El chat (la vista de arranque) también puede recibir una tabla en un mensaje. */
+  #chat-messages { overflow-x: auto; }
+
   #chat-header { padding: 12px 16px; flex-shrink: 0; }
   #chat-header h1 { font-size: 20px; }
   .subtitle { font-size: 14px; }
