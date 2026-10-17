@@ -7,8 +7,12 @@
 > Para arrancar el proyecto (comandos, BD, despliegue, trampas) ver **AGENTS.md**, que es el que se
 > carga en cada sesión. Esto de acá es el estado del producto y lo que falta.
 
-**Última verificación contra el código: 2026-10-15** — 45 modelos Prisma, 190 endpoints en `routes/`,
-migración más alta `0038_facturas_por_correo` (**escrita, sin aplicar**), 505 tests.
+**Última verificación contra el código: 2026-10-16** — 47 modelos Prisma, 204 endpoints en `routes/`,
+migración más alta `0045_cupo_por_suscripcion` (**aplicada**, como todas: `0041`-`0045` entraron el
+16-10). Sin conteo de tests a propósito: envejece en una semana.
+
+**Lo que ve el cliente:** `apps/web/public/funciones.html` (qué hace la app, en castellano de cliente) y
+`planes.html` (precios). El texto de venta para campañas vive en [`PUBLICIDAD.md`](PUBLICIDAD.md).
 
 ---
 
