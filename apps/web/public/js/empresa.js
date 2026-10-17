@@ -13,6 +13,14 @@ async function loadPanelEmpresa() {
   if (!el) return;
   el.innerHTML = '<div class="empty">Cargando perfil…</div>';
   try {
+    // La sección DGI solo tiene sentido con el add-on de Facturas. Si la lista de
+    // módulos todavía no llegó (loadSubscriptionInfo falló o no corrió), se pide.
+    if (!Array.isArray(window.userModulos)) {
+      try {
+        const r = await authFetch(`${API_URL}/subscription`);
+        window.userModulos = r && r.ok ? ((await r.json()).subscription?.modulos || []) : [];
+      } catch { window.userModulos = []; }
+    }
     const res = await authFetch(`${API_URL}/companies/current`);
     if (!res.ok) {
       el.innerHTML = '<div class="empty">No se pudo cargar el perfil de la empresa</div>';
@@ -20,15 +28,34 @@ async function loadPanelEmpresa() {
     }
     empresaPerfilActual = await res.json();
     empresaQuitar = { logo: false, sello: false };
-    el.innerHTML = renderEmpresaPerfil(empresaPerfilActual);
+    el.innerHTML = renderEmpresaPerfil(empresaPerfilActual, window.userModulos.includes('facturas-pdf'));
     initEmpresaDropzones();
   } catch {
     el.innerHTML = '<div class="empty">Error de conexión</div>';
   }
 }
 
-function renderEmpresaPerfil(d) {
+function renderEmpresaPerfil(d, tieneFacturas) {
   const v = (x) => escapeHtml(x || '');
+  const dgi = tieneFacturas ? `
+    <div class="admin-form-card">
+      <h4>🧾 Facturación electrónica (DGI)</h4>
+      <div class="form-grid">
+        <div>
+          <label>Serie</label>
+          <input id="emp-serie" maxlength="5" value="${v(d.facturaSerie)}" placeholder="A">
+        </div>
+        <div>
+          <label>Nº Resolución DGI</label>
+          <input id="emp-resolucion" maxlength="100" value="${v(d.facturaResolucion)}" placeholder="123-2026">
+        </div>
+        <div>
+          <label>Fecha de la resolución</label>
+          <input id="emp-resolucion-fecha" type="date" value="${v(d.facturaResolucionFecha)}">
+        </div>
+      </div>
+      <div class="emp-note">Numeración autorizada por la DGI: se imprime en el PDF de las facturas de venta.</div>
+    </div>` : '';
   const dropzone = (name, label, dataUrl) => `
     <div>
       <label>${label}</label>
@@ -76,6 +103,8 @@ function renderEmpresaPerfil(d) {
         </div>
       </div>
     </div>
+
+    ${dgi}
 
     <div class="admin-form-card">
       <h4>📇 Contacto</h4>
@@ -187,6 +216,13 @@ async function saveEmpresa() {
   form.append('phone', document.getElementById('emp-telefono').value.trim());
   form.append('email', document.getElementById('emp-email').value.trim());
   form.append('observaciones', document.getElementById('emp-observaciones').value);
+
+  // La sección DGI solo está en el DOM si la empresa tiene el add-on.
+  if (document.getElementById('emp-serie')) {
+    form.append('facturaSerie', document.getElementById('emp-serie').value.trim());
+    form.append('facturaResolucion', document.getElementById('emp-resolucion').value.trim());
+    form.append('facturaResolucionFecha', document.getElementById('emp-resolucion-fecha').value);
+  }
 
   for (const name of ['logo', 'sello']) {
     const file = document.getElementById(`emp-${name}-input`)?.files?.[0];

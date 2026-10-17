@@ -662,12 +662,12 @@
           </div>
         </div>
         <p style="margin:0 0 16px 0;color:#6b7280;font-size:13px">Facturas de venta con numeración correlativa y cumplimiento DGI</p>
+        <!-- Aviso si falta la configuración DGI (se carga en Administración → Empresa) -->
+        <div id="facturas-aviso-config"></div>
         <div id="facturas-tabs" style="display:flex;gap:4px;margin-bottom:16px;flex-wrap:wrap;border-bottom:2px solid #e5e7eb">
           <button class="panel-tab-btn active" data-ftab="lista" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#1a1a2e;border-bottom:2px solid #1565c0;margin-bottom:-2px">📋 Facturas</button>
-          <button class="panel-tab-btn" data-ftab="config" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚙️ Configuración</button>
         </div>
         <div id="facturas-lista-content"></div>
-        <div id="facturas-config-content" class="hidden"></div>
       </div>
 
 
@@ -725,8 +725,8 @@
   <script src="js/reembolsos.js?v=6"></script>
   <script src="js/email-facturas.js?v=7"></script>
   <script src="js/despacho.js?v=4"></script>
-<script src="js/empresa.js?v=1"></script>
+<script src="js/empresa.js?v=2"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="js/facturas.js?v=80"></script>
+<script src="js/facturas.js?v=81"></script>
 </body>
 </html>

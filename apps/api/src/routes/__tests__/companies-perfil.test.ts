@@ -56,6 +56,9 @@ const EMPRESA = {
   email: null,
   logo: null,
   sello: null,
+  facturaSerie: 'A',
+  facturaResolucion: '123-2026',
+  facturaResolucionFecha: new Date(2026, 0, 10, 12),
 };
 
 // PNG de 1×1: lo mínimo que sharp acepta como imagen de verdad.
@@ -109,6 +112,21 @@ describe('GET /companies/current', () => {
     expect(r.body.fechaApertura).toBe('2026-01-15');
     expect(r.body.tipoEntidad).toBe('Persona jurídica');
     expect(r.body.hasLogo).toBe(false);
+    // La configuración DGI vive acá desde que se mudó del módulo Facturas.
+    expect(r.body.facturaSerie).toBe('A');
+    expect(r.body.facturaResolucion).toBe('123-2026');
+    expect(r.body.facturaResolucionFecha).toBe('2026-01-10');
+  });
+
+  it('muestra bien la fecha vieja guardada a medianoche UTC (sin correrla un día)', async () => {
+    // El endpoint anterior guardaba `new Date('2026-01-15')` = medianoche UTC;
+    // leerla con getters locales en Panamá/NY mostraba el 14.
+    const { prisma } = prismaFalso({ ...EMPRESA, facturaResolucionFecha: new Date('2026-01-15T00:00:00Z') });
+    actual = { prisma, user: ADMIN };
+
+    const r = await pedir('/companies/current');
+
+    expect(r.body.facturaResolucionFecha).toBe('2026-01-15');
   });
 });
 
@@ -124,6 +142,35 @@ describe('PATCH /companies/current', () => {
     expect(state.company.dv).toBe('50');
     expect(r.body.taxId).toBe('342-240-75526');
     expect(r.body.dv).toBe('50');
+  });
+
+  it('guarda la configuración DGI: serie en mayúsculas y fecha a mediodía', async () => {
+    const { prisma, state } = prismaFalso(EMPRESA);
+    actual = { prisma, user: ADMIN };
+
+    const r = await guardar({
+      name: 'Mi Empresa',
+      facturaSerie: 'ab',
+      facturaResolucion: '456-2026',
+      facturaResolucionFecha: '2026-02-15',
+    });
+
+    expect(r.status).toBe(200);
+    expect(state.company.facturaSerie).toBe('AB');
+    expect(state.company.facturaResolucion).toBe('456-2026');
+    expect(state.company.facturaResolucionFecha.getHours()).toBe(12);
+    expect(r.body.facturaResolucionFecha).toBe('2026-02-15');
+  });
+
+  it('rechaza una serie de más de 5 caracteres', async () => {
+    const { prisma, state } = prismaFalso(EMPRESA);
+    actual = { prisma, user: ADMIN };
+
+    const r = await guardar({ name: 'Mi Empresa', facturaSerie: 'ABCDEF' });
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('serie');
+    expect(state.company.facturaSerie).toBe('A');
   });
 
   it('rechaza un DV que no son 1–2 dígitos', async () => {

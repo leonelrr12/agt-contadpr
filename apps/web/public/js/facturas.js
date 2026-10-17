@@ -32,6 +32,37 @@ async function loadPanelFacturas() {
     return;
   }
   clickFacturasTab('lista');
+  avisoConfigFacturas();
+}
+
+/**
+ * Aviso de configuración DGI faltante. La serie, la resolución y el logo se
+ * mudaron al perfil de la empresa (Administración → 🏢 Empresa): el módulo solo
+ * LEE la configuración para avisar. Se muestra a quien puede corregirla.
+ */
+async function avisoConfigFacturas() {
+  const el = document.getElementById('facturas-aviso-config');
+  if (!el) return;
+  el.innerHTML = '';
+  if (!['admin', 'superadmin'].includes(getUser()?.role)) return;
+  try {
+    const res = await authFetch(`${API_URL}/companies/current`);
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.facturaSerie && d.facturaResolucion) return;
+    const faltan = [!d.facturaSerie ? 'serie' : null, !d.facturaResolucion ? 'resolución DGI' : null].filter(Boolean).join(' y ');
+    el.innerHTML = `<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#92400e">
+      ⚠️ Falta la ${escapeHtml(faltan)} de facturación.
+      <button onclick="irAEmpresaAdmin()" style="margin-left:6px;padding:4px 10px;font-size:12px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer">Ir a Administración → Empresa</button>
+    </div>`;
+  } catch { /* sin aviso antes que romper la emisión */ }
+}
+
+/** Abre Administración en la pestaña Empresa (existe para admin/superadmin). */
+function irAEmpresaAdmin() {
+  const nav = document.querySelector('#sidebar-nav .nav-link[data-view="panel-admin"]');
+  if (nav) nav.click();
+  clickAdminTab('empresa');
 }
 
 document.querySelectorAll('#facturas-tabs button').forEach(btn => {
@@ -44,10 +75,8 @@ function clickFacturasTab(tab) {
   });
   const active = document.querySelector(`#facturas-tabs button[data-ftab="${tab}"]`);
   if (active) { active.classList.add('active'); active.style.color = '#1a1a2e'; active.style.borderBottomColor = '#1565c0'; }
-  document.getElementById('facturas-lista-content').classList.toggle('hidden', tab !== 'lista');
-  document.getElementById('facturas-config-content').classList.toggle('hidden', tab !== 'config');
-  if (tab === 'lista') loadFacturasList();
-  else loadFacturasConfig();
+  document.getElementById('facturas-lista-content').classList.remove('hidden');
+  loadFacturasList();
 }
 
 async function loadFacturasList() {
@@ -406,71 +435,4 @@ async function confirmarCobro(id, btn) {
     alert(parts.join(' · '));
     loadFacturasList();
   } catch (e) { alert('❌ Error de conexión'); btn.disabled = false; }
-}
-
-// ── Configuración (serie, resolución DGI, logo) ──
-async function loadFacturasConfig() {
-  const el = document.getElementById('facturas-config-content');
-  el.innerHTML = '<div style="text-align:center;padding:32px;color:#6b7280">Cargando...</div>';
-  try {
-    const res = await authFetch(`${API_URL}/facturas/config`);
-    const d = await res.json();
-    el.innerHTML = `
-      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:20px;max-width:560px">
-        <h3 style="margin:0 0 4px 0;color:#1a1a2e">⚙️ Configuración de Facturación</h3>
-        <p style="font-size:12px;color:#6b7280;margin:0 0 16px 0">Numeración autorizada por la DGI y logo de tu empresa para las facturas PDF</p>
-        <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
-          <div style="flex:1;min-width:120px">
-            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Serie</label>
-            <input id="cfg-serie" value="${escapeHtml(d.facturaSerie || '')}" placeholder="A" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;box-sizing:border-box">
-          </div>
-          <div style="flex:2;min-width:180px">
-            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Nº Resolución DGI</label>
-            <input id="cfg-resolucion" value="${escapeHtml(d.facturaResolucion || '')}" placeholder="123-2026" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;box-sizing:border-box">
-          </div>
-          <div style="flex:1;min-width:140px">
-            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Fecha de la resolución</label>
-            <input type="date" id="cfg-resolucion-fecha" value="${d.facturaResolucionFecha ? new Date(d.facturaResolucionFecha).toISOString().slice(0, 10) : ''}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;background:#fff">
-          </div>
-        </div>
-        <div style="margin-bottom:12px">
-          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Logo (PNG/JPG, se redimensiona a ≤800px)</label>
-          <input type="file" id="cfg-logo" accept="image/*" style="font-size:12px">
-          <div style="font-size:11px;color:#6b7280;margin-top:4px">${d.hasLogo ? '✅ Logo actual cargado' : 'Sin logo'}</div>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button onclick="saveFacturasConfig()" style="padding:8px 18px;font-size:13px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer">💾 Guardar Configuración</button>
-          ${d.hasLogo ? `<button onclick="removeFacturaLogo()" style="padding:8px 14px;font-size:12px;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;cursor:pointer">Quitar logo</button>` : ''}
-        </div>
-      </div>`;
-  } catch (e) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#dc2626">Error al cargar</div>'; }
-}
-
-async function saveFacturasConfig() {
-  const form = new FormData();
-  form.append('serie', document.getElementById('cfg-serie').value.trim());
-  form.append('resolucion', document.getElementById('cfg-resolucion').value.trim());
-  const fecha = document.getElementById('cfg-resolucion-fecha').value;
-  if (fecha) form.append('resolucionFecha', fecha);
-  const logo = document.getElementById('cfg-logo').files?.[0];
-  if (logo) form.append('logo', logo);
-  try {
-    const res = await authFetch(`${API_URL}/facturas/config`, { method: 'POST', body: form });
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({}));
-      alert('❌ ' + (e.error || 'Error al guardar'));
-      return;
-    }
-    alert('✅ Configuración guardada');
-    loadFacturasConfig();
-  } catch (e) { alert('❌ Error de conexión'); }
-}
-
-async function removeFacturaLogo() {
-  const form = new FormData();
-  form.append('removeLogo', 'true');
-  try {
-    await authFetch(`${API_URL}/facturas/config`, { method: 'POST', body: form });
-    loadFacturasConfig();
-  } catch (e) { alert('❌ Error'); }
 }

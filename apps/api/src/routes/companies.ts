@@ -143,6 +143,11 @@ const PERFIL_SELECT = {
   email: true,
   logo: true,
   sello: true,
+  // Configuración de facturación (la emisión vive en el módulo Facturas PDF;
+  // estos datos son de la EMPRESA y se cargan aunque el add-on no esté activo).
+  facturaSerie: true,
+  facturaResolucion: true,
+  facturaResolucionFecha: true,
 };
 
 const perfilUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
@@ -164,6 +169,20 @@ const esMarcadorRuc = (taxId: any) => typeof taxId === 'string' && taxId.startsW
 /** Fecha de solo día, en la zona del servidor (se guardó a mediodía local). */
 function fechaISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Fecha de solo día para MOSTRAR. Las fechas viejas de facturación se guardaron
+ * a medianoche UTC (`new Date('YYYY-MM-DD')`) y las nuevas, a mediodía local:
+ * leerlas con los getters locales corría un día las viejas. Se distinguen por la
+ * hora UTC y cada una se lee por su día calendario.
+ */
+function fechaSoloDia(d: Date): string {
+  const medianocheUTC = d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0;
+  if (medianocheUTC) {
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  }
+  return fechaISO(d);
 }
 
 /** La imagen se normaliza a PNG: el navegador no tiene que adivinar el MIME. */
@@ -188,7 +207,7 @@ async function perfilJSON(c: any) {
     actividadEconomica: c.actividadEconomica || '',
     noPatronal: c.noPatronal || '',
     observaciones: c.observaciones || '',
-    fechaApertura: c.fechaApertura ? fechaISO(new Date(c.fechaApertura)) : '',
+    fechaApertura: c.fechaApertura ? fechaSoloDia(new Date(c.fechaApertura)) : '',
     address: c.address || '',
     phone: c.phone || '',
     email: c.email || '',
@@ -196,6 +215,11 @@ async function perfilJSON(c: any) {
     logoDataUrl: await imagenADataUrl(c.logo),
     hasSello: !!c.sello,
     selloDataUrl: await imagenADataUrl(c.sello),
+    // Configuración DGI: la edita el perfil; el módulo de Facturas solo la usa
+    // para numerar e imprimir la leyenda.
+    facturaSerie: c.facturaSerie || '',
+    facturaResolucion: c.facturaResolucion || '',
+    facturaResolucionFecha: c.facturaResolucionFecha ? fechaSoloDia(new Date(c.facturaResolucionFecha)) : '',
   };
 }
 
@@ -211,6 +235,26 @@ async function imagenParaGuardar(file: any, max: { width: number; height: number
 }
 
 const limpiar = (v: any) => (v === undefined || v === null ? '' : String(v).trim());
+
+/**
+ * Fecha de solo día (`YYYY-MM-DD`) al Date de mediodía local.
+ * Devuelve `undefined` cuando el texto no es una fecha válida (y anota el error);
+ * `null` cuando viene vacía (borrar el dato).
+ */
+function parseFechaDia(valor: string, etiqueta: string, errores: string[]): Date | null | undefined {
+  if (!valor) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+    errores.push(`${etiqueta} no es válida.`);
+    return undefined;
+  }
+  const d = parseLocalDate(valor);
+  // El round-trip descarta fechas que JS "corrige" solo (2026-02-31 → marzo).
+  if (Number.isNaN(d.getTime()) || fechaISO(d) !== valor) {
+    errores.push(`${etiqueta} no es válida.`);
+    return undefined;
+  }
+  return d;
+}
 
 // GET /api/companies/current — ficha completa (con las imágenes como data URL)
 companiesRouter.get('/current', requireRole('admin', 'superadmin'), async (req, res) => {
@@ -307,15 +351,31 @@ companiesRouter.patch('/current', requireRole('admin', 'superadmin'), subirImage
     }
 
     if (body.fechaApertura !== undefined) {
-      const fecha = limpiar(body.fechaApertura);
-      if (!fecha) data.fechaApertura = null;
-      else if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) errores.push('La fecha de apertura no es válida.');
-      else {
-        const d = parseLocalDate(fecha);
-        // El round-trip descarta fechas que JS "corrige" solo (2026-02-31 → marzo).
-        if (Number.isNaN(d.getTime()) || fechaISO(d) !== fecha) errores.push('La fecha de apertura no es válida.');
-        else data.fechaApertura = d;
+      const d = parseFechaDia(limpiar(body.fechaApertura), 'La fecha de apertura', errores);
+      if (d !== undefined) data.fechaApertura = d;
+    }
+
+    // ── Facturación electrónica (DGI) ──
+    // Vive acá y no en el módulo Facturas: son datos de la EMPRESA. El módulo
+    // (add-on) solo emite; la ficha se completa aunque todavía no lo tenga.
+    if (body.facturaSerie !== undefined) {
+      const serie = limpiar(body.facturaSerie).toUpperCase();
+      if (serie && !/^[A-Za-z0-9]{1,5}$/.test(serie)) {
+        errores.push('La serie debe tener hasta 5 caracteres alfanuméricos.');
+      } else {
+        data.facturaSerie = serie || null;
       }
+    }
+
+    if (body.facturaResolucion !== undefined) {
+      const resolucion = limpiar(body.facturaResolucion);
+      if (resolucion.length > 100) errores.push('La resolución no puede superar 100 caracteres.');
+      else data.facturaResolucion = resolucion || null;
+    }
+
+    if (body.facturaResolucionFecha !== undefined) {
+      const d = parseFechaDia(limpiar(body.facturaResolucionFecha), 'La fecha de la resolución', errores);
+      if (d !== undefined) data.facturaResolucionFecha = d;
     }
 
     const logo = req.files?.logo?.[0];

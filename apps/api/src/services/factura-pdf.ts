@@ -14,6 +14,13 @@ function fmtMoney(n: number): string {
 function fmtDate(d: Date | string | null | undefined): string {
   if (!d) return '—';
   const x = new Date(d);
+  // Fecha de solo día: las viejas (resolución DGI) quedaron a medianoche UTC y
+  // las nuevas se guardan a mediodía local. Leerlas con getters locales corría
+  // un día a las viejas en Panamá; se distinguen por la hora UTC.
+  const medianocheUTC = x.getUTCHours() === 0 && x.getUTCMinutes() === 0 && x.getUTCSeconds() === 0;
+  if (medianocheUTC) {
+    return `${String(x.getUTCDate()).padStart(2, '0')}/${String(x.getUTCMonth() + 1).padStart(2, '0')}/${x.getUTCFullYear()}`;
+  }
   return `${String(x.getDate()).padStart(2, '0')}/${String(x.getMonth() + 1).padStart(2, '0')}/${x.getFullYear()}`;
 }
 

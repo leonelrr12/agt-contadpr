@@ -1,6 +1,4 @@
 import { Router } from 'express';
-import multer from 'multer';
-import sharp from 'sharp';
 import { validate } from '../middleware/validate';
 import { requireRole } from '../middleware/auth';
 import { requireModulo } from '../middleware/modulo';
@@ -39,71 +37,10 @@ async function resolveSalesAccount(agent: AccountingAgent, prisma: any, companyI
   }
 }
 
-// ── Configuración de facturación (serie, resolución DGI, logo) ──
-
-const configUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
-
-facturasRouter.get('/config', async (req, res) => {
-  const company = await req.prisma.company.findUnique({
-    where: { id: req.user!.companyId },
-    select: { facturaSerie: true, facturaResolucion: true, facturaResolucionFecha: true, logo: true },
-  });
-  res.json({
-    facturaSerie: company?.facturaSerie || null,
-    facturaResolucion: company?.facturaResolucion || null,
-    facturaResolucionFecha: company?.facturaResolucionFecha || null,
-    hasLogo: !!company?.logo,
-  });
-});
-
-facturasRouter.post('/config', requireRole('admin', 'superadmin'), configUpload.fields([{ name: 'logo', maxCount: 1 }]), async (req: any, res) => {
-  const { serie, resolucion, resolucionFecha, removeLogo } = req.body || {};
-  if (serie !== undefined && !/^[A-Za-z0-9]{1,5}$/.test(String(serie))) {
-    res.status(400).json({ error: 'Serie inválida (máx. 5 caracteres alfanuméricos)' });
-    return;
-  }
-  const data: any = {};
-  if (serie !== undefined) data.facturaSerie = String(serie).toUpperCase() || null;
-  if (resolucion !== undefined) data.facturaResolucion = String(resolucion) || null;
-  if (resolucionFecha !== undefined) data.facturaResolucionFecha = resolucionFecha ? new Date(String(resolucionFecha)) : null;
-
-  const file = req.files?.logo?.[0];
-  if (file) {
-    try {
-      // Redimensionar el logo (máx 800px) — el contenedor no persiste archivos, se guarda en BD
-      data.logo = await sharp(file.buffer).resize({ width: 800, height: 200, fit: 'inside' }).toBuffer();
-    } catch (e: any) {
-      res.status(400).json({ error: 'Imagen de logo inválida' });
-      return;
-    }
-  } else if (removeLogo === 'true') {
-    data.logo = null;
-  }
-
-  if (Object.keys(data).length > 0) {
-    await req.prisma.company.update({ where: { id: req.user!.companyId }, data });
-    await logAudit(req.prisma, {
-      userId: req.user!.userId,
-      action: 'FACTURAS_CONFIG_UPDATED',
-      entity: 'Company',
-      entityId: req.user!.companyId,
-      after: { serie: data.facturaSerie ?? null, resolucion: data.facturaResolucion ?? null, logo: !!data.logo },
-    }).catch(() => {});
-  }
-
-  const company = await req.prisma.company.findUnique({
-    where: { id: req.user!.companyId },
-    select: { facturaSerie: true, facturaResolucion: true, facturaResolucionFecha: true, logo: true },
-  });
-  res.json({
-    facturaSerie: company?.facturaSerie || null,
-    facturaResolucion: company?.facturaResolucion || null,
-    facturaResolucionFecha: company?.facturaResolucionFecha || null,
-    hasLogo: !!company?.logo,
-  });
-});
-
 // ── Facturas ──
+// La configuración de facturación (serie, resolución DGI, logo) se mudó al
+// perfil de la empresa (Administración → 🏢 Empresa): son datos de la EMPRESA,
+// no del módulo. Este router solo emite, cobra y genera PDFs.
 
 /** POST /api/facturas — emite factura con numeración correlativa y asiento BORRADOR. */
 // El rol `inventario` emite ventas: es quien atiende el mostrador y descuenta stock.
