@@ -228,10 +228,13 @@ rentabilidad** por segmento.
   (importación y conciliación bancaria) y `services/__tests__/recurrentes-cierre-includes.test.ts`
   (los recurrentes del cron y el cierre de año, que nadie mira a mano). Al tocar otro módulo,
   apuntarle el mismo arnés.
-- **Sin tests contra la BD real.** Los 465 tests son de servicio y de ruta, con **stubs de Prisma a
-  mano** (los de ruta levantan Express y pegan con `fetch`: `reconcile-upload`, `declaraciones-itbms`).
-  No hay ni un test que toque PostgreSQL, así que lo que depende del motor (índices únicos parciales,
-  constraints, `$transaction` de verdad) se verifica a mano. OCR/PDF tampoco tienen tests de contenido.
+- **Sin tests contra la BD real.** Toda la suite es de servicio, de ruta y de arranque del frontend, con
+  **stubs de Prisma a mano** (los de ruta levantan Express y pegan con `fetch`: `reconcile-upload`,
+  `declaraciones-itbms`). No hay ni un test que toque PostgreSQL, así que lo que depende del motor
+  (índices únicos parciales, constraints, `$transaction` de verdad) se verifica a mano —así se validaron
+  las migraciones `0041`-`0045`: el esquema real en un contenedor de descarte y `migrate diff` para
+  confirmar que no quedaba deriva—. Tampoco hay conteo de tests acá a propósito: envejece en una semana.
+  OCR/PDF no tienen tests de contenido.
 - **DevOps:** el puerto de PostgreSQL se expone al host en el compose; la API no tiene healthcheck de
   Docker aunque exista `/api/health`; el `entrypoint.sh` corre `prisma db push` + seed en cada arranque
   (correcto en dev, peligroso en producción); `ecosystem.config.js` lee `process.env` que no existe al
@@ -414,10 +417,10 @@ suscripción** (`Subscription.maxEmpresas` / `maxUsuariosPorEmpresa`, migración
 
 La fase 4 dejó el **panel SaaS por cuenta** (`/admin.html` → «Cuentas»: una fila por cliente que paga con
 sus empresas, los usuarios propios de cada una, la cuota, los módulos y el botón para asignarle plan) y la
-**pantalla de precios** armada con los campos del plan en vez del texto de `features`. Dos decisiones
-siguen abiertas y son del dueño: si el Demo pasa a «básico» (hoy lleva inventario y planilla porque las
-dos cuentas vivas los usan) y qué plan le toca a Odesa, que con 5 usuarios propios no entra en ninguno
-individual — aunque para eso ya tiene la cortesía de cupo.
+**pantalla de precios** armada con los campos del plan en vez del texto de `features`. Queda **una sola decisión abierta del dueño**: si el Demo pasa a
+«básico» (hoy lleva inventario y planilla para que los trials prueben todo). Las dos cuentas vivas
+—Odesa y Empresa Demo— se movieron a **Individual Premium** el 16-10, con cortesía de 5 usuarios cada
+una, así que el Demo ya no tiene a nadie encima.
 
 **Pendiente comercial:** portal de facturación de autoservicio.
 
