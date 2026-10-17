@@ -54,7 +54,8 @@ function renderEmpresaPerfil(d, tieneFacturas) {
           <input id="emp-resolucion-fecha" type="date" value="${v(d.facturaResolucionFecha)}">
         </div>
       </div>
-      <div class="emp-note">Numeración autorizada por la DGI: se imprime en el PDF de las facturas de venta.</div>
+      <div class="emp-note">Numeración autorizada por la DGI: se imprime en el PDF de las facturas de venta.
+        Próximo número: <strong>${v(d.proximoNumeroFactura)}</strong> — se asigna al emitir y no se edita desde acá.</div>
     </div>` : '';
   const dropzone = (name, label, dataUrl) => `
     <div>
@@ -68,7 +69,21 @@ function renderEmpresaPerfil(d, tieneFacturas) {
       <button type="button" class="btn-sm" id="emp-${name}-quitar" style="margin-top:6px${dataUrl ? '' : ';display:none'}">Quitar ${label.toLowerCase()}</button>
     </div>`;
 
+  // DGI e imágenes van arriba: es lo que se viene a buscar (la numeración y el
+  // logo) y al final de una ficha larga no se encuentra.
+  const imagenes = `
+    <div class="admin-form-card">
+      <h4>🖼 Imágenes</h4>
+      <div class="form-grid">
+        ${dropzone('logo', 'Logo', d.logoDataUrl)}
+        ${dropzone('sello', 'Sello', d.selloDataUrl)}
+      </div>
+      <div class="emp-note" style="margin-top:8px">El logo sale en el PDF de las facturas de venta. El sello queda guardado para los documentos que lo lleven. Después de elegir la imagen, guardá con <strong>💾 Guardar</strong> (al final de la ficha).</div>
+    </div>`;
+
   return `
+    ${imagenes}
+
     <div class="admin-form-card">
       <h4>🏢 Datos generales</h4>
       <div class="form-grid">
@@ -128,15 +143,6 @@ function renderEmpresaPerfil(d, tieneFacturas) {
       <h4>📝 Observaciones</h4>
       <textarea id="emp-observaciones" rows="4" maxlength="10000" class="emp-textarea">${v(d.observaciones)}</textarea>
       <div class="emp-note">Notas internas de esta empresa (acuerdos, pendientes, particularidades). No se imprimen ni afectan la contabilidad.</div>
-    </div>
-
-    <div class="admin-form-card">
-      <h4>🖼 Imágenes</h4>
-      <div class="form-grid">
-        ${dropzone('logo', 'Logo', d.logoDataUrl)}
-        ${dropzone('sello', 'Sello', d.selloDataUrl)}
-      </div>
-      <div class="emp-note" style="margin-top:8px">El logo sale en el PDF de las facturas de venta. El sello queda guardado para los documentos que lo lleven.</div>
     </div>
 
     <div style="display:flex;align-items:center;gap:12px;margin-top:4px">

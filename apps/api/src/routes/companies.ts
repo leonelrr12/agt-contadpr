@@ -148,6 +148,7 @@ const PERFIL_SELECT = {
   facturaSerie: true,
   facturaResolucion: true,
   facturaResolucionFecha: true,
+  facturaCorrelativo: true,
 };
 
 const perfilUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
@@ -220,6 +221,9 @@ async function perfilJSON(c: any) {
     facturaSerie: c.facturaSerie || '',
     facturaResolucion: c.facturaResolucion || '',
     facturaResolucionFecha: c.facturaResolucionFecha ? fechaSoloDia(new Date(c.facturaResolucionFecha)) : '',
+    // El correlativo es operativo: se muestra el próximo número para que el
+    // dueño sepa qué va a salir, pero no se edita (lo asigna el módulo al emitir).
+    proximoNumeroFactura: `${c.facturaSerie || 'A'}-${String((c.facturaCorrelativo || 0) + 1).padStart(6, '0')}`,
   };
 }
 

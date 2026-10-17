@@ -28,7 +28,7 @@
   <meta name="twitter:description" content="Agente contable con IA para Panamá. Facturas, asientos y reportes automatizados.">
   <meta name="twitter:image" content="https://contador507.com/og-image.png">
 
-  <link rel="stylesheet" href="styles.css?v=40">
+  <link rel="stylesheet" href="styles.css?v=41">
 </head>
 <body>
   <!-- Sprite de iconos del menú (stroke heredado de .nav-ico en styles.css) -->
@@ -525,10 +525,6 @@
         <div id="conceptos-admin-form" class="hidden"></div>
         <!-- Config Admin -->
         <div id="config-content" class="hidden">
-          <!-- Facturas por correo: las tarjetas se pintan solas (js/email-facturas.js).
-               Van PRIMERO: es lo que se entra a configurar acá. -->
-          <div id="email-facturas-card" style="margin-bottom:16px"></div>
-          <div id="email-facturas-ledger" style="margin-bottom:16px"></div>
           <div class="admin-form-card">
             <h4>⚙️ Configuración de la Empresa</h4>
             <div class="form-grid">
@@ -565,11 +561,11 @@
           </div>
           <!-- Las cuentas de Planilla se mudaron al módulo: allá viven las tasas y las
                cuentas juntas, y tenerlas en dos pantallas era pedir que se separaran. -->
-          <div class="admin-form-card">
-            <h4>🧮 Planilla</h4>
-            <p style="font-size:12px;color:#6b7280;margin:0">Las tasas, la escala del ISR y las cuentas contables de la nómina se configuran en
-              <a href="/planilla.html?tab=parametros" style="color:#1565c0;font-weight:600">Planilla → Parámetros</a>.</p>
-          </div>
+          <!-- Facturas por correo: las tarjetas se pintan solas (js/email-facturas.js).
+               Van al final: el historial de correos procesados es largo y empujaba
+               la configuración de la empresa fuera de la vista. -->
+          <div id="email-facturas-card" style="margin-bottom:16px"></div>
+          <div id="email-facturas-ledger" style="margin-bottom:16px"></div>
         </div>
         <!-- Ficha de la empresa (perfil fiscal + logo/sello). Se pinta en js/empresa.js -->
         <div id="empresa-content" class="hidden"></div>
@@ -659,6 +655,7 @@
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button onclick="openFacturaModal()" style="padding:8px 16px;font-size:13px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer">➕ Nueva Factura</button>
             <button onclick="loadPanelFacturas()" style="padding:8px 16px;font-size:13px;background:#f0f0f0;border:1px solid #d1d5db;border-radius:6px;cursor:pointer">🔄 Refrescar</button>
+            <button id="btn-config-facturas" onclick="irAEmpresaAdmin()" style="display:none;padding:8px 16px;font-size:13px;background:#f0f0f0;border:1px solid #d1d5db;border-radius:6px;cursor:pointer">⚙️ Configuración de facturación</button>
           </div>
         </div>
         <p style="margin:0 0 16px 0;color:#6b7280;font-size:13px">Facturas de venta con numeración correlativa y cumplimiento DGI</p>
@@ -709,7 +706,7 @@
   <script src="js/capture-qr.js?v=74"></script>
   <script src="js/chat.js?v=76"></script>
   <script src="js/router.js?v=81"></script>
-  <script src="js/admin.js?v=91"></script>
+  <script src="js/admin.js?v=94"></script>
   <script src="js/ayuda.js?v=1"></script>
   <script src="js/init.js?v=81"></script>
   <script src="js/panels-sidebar.js?v=74"></script>
@@ -725,7 +722,7 @@
   <script src="js/reembolsos.js?v=6"></script>
   <script src="js/email-facturas.js?v=7"></script>
   <script src="js/despacho.js?v=4"></script>
-<script src="js/empresa.js?v=2"></script>
+<script src="js/empresa.js?v=7"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="js/facturas.js?v=81"></script>
 </body>

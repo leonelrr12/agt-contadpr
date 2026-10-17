@@ -31,6 +31,11 @@ async function loadPanelFacturas() {
       </div>`;
     return;
   }
+  // Acceso directo a la configuración: desde que se mudó al perfil, el módulo
+  // no tiene tab propio, pero el botón tiene que estar donde se busca.
+  const btnCfg = document.getElementById('btn-config-facturas');
+  if (btnCfg) btnCfg.style.display = ['admin', 'superadmin'].includes(getUser()?.role) ? '' : 'none';
+
   clickFacturasTab('lista');
   avisoConfigFacturas();
 }

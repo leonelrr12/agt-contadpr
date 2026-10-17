@@ -59,6 +59,7 @@ const EMPRESA = {
   facturaSerie: 'A',
   facturaResolucion: '123-2026',
   facturaResolucionFecha: new Date(2026, 0, 10, 12),
+  facturaCorrelativo: 5,
 };
 
 // PNG de 1×1: lo mínimo que sharp acepta como imagen de verdad.
@@ -116,6 +117,8 @@ describe('GET /companies/current', () => {
     expect(r.body.facturaSerie).toBe('A');
     expect(r.body.facturaResolucion).toBe('123-2026');
     expect(r.body.facturaResolucionFecha).toBe('2026-01-10');
+    // El correlativo no se edita: se muestra el próximo número a emitir.
+    expect(r.body.proximoNumeroFactura).toBe('A-000006');
   });
 
   it('muestra bien la fecha vieja guardada a medianoche UTC (sin correrla un día)', async () => {
