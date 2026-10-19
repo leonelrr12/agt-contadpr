@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { suscripcionDeEmpresa } from '../services/suscripcion';
 import { waPaused } from '../services/startup';
-import { processWhatsAppMessage, processWhatsAppPDF, processWhatsAppDgiUrl, verifyCode, generateCode, sendWhatsAppMessage, isBatchActive, startBatch, endBatch, getBatch, setBatchMetodoPago, enqueueBatchItem, confirmBatch, buildBatchResumen } from '../services/whatsapp-service';
+import { processWhatsAppMessage, processWhatsAppPDF, processWhatsAppDgiUrl, verifyCode, generateCode, sendWhatsAppMessage, isBatchActive, startBatch, endBatch, getBatch, setBatchMetodoPago, enqueueBatchItem, confirmBatch, buildBatchResumen, helpTrabajador } from '../services/whatsapp-service';
 
 export const whatsappRouter = Router();
 
@@ -290,21 +290,28 @@ whatsappRouter.post('/verify', requireAuth, async (req, res) => {
   // Enviar mensaje de bienvenida por WhatsApp al verificar exitosamente
   if (result.success) {
     const chatId = `${phoneNumber}@c.us`;
-    const welcomeMsg =
-      `✅ *Contador507 vinculado correctamente*\n\n` +
-      `📝 *Registrar transacciones*\n` +
-      `Escribe tu gasto o venta. Ejemplos:\n` +
-      `_"compré gasolina por $40"_\n` +
-      `_"pagué internet $65"_\n\n` +
-      `📄 *Facturas*\n` +
-      `Envía un PDF de la DGI o pega la URL del CUTE (el enlace del QR).\n\n` +
-      `💡 *Comandos*\n` +
-      `• Responde con números para seleccionar opciones\n` +
-      `• *OK* — guardar transacción\n` +
-      `• *XX* — cancelar / empezar de nuevo\n` +
-      `• *HOLA* — ver estas instrucciones\n` +
-      `• *batch* — carga masiva de URLs o PDFs\n` +
-      `• *saldo* / *banco* — ver saldos bancarios`;
+    // Si el número pertenece a un TRABAJADOR (reembolsos), la bienvenida es la
+    // suya: URL/PDF o el gasto escrito. No se le ofrecen comandos de empresa.
+    const link = await req.prisma.whatsAppLink.findFirst({
+      where: { phoneNumber },
+      select: { workerAccountId: true },
+    });
+    const welcomeMsg = link?.workerAccountId
+      ? `✅ *Contador507 vinculado correctamente*\n\n${helpTrabajador()}`
+      : `✅ *Contador507 vinculado correctamente*\n\n` +
+        `📝 *Registrar transacciones*\n` +
+        `Escribe tu gasto o venta. Ejemplos:\n` +
+        `_"compré gasolina por $40"_\n` +
+        `_"pagué internet $65"_\n\n` +
+        `📄 *Facturas*\n` +
+        `Envía un PDF de la DGI o pega la URL del CUTE (el enlace del QR).\n\n` +
+        `💡 *Comandos*\n` +
+        `• Responde con números para seleccionar opciones\n` +
+        `• *OK* — guardar transacción\n` +
+        `• *XX* — cancelar / empezar de nuevo\n` +
+        `• *HOLA* — ver estas instrucciones\n` +
+        `• *batch* — carga masiva de URLs o PDFs\n` +
+        `• *saldo* / *banco* — ver saldos bancarios`;
     sendWhatsAppMessage(chatId, welcomeMsg).catch(() => {});
   }
 
