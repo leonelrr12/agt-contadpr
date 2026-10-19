@@ -541,7 +541,7 @@
     if (id === 'dg-cerrar' || id === 'pl-modal') { cerrarDesglose(); return; }
     if (id === 'c-calcular') {
       const btn = e.target; btn.disabled = true; btn.textContent = 'Calculando…';
-      try { await calcular(); await render(); } catch (err) { alert(err.message); btn.disabled = false; btn.textContent = 'Calcular'; }
+      try { await calcular(); await render(); } catch (err) { await showAlert('❌ ' + err.message); btn.disabled = false; btn.textContent = 'Calcular'; }
       return;
     }
     if (id === 'c-ejecutar') {
@@ -568,7 +568,7 @@
         );
         estado.vista = 'historial';
         await render();
-      } catch (err) { alert(err.message); }
+      } catch (err) { await showAlert('❌ ' + err.message); }
     }
   });
 
@@ -686,7 +686,7 @@
         estado.empleadoEditando = null;
         estado.empleados = [];
         await render();
-      } catch (err) { alert(err.message); }
+      } catch (err) { await showAlert('❌ ' + err.message); }
       return;
     }
     if (id === 'e-toggle') {
@@ -696,12 +696,12 @@
         estado.empleadoEditando = null;
         estado.empleados = [];
         await render();
-      } catch (err) { alert(err.message); }
+      } catch (err) { await showAlert('❌ ' + err.message); }
       return;
     }
     if (id === 'r-previa') {
       const archivo = $('r-archivo').files[0];
-      if (!archivo) { alert('Elegí el archivo primero.'); return; }
+      if (!archivo) { await showAlert('⚠️ Elegí el archivo primero.'); return; }
       const fd = new FormData();
       fd.append('file', archivo);
       fd.append('tipoPago', $('r-tipopago').value);
@@ -730,7 +730,7 @@
         await showAlert(`Importados ${r.creados}. ${r.omitidos} ya existían. ${r.errores.length} con error.`);
         estado.empleados = [];
         await render();
-      } catch (err) { alert(err.message); }
+      } catch (err) { await showAlert('❌ ' + err.message); }
     }
   });
 
@@ -1108,7 +1108,7 @@
       const { id: corridaId, tipo, periodo } = estado.corridaDetalle;
       try {
         await descargar(`/corridas/${corridaId}/export.${formato}`, `planilla-${tipo}-${periodo}.${formato}`);
-      } catch (err) { alert(err.message); }
+      } catch (err) { await showAlert('❌ ' + err.message); }
       return;
     }
     if (id === 'h-aprobar' || id === 'h-rechazar') {
@@ -1119,19 +1119,27 @@
         await showAlert(`${r.revisados} asiento(s) ${accion === 'aprobar' ? 'aprobados' : 'rechazados'}.${r.omitidos.length ? ` ${r.omitidos.length} se omitieron.` : ''}`);
         estado.corridaDetalle = await pedir(`/corridas/${estado.corridaDetalle.id}`);
         await render();
-      } catch (err) { alert(err.message); }
+      } catch (err) { await showAlert('❌ ' + err.message); }
       return;
     }
     if (id === 'h-anular') {
-      const motivo = prompt('¿Por qué se anula la corrida? (queda en el registro)');
-      if (!motivo || motivo.trim().length < 5) return;
+      const motivo = await showPrompt('¿Por qué se anula la corrida? (queda en el registro)', {
+        title: 'Anular corrida',
+        placeholder: 'Motivo (mínimo 5 caracteres)',
+        okText: 'Continuar',
+      });
+      if (motivo === null) return;
+      if (motivo.trim().length < 5) {
+        await showAlert('⚠️ Explicá el motivo (mínimo 5 caracteres).');
+        return;
+      }
       if (!(await showConfirm('Se van a revertir TODOS los asientos de la corrida con fecha de hoy. ¿Seguimos?'))) return;
       try {
         const r = await pedir(`/corridas/${estado.corridaDetalle.id}/anular`, { method: 'POST', body: JSON.stringify({ motivo }) });
         await showAlert(`Anulada: ${r.anulados} asiento(s) revertidos.`);
         estado.corridaDetalle = null;
         await render();
-      } catch (err) { alert(err.message); }
+      } catch (err) { await showAlert('❌ ' + err.message); }
     }
   });
 
@@ -1239,7 +1247,7 @@
         const r = await pedir(`/css/${valorar}/valorar`, { method: 'POST' });
         await showAlert(r.actualizada ? `Obligación valorizada en ${num(r.monto)}.` : `${num(r.monto)} calculado, pero no se actualizó: ${r.motivo}`);
         await render();
-      } catch (err) { alert(err.message); }
+      } catch (err) { await showAlert('❌ ' + err.message); }
       return;
     }
     if (e.target.id === 'p-traer') {
@@ -1250,7 +1258,7 @@
       // cuentas distintas y confundirlas descuadraría el pasivo del empleado.
       const periodo = $('p-periodo').value.trim();
       const mes = (estado.cssActual?.meses || []).find((m) => m.periodo === periodo);
-      if (!mes) { alert(`No hay corridas en ${periodo}.`); return; }
+      if (!mes) { await showAlert(`⚠️ No hay corridas en ${periodo}.`); return; }
       $('p-ss-obrero').value = mes.ss;
       $('p-ss-patronal').value = mes.ssPatronal;
       $('p-riesgos').value = mes.riesgosPatronal;
@@ -1289,7 +1297,7 @@
         }
         await showAlert(`Pago registrado por ${num(r.total)}.${r.obligacionMarcada ? ' La obligación quedó marcada como cumplida.' : ''} El asiento está en BORRADOR.`);
         await render();
-      } catch (err) { alert(err.message); }
+      } catch (err) { await showAlert('❌ ' + err.message); }
     }
   });
 
@@ -1538,7 +1546,7 @@
       await showAlert('Parámetros guardados.');
       estado.parametros = null;
       await render();
-    } catch (err) { alert(err.message); }
+    } catch (err) { await showAlert('❌ ' + err.message); }
   });
 
 })();

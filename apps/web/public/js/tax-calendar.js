@@ -119,7 +119,11 @@ async function markTaxObligationComplete(id) {
  * número que nadie pagó. Se pregunta antes porque borra ese registro.
  */
 async function unmarkTaxObligation(id) {
-  if (!confirm('¿Devolver esta obligación a pendiente? Se borra el monto real registrado, si lo hay.')) return;
+  const devolver = await showConfirm(
+    '¿Devolver esta obligación a pendiente? Se borra el monto real registrado, si lo hay.',
+    { title: 'Devolver a pendiente', type: 'warning', confirmText: 'Sí, devolver' },
+  );
+  if (!devolver) return;
   try {
     const res = await authFetch(`${API_URL}/tax-calendar/${id}`, {
       method: 'PATCH',
@@ -202,7 +206,11 @@ async function closeFiscalYear() {
       }
     }
   } catch {}
-  if (!confirm(`¿Cerrar el año fiscal ${year}? Se creará un asiento de cierre CONFIRMADO con la utilidad del ejercicio (solo asientos aprobados). No se podrá volver a cerrar hasta anularlo.${aviso}`)) return;
+  const cerrar = await showConfirm(
+    `¿Cerrar el año fiscal ${year}? Se creará un asiento de cierre CONFIRMADO con la utilidad del ejercicio (solo asientos aprobados). No se podrá volver a cerrar hasta anularlo.${aviso}`,
+    { title: `Cerrar el año ${year}`, type: 'warning', confirmText: 'Cerrar el año' },
+  );
+  if (!cerrar) return;
   resumen.innerHTML = 'Cerrando...';
   try {
     const res = await authFetch(`${API_URL}/year-close/${year}`, { method: 'POST' });

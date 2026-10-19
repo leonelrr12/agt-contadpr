@@ -126,7 +126,7 @@ async function downloadFacturaPdf(id) {
   try {
     const token = getToken();
     const res = await fetch(`${API_URL}/facturas/${id}/pdf?token=${encodeURIComponent(token)}`);
-    if (!res.ok) { alert('❌ Error al generar el PDF'); return; }
+    if (!res.ok) { await showAlert('❌ Error al generar el PDF'); return; }
     const blob = await res.blob();
     const cd = res.headers.get('Content-Disposition') || '';
     const m = cd.match(/filename="([^"]+)"/);
@@ -136,7 +136,7 @@ async function downloadFacturaPdf(id) {
     a.href = url; a.download = nombre;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
-  } catch (e) { alert('❌ Error de conexión'); }
+  } catch (e) { await showAlert('❌ Error de conexión'); }
 }
 
 // ── Nueva factura ──
@@ -328,13 +328,13 @@ async function saveFactura() {
   const clienteId = clienteSel?.value && clienteSel.value !== '__nuevo__' ? clienteSel.value : undefined;
   const clienteNuevo = clienteId ? '' : (document.getElementById('fac-cliente').value.trim());
   if (!clienteId && !clienteNuevo && clienteSel?.value === '__nuevo__') {
-    alert('❌ Escribí el nombre del cliente nuevo, o elegí «Consumidor final».');
+    await showAlert('❌ Escribí el nombre del cliente nuevo, o elegí «Consumidor final».');
     return;
   }
   const items = facturaItems
     .filter(it => it.descripcion.trim())
     .map(it => ({ descripcion: it.descripcion, cantidad: it.cantidad, precio: it.precio, productId: it.productId || undefined }));
-  if (!items.length) { alert('❌ Agrega al menos un item con descripción'); return; }
+  if (!items.length) { await showAlert('❌ Agrega al menos un item con descripción'); return; }
   const pago = document.getElementById('fac-pago').value;
   try {
     const res = await authFetch(`${API_URL}/facturas`, {
@@ -352,14 +352,18 @@ async function saveFactura() {
     });
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
-      alert('❌ ' + (e.error || 'Error al emitir la factura'));
+      await showAlert('❌ ' + (e.error || 'Error al emitir la factura'));
       return;
     }
     const d = await res.json();
     closeFacturaModal();
     loadFacturasList();
-    if (confirm(`✅ Factura ${d.number} emitida por ${fmtFac(d.total)}. ¿Descargar el PDF?`)) downloadFacturaPdf(d.id);
-  } catch (e) { alert('❌ Error de conexión'); }
+    const descargar = await showConfirm(
+      `Factura ${d.number} emitida por ${fmtFac(d.total)}.\n\n¿Querés descargar el PDF?`,
+      { type: 'success', title: 'Factura emitida', confirmText: 'Descargar PDF', cancelText: 'Ahora no' },
+    );
+    if (descargar) downloadFacturaPdf(d.id);
+  } catch (e) { await showAlert('❌ Error de conexión'); }
 }
 
 /**
@@ -370,13 +374,13 @@ async function payFactura(id) {
   let inv;
   try {
     const res = await authFetch(`${API_URL}/facturas/${id}`);
-    if (!res.ok) { alert('❌ No se pudo cargar la factura'); return; }
+    if (!res.ok) { await showAlert('❌ No se pudo cargar la factura'); return; }
     inv = await res.json();
-  } catch (e) { alert('❌ Error de conexión'); return; }
+  } catch (e) { await showAlert('❌ Error de conexión'); return; }
 
   const total = inv.total || 0;
   const saldo = Math.max(0, Math.round((total - (inv.paidAmount || 0)) * 100) / 100);
-  if (saldo <= 0.01) { alert('La factura ya está pagada.'); loadFacturasList(); return; }
+  if (saldo <= 0.01) { await showAlert('La factura ya está pagada.'); loadFacturasList(); return; }
   const cli = inv.client || {};
   const fechaFact = new Date(inv.date);
   const agenteOk = !!cli.esAgenteRetenedor && inv.itbms > 0 &&
@@ -423,7 +427,7 @@ async function payFactura(id) {
 async function confirmarCobro(id, btn) {
   const efectivo = Number(document.getElementById('pay-efectivo').value || 0);
   const retencionItbms = Number(document.getElementById('pay-ret').value || 0);
-  if (efectivo < 0 || retencionItbms < 0) { alert('Montos inválidos'); return; }
+  if (efectivo < 0 || retencionItbms < 0) { await showAlert('⚠️ Montos inválidos'); return; }
   btn.disabled = true;
   try {
     const res = await authFetch(`${API_URL}/facturas/${id}/pay`, {
@@ -432,12 +436,12 @@ async function confirmarCobro(id, btn) {
       body: JSON.stringify({ efectivo, retencionItbms }),
     });
     const d = await res.json();
-    if (!res.ok) { alert('❌ ' + (d.error || 'Error al cobrar')); btn.disabled = false; return; }
+    if (!res.ok) { await showAlert('❌ ' + (d.error || 'Error al cobrar')); btn.disabled = false; return; }
     btn.closest('.app-dialog-overlay').remove();
     const parts = [`Cobro aplicado: ${fmtFac(d.aplicado || efectivo + retencionItbms)}`];
     if (d.retencionItbms > 0) parts.push(`retención ITBMS: ${fmtFac(d.retencionItbms)} (crédito fiscal — regístrala en Informes → Retenciones ITBMS cuando recibas el certificado)`);
     if (d.status === 'PAGADA') parts.push('factura PAGADA ✅');
-    alert(parts.join(' · '));
+    await showAlert(parts.join(' · '), { type: 'success', title: 'Cobro registrado' });
     loadFacturasList();
-  } catch (e) { alert('❌ Error de conexión'); btn.disabled = false; }
+  } catch (e) { await showAlert('❌ Error de conexión'); btn.disabled = false; }
 }

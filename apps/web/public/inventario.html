@@ -2,12 +2,14 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#0f172a">
   <title>Inventario — Contador507</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css?v=9">
+  <link rel="stylesheet" href="styles.css?v=11">
+  <link rel="stylesheet" href="dialogos.css?v=1">
   <style>
     .inv-container { max-width: 1200px; margin: 0 auto; padding: 24px; }
     .inv-header h1 { font-size: 24px; color: #1a1a2e; margin: 0 0 8px 0; }
@@ -50,15 +52,31 @@
     .preview .fila.total { border-top: 1px solid #cbd5e1; margin-top: 6px; padding-top: 6px; font-weight: 700; }
     @media (max-width: 700px) { .form-grid, .linea-row { grid-template-columns: 1fr; } }
   </style>
-  <script src="js/shared.js?v=1"></script>
+  <!-- Después del <style> de la página para que las reglas móviles manden. -->
+  <link rel="stylesheet" href="modulos.css?v=1">
+  <script src="js/dialogos.js?v=1"></script>
+  <script src="js/shared.js?v=2"></script>
 <script src="js/ayuda.js?v=1"></script>
 </head>
 <body>
+<header class="module-topbar">
+  <div class="module-topbar-left">
+    <a class="module-brand" href="/" aria-label="Contador507 — ir al inicio">Contador<span>507</span></a>
+    <nav class="module-nav" aria-label="Navegación">
+      <a href="/">App</a>
+      <a href="/api-keys.html">API Keys</a>
+      <a href="/planes.html">Planes</a>
+    </nav>
+  </div>
+  <div class="module-topbar-right">
+    <span class="module-user" id="module-user-info"></span>
+    <button type="button" class="module-logout" onclick="logout()">Salir</button>
+  </div>
+</header>
 <div class="inv-container">
   <div class="inv-header">
     <h1>📦 Inventario <span class="empresa-chip" id="inv-empresa"></span></h1>
     <p>Existencias de mercancía de reventa a costo promedio. Las compras entran por acá y generan su asiento; las ventas se facturan y descuentan el stock.</p>
-    <p style="margin-top:8px"><a href="/index.html" style="color:#1565c0;text-decoration:none;font-size:14px">← Volver al inicio</a></p>
   </div>
 
   <div class="inv-tabs" id="inv-tabs">
@@ -74,9 +92,16 @@
   <div id="inv-contenido"><div class="loading">Cargando…</div></div>
 </div>
 
-<script src="js/inventario.js?v=8"></script>
+<script src="js/inventario.js?v=9"></script>
 <script src="js/terminos.js?v=1"></script>
 <script>verificarTerminos();</script>
 <script>ayudaEnCabecera(document.querySelector('h1'), 'inventario');</script>
+<script>
+  (function () {
+    const u = getUser();
+    const el = document.getElementById('module-user-info');
+    if (el && u && u.name) el.textContent = u.name;
+  })();
+</script>
 </body>
 </html>

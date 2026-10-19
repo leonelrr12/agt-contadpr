@@ -2,12 +2,14 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#0f172a">
   <title>Planilla — Contador507</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css?v=9">
+  <link rel="stylesheet" href="styles.css?v=11">
+  <link rel="stylesheet" href="dialogos.css?v=1">
   <style>
     .pl-container { max-width: 1280px; margin: 0 auto; padding: 24px; }
     .pl-header h1 { font-size: 24px; color: #1a1a2e; margin: 0 0 8px 0; }
@@ -66,15 +68,31 @@
     @media (max-width: 900px) { .form-grid, .form-grid.tres { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 600px) { .form-grid, .form-grid.tres { grid-template-columns: 1fr; } }
   </style>
-  <script src="js/shared.js?v=1"></script>
+  <!-- Después del <style> de la página para que las reglas móviles manden. -->
+  <link rel="stylesheet" href="modulos.css?v=1">
+  <script src="js/dialogos.js?v=1"></script>
+  <script src="js/shared.js?v=2"></script>
 <script src="js/ayuda.js?v=1"></script>
 </head>
 <body>
+<header class="module-topbar">
+  <div class="module-topbar-left">
+    <a class="module-brand" href="/" aria-label="Contador507 — ir al inicio">Contador<span>507</span></a>
+    <nav class="module-nav" aria-label="Navegación">
+      <a href="/">App</a>
+      <a href="/api-keys.html">API Keys</a>
+      <a href="/planes.html">Planes</a>
+    </nav>
+  </div>
+  <div class="module-topbar-right">
+    <span class="module-user" id="module-user-info"></span>
+    <button type="button" class="module-logout" onclick="logout()">Salir</button>
+  </div>
+</header>
 <div class="pl-container">
   <div class="pl-header">
     <h1>🧮 Planilla <span class="empresa-chip" id="pl-empresa"></span></h1>
     <p>Registro de empleados, corridas de nómina y cuentas de la CSS. Los asientos nacen en BORRADOR y los aprueba el contador.</p>
-    <p style="margin-top:8px"><a href="/index.html" style="color:#047857;text-decoration:none;font-size:14px">← Volver al inicio</a></p>
   </div>
 
   <div class="pl-tabs" id="pl-tabs">
@@ -94,9 +112,16 @@
   <div id="pl-modal" class="hidden"></div>
 </div>
 
-<script src="js/planilla-modulo.js?v=6"></script>
+<script src="js/planilla-modulo.js?v=7"></script>
 <script src="js/terminos.js?v=1"></script>
 <script>verificarTerminos();</script>
 <script>ayudaEnCabecera(document.querySelector('h1'), 'planilla');</script>
+<script>
+  (function () {
+    const u = getUser();
+    const el = document.getElementById('module-user-info');
+    if (el && u && u.name) el.textContent = u.name;
+  })();
+</script>
 </body>
 </html>

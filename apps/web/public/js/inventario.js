@@ -582,9 +582,16 @@ function etiquetaTipo(m) {
  * espera si cree que anula una sola fila.
  */
 async function anularMovimiento(id) {
-  const motivo = prompt('¿Por qué se anula? (queda registrado)');
+  const motivo = await showPrompt('¿Por qué se anula? (queda registrado)', {
+    title: 'Anular movimiento',
+    placeholder: 'Motivo (mínimo 5 caracteres)',
+    okText: 'Continuar',
+  });
   if (motivo === null) return;
-  if (motivo.trim().length < 5) return showAlert('Explicá el motivo (mínimo 5 caracteres).');
+  if (motivo.trim().length < 5) {
+    await showAlert('⚠️ Explicá el motivo (mínimo 5 caracteres).');
+    return;
+  }
   if (!(await showConfirm('Se revierte la operación completa: sus movimientos de kardex y su asiento. ¿Confirmás?'))) return;
 
   try {

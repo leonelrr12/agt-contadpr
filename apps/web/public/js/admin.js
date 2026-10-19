@@ -480,12 +480,12 @@ async function annulEmpresaCierre(id, clave) {
     });
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
-      alert('❌ ' + (e.error || 'Error al anular'));
+      await showAlert('❌ ' + (e.error || 'Error al anular'));
       return;
     }
-    alert('✅ Asiento de cierre anulado. Puedes volver a cerrar el año desde Calendario Fiscal.');
+    await showAlert('✅ Asiento de cierre anulado. Puedes volver a cerrar el año desde Calendario Fiscal.');
     loadPanelCierresAdmin();
-  } catch (e) { alert('❌ Error de conexión'); }
+  } catch (e) { await showAlert('❌ Error de conexión'); }
 }
 
 /* ── Usuarios de la empresa (admin/superadmin) ── */

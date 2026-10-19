@@ -183,7 +183,8 @@ export function parseInput(input: string): {
     paymentMethod = 'CREDITO';
   } else if (lower.includes('efectivo')) {
     paymentMethod = 'EFECTIVO';
-  } else if (lower.includes('banco') || lower.includes('transferencia')) {
+  } else if (lower.includes('banco') || lower.includes('transferencia') ||
+             /\bach\b/.test(lower) || lower.includes('deposito') || lower.includes('depósito')) {
     paymentMethod = 'TRANSFERENCIA';
   } else if (lower.includes('cheque')) {
     paymentMethod = 'CHEQUE';
@@ -200,9 +201,10 @@ export function parseInput(input: string): {
   if (itbmsAmtMatch) itbmsAmount = parseFloat(itbmsAmtMatch[1]);
 
   // Número de factura: "factura FE-2026-0001", "fact #12345", "No. 0000634220",
-  // "Factura: 993" (talonario manual — 3+ dígitos)
+  // "Factura: 993" (talonario manual — 3+ dígitos), "factura A-000003" (serie
+  // con prefijo de letra; antes el regex no la capturaba).
   let invoiceNumber: string | null = null;
-  const invoiceMatch = input.match(/(?:factura|fact\.?|no\.?\s*(?:factura)?|#)\s*[:#-]?\s*(FE-?[A-Z0-9-]+|\d{3,}[A-Z0-9-]*)/i);
+  const invoiceMatch = input.match(/(?:factura|fact\.?|no\.?\s*(?:factura)?|#)\s*[:#-]?\s*([A-Z]{1,4}-?\d{3,}[A-Z0-9-]*|\d{3,}[A-Z0-9-]*)/i);
   if (invoiceMatch) invoiceNumber = invoiceMatch[1];
 
   // Cuenta bancaria mencionada ("... ACH Banco de Panama", "... por Banco General"):
@@ -223,8 +225,10 @@ export function parseInput(input: string): {
   // Busca patrón "a [Nombre]", "proveedor [Nombre]", "de [Nombre]" con nombre propio
   // Cubre compras (compré a X), ventas (vendí a X, cliente X), y gastos (pagué a X)
   const providerPatterns = [
-    // "a Distribuidora XYZ", "proveedor XYZ", "cliente XYZ" seguido de fin o preposición
-    /\b(?:a|proveedor|proveedora|cliente|de)\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ]{1,58}?(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ]{0,58}){0,3}?)(?:\s+por\b|\s+con\b|\s+itbms\b|\s+iva\b|\s+crédito\b|\s+cr[eé]dito\b|\s*,\s*|\s*$)/,
+    // "a Distribuidora XYZ", "proveedor XYZ", "cliente XYZ", "Nombre XYZ",
+    // "razón social XYZ" seguido de fin o preposición. /i para aceptar
+    // "Proveedor ..." en la respuesta del Anexo.
+    /\b(?:a|proveedor|proveedora|cliente|de|nombre|raz[oó]n social)\s*[:#-]?\s*([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ]{1,58}?(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ]{0,58}){0,3}?)(?:\s+por\b|\s+con\b|\s+itbms\b|\s+iva\b|\s+crédito\b|\s+cr[eé]dito\b|\s*,\s*|\s*$)/i,
     // "compré/vendí/pagué/cobré a/en X"
     /\b(?:compr[ée]|vend[ií]|pag[uü][ée]|cobr[ée])\s+(?:a|en)\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑ\s.,#&-]{1,58}?)(?:\s+por\b|\s+con\b|\s+itbms\b|\s*,\s*|\s*$)/i,
   ];
@@ -311,20 +315,32 @@ export class DialogAgent {
     let paymentMethod = extracted.paymentMethod;
     let itbms = extracted.itbms === true;
     let provider = extracted.provider || null;
+    // La descripción del asiento debe ser la transacción original, no la
+    // respuesta corta que completa el flujo ("RUC ...", "efectivo", etc.).
+    let description = input;
     const missingFields: string[] = [];
+    const inputLower = input.toLowerCase().trim();
+    // Un verbo de transacción indica un registro NUEVO: no debe heredar
+    // RUC/Nombre/factura del flujo anterior (datos de Anexo de otra compra).
+    // Lookahead Unicode: `\b` falla tras "Compré" porque la é no es \w ASCII.
+    const pareceNueva = /\b(?:compr[ée]|vend[ií]|pagu[ée]|cobr[ée]|gast[ée]|abon[ée])(?![\p{L}\p{N}_])/iu.test(input);
 
     if (prev) {
       // Si es una respuesta corta de follow-up (método de pago), preservar TODO del contexto
-      const inputLower = input.toLowerCase().trim();
       const isFollowUp = ['crédito','credito','efectivo','cash','tarjeta','tarjeta de crédito','tarjeta de debito','tarjeta crédito','tarjeta débito','transferencia','banco','cheque','yappy'].includes(inputLower);
+      // Respuesta con datos de Anexo (RUC/Cédula, Nombre, Nº factura): es un
+      // follow-up del flujo abierto, no una transacción nueva.
+      const aportaAnexo = !pareceNueva &&
+        /(?:^|[^\p{L}\p{N}_])(?:ruc|c[eé]dula|proveedor|proveedora|nombre|raz[oó]n social|factura)(?![\p{L}\p{N}_])/iu.test(input);
 
-      if (isFollowUp) {
+      if (isFollowUp || aportaAnexo) {
         // Preservar completamente el tipo, concepto, monto y proveedor del contexto
         type = prev.type || type;
         concept = prev.concept || concept;
         amount = prev.amount || amount;
         provider = prev.provider || provider;
         itbms = prev.itbms || itbms;
+        if (prev.description) description = prev.description;
       } else {
         // Merge normal: solo rellenar lo que falta.
         // Si el contexto tiene type forzado (OCR/PDF desde WhatsApp), usarlo.
@@ -346,7 +362,7 @@ export class DialogAgent {
         if (!(extracted as any).itbmsAmount && (prev as any)?.itbmsAmount) {
           (extracted as any).itbmsAmount = (prev as any).itbmsAmount;
         }
-        if (!extracted.provider && prev.provider) {
+        if (!pareceNueva && !extracted.provider && prev.provider) {
           provider = prev.provider;
         }
       }
@@ -379,7 +395,7 @@ export class DialogAgent {
       type,
       amount,
       currency: 'USD',
-      description: input,
+      description,
       concept,
       paymentMethod,
       date: (() => {
@@ -400,8 +416,13 @@ export class DialogAgent {
       itbmsAmount,
       provider,
       source: (prev as any)?.source || undefined,
-      ruc: (prev as any)?.ruc || (extracted as any).ruc || null,
-      invoiceNumber: (prev as any)?.invoiceNumber || (extracted as any).invoiceNumber || null,
+      ruc: pareceNueva
+        ? ((extracted as any).ruc || null)
+        : ((prev as any)?.ruc || (extracted as any).ruc || null),
+      invoiceNumber: pareceNueva
+        ? ((extracted as any).invoiceNumber || null)
+        : ((prev as any)?.invoiceNumber || (extracted as any).invoiceNumber || null),
+      cuentaBanco: (prev as any)?.cuentaBanco || null,
       suggestedResponse: missingFields.length === 0
         ? `He entendido: ${type === 'VENTA' ? 'Venta' : type === 'GASTO' ? 'Gasto' : type} de ${concept} por $${amount.toFixed(2)}${paymentMethod ? ` pagado con ${paymentMethod}` : ''}${itbms ? ` (ITBMS ${(itbmsRate! * 100).toFixed(0)}% incluido)` : ''}. ¿Confirmas?`
         : `Necesito más información: ${missingFields.join(', ')}`,

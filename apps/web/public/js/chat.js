@@ -217,6 +217,14 @@ async function sendMessage() {
       } else {
         addMessage(data.prompt, 'assistant');
         showInput('escribir', true);
+        // Anexo DGI: dejar la instrucción original cargada para que el usuario
+        // solo agregue RUC/Cédula y Nombre (y el Nº de factura si es crédito).
+        if (data.prefill) {
+          const ta = document.getElementById('message-input');
+          ta.value = data.prefill;
+          ta.focus();
+          ta.setSelectionRange(ta.value.length, ta.value.length);
+        }
       }
     } else {
       cancelInput();

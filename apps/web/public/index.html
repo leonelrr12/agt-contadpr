@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <title>Contador507 — Contabilidad Inteligente</title>
   <meta name="description" content="Agente contable inteligente para Panamá. Registra transacciones, genera asientos contables, OCR de facturas y reportes financieros.">
   <meta name="theme-color" content="#1565c0">
@@ -28,9 +28,10 @@
   <meta name="twitter:description" content="Agente contable con IA para Panamá. Facturas, asientos y reportes automatizados.">
   <meta name="twitter:image" content="https://contador507.com/og-image.png">
 
-  <link rel="stylesheet" href="styles.css?v=41">
+  <link rel="stylesheet" href="styles.css?v=45">
+  <link rel="stylesheet" href="dialogos.css?v=1">
 </head>
-<body>
+<body class="spa">
   <!-- Sprite de iconos del menú (stroke heredado de .nav-ico en styles.css) -->
   <svg class="icon-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
     <symbol id="ic-chat" viewBox="0 0 24 24"><path d="M4.5 5.25h15A2.25 2.25 0 0 1 21.75 7.5v7.5a2.25 2.25 0 0 1-2.25 2.25H10.5L5.25 21v-3.75H4.5A2.25 2.25 0 0 1 2.25 15V7.5A2.25 2.25 0 0 1 4.5 5.25Z"/></symbol>
@@ -221,8 +222,8 @@
           <div id="ocr-result" class="hidden">
             <div id="ocr-result-text"></div>
             <div id="ocr-result-actions">
-              <button class="btn-primary" onclick="sendOCRResult()">✅ Usar como transacción</button>
-              <button class="btn-secondary" onclick="correctAndSendOCR()">✏️ Corregir y enviar</button>
+              <button class="btn-primary" id="ocr-btn-use" onclick="sendOCRResult()">✅ Usar como transacción</button>
+              <button class="btn-secondary" id="ocr-btn-correct" onclick="correctAndSendOCR()">✏️ Corregir y enviar</button>
               <button class="btn-secondary" onclick="cancelOCR()">✕ Cancelar</button>
             </div>
           </div>
@@ -701,12 +702,13 @@
   <script src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="js/terminos.js?v=1"></script>
-  <script src="js/core.js?v=83"></script>
-  <script src="js/capture.js?v=74"></script>
+  <script src="js/dialogos.js?v=1"></script>
+  <script src="js/core.js?v=84"></script>
+  <script src="js/capture.js?v=75"></script>
   <script src="js/capture-qr.js?v=74"></script>
-  <script src="js/chat.js?v=76"></script>
+  <script src="js/chat.js?v=77"></script>
   <script src="js/router.js?v=81"></script>
-  <script src="js/admin.js?v=94"></script>
+  <script src="js/admin.js?v=95"></script>
   <script src="js/ayuda.js?v=1"></script>
   <script src="js/init.js?v=81"></script>
   <script src="js/panels-sidebar.js?v=74"></script>
@@ -717,13 +719,13 @@
   <script src="js/informes.js?v=98"></script>
   <script src="js/presupuestos.js?v=2"></script>
   <script src="js/borrador430.js?v=4"></script>
-  <script src="js/tax-calendar.js?v=75"></script>
+  <script src="js/tax-calendar.js?v=76"></script>
   <script src="js/salud.js?v=74"></script>
   <script src="js/reembolsos.js?v=6"></script>
   <script src="js/email-facturas.js?v=7"></script>
   <script src="js/despacho.js?v=4"></script>
 <script src="js/empresa.js?v=7"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="js/facturas.js?v=81"></script>
+<script src="js/facturas.js?v=82"></script>
 </body>
 </html>

@@ -4,6 +4,19 @@ import { basePrismaStub } from './stubs';
 
 function makePrismaStub() {
   let entryIdCounter = 0;
+  const cuentas = [
+    { id: 'acct-caja', code: '1.1.01', aliases: ['caja'], name: 'Caja', type: 'ACTIVO', isActive: true, requiresAnexo: false },
+    { id: 'acct-banco', code: '1.1.02.01', aliases: ['banco-general'], name: 'Banco General', type: 'ACTIVO', isActive: true, requiresAnexo: false },
+    { id: 'acct-banco-2', code: '1.1.02.02', aliases: [], name: 'Banco Nacional', type: 'ACTIVO', isActive: true, requiresAnexo: false },
+    { id: 'acct-clientes', code: '1.1.03.01', aliases: ['clientes'], name: 'Clientes', type: 'ACTIVO', isActive: true, requiresAnexo: false },
+    { id: 'acct-tarjeta', code: '2.1.03', aliases: ['tarjeta-credito'], name: 'Tarjetas de Crédito', type: 'PASIVO', isActive: true, requiresAnexo: false },
+    { id: 'acct-proveedores', code: '2.1.01', aliases: ['proveedores'], name: 'Proveedores', type: 'PASIVO', isActive: true, requiresAnexo: false },
+    { id: 'acct-inventario', code: '1.1.04.01', aliases: ['inventario-mercancia'], name: 'Inventario de Mercancía', type: 'ACTIVO', isActive: true, requiresAnexo: false },
+    { id: 'acct-prestamos', code: '2.2.01', aliases: ['prestamos-lp'], name: 'Préstamos por Pagar LP', type: 'PASIVO', isActive: true, requiresAnexo: false },
+    { id: 'acct-ventas', code: '4.01.01', aliases: ['ventas'], name: 'Ventas', type: 'INGRESO', isActive: true, requiresAnexo: false },
+    { id: 'acct-combustible', code: '6.01.02', name: 'Gastos de Combustible', type: 'GASTO', isActive: true, requiresAnexo: false },
+    { id: 'acct-gastos-varios', code: '6.06.01', aliases: ['gasto'], name: 'Gastos Varios', type: 'GASTO', isActive: true, requiresAnexo: false },
+  ];
   return {
     ...basePrismaStub(),
     company: {
@@ -16,19 +29,8 @@ function makePrismaStub() {
       ],
     },
     account: {
-      findMany: async () => [
-        { id: 'acct-caja', code: '1.1.01', aliases: ['caja'], name: 'Caja', type: 'ACTIVO', isActive: true },
-        { id: 'acct-banco', code: '1.1.02.01', aliases: ['banco-general'], name: 'Banco General', type: 'ACTIVO', isActive: true },
-        { id: 'acct-banco-2', code: '1.1.02.02', aliases: [], name: 'Banco Nacional', type: 'ACTIVO', isActive: true },
-        { id: 'acct-clientes', code: '1.1.03.01', aliases: ['clientes'], name: 'Clientes', type: 'ACTIVO', isActive: true },
-        { id: 'acct-tarjeta', code: '2.1.03', aliases: ['tarjeta-credito'], name: 'Tarjetas de Crédito', type: 'PASIVO', isActive: true },
-        { id: 'acct-proveedores', code: '2.1.01', aliases: ['proveedores'], name: 'Proveedores', type: 'PASIVO', isActive: true },
-        { id: 'acct-inventario', code: '1.1.04.01', aliases: ['inventario-mercancia'], name: 'Inventario de Mercancía', type: 'ACTIVO', isActive: true },
-        { id: 'acct-prestamos', code: '2.2.01', aliases: ['prestamos-lp'], name: 'Préstamos por Pagar LP', type: 'PASIVO', isActive: true },
-        { id: 'acct-ventas', code: '4.01.01', aliases: ['ventas'], name: 'Ventas', type: 'INGRESO', isActive: true },
-        { id: 'acct-combustible', code: '6.01.02', name: 'Gastos de Combustible', type: 'GASTO', isActive: true },
-        { id: 'acct-gastos-varios', code: '6.06.01', aliases: ['gasto'], name: 'Gastos Varios', type: 'GASTO', isActive: true },
-      ],
+      findMany: async () => cuentas,
+      findFirst: async (args: any) => cuentas.find((c) => c.id === args?.where?.id) || null,
     },
     journalEntry: {
       create: async (args: any) => {

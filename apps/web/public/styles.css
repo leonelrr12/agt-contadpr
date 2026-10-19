@@ -20,12 +20,19 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: #f5f5f5;
   color: #333;
-  height: 100vh;
 }
+
+/* Solo el SPA vive dentro de una altura fija; las páginas standalone
+   (Inventario, Planilla, Conciliación…) necesitan el scroll normal del
+   documento. */
+body.spa { height: 100vh; }
 
 #app {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  /* minmax(0, 1fr) y no 1fr: con 1fr el mínimo del track es el contenido
+     intrínseco de la columna, y una tabla ancha (o el bloque de usuario del
+     móvil) estira la columna más allá del viewport. */
+  grid-template-columns: 280px minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
 }
@@ -249,6 +256,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -415,6 +423,7 @@ body {
 
 #message-input {
   flex: 1;
+  min-width: 0;
   padding: 10px 14px;
   border: 1px solid var(--borde-suave);
   border-radius: 8px;
@@ -751,6 +760,14 @@ body {
   border-radius: 8px;
   padding: 14px;
 }
+.ocr-no-elegible {
+  color: #991b1b;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.ocr-no-elegible strong { display: block; font-size: 15px; margin-bottom: 6px; }
+.ocr-no-elegible p { margin: 0; }
+.ocr-no-elegible .ocr-no-elegible-hint { margin-top: 8px; color: var(--texto-suave); font-size: 13px; }
 .ocr-extracted pre {
   background: #fff;
   border: 1px solid var(--borde);
@@ -941,17 +958,27 @@ body {
   .mobile-only { display: inline-block; }
   .hamburger-btn { display: flex; }
 
-  body { overflow: hidden; }
+  html, body { max-width: 100%; overflow-x: hidden; }
+  body.spa {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    /* El chat scrollea por dentro: sin esto, arrastrar hacia abajo dispara el
+       «pull-to-refresh» del navegador y recarga la app (y cierra el drawer). */
+    overscroll-behavior: none;
+  }
 
   #app {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+    /* minmax(0, 1fr): sin el 0, la barra superior y el chat se estiran al
+       contenido intrínseco (el bloque de usuario) y el burger queda fuera. */
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
     height: 100dvh;
     overflow: hidden;
   }
 
   #sidebar {
-    padding: 0 12px;
+    padding: max(8px, env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) 8px calc(12px + env(safe-area-inset-left));
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
@@ -966,17 +993,31 @@ body {
     display: flex;
     align-items: center;
     gap: 10px;
-    flex: 0 0 auto;
+    flex: 0 1 auto;
+    min-width: 0;
   }
   .sidebar-header h2 { font-size: 16px; margin: 0; }
-  .sidebar-brand { padding: 0; }
-  .sidebar-brand-name { font-size: 17px; }
+  .sidebar-brand { padding: 0; min-width: 0; }
+  .sidebar-brand-name {
+    font-size: 17px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .sidebar-brand-tag { display: none; }
   .hamburger-btn {
     flex: 0 0 auto;
-    padding: 10px 18px;
-    font-size: 28px;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    font-size: 26px;
+    line-height: 1;
+    border-radius: 8px;
     margin-left: auto;
+    position: relative;
+    z-index: 2;
   }
 
   #sidebar-user,
@@ -984,7 +1025,14 @@ body {
   #sidebar-nav,
   #summary-content { display: none; }
   #sidebar-subscription { display: none !important; }
-  #sidebar-user { display: flex; margin: 0; padding: 0 0 0 4px; border-top: none; }
+  #sidebar-user {
+    display: flex;
+    flex: 0 1 auto;
+    min-width: 0;
+    margin: 0;
+    padding: 0 0 0 4px;
+    border-top: none;
+  }
 
   /* Drawer abierto */
   #sidebar.open {
@@ -992,19 +1040,21 @@ body {
     flex-wrap: wrap;
     align-items: center;
     justify-content: flex-start;
-    position: absolute;
+    position: fixed;
     top: 0; left: 0; right: 0;
-    max-height: 90dvh;
+    width: 100%;
+    max-height: 100dvh;
     overflow-y: auto;
-    padding: 12px;
+    overscroll-behavior: contain;
+    padding: max(12px, env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
     box-shadow: 0 8px 32px rgba(0,0,0,0.5);
   }
   #sidebar.open .sidebar-header { flex: 0 0 auto; }
   #sidebar.open #sidebar-user {
     display: flex !important;
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-width: 0;
-    padding: 0 0 0 12px !important;
+    padding: 0 0 0 4px !important;
     border-top: none;
     margin: 0;
   }
@@ -1019,7 +1069,7 @@ body {
   #sidebar.open #sidebar-nav { flex-direction: column; }
   #sidebar.open .hamburger-btn { position: static; margin-left: 4px; flex: 0 0 auto; }
 
-  #main { height: auto; min-height: 0; }
+  #main { height: auto; min-height: 0; min-width: 0; }
 
   /* Las grillas del diario, la planilla o los auxiliares tienen 6-8 columnas: en el
      celular no entran. `#main` es `overflow: hidden`, así que lo que sobraba quedaba
@@ -1027,21 +1077,50 @@ body {
      deslizan de costado y la tabla entera queda alcanzable. */
   #main > div[id^="panel-"] { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   /* El chat (la vista de arranque) también puede recibir una tabla en un mensaje. */
-  #chat-messages { overflow-x: auto; }
+  #chat-messages { overflow-x: auto; overscroll-behavior-y: contain; }
 
   #chat-header { padding: 12px 16px; flex-shrink: 0; }
   #chat-header h1 { font-size: 20px; }
   .subtitle { font-size: 14px; }
+  #capture-date-widget {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+  #capture-date-picker { flex: 1 1 auto; min-width: 0; max-width: 100%; }
 
   #chat-messages { padding: 12px 16px; flex: 1; min-height: 0; overflow-y: auto; }
-  .message { max-width: 95%; padding: 14px 16px; font-size: 16px; }
+  .message {
+    max-width: 95%;
+    padding: 14px 16px;
+    font-size: 16px;
+    overflow-wrap: anywhere;
+    overflow-x: auto;
+  }
+  .message.assistant .entry-table { font-size: 13px; }
+  .message.assistant .entry-table th,
+  .message.assistant .entry-table td { padding: 5px 6px; }
 
-  #input-area { padding: 12px 16px; flex-shrink: 0; max-height: 50vh; overflow-y: auto; }
-  #quick-actions { gap: 8px; flex-wrap: wrap; }
-  .quick-btn { padding: 14px 16px; font-size: 15px; flex: 1; text-align: center; min-width: 0; }
-
+  #input-area {
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    flex-shrink: 0;
+    max-height: 50dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  #quick-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .quick-btn { padding: 14px 16px; font-size: 15px; text-align: center; min-width: 0; }
+  #text-input { align-items: stretch; }
   #message-input { font-size: 16px; padding: 12px 14px; }
   #send-btn { padding: 12px 24px; font-size: 16px; }
+  /* Las filas de acciones (DGI, OCR, PDF, QR): que envuelvan en vez de recortarse. */
+  #dgi-menu, #ocr-capture-actions, #pdf-actions, #ocr-result-actions,
+  #pdf-result-actions, #qr-actions, #qr-result-actions { flex-wrap: wrap; }
+  #qr-actions > input { min-width: 0; }
 
   #reports-panel { width: 100vw; right: -100vw; height: 100dvh; }
   #reports-panel.open { right: 0; }
@@ -1070,8 +1149,10 @@ body {
 }
 
 @media (max-width: 480px) {
-  #sidebar { padding: 8px 10px; gap: 35px; }
-  .sidebar-header { padding-left: 10px }
+  /* En la barra superior solo avatar + salir: el nombre y la empresa ocupan
+     ancho que necesita el burger. El drawer sí los muestra completos. */
+  #sidebar-user .sb-user-info { display: none; }
+  #sidebar.open #sidebar-user .sb-user-info { display: flex; }
   .summary-card { padding: 8px 12px; min-width: 72px; }
   .summary-value { font-size: 16px; }
   .summary-label { font-size: 11px; }
@@ -1081,7 +1162,7 @@ body {
   #chat-messages { padding: 10px 12px; }
   .message { padding: 12px 14px; font-size: 15px; max-width: 98%; }
   .quick-btn { font-size: 14px; padding: 12px 10px; }
-  #input-area { padding: 10px 12px; }
+  #input-area { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
   .panel-tabs button { padding: 10px 8px; font-size: 12px; }
 }
 
@@ -1228,31 +1309,8 @@ body {
   display: none !important;
 }
 
-/* ── Custom Dialog (reemplaza alert/confirm nativos) ── */
-.app-dialog-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 9999; animation: fadeIn 0.15s ease;
-}
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-.app-dialog {
-  background: #fff; border-radius: 16px; padding: 28px 24px 20px;
-  width: 90%; max-width: 400px; box-shadow: 0 20px 60px rgba(0,0,0,0.25);
-  text-align: center; animation: slideUp 0.2s ease;
-}
-@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-.app-dialog-icon { font-size: 40px; margin-bottom: 12px; }
-.app-dialog-msg { font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5; }
-.app-dialog-buttons { display: flex; gap: 10px; justify-content: center; }
-.app-dialog-btn {
-  padding: 10px 24px; border-radius: 8px; font-size: 14px; font-weight: 600;
-  cursor: pointer; border: none; transition: opacity 0.1s;
-}
-.app-dialog-btn:hover { opacity: 0.85; }
-.app-dialog-btn:active { transform: scale(0.97); }
-.app-dialog-btn.primary { background: #2563eb; color: #fff; }
-.app-dialog-btn.danger { background: #ef4444; color: #fff; }
-.app-dialog-btn.secondary { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+/* Los diálogos (avisos, confirmaciones y prompts) viven en dialogos.css:
+   admin.html no carga este archivo, así que se enlaza aparte en cada página. */
 
 /* ── Desktop: Dashboard y Reportes con padding razonable ── */
 @media (min-width: 1024px) {

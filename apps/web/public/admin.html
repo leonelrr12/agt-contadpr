@@ -126,7 +126,9 @@
       .modal { padding: 20px; }
     }
   </style>
-  <script src="js/shared.js?v=3"></script>
+  <link rel="stylesheet" href="dialogos.css?v=1">
+  <script src="js/dialogos.js?v=1"></script>
+  <script src="js/shared.js?v=4"></script>
 </head>
 <body>
 
@@ -515,9 +517,9 @@ async function toggleAddon(subId, addon) {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({ addons: next }),
     });
-    if (!r.ok) { const e = await r.json().catch(() => ({})); alert('❌ ' + (e.error || 'Error')); return; }
+    if (!r.ok) { const e = await r.json().catch(() => ({})); await showAlert('❌ ' + (e.error || 'Error')); return; }
     loadCuentas();
-  } catch (e) { alert('❌ Error de conexión'); }
+  } catch (e) { await showAlert('❌ Error de conexión'); }
 }
 
 async function showPayment(subId, companyName, planName, planPrice) {
@@ -723,12 +725,12 @@ async function annulYearClose(id, clave) {
     });
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
-      alert('❌ ' + (e.error || 'Error al anular'));
+      await showAlert('❌ ' + (e.error || 'Error al anular'));
       return;
     }
-    alert('✅ Asiento de cierre anulado. Puedes volver a cerrar el año desde Calendario Fiscal.');
+    await showAlert('✅ Asiento de cierre anulado. Puedes volver a cerrar el año desde Calendario Fiscal.');
     loadYearCloses();
-  } catch (e) { alert('❌ Error de conexión'); }
+  } catch (e) { await showAlert('❌ Error de conexión'); }
 }
 
 loadYearCloses();
