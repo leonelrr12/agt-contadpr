@@ -178,7 +178,9 @@ function reembPintarFacturas() {
       <td>${reembPillAsiento(x.journalEntry?.status)}</td>
       <td class="acciones">${x.dgiUrl
         ? `<a href="${escapeHtml(x.dgiUrl)}" target="_blank" rel="noopener">Ver ↗</a>`
-        : '<span class="grilla-secundario">sin URL</span>'}</td>
+        : (x.worker
+          ? '<span class="pildora pildora-error" title="Gasto sin URL de DGI">⚠ Sin justificar</span>'
+          : '<span class="grilla-secundario">sin URL</span>')}</td>
     </tr>`;
   }
   el.innerHTML = html + '</tbody></table>';
@@ -293,6 +295,7 @@ function reembPintarTrabajadores() {
   let html = reembAltaHtml() + '<table class="grilla"><thead><tr><th>Trabajador</th><th>Celular</th><th class="num">Pendiente</th><th>WhatsApp</th><th class="acciones"></th></tr></thead><tbody>';
   for (const t of _reembTrabajadores) {
     const pendientes = Number(t.saldoPendiente || 0);
+    const sinUrl = Number(t.sinUrlPendientes || 0);
     // Planilla/Honorarios bajan a la segunda línea: es contexto, no una columna.
     const contexto = t.employee ? `Planilla: ${escapeHtml(t.employee.nombre)}`
       : t.supplier ? `Honorarios: ${escapeHtml(t.supplier.name)}` : '';
@@ -302,7 +305,7 @@ function reembPintarTrabajadores() {
         <div class="grilla-secundario">${contexto || '&nbsp;'}</div>
       </td>
       <td class="cuenta-code">${reembCelular(t.phoneNumber)}</td>
-      <td class="num" style="font-weight:${pendientes > 0 ? '700' : '400'};color:${pendientes > 0 ? '#92400e' : '#6b7280'}">${reembMoney(pendientes)}</td>
+      <td class="num" style="font-weight:${pendientes > 0 ? '700' : '400'};color:${pendientes > 0 ? '#92400e' : '#6b7280'}">${reembMoney(pendientes)}${sinUrl ? `<div style="font-size:11px;color:#dc2626;font-weight:600">⚠️ ${sinUrl} sin justificar</div>` : ''}</td>
       <td>${(t.links || []).length ? '<span class="pildora pildora-ok">Vinculado</span>' : '<span class="pildora pildora-neutra">Sin vincular</span>'}</td>
       <td class="acciones">
         <button class="btn-sm" onclick="reembolsosVerDetalle('${t.id}')">Ver detalle</button>
@@ -340,6 +343,7 @@ function reembPintarDetalle() {
 
   const pendientes = facturas.filter(f => f.status === 'PENDIENTE');
   const pagadas = facturas.filter(f => f.status === 'PAGADO');
+  const sinJustificar = pendientes.filter(f => !f.dgiUrl).length;
 
   let html = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px">
@@ -354,6 +358,13 @@ function reembPintarDetalle() {
         <div style="font-size:24px;font-weight:700;color:${Number(t.saldoPendiente) > 0 ? '#92400e' : '#059669'}">${reembMoney(t.saldoPendiente)}</div>
       </div>
     </div>`;
+
+  if (sinJustificar > 0) {
+    html += `<div class="reemb-aviso-rojo" style="margin-bottom:12px">
+      🚨 <strong>Desembolso no justificado:</strong> ${sinJustificar} gasto(s) sin URL de DGI.
+      Confirmá con el empleado que son reales <strong>antes de reembolsar</strong>.
+    </div>`;
+  }
 
   if (!pendientes.length && !pagadas.length) {
     el.innerHTML = html + '<div class="empty" style="padding:24px;text-align:center">Este trabajador todavía no tiene facturas registradas.</div>';
@@ -374,7 +385,7 @@ function reembPintarDetalle() {
         <td class="cuenta-code">${escapeHtml(f.numeroFactura || '—')}</td>
         <td class="num">${reembMoney(f.total)}</td>
         <td>${reembPillAsiento(f.journalEntry?.status)}</td>
-        <td class="acciones">${f.dgiUrl ? `<a href="${escapeHtml(f.dgiUrl)}" target="_blank" rel="noopener">Ver ↗</a>` : '<span class="grilla-secundario">sin URL</span>'}</td>
+        <td class="acciones">${f.dgiUrl ? `<a href="${escapeHtml(f.dgiUrl)}" target="_blank" rel="noopener">Ver ↗</a>` : '<span class="pildora pildora-error" title="Gasto sin URL de DGI">⚠ Sin justificar</span>'}</td>
       </tr>`;
     }
     html += '</tbody></table>';
@@ -463,6 +474,7 @@ async function reembolsosAbrirPago() {
   const opciones = (_reembCuentasPago || []).map(c => `<option value="${c.id}">${c.code} — ${escapeHtml(c.name)}</option>`).join('');
   const seleccionadas = _reembDetalle.facturas.filter(f => _reembSeleccion.has(f.id));
   const porAprobar = seleccionadas.filter(f => f.journalEntry?.status !== 'CONFIRMADO').length;
+  const sinJustificar = seleccionadas.filter(f => !f.dgiUrl).length;
 
   form.classList.remove('hidden');
   form.innerHTML = `
@@ -472,13 +484,22 @@ async function reembolsosAbrirPago() {
         Se agrupan ${seleccionadas.length} factura(s) en un solo pago.
         ${porAprobar ? `<strong>${porAprobar} asiento(s) en borrador se van a aprobar con este pago.</strong>` : ''}
       </p>
+      ${sinJustificar ? `
+        <div class="reemb-aviso-rojo" style="margin:0 0 10px 0">
+          🚨 <strong>${sinJustificar} gasto(s) sin URL de DGI.</strong>
+          Confirmá con ${escapeHtml(_reembDetalle.worker.nombre)} que son reales antes de reembolsar.
+        </div>
+        <label class="reemb-confirma">
+          <input type="checkbox" id="reemb-confirma-empleado" onchange="document.getElementById('reemb-pago-confirmar').disabled = !this.checked">
+          <span>Confirmé con el empleado que los gastos sin URL son reales.</span>
+        </label>` : ''}
       <div class="form-grid">
         <div><label>Cuenta de pago</label><select id="reemb-cuenta">${opciones || '<option value="">— no hay bancos configurados —</option>'}</select></div>
         <div><label>Fecha del pago</label><input type="date" id="reemb-fecha" value="${reembHoy()}"></div>
         <div style="grid-column:1/-1"><label>Notas <span style="font-weight:400;color:#6b7280">(opcional)</span></label><input type="text" id="reemb-notas" placeholder="Ej: pagado en efectivo el viernes"></div>
       </div>
       <div style="margin-top:12px;display:flex;gap:8px">
-        <button class="btn-primary" onclick="reembolsosConfirmarPago()">💵 Confirmar pago</button>
+        <button class="btn-primary" id="reemb-pago-confirmar" ${sinJustificar ? 'disabled' : ''} onclick="reembolsosConfirmarPago()">💵 Confirmar pago</button>
         <button class="btn-secondary" onclick="document.getElementById('reemb-pago-form').classList.add('hidden')">Cancelar</button>
       </div>
     </div>`;
@@ -491,8 +512,17 @@ async function reembolsosConfirmarPago() {
   const notas = document.getElementById('reemb-notas')?.value || null;
   if (!cuentaBancoId) { await showAlert('Selecciona la cuenta de pago'); return; }
 
+  const seleccionadas = _reembDetalle.facturas.filter(f => _reembSeleccion.has(f.id));
+  const sinJustificar = seleccionadas.filter(f => !f.dgiUrl).length;
+  const confirmado = !!document.getElementById('reemb-confirma-empleado')?.checked;
+  if (sinJustificar > 0 && !confirmado) {
+    await showAlert('Hay gastos sin URL de DGI: confirmá con el empleado antes de reembolsar.');
+    return;
+  }
+
   const total = reembTotalSeleccionado();
-  const ok = await showConfirm(`¿Pagar ${reembMoney(total)} a ${_reembDetalle.worker.nombre}? Se generará el asiento del pago y las facturas quedarán marcadas como pagadas.`);
+  const aviso = sinJustificar ? `\n\n⚠️ Incluye ${sinJustificar} gasto(s) sin URL de DGI.` : '';
+  const ok = await showConfirm(`¿Pagar ${reembMoney(total)} a ${_reembDetalle.worker.nombre}?${aviso} Se generará el asiento del pago y las facturas quedarán marcadas como pagadas.`);
   if (!ok) return;
 
   try {
@@ -503,6 +533,7 @@ async function reembolsosConfirmarPago() {
         workerId: _reembDetalle.worker.id,
         claimIds: [..._reembSeleccion],
         cuentaBancoId, fecha, notas,
+        confirmaSinUrl: sinJustificar === 0 || confirmado,
       }),
     });
     const data = await res.json();

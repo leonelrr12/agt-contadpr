@@ -483,6 +483,26 @@ function matchConcepto(allConcepts: any[], conceptName: string, transactionType?
     };
   }
 
+  // 1.6 Frases completas que nombran la CUENTA pero no el concepto de BD:
+  //     "Atención al Empleado" es la cuenta 6.01.01.07 y el concepto que apunta
+  //     a ella es "Alimentación". Sin esto caía en Gastos Varios.
+  const frases: Array<[RegExp, string[]]> = [
+    [/\batenci[oó]n\s+(?:(?:a\s+)?l[oa]s?\s+|al\s+|a\s+)?(?:emplead[oa]s?|personal)\b/i, ['Alimentación', 'Alimentacion', 'Refrigerios']],
+  ];
+  for (const [re, nombres] of frases) {
+    if (!re.test(lowerName)) continue;
+    for (const nombre of nombres) {
+      const concept = candidatos.find((c: any) => c.name.toLowerCase() === nombre.toLowerCase());
+      if (concept) {
+        return {
+          concept: concept.name,
+          accountId: concept.accountId,
+          confidence: Math.max(concept.confidence * 0.85, 0.75),
+        };
+      }
+    }
+  }
+
   // 2. Concepto de BD como substring en el texto de entrada
   //    Ej: input="Factura de electricidad ENSA julio" → matchea concepto "Electricidad"
   const substringMatch = candidatos

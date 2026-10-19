@@ -101,6 +101,18 @@ describe('registrarFacturaRecibida', () => {
     expect(r.claim.total).toBe(50);
   });
 
+  it('un gasto dictado sin URL se registra como no justificado', async () => {
+    const prisma = prismaFalso();
+    const r = await registrarFacturaRecibida(prisma, {
+      companyId: 'c1', workerId: 'w1', tipo: 'GASTO', origen: 'WHATSAPP',
+      journalEntry: asiento([{ debit: 12 }]),
+      factura: { proveedor: 'Alimentación' },
+    });
+    expect(r.creado).toBe(true);
+    expect(r.claim.dgiUrl).toBeNull();
+    expect(r.claim.total).toBe(12);
+  });
+
   it('una factura repetida no se registra dos veces', async () => {
     const prisma = prismaFalso({
       findFirst: async () => ({ id: 'claim-viejo', worker: { nombre: 'Juan' }, status: 'PENDIENTE' }),
@@ -179,6 +191,7 @@ import { pagarReembolso } from '../reembolsos';
 
 const claim = (id: string, total: number, status = 'PENDIENTE', entryStatus = 'CONFIRMADO') => ({
   id, total, status, journalEntryId: `je-${id}`, journalEntry: { id: `je-${id}`, status: entryStatus },
+  dgiUrl: 'https://dgi-fep.mef.gob.pa/x',
 });
 
 function prismaPago(over: any = {}) {
@@ -263,6 +276,19 @@ describe('pagarReembolso', () => {
   it('una factura sin asiento válido no se reembolsa', async () => {
     const p = prismaPago({ claims: [{ ...claim('a', 107), journalEntryId: null, journalEntry: null }, claim('b', 25)] });
     await expect(pago(p)).rejects.toThrow(/sin asiento válido/);
+  });
+
+  it('un gasto sin URL de DGI exige confirmar con el empleado antes de pagar', async () => {
+    const p = prismaPago({ claims: [{ ...claim('a', 107), dgiUrl: null }, claim('b', 25)] });
+    await expect(pago(p)).rejects.toThrow(/sin URL de DGI.*confirm/i);
+    expect(p.escrituras.asiento).toBeNull();
+  });
+
+  it('con confirmaSinUrl=true el gasto sin URL se paga', async () => {
+    const p = prismaPago({ claims: [{ ...claim('a', 107), dgiUrl: null }, claim('b', 25)] });
+    const r = await pago(p, { confirmaSinUrl: true });
+    expect(r.total).toBe(132);
+    expect(p.escrituras.asiento).not.toBeNull();
   });
 
   it('sin facturas seleccionadas no hace nada', async () => {

@@ -49,10 +49,28 @@ reembolsosRouter.get('/trabajadores', async (req, res) => {
     orderBy: { nombre: 'asc' },
   });
 
+  // Gastos pendientes SIN URL del CUTE: no tienen comprobante verificable y el
+  // panel los marca en rojo antes de reembolsar.
+  const sinUrl = await req.prisma.expenseClaim.findMany({
+    where: {
+      companyId,
+      workerId: { in: trabajadores.map((t: any) => t.id) },
+      status: 'PENDIENTE',
+      dgiUrl: null,
+      OR: [{ journalEntryId: null }, { journalEntry: { status: { not: 'RECHAZADO' } } }],
+    },
+    select: { workerId: true },
+  });
+  const sinUrlPorTrabajador = new Map<string, number>();
+  for (const c of sinUrl) {
+    if (c.workerId) sinUrlPorTrabajador.set(c.workerId, (sinUrlPorTrabajador.get(c.workerId) || 0) + 1);
+  }
+
   const conSaldo = await Promise.all(
     trabajadores.map(async (t: any) => ({
       ...t,
       saldoPendiente: await saldoPendiente(req.prisma, companyId, t.id),
+      sinUrlPendientes: sinUrlPorTrabajador.get(t.id) || 0,
     })),
   );
   res.json(conSaldo);
@@ -135,7 +153,7 @@ reembolsosRouter.get('/cuentas-pago', async (req, res) => {
 
 // POST /api/reembolsos/pagar — Paga (agrupadas) las facturas elegidas
 reembolsosRouter.post('/pagar', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
-  const { workerId, claimIds, cuentaBancoId, fecha, notas } = req.body || {};
+  const { workerId, claimIds, cuentaBancoId, fecha, notas, confirmaSinUrl } = req.body || {};
   if (!workerId || !Array.isArray(claimIds) || !claimIds.length || !cuentaBancoId || !fecha) {
     res.status(400).json({ error: 'Faltan datos: trabajador, facturas, cuenta y fecha son requeridos' });
     return;
@@ -149,6 +167,7 @@ reembolsosRouter.post('/pagar', requireRole('admin', 'contador', 'superadmin'), 
       fecha,
       userId: req.user!.userId,
       notas: notas || null,
+      confirmaSinUrl: !!confirmaSinUrl,
     });
     res.json({
       ok: true,

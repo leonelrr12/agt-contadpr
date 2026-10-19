@@ -239,6 +239,28 @@ export async function processWhatsAppPDF(
  * Procesa un mensaje entrante de WhatsApp con soporte multi-turn.
  * Retorna la respuesta que se debe enviar al usuario.
  */
+/**
+ * Ayuda para el celular de un TRABAJADOR (reembolsos): solo dos formas de
+ * cargar lo que pagó de su bolsillo. No habla de batch ni de saldos de la
+ * empresa, que no le sirven.
+ */
+export function helpTrabajador(): string {
+  return `🧾 *Contador507 — Reembolsos*\n\n` +
+    `Registra lo que pagaste de tu bolsillo de una de estas dos formas:\n\n` +
+    `1️⃣ *URL de la DGI o PDF*\n` +
+    `   Pega el enlace del QR de la factura o envía el PDF.\n\n` +
+    `2️⃣ *Escríbelo en un mensaje*\n` +
+    `   _"Compré almuerzo por 3.50"_\n` +
+    `   _"Compré suministros de limpieza por 12.00"_\n\n` +
+    `💵 Escribe */viaticos* para ver lo que te deben.\n` +
+    `💡 *OK* = guardar · *XX* = cancelar · *HOLA* = ayuda`;
+}
+
+/** Ayuda del celular de la EMPRESA (no es un trabajador). */
+function helpEmpresa(): string {
+  return `🤖 *Contador507* — ¿Qué deseas registrar?\n\n📝 _"compré gasolina por \$40"_\n📦 _"batch" — carga masiva de URLs o PDFs_\n📊 _"saldo" o "banco" — ver saldos_\n\n💡 *OK* = guardar | *XX* = cancelar | *HOLA* = ayuda`;
+}
+
 export async function processWhatsAppMessage(
   prisma: any,
   phoneNumber: string,
@@ -255,9 +277,10 @@ export async function processWhatsAppMessage(
     });
 
     if (existingLink) {
-      // Ya vinculado: solo reiniciar sesión
+      // Ya vinculado: solo reiniciar sesión. El trabajador tiene su propia
+      // ayuda: URL/PDF o el gasto escrito; "batch" y "saldo" no le sirven.
       resetSession(chatId);
-      return `🤖 *Contador507* — ¿Qué deseas registrar?\n\n📝 _\"compré gasolina por \$40\"_\n📦 _\"batch\" — carga masiva de URLs o PDFs_\n📊 _\"saldo\" o \"banco\" — ver saldos_\n\n💡 *OK* = guardar | *XX* = cancelar | *HOLA* = ayuda`;
+      return existingLink.workerAccountId ? helpTrabajador() : helpEmpresa();
     }
 
     // No vinculado: generar código
@@ -577,7 +600,8 @@ async function handleViaticos(prisma: any, link: any): Promise<string> {
   });
 
   if (facturas.length === 0) {
-    return '💵 *No tienes facturas pendientes de reembolso.*\n\nEnvía la URL del CUTE o el PDF de una factura y la registro a tu nombre.';
+    return '💵 *No tienes facturas pendientes de reembolso.*\n\n' +
+      'Envía la *URL de la DGI o el PDF* de una factura, o escríbelo, ej. _"Compré almuerzo por 3.50"_, y lo registro a tu nombre.';
   }
 
   const lineas = facturas.map((f: any) => {
