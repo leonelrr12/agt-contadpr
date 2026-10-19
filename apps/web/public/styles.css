@@ -1234,6 +1234,34 @@ body.spa { height: 100vh; }
   color: var(--tinta);
 }
 
+/* Reembolsos: gasto sin URL del CUTE = desembolso no justificado. */
+.reemb-aviso-rojo {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-left: 4px solid var(--rojo);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #991b1b;
+}
+.reemb-aviso-rojo strong { color: #7f1d1d; }
+.reemb-confirma {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px dashed #fca5a5;
+  border-radius: 8px;
+  background: #fff5f5;
+  color: #7f1d1d;
+  font-size: 13px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+.reemb-confirma input { margin-top: 2px; accent-color: var(--rojo); flex: 0 0 auto; }
+
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

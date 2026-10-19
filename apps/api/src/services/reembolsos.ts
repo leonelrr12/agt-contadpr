@@ -249,6 +249,8 @@ export interface PagoReembolsoInput {
   fecha: string;
   userId: string;
   notas?: string | null;
+  /** El admin confirmó con el empleado los gastos sin URL de DGI. */
+  confirmaSinUrl?: boolean;
 }
 
 /**
@@ -271,7 +273,7 @@ export interface PagoReembolsoInput {
  *    todo el pago se revierte.
  */
 export async function pagarReembolso(prisma: any, input: PagoReembolsoInput): Promise<any> {
-  const { companyId, workerId, claimIds, cuentaBancoId, fecha, userId, notas } = input;
+  const { companyId, workerId, claimIds, cuentaBancoId, fecha, userId, notas, confirmaSinUrl } = input;
   if (!claimIds?.length) throw Object.assign(new Error('No hay facturas seleccionadas'), { status: 400 });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha || '')) throw Object.assign(new Error('Fecha inválida'), { status: 400 });
 
@@ -296,6 +298,15 @@ export async function pagarReembolso(prisma: any, input: PagoReembolsoInput): Pr
   const sinAsiento = claims.filter((c: any) => !c.journalEntryId || c.journalEntry?.status === 'RECHAZADO');
   if (sinAsiento.length) {
     throw Object.assign(new Error(`Hay ${sinAsiento.length} factura(s) sin asiento válido: no se pueden reembolsar.`), { status: 400 });
+  }
+  // Sin URL del CUTE no hay comprobante verificable: el admin debe confirmar
+  // con el empleado que el gasto es real antes de que salga el dinero.
+  const sinJustificar = claims.filter((c: any) => !c.dgiUrl);
+  if (sinJustificar.length && !confirmaSinUrl) {
+    throw Object.assign(
+      new Error(`Hay ${sinJustificar.length} gasto(s) sin URL de DGI. Confirmá con el empleado antes de reembolsar.`),
+      { status: 400, code: 'SIN_JUSTIFICAR' },
+    );
   }
 
   const total = Math.round(claims.reduce((acc: number, c: any) => acc + Number(c.total || 0), 0) * 100) / 100;

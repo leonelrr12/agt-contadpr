@@ -7,11 +7,13 @@ function makePrismaStub() {
     { name: 'Combustible', accountId: 'acct-combustible', confidence: 0.95, account: { name: 'Gastos de Combustible' } },
     { name: 'Electricidad', accountId: 'acct-electricidad', confidence: 0.9, account: { name: 'Gastos de Electricidad' } },
     { name: 'Internet', accountId: 'acct-internet', confidence: 0.9, account: { name: 'Gastos de Internet' } },
+    { name: 'Alimentación', accountId: 'acct-alimentacion', confidence: 0.9, account: { name: 'Atencion al Empleado', type: 'GASTO' } },
   ];
   const accounts = [
     { id: 'acct-combustible', name: 'Gastos de Combustible', code: '6.01.02', type: 'GASTO', isActive: true },
     { id: 'acct-electricidad', name: 'Gastos de Electricidad', code: '6.01.03', type: 'GASTO', isActive: true },
     { id: 'acct-internet', name: 'Gastos de Internet', code: '6.01.04', type: 'GASTO', isActive: true },
+    { id: 'acct-alimentacion', name: 'Atencion al Empleado', code: '6.01.01.07', type: 'GASTO', isActive: true },
     { id: 'acct-gastos-varios', name: 'Gastos Varios', code: '6.06.01', type: 'GASTO', isActive: true },
     { id: 'acct-ventas', name: 'Ventas', code: '4.01.01', type: 'INGRESO', isActive: true },
     { id: 'acct-clientes', name: 'Clientes', code: '1.1.03.01', type: 'ACTIVO', isActive: true },
@@ -71,6 +73,12 @@ describe('ClassificationAgent', () => {
     const result = await agent.classify('combustible');
     expect(result.concept).toBe('Combustible');
     expect(result.accountId).toBe('acct-combustible');
+  });
+
+  it('"Atención al empleado" usa el concepto de Alimentación (cuenta 6.01.01.07)', async () => {
+    const result = await agent.classify('Atención al empleado');
+    expect(result.concept).toBe('Alimentación');
+    expect(result.accountId).toBe('acct-alimentacion');
   });
 
   it('finds partial match by prefix', async () => {
