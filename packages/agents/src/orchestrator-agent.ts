@@ -5,6 +5,7 @@ import { AccountingAgent } from './accounting-agent';
 import { checkNotBlocked } from './journal-guard';
 import type { DialogResult, DialogContext, PrismaLike } from './types';
 import type { AccountingEntry } from './accounting-agent';
+import { missingAnexoFields } from '@agt-contador/shared';
 
 /**
  * Hash determinista del RUC (HMAC-SHA256) para dedupe sin filtrar el valor
@@ -24,6 +25,12 @@ function retencionCobroInfoLocal(client: any, itbms: number, fechaFactura: Date)
     (!client.vigenciaRetencionHasta || f <= new Date(client.vigenciaRetencionHasta));
   const pct = esAgente ? (client?.porcentajeRetencionItbms ?? 0.5) : 0.5;
   return { cap: Math.round(itbms * pct * 100) / 100, pct, esAgente };
+}
+
+/** Clave para comparar Nº de factura: solo dígitos, sin ceros a la izquierda.
+ *  Así A-000003, A000003 y 000003 apuntan a la MISMA factura. */
+function claveNumeroFactura(numero: string | null | undefined): string {
+  return String(numero || '').replace(/\D/g, '').replace(/^0+/, '');
 }
 function hashRuc(plain: string): string {
   const keyB64 = process.env.FIELD_ENC_KEY || '';
@@ -145,6 +152,8 @@ export class OrchestratorAgent {
     needsConfirmation: boolean;
     result?: any;
     entityMatches?: any[];
+    /** Texto con el que el chat debe precargar la caja para corregir y reenviar. */
+    prefill?: string;
   }> {
     const dialog = await this.dialogAgent.processInput(input, context);
 
@@ -190,6 +199,22 @@ export class OrchestratorAgent {
       result: classification as any,
     });
     plan.classification = classification;
+
+    // Anexo DGI: si la cuenta clasificada lo exige, no se arma el asiento hasta
+    // tener RUC/Cédula, Nombre y (en crédito) Nº de factura. El chat también
+    // valida el flag — antes solo lo hacía el import.
+    const faltaAnexo = await this.faltanDatosAnexo(dialog, (classification as any).accountId);
+    if (faltaAnexo) {
+      const ejemplo = `RUC 8-123-456, Proveedor Distribuidora XYZ${dialog.paymentMethod === 'CREDITO' ? ', Factura A-000123' : ''}`;
+      return {
+        plan,
+        prompt: `${faltaAnexo}\n\nEnvíalos para continuar. Ejemplo: "${ejemplo}".`,
+        needsConfirmation: false,
+        // El chat deja la instrucción original cargada para que el usuario
+        // solo agregue el RUC/Nombre y la reenvíe.
+        prefill: dialog.description || input,
+      };
+    }
 
     if (classification.confidence < 0.5) {
       return {
@@ -365,8 +390,58 @@ export class OrchestratorAgent {
     }
   }
 
-  /** Cuenta de crédito fiscal por retención: alias → código 1.1.07 → nombre. */
-  private async cuentaRetencionId(): Promise<string | null> {
+  /**
+   * Cuenta del DEBE de un cobro de factura: banco para ACH/transferencia/
+   * cheque/débito (banco mencionado → banco por defecto → 1.1.02.01) y Caja
+   * solo para efectivo. Única fuente para el preview y la confirmación: si
+   * divergen, el asiento no coincide con lo que el usuario confirmó.
+   */
+  private async resolverCuentaCobro(
+    dialog: any,
+    monto: number,
+    db: any = this.prisma,
+  ): Promise<{ id: string; name: string } | null> {
+    await this.accountingAgent.init();
+    let cajaId: string | null = null;
+    try { cajaId = this.accountingAgent.resolveAlias('caja'); } catch { /* puede no existir */ }
+
+    let cuentaId: string | null = null;
+    const metodo = String(dialog.paymentMethod || '').toUpperCase();
+    if (['TRANSFERENCIA', 'BANCO', 'CHEQUE', 'TARJETA_DEBITO'].includes(metodo)) {
+      const raw = [{ accountId: 'banco-general', name: 'Banco', amount: monto }];
+      await this.aplicarBancoMencionado(dialog, { debit: raw, credit: [] });
+      try { cuentaId = this.accountingAgent.resolveAlias(raw[0].accountId); } catch { /* sin banco */ }
+    }
+    if (!cuentaId) cuentaId = cajaId;
+    if (!cuentaId) return null;
+
+    const accs = await db.account.findMany({
+      where: { id: cuentaId, companyId: this.companyId },
+      select: { id: true, name: true },
+    });
+    return { id: cuentaId, name: accs[0]?.name || 'Cuenta' };
+  }
+
+  /** Cuenta clasificada con su flag de Anexo: devuelve el aviso si faltan datos. */
+  private async faltanDatosAnexo(dialog: any, accountId?: string | null): Promise<string | null> {
+    if (!accountId) return null;
+    const cuenta = await (this.prisma as any).account.findFirst({
+      where: { id: accountId, companyId: this.companyId },
+      select: { code: true, name: true, requiresAnexo: true },
+    });
+    if (!cuenta?.requiresAnexo) return null;
+
+    const missing = missingAnexoFields({
+      ruc: dialog.ruc,
+      provider: dialog.provider,
+      reference: (dialog as any).reference || dialog.invoiceNumber,
+      paymentMethod: dialog.paymentMethod,
+    }, cuenta);
+    if (missing.length === 0) return null;
+    return `📎 La cuenta ${cuenta.code} — ${cuenta.name} lleva Anexo DGI: faltan ${missing.join(', ')}.`;
+  }
+
+  /** Cuenta de crédito fiscal por retención: alias → código 1.1.07 → nombre. */  private async cuentaRetencionId(): Promise<string | null> {
     await this.accountingAgent.init();
     try { return this.accountingAgent.resolveAlias('itbms-retenido-terceros'); } catch { /* fallback */ }
     const accs = await this.prisma.account.findMany({
@@ -396,17 +471,47 @@ export class OrchestratorAgent {
       };
     }
 
-    const invoice = await (this.prisma as any).invoice.findFirst({
-      where: { companyId: this.companyId, number: numero },
-      include: {
-        client: {
-          select: {
-            id: true, name: true, taxId: true, esAgenteRetenedor: true,
-            porcentajeRetencionItbms: true, vigenciaRetencionDesde: true, vigenciaRetencionHasta: true,
-          },
+    const include = {
+      client: {
+        select: {
+          id: true, name: true, taxId: true, esAgenteRetenedor: true,
+          porcentajeRetencionItbms: true, vigenciaRetencionDesde: true, vigenciaRetencionHasta: true,
         },
       },
+    };
+
+    // Exacto primero (sin distinguir mayúsculas); si no aparece, por dígitos:
+    // "000003" y "A-000003" son la misma factura. Mismo criterio que el import
+    // de cobros — el Nº escrito a mano o devuelto por el LLM viene de mil formas.
+    let invoice = await (this.prisma as any).invoice.findFirst({
+      where: { companyId: this.companyId, number: { equals: numero, mode: 'insensitive' } },
+      include,
     });
+
+    if (!invoice) {
+      const clave = claveNumeroFactura(numero);
+      if (clave) {
+        const candidatas = await (this.prisma as any).invoice.findMany({
+          where: { companyId: this.companyId, number: { not: null } },
+          select: { id: true, number: true },
+        });
+        const coincidencias = candidatas.filter((i: any) => claveNumeroFactura(i.number) === clave);
+        if (coincidencias.length > 1) {
+          return {
+            plan,
+            prompt: `Hay ${coincidencias.length} facturas que coinciden con "${numero}" (${coincidencias.map((i: any) => i.number).join(', ')}). Escribe el número completo.`,
+            needsConfirmation: false,
+          };
+        }
+        if (coincidencias.length === 1) {
+          invoice = await (this.prisma as any).invoice.findFirst({
+            where: { id: coincidencias[0].id, companyId: this.companyId },
+            include,
+          });
+        }
+      }
+    }
+
     if (!invoice) {
       return { plan, prompt: `No encontré la factura Nº "${numero}". Verifica el número (ej. 1005 o A-000123).`, needsConfirmation: false };
     }
@@ -447,15 +552,21 @@ export class OrchestratorAgent {
     const aplicado = Math.round((efectivo + ret) * 100) / 100;
     const autoMarcar = ret > 0 && !info.esAgente;
 
-    // Cuentas del asiento split
+    // Cuentas del asiento split. La cuenta del debe sale de la MISMA función
+    // que usa la confirmación: banco para ACH/transferencia, Caja para efectivo.
     await this.accountingAgent.init();
-    let cajaId: string, clientesId: string;
+    let clientesId: string;
     try {
-      cajaId = this.accountingAgent.resolveAlias('caja');
       clientesId = this.accountingAgent.resolveAlias('clientes');
     } catch {
-      return { plan, prompt: 'Faltan cuentas en el catálogo (caja/clientes). Configúralas en el panel.', needsConfirmation: false };
+      return { plan, prompt: 'Falta la cuenta Clientes en el catálogo. Configúrala en el panel.', needsConfirmation: false };
     }
+    const cuentaCobro = await this.resolverCuentaCobro(dialog, efectivo);
+    if (!cuentaCobro) {
+      return { plan, prompt: 'Faltan cuentas en el catálogo (caja/banco). Configúralas en el panel.', needsConfirmation: false };
+    }
+    const cuentaCobroId = cuentaCobro.id;
+
     let retAcctId: string | null = null;
     if (ret > 0) {
       retAcctId = await this.cuentaRetencionId();
@@ -465,12 +576,12 @@ export class OrchestratorAgent {
     }
 
     const accs = await this.prisma.account.findMany({
-      where: { id: { in: [cajaId, clientesId, ...(retAcctId ? [retAcctId] : [])] }, companyId: this.companyId },
+      where: { id: { in: [cuentaCobroId, clientesId, ...(retAcctId ? [retAcctId] : [])] }, companyId: this.companyId },
       select: { id: true, name: true },
     });
     const nameOf = (id: string) => accs.find(a => a.id === id)?.name || 'Cuenta';
 
-    const debit: any[] = [{ accountId: cajaId, name: nameOf(cajaId), amount: efectivo }];
+    const debit: any[] = [{ accountId: cuentaCobroId, name: nameOf(cuentaCobroId), amount: efectivo }];
     if (ret > 0 && retAcctId) debit.push({ accountId: retAcctId, name: nameOf(retAcctId), amount: ret });
     const credit: any[] = [{ accountId: clientesId, name: nameOf(clientesId), amount: aplicado }];
     const descSuffix = ret > 0 ? ` (efectivo $${efectivo.toFixed(2)} + retención ITBMS $${ret.toFixed(2)})` : '';
@@ -483,6 +594,8 @@ export class OrchestratorAgent {
     const dd = dialog as any;
     dd.invoiceNumber = invoice.number;
     dd.facturaId = invoice.id;
+    dd.cuentaCobroId = cuentaCobroId;
+    dd.cuentaCobroNombre = nameOf(cuentaCobroId);
     dd.saldoFactura = saldo;
     dd.efectivoFactura = efectivo;
     dd.retencionItbms = ret;
@@ -528,7 +641,11 @@ export class OrchestratorAgent {
           },
         },
       });
-      if (!invoice || String(invoice.number) !== numero) {
+      const claveBuscada = claveNumeroFactura(numero);
+      const mismoNumero = !numero
+        || String(invoice?.number || '').trim().toLowerCase() === numero.toLowerCase()
+        || (claveBuscada.length > 0 && claveBuscada === claveNumeroFactura(invoice?.number));
+      if (!invoice || !mismoNumero) {
         throw Object.assign(new Error(`La factura Nº "${numero}" ya no existe.`), { status: 404 });
       }
       const saldo = Math.round((invoice.total - (invoice.paidAmount || 0)) * 100) / 100;
@@ -546,11 +663,27 @@ export class OrchestratorAgent {
       }
 
       await this.accountingAgent.init();
-      const cajaId = this.accountingAgent.resolveAlias('caja');
       const clientesId = this.accountingAgent.resolveAlias('clientes');
       const retAcctId = ret > 0 ? await this.cuentaRetencionId() : null;
 
-      const lines: any[] = [{ accountId: cajaId, debit: efectivo, credit: 0 }];
+      // La cuenta del debe la decidió el preview. Si es una confirmación vieja
+      // (sin cuentaCobroId), se resuelve con la misma función del preview:
+      // nunca se cae en Caja para un ACH.
+      let cuentaCobro: { id: string; name: string } | null = null;
+      if (d.cuentaCobroId) {
+        const acc = await tx.account.findFirst({
+          where: { id: d.cuentaCobroId, companyId: this.companyId },
+          select: { id: true, name: true },
+        });
+        cuentaCobro = acc || null;
+      }
+      if (!cuentaCobro) cuentaCobro = await this.resolverCuentaCobro(d, efectivo, tx);
+      if (!cuentaCobro) {
+        throw Object.assign(new Error('No se encontró la cuenta del cobro (banco/caja).'), { status: 400 });
+      }
+      const cuentaCobroId = cuentaCobro.id;
+
+      const lines: any[] = [{ accountId: cuentaCobroId, debit: efectivo, credit: 0 }];
       if (ret > 0 && retAcctId) lines.push({ accountId: retAcctId, debit: ret, credit: 0 });
       lines.push({ accountId: clientesId, debit: 0, credit: aplicado });
       const descSuffix = ret > 0 ? ` (efectivo $${efectivo.toFixed(2)} + retención ITBMS $${ret.toFixed(2)})` : '';
@@ -590,7 +723,7 @@ export class OrchestratorAgent {
       const payment = await tx.invoicePayment.create({
         data: {
           companyId: this.companyId, invoiceId: invoice.id, amount: efectivo,
-          retentionAmount: ret, date: parseLocalDate(d.date), accountId: cajaId,
+          retentionAmount: ret, date: parseLocalDate(d.date), accountId: cuentaCobroId,
           accountName: null, journalEntryId: je.id,
         },
       });
@@ -654,6 +787,11 @@ export class OrchestratorAgent {
       ...entry.credit.map((c: any) => c.accountId),
     ]);
     if (blocked) throw Object.assign(new Error(blocked), { status: 400, code: 'ACCOUNT_BLOCKED' });
+
+    // Revalidación en frío del Anexo: el cliente no puede confirmar un asiento
+    // cuya cuenta exige RUC/Cédula y Nombre sin haberlos dado.
+    const faltaAnexo = await this.faltanDatosAnexo(dialog, result.classification?.accountId);
+    if (faltaAnexo) throw Object.assign(new Error(faltaAnexo), { status: 400, code: 'ANEXO_REQUIRED' });
 
     const entryData = await this.prisma.journalEntry.create({
       data: {
@@ -759,6 +897,8 @@ export class OrchestratorAgent {
    */
   private normalizeName(name: string): string {
     return name
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')              // Panamá → Panama
       .toLowerCase()
       .replace(/\./g, ' ')                         // S.A. → S A
       .replace(/\bs\s*a\b/g, '')                   // S A → ''

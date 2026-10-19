@@ -20,6 +20,7 @@ Tipos de transacción válidos: INGRESO, GASTO, COMPRA, VENTA, PAGO_PROVEEDOR, C
 Métodos de pago válidos (opcional): EFECTIVO, TARJETA_CREDITO, TARJETA_DEBITO, TRANSFERENCIA, CHEQUE, BANCO, CREDITO
 - "tarjeta de crédito", "tarjeta", "tc" → TARJETA_CREDITO
 - "crédito" (sin "tarjeta") → CREDITO (crédito con proveedor, no tarjeta)
+- "ach", "transferencia", "depósito" → TRANSFERENCIA
 IMPORTANTE: NO inventes ni infieras el método de pago. Si el texto no menciona EXPLÍCITAMENTE cómo se pagó, pon paymentMethod como null.
 
 Reglas:
@@ -87,7 +88,7 @@ Responde SOLO con un JSON válido con esta estructura:
   "itbms": true|false,
   "provider": "nombre del proveedor o null",
   "ruc": "RUC del proveedor/cliente si el texto lo menciona (ej. 541-81-118009) o null",
-  "invoiceNumber": "número de factura si el texto lo menciona (ej. 993, FE-2026-0001) o null"
+  "invoiceNumber": "número de factura TAL COMO aparece en el texto, con su prefijo y guion si los tiene (ej. 993, A-000003, FE-2026-0001) o null"
 }
 
 Campos opcionales: paymentMethod, ruc, invoiceNumber. Si no se mencionan, ponlos como null.

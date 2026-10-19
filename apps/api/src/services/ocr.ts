@@ -304,6 +304,34 @@ export interface OCRResult {
   itbms: number | null;
   confidence: number;
   source: 'tesseract' | 'tesseract+llm';
+  /** Si el documento sirve para registrar una transacción (ver evaluarElegibilidadOCR). */
+  eligible: boolean;
+  /** Motivo cuando `eligible` es false; null si es elegible. */
+  eligibilityReason: string | null;
+}
+
+/**
+ * Un recibo/factura solo sirve para registrar una transacción si el OCR
+ * rescató al menos uno de los datos clave: monto, RUC o proveedor. Una foto
+ * en blanco —o de cualquier otra cosa— no trae ninguno y no debe ofrecerse
+ * como transacción.
+ */
+export function evaluarElegibilidadOCR(
+  datos: Pick<OCRResult, 'text' | 'total' | 'provider' | 'ruc'>,
+): { eligible: boolean; reason: string | null } {
+  if (!datos.text || !datos.text.trim()) {
+    return {
+      eligible: false,
+      reason: 'La imagen está en blanco o no se pudo leer ningún texto en ella.',
+    };
+  }
+  if (datos.total == null && !datos.ruc && !datos.provider) {
+    return {
+      eligible: false,
+      reason: 'No se detectó ningún monto, RUC ni proveedor en el documento.',
+    };
+  }
+  return { eligible: true, reason: null };
 }
 
 export async function extractFromImage(
@@ -315,10 +343,11 @@ export async function extractFromImage(
 
   const llmResult = await extractWithLLM(rawText, prisma);
 
-  let result: OCRResult;
+  type Extraccion = Omit<OCRResult, 'eligible' | 'eligibilityReason'>;
+  let extraccion: Extraccion;
 
   if (llmResult) {
-    result = {
+    extraccion = {
       text: llmResult.text || rawText,
       date: llmResult.date || parsePanamanianDate(rawText),
       total: llmResult.total ?? parseTotal(rawText),
@@ -329,7 +358,7 @@ export async function extractFromImage(
       source: 'tesseract+llm',
     };
   } else {
-    result = {
+    extraccion = {
       text: rawText,
       date: parsePanamanianDate(rawText),
       total: parseTotal(rawText),
@@ -340,6 +369,13 @@ export async function extractFromImage(
       source: 'tesseract',
     };
   }
+
+  const elegibilidad = evaluarElegibilidadOCR(extraccion);
+  const result: OCRResult = {
+    ...extraccion,
+    eligible: elegibilidad.eligible,
+    eligibilityReason: elegibilidad.reason,
+  };
 
   if (prisma) {
     try {

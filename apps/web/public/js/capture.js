@@ -80,7 +80,33 @@ async function processOCRFile(file) {
     }
 
     const data = await res.json();
+
+    // El backend decide si el documento sirve para una transacción. El fallback
+    // cubre una API vieja durante el despliegue: misma regla de tres datos clave.
+    const eligible = data.eligible !== undefined
+      ? data.eligible
+      : Boolean(data.total != null || data.ruc || data.provider);
+
+    if (!eligible) {
+      ocrData = null;
+      document.getElementById('ocr-loading').classList.add('hidden');
+      document.getElementById('ocr-preview').classList.add('hidden');
+      document.getElementById('ocr-capture-actions').classList.remove('hidden');
+      document.getElementById('ocr-result').classList.remove('hidden');
+      document.getElementById('ocr-result-text').innerHTML = `
+        <div class="ocr-no-elegible">
+          <strong>❌ Documento no elegible para una transacción</strong>
+          <p>${escapeHtml(data.eligibilityReason || 'No se detectó ningún monto, RUC ni proveedor en el documento.')}</p>
+          <p class="ocr-no-elegible-hint">Toma una foto completa, derecha y bien iluminada de la factura o recibo, o elige otra imagen.</p>
+        </div>`;
+      document.getElementById('ocr-btn-use').classList.add('hidden');
+      document.getElementById('ocr-btn-correct').classList.add('hidden');
+      return;
+    }
+
     ocrData = data;
+    document.getElementById('ocr-btn-use').classList.remove('hidden');
+    document.getElementById('ocr-btn-correct').classList.remove('hidden');
 
     document.getElementById('ocr-loading').classList.add('hidden');
     document.getElementById('ocr-preview').classList.add('hidden');

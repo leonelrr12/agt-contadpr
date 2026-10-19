@@ -15,7 +15,7 @@ import {
 } from '../services/account-resolver';
 import type { CompanyAccount as CobroAccount } from '../services/account-resolver';
 import { loadAccountFlags, blockedMessage, blockedAccounts } from '../services/journal-guard';
-import { missingAnexoFields } from '../services/anexo-rules';
+import { missingAnexoFields } from '@agt-contador/shared';
 
 export const importRouter = Router();
 
@@ -352,7 +352,7 @@ function cleanImportError(err: any): string {
  * Única fuente de verdad — la usa el preview (sobre el archivo completo)
  * y la ejecución.
  * RUC/Cédula, Nombre y Nº de factura NO son universales: los exige la cuenta
- * cuando lleva Anexo (ver services/anexo-rules.ts).
+ * cuando lleva Anexo (ver @agt-contador/shared, anexo.ts).
  */
 function missingImportFields(row: ImportRow): string[] {
   const missing: string[] = [];

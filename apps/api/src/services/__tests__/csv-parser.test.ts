@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseImportFile, debitCreditDeFila } from '../csv-parser';
+import { parseImportFile, parseCobrosFile, debitCreditDeFila } from '../csv-parser';
 
 /**
  * El tipo de cada fila decide el asiento (una VENTA acredita la cuenta de
@@ -16,8 +16,7 @@ async function tiposDe(
   return parsed.rows.map(r => r.type);
 }
 
-describe('parseImportFile — tipo detectado del Detalle', () => {
-  it('un verbo de pago al inicio gana sobre "servicios" (carga de honorarios)', async () => {
+describe('parseImportFile — tipo detectado del Detalle', () => {  it('un verbo de pago al inicio gana sobre "servicios" (carga de honorarios)', async () => {
     expect(await tiposDe([['01/09/2026', 'Paga Servicios profesionales', '500.00']])).toEqual(['GASTO']);
   });
 
@@ -224,5 +223,26 @@ describe('parseImportFile — estado de tarjeta de crédito', () => {
     const { detectedMapping: m, rows } = await parseImportFile(Buffer.from(csv, 'utf8'), 'x.csv');
     expect(m.paymentMethodCol).toBe('Forma de Pago');
     expect(rows[0].paymentMethod).toBe('Transferencia');
+  });
+});
+
+describe('parseCobrosFile — columna del Nº de factura', () => {
+  it('prefiere "Factura #" sobre "Referencia" cuando el archivo ACH trae las dos', async () => {
+    const csv = [
+      'Cliente,Fecha de Pago,Cuenta,Referencia,Factura #,TOTAL',
+      'Hotel Panama,19/10/2026,Banco General,ACH-998877,A-000003,85.00',
+    ].join('\n');
+    const parsed = await parseCobrosFile(Buffer.from(csv, 'utf8'), 'pagos.csv');
+    expect(parsed.rows[0].invoiceNumber).toBe('A-000003');
+    expect(parsed.rows[0].accountName).toBe('Banco General');
+  });
+
+  it('si "Factura #" está vacía, usa la Referencia (no la descarta)', async () => {
+    const csv = [
+      'Cliente,Fecha de Pago,Cuenta,Referencia,Factura #,TOTAL',
+      'Hotel Panama,19/10/2026,Banco General,ACH-998877,,85.00',
+    ].join('\n');
+    const parsed = await parseCobrosFile(Buffer.from(csv, 'utf8'), 'pagos.csv');
+    expect(parsed.rows[0].invoiceNumber).toBe('ACH-998877');
   });
 });

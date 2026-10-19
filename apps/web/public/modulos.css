@@ -1,0 +1,101 @@
+/* ── Encabezado de los módulos standalone (Inventario, Planilla) ──
+   Mismo lenguaje visual que el topbar de admin.html: fondo tinta, marca
+   Contador507 y navegación a la app. Se enlaza en cada módulo. */
+
+.module-topbar {
+  background: #0f172a;
+  color: #fff;
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.module-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px 24px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.module-brand {
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.module-brand span { color: #ef4444; }
+.module-nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.module-nav a {
+  color: #94a3b8;
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.module-nav a:hover,
+.module-nav a:focus-visible { color: #fff; }
+.module-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+.module-user { font-size: 13px; color: #94a3b8; }
+.module-logout {
+  background: transparent;
+  border: none;
+  color: #f87171;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+}
+.module-logout:hover { color: #fca5a5; }
+
+/* ── Móvil: el documento scrollea normalmente y las tablas anchas se
+   deslizan de costado dentro de su contenedor. ── */
+@media (max-width: 768px) {
+  .module-topbar { padding: 10px 14px; }
+  .module-topbar-left { gap: 8px 16px; }
+  .module-nav { gap: 12px; }
+  .module-user { display: none; }
+
+  .inv-container,
+  .pl-container { padding: 14px; }
+
+  .inv-header h1,
+  .pl-header h1 { font-size: 20px; line-height: 1.25; }
+  .inv-header p,
+  .pl-header p { font-size: 13px; }
+
+  /* Pestañas del módulo: una sola línea deslizable, no cinco filas. */
+  .inv-tabs,
+  .pl-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .inv-tabs::-webkit-scrollbar,
+  .pl-tabs::-webkit-scrollbar { display: none; }
+  .inv-tab,
+  .pl-tab { flex: 0 0 auto; white-space: nowrap; }
+
+  /* Las grillas de 6-8 columnas no entran: el contenido se desliza. */
+  #inv-contenido,
+  #pl-contenido { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  .summary-cards { gap: 10px; }
+  .summary-card { min-width: 0; flex: 1 1 calc(50% - 10px); }
+
+  #pl-modal { padding: 14px; }
+  .pl-modal-caja { padding: 16px; }
+}

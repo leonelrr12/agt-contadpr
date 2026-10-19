@@ -1,10 +1,9 @@
 /**
- * Reglas del flag "Lleva Anexo" (`Account.requiresAnexo`) en la carga general de
- * Transacciones. Ver Tuning.md §5 (Reglas de negocio) — los flags nacen apagados.
+ * Reglas del flag "Lleva Anexo" (`Account.requiresAnexo`), compartidas por el
+ * import (API) y el chat/agentes. Ver Tuning.md §5.
  *
- * Con el flag activo, además de fecha/concepto/monto (que valida
- * `missingImportFields` para TODAS las filas), la cuenta exige RUC/Cédula y
- * Nombre del tercero, y Nº de factura cuando la fila es a crédito.
+ * Con el flag activo, además de fecha/concepto/monto, la cuenta exige
+ * RUC/Cédula y Nombre del tercero, y Nº de factura cuando la fila es a crédito.
  * Sin el flag, la fila solo exige fecha/concepto/monto.
  */
 

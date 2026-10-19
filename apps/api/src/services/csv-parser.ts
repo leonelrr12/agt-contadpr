@@ -459,6 +459,18 @@ export async function parseCobrosFile(
     if (!retentionCol && matchHeader(h, COBROS_RETENTION_PATTERNS) && !matchHeader(h, COBROS_AMOUNT_PATTERNS)) { retentionCol = h; continue; }
   }
 
+  // Prioridad: si el archivo trae "Referencia" (la del ACH) y "Factura #",
+  // el Nº de factura es la segunda — la referencia bancaria no existe en el
+  // catálogo de facturas y hacía fallar la fila con "no se encontró". Solo se
+  // prefiere la columna de factura si tiene datos: una columna vacía no debe
+  // tapar una referencia que sí trae el número.
+  const facturaCol = headers.find(h => /factura/i.test(h) && !/fecha|date|emisi[oó]n|venc/i.test(h));
+  if (facturaCol) {
+    const facturaIdx = headers.indexOf(facturaCol);
+    const tieneDatos = rawRows.some(r => (r[facturaIdx] || '').trim() !== '');
+    if (tieneDatos) invoiceNumberCol = facturaCol;
+  }
+
   if (!amountCol) {
     throw new Error('No se detectó columna de TOTAL/Monto en el archivo de pagos.');
   }

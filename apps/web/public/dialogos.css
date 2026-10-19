@@ -1,0 +1,143 @@
+/* ── Diálogos de la app (avisos, confirmaciones y prompts) ──
+   Un solo origen para el SPA y las páginas standalone. admin.html no carga
+   styles.css, por eso este archivo se enlaza aparte en todas las páginas que
+   usan js/dialogos.js. */
+
+.app-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.58);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 10000;
+  animation: appDialogFade 0.16s ease both;
+}
+
+.app-dialog {
+  position: relative;
+  background: #fff;
+  border-radius: 18px;
+  padding: 28px 24px 20px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.3), 0 2px 8px rgba(15, 23, 42, 0.08);
+  text-align: center;
+  overflow: hidden;
+  animation: appDialogIn 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Franja superior: el color comunica el tipo sin leer el texto. */
+.app-dialog::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: var(--azul, #1565c0);
+}
+.app-dialog[data-type="success"]::before { background: var(--verde, #2e7d32); }
+.app-dialog[data-type="error"]::before { background: var(--rojo, #c62828); }
+.app-dialog[data-type="warning"]::before { background: #f59e0b; }
+.app-dialog[data-type="question"]::before { background: var(--azul, #1565c0); }
+
+.app-dialog-icon {
+  width: 62px;
+  height: 62px;
+  margin: 0 auto 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 30px;
+  line-height: 1;
+  background: #eff6ff;
+}
+.app-dialog[data-type="success"] .app-dialog-icon { background: #ecfdf5; }
+.app-dialog[data-type="error"] .app-dialog-icon { background: #fef2f2; }
+.app-dialog[data-type="warning"] .app-dialog-icon { background: #fffbeb; }
+
+.app-dialog-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1a1a2e;
+  letter-spacing: -0.01em;
+  margin-bottom: 6px;
+}
+
+.app-dialog-msg {
+  font-size: 14px;
+  color: #475569;
+  line-height: 1.55;
+  margin-bottom: 22px;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.app-dialog-msg strong { color: #1a1a2e; }
+
+.app-dialog-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 13px;
+  margin: 0 0 18px;
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 14px;
+  color: #1a1a2e;
+  background: #fff;
+}
+.app-dialog-input:focus {
+  outline: none;
+  border-color: var(--azul, #1565c0);
+  box-shadow: 0 0 0 3px rgba(21, 101, 192, 0.15);
+}
+
+.app-dialog-buttons { display: flex; gap: 10px; justify-content: center; }
+
+.app-dialog-btn {
+  flex: 1;
+  padding: 11px 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid #e2e8f0;
+  background: #f1f5f9;
+  color: #475569;
+  transition: transform 0.1s ease, box-shadow 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+  white-space: nowrap;
+}
+.app-dialog-btn:hover { background: #e8eef5; }
+.app-dialog-btn:active { transform: scale(0.98); }
+.app-dialog-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(21, 101, 192, 0.25); }
+.app-dialog-btn.primary {
+  background: var(--azul, #1565c0);
+  color: #fff;
+  border-color: transparent;
+}
+.app-dialog-btn.primary:hover { background: #1257a8; }
+.app-dialog-btn.danger {
+  background: var(--rojo, #c62828);
+  color: #fff;
+  border-color: transparent;
+}
+.app-dialog-btn.danger:hover { background: #b02323; }
+.app-dialog-btn.secondary { background: #f1f5f9; color: #475569; }
+.app-dialog-btn.secondary:hover { background: #e8eef5; }
+
+@keyframes appDialogFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes appDialogIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 480px) {
+  .app-dialog-overlay { padding: 14px; }
+  .app-dialog { padding: 24px 18px 18px; border-radius: 16px; }
+  .app-dialog-buttons { flex-direction: column-reverse; }
+  .app-dialog-btn { width: 100%; }
+}
