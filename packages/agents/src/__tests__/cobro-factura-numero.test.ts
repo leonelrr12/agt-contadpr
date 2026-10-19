@@ -88,8 +88,7 @@ function makeOrchestrator(invoices: ReturnType<typeof factura>[], writeLog?: any
   return new OrchestratorAgent({ prisma, companyId: 'demo-company', userId: 'demo-user' });
 }
 
-describe('cobro de factura por chat — Nº con serie y nombre con tilde', () => {
-  it('encuentra A-000003 cuando el usuario escribe 000003 (sin prefijo)', async () => {
+describe('cobro de factura por chat — Nº con serie y nombre con tilde', () => {  it('encuentra A-000003 cuando el usuario escribe 000003 (sin prefijo)', async () => {
     const r = await makeOrchestrator([factura('A-000003')])
       .process('Cobré la factura 000003 a Hotel Panamá por $85 en ACH');
     expect(r.needsConfirmation).toBe(true);
@@ -156,5 +155,42 @@ describe('cobro de factura por chat — Nº con serie y nombre con tilde', () =>
     await agent.confirm({ dialog: legacy, entry: (preview.result as any).entry });
 
     expect(log.entry.data.lines.create[0].accountId).toBe('acc-banco');
+  });
+});
+
+describe('cobro por chat — cambio de factura después de un error', () => {
+  const invoices = [factura('A-000003', 'inv-3'), factura('A-000004', 'inv-4')];
+
+  it('no arrastra la factura anterior: "Abono factura A-000004" usa A-000004', async () => {
+    const agent = makeOrchestrator(invoices);
+    // A-000003 tiene saldo 160.50: un abono de 200 da el error de saldo.
+    const error = await agent.process('Cobré la factura A-000003 a Hotel Panamá por $200 en ACH');
+    expect(error.needsConfirmation).toBe(false);
+    expect(error.prompt).toContain('excede el saldo');
+    expect((error.plan.dialog as any).invoiceNumber).toBe('A-000003');
+
+    const r = await agent.process('Abono factura A-000004 por 85', {
+      messages: [],
+      extractedData: error.plan.dialog,
+    });
+
+    expect(r.needsConfirmation).toBe(true);
+    expect(r.prompt).toContain('A-000004');
+    expect((r.result as any).dialog.invoiceNumber).toBe('A-000004');
+    expect((r.result as any).dialog.amount).toBe(85);
+  });
+
+  it('el mismo abono a la misma factura actualiza el monto, no lo hereda', async () => {
+    const agent = makeOrchestrator(invoices);
+    const error = await agent.process('Cobré la factura A-000003 a Hotel Panamá por $200 en ACH');
+
+    const r = await agent.process('Abono factura A-000003 por 30', {
+      messages: [],
+      extractedData: error.plan.dialog,
+    });
+
+    expect(r.needsConfirmation).toBe(true);
+    expect((r.result as any).dialog.invoiceNumber).toBe('A-000003');
+    expect((r.result as any).dialog.amount).toBe(30);
   });
 });

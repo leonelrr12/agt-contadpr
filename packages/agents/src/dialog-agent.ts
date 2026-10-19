@@ -166,7 +166,8 @@ export function parseInput(input: string): {
       const match = input.match(/pagu[ée]\s+(.+?)(?:\s+por|\s+con|\s+en|\s*$)/i);
       concept = match ? match[1].trim() : 'Gasto Varios';
     }
-  } else if (lower.includes('cobre') || lower.includes('cobr') || lower.includes('cliente')) {
+  } else if (lower.includes('cobre') || lower.includes('cobr') || lower.includes('cliente') ||
+             (lower.includes('abono') && (lower.includes('factura') || lower.includes('cliente')))) {
     type = 'COBRO_CLIENTE';
     concept = 'Clientes';
   } else if (lower.includes('transfir') || lower.includes('transfere')) {
@@ -279,6 +280,8 @@ export class DialogAgent {
       missingFields: string[];
       itbms?: boolean;
       provider?: string | null;
+      invoiceNumber?: string | null;
+      ruc?: string | null;
     } | null = null;
 
     // Guardar parseInput como fallback para campos que el LLM no extrae
@@ -324,13 +327,21 @@ export class DialogAgent {
     // RUC/Nombre/factura del flujo anterior (datos de Anexo de otra compra).
     // Lookahead Unicode: `\b` falla tras "Compré" porque la é no es \w ASCII.
     const pareceNueva = /\b(?:compr[ée]|vend[ií]|pagu[ée]|cobr[ée]|gast[ée]|abon[ée])(?![\p{L}\p{N}_])/iu.test(input);
+    let cambiaFactura = false;
 
     if (prev) {
       // Si es una respuesta corta de follow-up (método de pago), preservar TODO del contexto
       const isFollowUp = ['crédito','credito','efectivo','cash','tarjeta','tarjeta de crédito','tarjeta de debito','tarjeta crédito','tarjeta débito','transferencia','banco','cheque','yappy'].includes(inputLower);
+      // Un Nº de factura distinto es un cobro NUEVO: no es una respuesta de
+      // Anexo del intento anterior.
+      cambiaFactura = !!(extracted.invoiceNumber && prev.invoiceNumber &&
+        String(extracted.invoiceNumber).trim().toLowerCase() !== String(prev.invoiceNumber).trim().toLowerCase());
+      // "Abono/Pago/Cobro factura ..." es una instrucción nueva, aunque no
+      // traiga verbo conjugado; no debe heredar monto/descripción del intento.
+      const pareceCobro = /\b(?:abono|pago|cobro)\b/i.test(input) || pareceNueva;
       // Respuesta con datos de Anexo (RUC/Cédula, Nombre, Nº factura): es un
       // follow-up del flujo abierto, no una transacción nueva.
-      const aportaAnexo = !pareceNueva &&
+      const aportaAnexo = !pareceNueva && !cambiaFactura && !pareceCobro &&
         /(?:^|[^\p{L}\p{N}_])(?:ruc|c[eé]dula|proveedor|proveedora|nombre|raz[oó]n social|factura)(?![\p{L}\p{N}_])/iu.test(input);
 
       if (isFollowUp || aportaAnexo) {
@@ -338,7 +349,7 @@ export class DialogAgent {
         type = prev.type || type;
         concept = prev.concept || concept;
         amount = prev.amount || amount;
-        provider = prev.provider || provider;
+        provider = provider || prev.provider || null;
         itbms = prev.itbms || itbms;
         if (prev.description) description = prev.description;
       } else {
@@ -362,7 +373,7 @@ export class DialogAgent {
         if (!(extracted as any).itbmsAmount && (prev as any)?.itbmsAmount) {
           (extracted as any).itbmsAmount = (prev as any).itbmsAmount;
         }
-        if (!pareceNueva && !extracted.provider && prev.provider) {
+        if (!pareceNueva && !cambiaFactura && !extracted.provider && prev.provider) {
           provider = prev.provider;
         }
       }
@@ -416,12 +427,12 @@ export class DialogAgent {
       itbmsAmount,
       provider,
       source: (prev as any)?.source || undefined,
-      ruc: pareceNueva
-        ? ((extracted as any).ruc || null)
-        : ((prev as any)?.ruc || (extracted as any).ruc || null),
-      invoiceNumber: pareceNueva
-        ? ((extracted as any).invoiceNumber || null)
-        : ((prev as any)?.invoiceNumber || (extracted as any).invoiceNumber || null),
+      // El Nº/RUC que venga en ESTE mensaje siempre gana: el usuario puede
+      // estar cambiando de factura o corrigiendo el dato.
+      ruc: (extracted as any).ruc ||
+        (pareceNueva || cambiaFactura ? null : (prev as any)?.ruc) || null,
+      invoiceNumber: (extracted as any).invoiceNumber ||
+        (pareceNueva ? null : (prev as any)?.invoiceNumber) || null,
       cuentaBanco: (prev as any)?.cuentaBanco || null,
       suggestedResponse: missingFields.length === 0
         ? `He entendido: ${type === 'VENTA' ? 'Venta' : type === 'GASTO' ? 'Gasto' : type} de ${concept} por $${amount.toFixed(2)}${paymentMethod ? ` pagado con ${paymentMethod}` : ''}${itbms ? ` (ITBMS ${(itbmsRate! * 100).toFixed(0)}% incluido)` : ''}. ¿Confirmas?`
