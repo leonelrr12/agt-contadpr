@@ -1,0 +1,652 @@
+<title>Solicitud acceso PAC</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Documento formal: papel cálido, tinta verde profunda, cobre solo para los campos a completar. */
+  :root {
+    --bg: #f5f2eb;
+    --surface: #fffdf8;
+    --surface-2: #ece8de;
+    --fg: #1d2a29;
+    --muted: #5c6a68;
+    --line: #d8d2c4;
+    --accent: #145a57;
+    --accent-soft: #dcebe7;
+    --mark: #a45c1f;
+    --mark-bg: #f4e3cd;
+    --display: "Newsreader", Georgia, "Times New Roman", serif;
+    --body: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111817;
+      --surface: #182120;
+      --surface-2: #202b29;
+      --fg: #e9e5da;
+      --muted: #a4b0ac;
+      --line: #34413e;
+      --accent: #79c7b9;
+      --accent-soft: #1d3a35;
+      --mark: #e2a56c;
+      --mark-bg: #3a2a19;
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #111817;
+    --surface: #182120;
+    --surface-2: #202b29;
+    --fg: #e9e5da;
+    --muted: #a4b0ac;
+    --line: #34413e;
+    --accent: #79c7b9;
+    --accent-soft: #1d3a35;
+    --mark: #e2a56c;
+    --mark-bg: #3a2a19;
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.6;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+
+  .sheet {
+    max-width: 850px;
+    margin-inline: auto;
+    padding-block: clamp(28px, 6vw, 64px) 72px;
+  }
+
+  .masthead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px 24px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .brand {
+    font-family: var(--display);
+    font-size: 1.45rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .brand span {
+    color: var(--accent);
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .draft {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    align-items: baseline;
+    margin-top: 22px;
+    padding: 10px 14px;
+    background: var(--mark-bg);
+    border-inline-start: 3px solid var(--mark);
+    border-radius: 3px;
+    font-size: 0.88rem;
+    color: var(--fg);
+  }
+
+  .draft strong {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--mark);
+  }
+
+  .title-block {
+    margin-top: clamp(30px, 6vw, 54px);
+  }
+
+  h1 {
+    font-family: var(--display);
+    font-size: clamp(2.1rem, 5.4vw, 3.3rem);
+    line-height: 1.04;
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .subtitle {
+    margin-top: 10px;
+    font-size: 1.05rem;
+    color: var(--muted);
+  }
+
+  .meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 16px 28px;
+    margin-top: 30px;
+    padding: 18px 0;
+    border-block: 1px solid var(--line);
+  }
+
+  .meta div {
+    min-width: 0;
+  }
+
+  .meta dt {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 2px;
+  }
+
+  .meta dd {
+    margin: 0;
+    font-size: 0.95rem;
+  }
+
+  .letter {
+    margin-top: 32px;
+    max-width: 68ch;
+  }
+
+  .letter p {
+    margin: 0 0 1em;
+  }
+
+  .letter p:first-of-type {
+    font-size: 1.03rem;
+  }
+
+  .fill {
+    background: var(--mark-bg);
+    color: var(--mark);
+    border-bottom: 1px dashed var(--mark);
+    border-radius: 2px;
+    padding: 0.05em 0.28em;
+    font-weight: 500;
+  }
+
+  .goals {
+    margin: 1.2em 0 1.4em;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 10px;
+  }
+
+  .goals li {
+    position: relative;
+    padding-left: 22px;
+  }
+
+  .goals li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.62em;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  .closing {
+    margin-top: 1.6em;
+  }
+
+  .signature {
+    margin-top: 34px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    max-width: 340px;
+    line-height: 1.45;
+  }
+
+  .signature .name {
+    font-weight: 600;
+  }
+
+  .annex {
+    margin-top: clamp(48px, 9vw, 84px);
+  }
+
+  .annex > .eyebrow {
+    color: var(--accent);
+  }
+
+  h2 {
+    font-family: var(--display);
+    font-size: clamp(1.65rem, 3.6vw, 2.2rem);
+    font-weight: 400;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 6px 0 0;
+    text-wrap: balance;
+  }
+
+  .annex-intro {
+    max-width: 68ch;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+
+  section.block {
+    margin-top: 38px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+  }
+
+  h3 {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-family: var(--display);
+    font-size: 1.35rem;
+    font-weight: 600;
+    line-height: 1.25;
+    margin: 0 0 12px;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  h3 .num {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+  }
+
+  .block p {
+    margin: 0 0 1em;
+    max-width: 68ch;
+  }
+
+  .table-scroll {
+    overflow-x: auto;
+    margin: 14px 0 6px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface);
+  }
+
+  table {
+    width: 100%;
+    min-width: 560px;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--surface-2);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: bottom;
+  }
+
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+
+  td code,
+  .mono {
+    font-family: var(--mono);
+    font-size: 0.84em;
+    color: var(--accent);
+    overflow-wrap: anywhere;
+  }
+
+  .steps {
+    counter-reset: paso;
+    list-style: none;
+    padding: 0;
+    margin: 16px 0 0;
+    display: grid;
+    gap: 12px;
+  }
+
+  .steps li {
+    counter-increment: paso;
+    position: relative;
+    padding-left: 40px;
+    min-width: 0;
+  }
+
+  .steps li::before {
+    content: counter(paso, decimal-leading-zero);
+    position: absolute;
+    left: 0;
+    top: 0.1em;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--accent);
+  }
+
+  .questions {
+    margin: 16px 0 0;
+    padding-left: 1.4em;
+    display: grid;
+    gap: 9px;
+    max-width: 70ch;
+  }
+
+  .questions li {
+    padding-left: 4px;
+  }
+
+  .questions li::marker {
+    font-family: var(--mono);
+    font-size: 0.8em;
+    color: var(--accent);
+  }
+
+  ul.plain {
+    margin: 14px 0 0;
+    padding-left: 1.2em;
+    display: grid;
+    gap: 8px;
+    max-width: 70ch;
+  }
+
+  ul.plain li::marker {
+    color: var(--accent);
+  }
+
+  .checklist {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 8px 28px;
+    margin-top: 16px;
+    padding: 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+  }
+
+  .checklist div {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    min-width: 0;
+    font-size: 0.92rem;
+  }
+
+  .checklist div::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 13px;
+    height: 13px;
+    margin-top: 0.28em;
+    border: 1.5px solid var(--muted);
+    border-radius: 2px;
+  }
+
+  .note {
+    margin-top: 14px;
+    padding: 12px 16px;
+    background: var(--accent-soft);
+    border-inline-start: 3px solid var(--accent);
+    border-radius: 3px;
+    font-size: 0.9rem;
+    max-width: 70ch;
+  }
+
+  .note strong {
+    color: var(--accent);
+  }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px 24px;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  footer .mono {
+    color: var(--muted);
+  }
+
+  a {
+    color: var(--accent);
+  }
+
+  @media (max-width: 480px) {
+    body { font-size: 15px; }
+    .masthead { align-items: flex-start; flex-direction: column; }
+    .signature { max-width: none; }
+  }
+
+  @media print {
+    body {
+      background: #ffffff;
+      color: #111111;
+      padding-inline: 0;
+    }
+    .sheet { max-width: none; padding-block: 0; }
+    .draft { display: none; }
+    .table-scroll { overflow: visible; border-color: #999; }
+    table { min-width: 0; }
+    th { background: #f0f0f0; color: #333; }
+    td, th { border-color: #bbb; }
+    .note, .checklist { background: transparent; border-color: #999; }
+    h1, h2, h3 { color: #111; }
+    tr, .questions li, .signature, section.block { break-inside: avoid; }
+    a { color: inherit; text-decoration: none; }
+  }
+</style>
+
+<main class="sheet">
+  <header class="masthead">
+    <div class="brand">Contador<span>507</span></div>
+    <div class="eyebrow">Integración de facturación electrónica</div>
+  </header>
+
+  <div class="draft">
+    <strong>Borrador</strong>
+    <span>Reemplazá los campos resaltados antes de enviar. Este documento es el anexo comercial y técnico para solicitar acceso al ambiente de pruebas.</span>
+  </div>
+
+  <div class="title-block">
+    <h1>Solicitud de acceso e integración</h1>
+    <p class="subtitle">Factura Fácil · Ambiente de pruebas (QA) · Integración como PAC</p>
+  </div>
+
+  <dl class="meta">
+    <div>
+      <dt>Para</dt>
+      <dd><span class="fill">[Equipo comercial y técnico de Factura Fácil]</span></dd>
+    </div>
+    <div>
+      <dt>De</dt>
+      <dd><span class="fill">[Nombre y apellido]</span> · <span class="fill">[Cargo]</span></dd>
+    </div>
+    <div>
+      <dt>Fecha</dt>
+      <dd><span class="fill">[Ciudad, fecha]</span></dd>
+    </div>
+    <div>
+      <dt>Asunto</dt>
+      <dd>Acceso a QA y credenciales de integración</dd>
+    </div>
+  </dl>
+
+  <article class="letter">
+    <p>Estimados señores:</p>
+
+    <p>Contador507 es una plataforma de contabilidad en la nube para empresas panameñas. Registra movimientos, emite facturas, lleva libros y prepara declaraciones. Nuestros clientes son contribuyentes que necesitan emitir comprobantes fiscales electrónicos, y queremos hacerlo a través de un PAC autorizado en lugar de manejar firma y transmisión propias.</p>
+
+    <p>Solicitamos el alta como integrador y el acceso al <strong>ambiente de pruebas</strong> de Factura Fácil para:</p>
+
+    <ul class="goals">
+      <li>Validar el flujo de emisión de facturas electrónicas, notas de crédito y notas de débito.</li>
+      <li>Confirmar el esquema de autenticación y los datos de emisor y sucursal que debemos administrar por cada empresa.</li>
+      <li>Probar la consulta por CUFE, la descarga de XML y CAFE, y el manejo de rechazos antes de pasar a producción.</li>
+    </ul>
+
+    <p>Nuestra integración es <strong>servidor a servidor y multiempresa</strong>: cada empresa cliente tendrá su propio RUC, sucursal y punto de venta, y sus credenciales se guardan cifradas en nuestra base de datos. No emitimos en nombre de Contador507: emitimos por cuenta de cada contribuyente que contrata la plataforma.</p>
+
+    <p>Agradecemos indicarnos el proceso de onboarding, la documentación vigente y los datos que debemos completar. El anexo técnico resume lo que necesitamos recibir y las confirmaciones que nos permitirán planificar la integración.</p>
+
+    <p class="closing">Quedamos atentos.</p>
+
+    <div class="signature">
+      <div class="name"><span class="fill">[Nombre y apellido]</span></div>
+      <div><span class="fill">[Cargo]</span></div>
+      <div><span class="fill">[Teléfono]</span> · <span class="fill">[correo]</span></div>
+      <div>Contador507 · <span class="fill">[sitio web]</span></div>
+    </div>
+  </article>
+
+  <section class="annex">
+    <div class="eyebrow">Anexo</div>
+    <h2>Información técnica para la integración</h2>
+    <p class="annex-intro">Los datos entre corchetes los completa el solicitante. Las tablas y preguntas están pensadas para que el proveedor responda en una sola pasada.</p>
+
+    <section class="block">
+      <h3><span class="num">01</span> Datos de la empresa integradora</h3>
+      <div class="table-scroll">
+        <table>
+          <tbody>
+            <tr><th>Razón social</th><td><span class="fill">[Razón social completa]</span></td></tr>
+            <tr><th>RUC</th><td><span class="fill">[RUC]</span> · DV <span class="fill">[DV]</span></td></tr>
+            <tr><th>Dirección</th><td><span class="fill">[dirección]</span></td></tr>
+            <tr><th>Teléfono</th><td><span class="fill">[teléfono]</span></td></tr>
+            <tr><th>Correo técnico</th><td><span class="fill">[correo]</span></td></tr>
+            <tr><th>Sitio web</th><td><span class="fill">[https://...]</span></td></tr>
+            <tr><th>Contacto técnico</th><td><span class="fill">[nombre, cargo, correo, teléfono]</span></td></tr>
+            <tr><th>IP de salida</th><td><span class="fill">[IP pública del servidor]</span></td></tr>
+            <tr><th>Volumen inicial</th><td><span class="fill">[N]</span> facturas/mes; pico <span class="fill">[N]</span>/hora</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="block">
+      <h3><span class="num">02</span> Datos que solicitamos recibir para QA</h3>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Dato</th><th>Uso en la API</th><th>Formato</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>URL base de pruebas</td><td>Endpoint</td><td><code>https://backend-qa-api.facturafacil.com.pa</code></td></tr>
+            <tr><td>UUID de la empresa emisora</td><td>Header <code>X-FF-Company</code></td><td>UUID 8-4-4-4-12</td></tr>
+            <tr><td>API key de la empresa</td><td>Header <code>X-FF-API-Key</code></td><td>Cadena</td></tr>
+            <tr><td>Usuario HTTP Basic</td><td>Header <code>Authorization</code></td><td>Usuario</td></tr>
+            <tr><td>Contraseña HTTP Basic</td><td>Header <code>Authorization</code></td><td>Contraseña</td></tr>
+            <tr><td>UUID de sucursal</td><td>Header <code>X-FF-Branch</code></td><td>UUID</td></tr>
+            <tr><td>Código de sucursal</td><td><code>header.branch.code</code></td><td>4 caracteres</td></tr>
+            <tr><td>Punto de venta</td><td><code>header.pos</code></td><td>3 dígitos (<code>001</code>)</td></tr>
+            <tr><td>Ambiente</td><td><code>header.environment</code></td><td><code>"2"</code> pruebas · <code>"1"</code> producción</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:14px">También necesitamos, si está disponible:</p>
+      <ul class="plain">
+        <li>Catálogo de ubicaciones <code>PP-DD-CC</code> y de unidades de medida <code>mu</code>.</li>
+        <li>Catálogo CPBS/GNS para facturas a Gobierno.</li>
+        <li>RUC o cédula de prueba para receptores contribuyente y consumidor final.</li>
+        <li>Credenciales o instrucciones del entorno de pruebas de la DGI, si el PAC las provee.</li>
+        <li>Política de duplicados e idempotencia (<code>header.id</code>) y límites de tasa.</li>
+      </ul>
+    </section>
+
+    <section class="block">
+      <h3><span class="num">03</span> Flujo que vamos a implementar</h3>
+      <ol class="steps">
+        <li><code>POST /api/pac/reception_fe/detailed/</code> con <code>{ header, document }</code> para emitir la factura, nota de crédito o nota de débito.</li>
+        <li><code>GET /api/pac/reception_fe/find_by_cufe_or_id/?cufe_or_id=…</code> para consultar el estado y reintentar de forma idempotente.</li>
+        <li><code>GET /api/pac/reception_fe/{id}/download_xml/?cufe=…</code> y <code>…/download_cafe/?cufe=…</code> para archivar XML y representación gráfica.</li>
+        <li><code>POST /api/pac/event/issue/</code> para anulación y contingencia, en una segunda fase.</li>
+      </ol>
+      <p style="margin-top:14px">Cada empresa tendrá su propia configuración. El <code>controlId</code> que enviaremos en <code>header.id</code> será el identificador interno de la factura, para que un reintento no duplique el comprobante.</p>
+    </section>
+
+    <section class="block">
+      <h3><span class="num">04</span> Preguntas para el proveedor</h3>
+      <ol class="questions">
+        <li>¿La API key es por empresa emisora o existe una clave maestra de integrador? ¿Cómo se habilitan empresas nuevas?</li>
+        <li>¿HTTP Basic es obligatorio además del API key? ¿Es por empresa o por integrador?</li>
+        <li>¿La sucursal se crea por API (<code>header.branch</code>) o en el portal? ¿Cómo obtenemos su UUID?</li>
+        <li>¿El POS lo asigna el proveedor o lo elige el emisor?</li>
+        <li>Para un SaaS multiempresa, ¿recomiendan <code>fd_number = 0</code> (secuencia interna del PAC) o enviar el correlativo local? ¿Cómo se evita que ambas secuencias diverjan?</li>
+        <li>¿Cómo se reinicia una secuencia en el ambiente de pruebas?</li>
+        <li>Política de duplicados: ¿<code>header.id</code> es idempotente? ¿La respuesta es <code>201 duplicated</code> o <code>409</code>?</li>
+        <li>Límites de tasa, timeout recomendado y allowlist de IP.</li>
+        <li>¿El <code>201</code> siempre incluye CUFE, o hay que consultar el estado después? ¿Qué estados se resuelven de forma asincrónica?</li>
+        <li>¿La descarga de XML y CAFE usa la misma autenticación? ¿<code>send_email</code> envía correos reales en QA?</li>
+        <li>¿Los eventos de anulación y contingencia funcionan en QA?</li>
+        <li>¿La firma y el certificado los maneja el PAC? ¿Necesitan algún registro o identificación nuestra como proveedor de software ante la DGI?</li>
+        <li>¿Hay términos especiales para integradores o revendedores que dan servicio a múltiples contribuyentes?</li>
+      </ol>
+    </section>
+
+    <section class="block">
+      <h3><span class="num">05</span> Seguridad y manejo de datos</h3>
+      <ul class="plain">
+        <li>Las credenciales por empresa se guardan cifradas en reposo (AES-256-GCM) y nunca se devuelven al frontend.</li>
+        <li>La emisión se hace desde el backend; no hay credenciales en el navegador.</li>
+        <li>Podemos restringir las llamadas a una IP fija y rotar credenciales si el proveedor lo requiere.</li>
+        <li>No almacenamos certificados de firma: la firma y la transmisión quedan del lado del PAC.</li>
+      </ul>
+      <div class="note">
+        <strong>Dato de contacto para seguridad:</strong> <span class="fill">[correo y teléfono del responsable técnico]</span>.
+      </div>
+    </section>
+
+    <section class="block">
+      <h3><span class="num">06</span> Checklist de respuesta</h3>
+      <div class="checklist">
+        <div>Proceso de alta de integrador y de empresas emisoras</div>
+        <div>Credenciales de QA: UUID, API key y Basic</div>
+        <div>Sucursal y POS de prueba</div>
+        <div>Catálogos y datos de prueba</div>
+        <div>Documentación de duplicados, límites y ambientes</div>
+        <div>Contacto de soporte durante la integración</div>
+      </div>
+    </section>
+  </section>
+
+  <footer>
+    <div>Contador507 · Solicitud de integración PAC</div>
+    <div class="mono">20-10-2026 · v1</div>
+  </footer>
+</main>

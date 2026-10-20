@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { validate } from '../middleware/validate';
 import { requireRole } from '../middleware/auth';
 import { findClient } from '../services/counterparty';
 
@@ -51,8 +50,19 @@ clientsRouter.get('/:id', async (req, res) => {
 // POST /api/clients — Crear cliente (dedupe por RUC/nombre: higiene de duplicidad)
 // Crear un cliente es parte de facturar: lo hace quien emite la venta.
 clientsRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventario'), async (req, res) => {
-  const { name, taxId, phone, email, address, notes } = req.body;
+  const { name, taxId, phone, email, address, dv, location, notes } = req.body;
   if (!name) { res.status(400).json({ error: 'El nombre es requerido' }); return; }
+
+  const dvLimpio = dv === undefined ? undefined : (String(dv).trim() || null);
+  if (dvLimpio && !/^\d{1,2}$/.test(dvLimpio)) {
+    res.status(400).json({ error: 'El DV debe ser de 1 o 2 dígitos.' });
+    return;
+  }
+  const locationLimpia = location === undefined ? undefined : (String(location).trim() || null);
+  if (locationLimpia && !/^\d{1,2}-\d{1,2}-\d{1,2}$/.test(locationLimpia)) {
+    res.status(400).json({ error: 'La ubicación debe tener el formato PP-DD-CC (ej. 8-8-8).' });
+    return;
+  }
 
   const existing = await findClient(req.prisma, req.user!.companyId, { name, taxId });
   if (existing) {
@@ -62,7 +72,7 @@ clientsRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventar
 
   try {
     const client = await req.prisma.client.create({
-      data: { name, taxId, phone, email, address, notes, companyId: req.user!.companyId },
+      data: { name, taxId, phone, email, address, dv: dvLimpio, location: locationLimpia, notes, companyId: req.user!.companyId },
     });
     res.status(201).json(client);
   } catch (error: any) {
@@ -78,6 +88,7 @@ clientsRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventar
 clientsRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
   const {
     name, taxId, phone, email, address, notes,
+    dv, location,
     esAgenteRetenedor, porcentajeRetencionItbms, vigenciaRetencionDesde, vigenciaRetencionHasta,
   } = req.body;
   const existing = await req.prisma.client.findFirst({
@@ -85,7 +96,20 @@ clientsRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), async 
   });
   if (!existing) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
 
+  const dvLimpio = dv === undefined ? undefined : (String(dv).trim() || null);
+  if (dvLimpio && !/^\d{1,2}$/.test(dvLimpio)) {
+    res.status(400).json({ error: 'El DV debe ser de 1 o 2 dígitos.' });
+    return;
+  }
+  const locationLimpia = location === undefined ? undefined : (String(location).trim() || null);
+  if (locationLimpia && !/^\d{1,2}-\d{1,2}-\d{1,2}$/.test(locationLimpia)) {
+    res.status(400).json({ error: 'La ubicación debe tener el formato PP-DD-CC (ej. 8-8-8).' });
+    return;
+  }
+
   const data: any = { name, taxId, phone, email, address, notes };
+  if (dv !== undefined) data.dv = dvLimpio;
+  if (location !== undefined) data.location = locationLimpia;
   if (esAgenteRetenedor !== undefined) data.esAgenteRetenedor = !!esAgenteRetenedor;
   if (porcentajeRetencionItbms !== undefined) {
     const pct = Number(porcentajeRetencionItbms);
@@ -106,6 +130,7 @@ clientsRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), async 
 clientsRouter.get('/:id/invoices', async (req, res) => {
   const invoices = await req.prisma.invoice.findMany({
     where: { clientId: req.params.id, companyId: req.user!.companyId, status: { notIn: ['RECHAZADA'] } },
+    omit: { pacXml: true },
     include: { client: { select: { name: true } } },
     orderBy: { date: 'desc' },
   });

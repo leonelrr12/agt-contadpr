@@ -5,6 +5,8 @@
 // que lo que se guarda acá aparece en el PDF de venta sin pasos extra.
 
 let empresaPerfilActual = null;
+/** Última configuración PAC cargada (para saber si el ambiente cambió). */
+let empresaPacActual = null;
 /** Imágenes que el usuario pidió QUITAR (solo se manda si no eligió una nueva). */
 let empresaQuitar = { logo: false, sello: false };
 
@@ -21,6 +23,7 @@ async function loadPanelEmpresa() {
         window.userModulos = r && r.ok ? ((await r.json()).subscription?.modulos || []) : [];
       } catch { window.userModulos = []; }
     }
+    const tieneFacturas = window.userModulos.includes('facturas-pdf');
     const res = await authFetch(`${API_URL}/companies/current`);
     if (!res.ok) {
       el.innerHTML = '<div class="empty">No se pudo cargar el perfil de la empresa</div>';
@@ -28,14 +31,29 @@ async function loadPanelEmpresa() {
     }
     empresaPerfilActual = await res.json();
     empresaQuitar = { logo: false, sello: false };
-    el.innerHTML = renderEmpresaPerfil(empresaPerfilActual, window.userModulos.includes('facturas-pdf'));
+
+    // La configuración del PAC es una ficha aparte: si falla (por ejemplo, la
+    // migración 0047 todavía no está aplicada) el perfil se muestra igual y la
+    // tarjeta avisa del problema.
+    let pac = null;
+    let pacError = false;
+    if (tieneFacturas) {
+      try {
+        const pr = await authFetch(`${API_URL}/pac/config`);
+        if (pr.ok) pac = await pr.json();
+        else pacError = true;
+      } catch { pacError = true; }
+    }
+    empresaPacActual = pac;
+
+    el.innerHTML = renderEmpresaPerfil(empresaPerfilActual, tieneFacturas, pac, pacError);
     initEmpresaDropzones();
   } catch {
     el.innerHTML = '<div class="empty">Error de conexión</div>';
   }
 }
 
-function renderEmpresaPerfil(d, tieneFacturas) {
+function renderEmpresaPerfil(d, tieneFacturas, pac, pacError) {
   const v = (x) => escapeHtml(x || '');
   const dgi = tieneFacturas ? `
     <div class="admin-form-card">
@@ -80,6 +98,8 @@ function renderEmpresaPerfil(d, tieneFacturas) {
       </div>
       <div class="emp-note" style="margin-top:8px">El logo sale en el PDF de las facturas de venta. El sello queda guardado para los documentos que lo lleven. Después de elegir la imagen, guardá con <strong>💾 Guardar</strong> (al final de la ficha).</div>
     </div>`;
+
+  const pacCard = tieneFacturas ? renderEmpresaPacCard(pac, pacError) : '';
 
   return `
     ${imagenes}
@@ -145,10 +165,12 @@ function renderEmpresaPerfil(d, tieneFacturas) {
       <div class="emp-note">Notas internas de esta empresa (acuerdos, pendientes, particularidades). No se imprimen ni afectan la contabilidad.</div>
     </div>
 
-    <div style="display:flex;align-items:center;gap:12px;margin-top:4px">
+    <div style="display:flex;align-items:center;gap:12px;margin-top:4px;margin-bottom:24px">
       <button class="btn-primary" onclick="saveEmpresa()" style="padding:8px 18px;border:none;border-radius:8px;background:#1565c0;color:#fff;font-weight:600;cursor:pointer;font-size:14px;font-family:inherit">💾 Guardar</button>
       <span id="emp-saved-msg" style="display:none;color:#059669;font-size:13px;font-weight:600">✅ Guardado</span>
-    </div>`;
+    </div>
+
+    ${pacCard}`;
 }
 
 function initEmpresaDropzones() {
@@ -200,6 +222,190 @@ function initEmpresaDropzones() {
       empresaQuitar[name] = fileLabel.dataset.tenia === '1';
       quitar.style.display = 'none';
     });
+  }
+}
+
+function renderEmpresaPacCard(pac, pacError) {
+  const v = (x) => escapeHtml(x || '');
+  const p = pac || {};
+  const env = p.environment || 'PRUEBAS';
+  const provider = p.provider || 'FACTURA_FACIL';
+
+  const ultima = p.lastTestAt
+    ? `<span class="${p.lastTestOk ? 'ok' : 'error'}">${p.lastTestOk ? '✅ Última prueba OK' : '❌ La última prueba falló'} · ${v(fmtFechaHoraEmpresa(p.lastTestAt))}</span>${p.lastTestOk ? '' : ` — ${v(p.lastTestError || 'sin detalle')}`}`
+    : 'Sin pruebas de conexión todavía.';
+
+  const aviso = pacError
+    ? '<div class="emp-note" style="color:#b45309;margin-bottom:10px">⚠️ No se pudo cargar la configuración del PAC. Puede que la API no se haya reiniciado o que la migración 0047 no esté aplicada.</div>'
+    : '';
+
+  return `
+    <div class="admin-form-card">
+      <h4>🧾 Emisión electrónica (PAC)</h4>
+      ${aviso}
+      <div class="form-grid">
+        <div>
+          <label>Proveedor</label>
+          <select id="emp-pac-provider">
+            <option value="FACTURA_FACIL" ${provider === 'FACTURA_FACIL' ? 'selected' : ''}>Factura Fácil</option>
+          </select>
+        </div>
+        <div>
+          <label>Ambiente</label>
+          <select id="emp-pac-env">
+            <option value="PRUEBAS" ${env === 'PRUEBAS' ? 'selected' : ''}>Pruebas (QA)</option>
+            <option value="PRODUCCION" ${env === 'PRODUCCION' ? 'selected' : ''}>Producción</option>
+          </select>
+        </div>
+        <div style="grid-column:1/-1">
+          <label>UUID del emisor</label>
+          <input id="emp-pac-company-uuid" maxlength="100" spellcheck="false" value="${v(p.companyUuid)}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+          <div class="emp-note">Lo entrega el PAC al dar de alta la empresa. En Factura Fácil es el header X-FF-Company.</div>
+        </div>
+        <div style="grid-column:1/-1">
+          <label>API key</label>
+          <input id="emp-pac-api-key" type="password" maxlength="500" autocomplete="new-password" placeholder="${p.apiKeySet ? '•••••••• (guardada)' : 'Pega la API key del PAC'}">
+          <div class="emp-note">Se guarda cifrada. Dejá el campo vacío para conservar la que ya está cargada.</div>
+        </div>
+        <div>
+          <label>Usuario HTTP Basic</label>
+          <input id="emp-pac-basic-user" maxlength="150" autocomplete="off" value="${v(p.basicUser)}" placeholder="Opcional">
+        </div>
+        <div>
+          <label>Contraseña HTTP Basic</label>
+          <input id="emp-pac-basic-password" type="password" maxlength="500" autocomplete="new-password" placeholder="${p.basicPasswordSet ? '•••••••• (guardada)' : 'Opcional'}">
+          <div class="emp-note">Si borrás el usuario, se elimina también la contraseña Basic guardada.</div>
+        </div>
+        <div>
+          <label>UUID de sucursal</label>
+          <input id="emp-pac-branch-uuid" maxlength="100" spellcheck="false" value="${v(p.branchUuid)}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+        </div>
+        <div>
+          <label>Código de sucursal</label>
+          <input id="emp-pac-branch-code" maxlength="4" value="${v(p.branchCode)}" placeholder="0001">
+          <div class="emp-note">UUID o código de 4 caracteres; con uno alcanza.</div>
+        </div>
+        <div>
+          <label>Punto de venta (POS)</label>
+          <input id="emp-pac-pos" maxlength="3" inputmode="numeric" value="${v(p.pos || '001')}" placeholder="001">
+        </div>
+      </div>
+      <label class="emp-check">
+        <input type="checkbox" id="emp-pac-enabled" ${p.enabled ? 'checked' : ''}>
+        Emitir facturas electrónicas con esta configuración
+      </label>
+      <div class="emp-note">Esto se guarda aparte del perfil: usá <strong>Guardar PAC</strong> (el <strong>💾 Guardar</strong> del perfil no incluye esta sección). <strong>Probar conexión</strong> usa lo ya guardado, no los cambios sin guardar.</div>
+      <div class="emp-pac-actions">
+        <button type="button" class="btn-primary" onclick="savePacConfigUI()">💾 Guardar PAC</button>
+        <button type="button" class="btn-sm" onclick="testPacConexion(this)">🔌 Probar conexión</button>
+        <span id="emp-pac-saved-msg" style="display:none;color:#059669;font-size:13px;font-weight:600">✅ Guardado</span>
+      </div>
+      <div id="emp-pac-test-result" class="emp-pac-status">${ultima}</div>
+    </div>`;
+}
+
+function fmtFechaHoraEmpresa(iso) {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso || '');
+    return d.toLocaleString('es-PA', { dateStyle: 'short', timeStyle: 'short' });
+  } catch {
+    return String(iso || '');
+  }
+}
+
+async function savePacConfigUI() {
+  const ambiente = document.getElementById('emp-pac-env').value;
+  if (ambiente === 'PRODUCCION' && empresaPacActual?.environment !== 'PRODUCCION') {
+    const ok = await showConfirm('Vas a habilitar la emisión en PRODUCCIÓN: los documentos que se emitan serán fiscales y reales. ¿Seguir?');
+    if (!ok) return;
+  }
+
+  const body = {
+    provider: document.getElementById('emp-pac-provider').value,
+    environment: ambiente,
+    companyUuid: document.getElementById('emp-pac-company-uuid').value.trim(),
+    basicUser: document.getElementById('emp-pac-basic-user').value.trim(),
+    branchUuid: document.getElementById('emp-pac-branch-uuid').value.trim(),
+    branchCode: document.getElementById('emp-pac-branch-code').value.trim(),
+    pos: document.getElementById('emp-pac-pos').value.trim(),
+    enabled: document.getElementById('emp-pac-enabled').checked,
+  };
+
+  // Los secretos viajan solo si el usuario escribió uno nuevo; vacío = conservar.
+  const apiKey = document.getElementById('emp-pac-api-key').value.trim();
+  if (apiKey) body.pacApiKey = apiKey;
+  const basicPassword = document.getElementById('emp-pac-basic-password').value;
+  if (basicPassword) body.pacBasicPassword = basicPassword;
+  // Borrar el usuario es la forma de quitar Basic: el backend exige limpiar la
+  // contraseña junto con él (el par va junto o no va).
+  if (!body.basicUser && empresaPacActual?.basicPasswordSet) body.clearBasicPassword = true;
+
+  try {
+    const res = await authFetch(`${API_URL}/pac/config`, { method: 'PUT', body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      await showAlert(data.error || 'No se pudo guardar la configuración del PAC.');
+      return;
+    }
+
+    empresaPacActual = data;
+    const keyInput = document.getElementById('emp-pac-api-key');
+    if (keyInput) {
+      keyInput.value = '';
+      keyInput.placeholder = data.apiKeySet ? '•••••••• (guardada)' : 'Pega la API key del PAC';
+    }
+    const passInput = document.getElementById('emp-pac-basic-password');
+    if (passInput) {
+      passInput.value = '';
+      passInput.placeholder = data.basicPasswordSet ? '•••••••• (guardada)' : 'Opcional';
+    }
+    const msg = document.getElementById('emp-pac-saved-msg');
+    if (msg) {
+      msg.style.display = 'inline';
+      setTimeout(() => { msg.style.display = 'none'; }, 2500);
+    }
+  } catch {
+    await showAlert('Error de conexión');
+  }
+}
+
+async function testPacConexion(btn) {
+  const out = document.getElementById('emp-pac-test-result');
+  if (btn) {
+    btn.disabled = true;
+    btn.dataset.texto = btn.textContent;
+    btn.textContent = 'Probando…';
+  }
+  if (out) {
+    out.className = 'emp-pac-status';
+    out.textContent = 'Probando credenciales…';
+  }
+
+  try {
+    const res = await authFetch(`${API_URL}/pac/config/test`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (out) {
+        out.className = 'emp-pac-status error';
+        out.textContent = data.error || 'No se pudo probar la conexión.';
+      }
+      return;
+    }
+    if (out) {
+      out.className = 'emp-pac-status ' + (data.ok ? 'ok' : 'error');
+      out.textContent = (data.ok ? '✅ ' : '❌ ') + (data.message || (data.ok ? 'Conexión correcta.' : 'La prueba falló.'));
+    }
+  } catch {
+    if (out) {
+      out.className = 'emp-pac-status error';
+      out.textContent = 'Error de conexión al probar el PAC.';
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = btn.dataset.texto || '🔌 Probar conexión';
+    }
   }
 }
 

@@ -142,6 +142,7 @@ model Company {
   declaracionesItbms DeclaracionItbms[]
   emailFacturaConfig EmailFacturaConfig?
   emailFacturaMensajes EmailFacturaMensaje[]
+  pacConfig          PacConfig?
 
   @@index([cuentaId])
 }
@@ -483,6 +484,12 @@ model Client {
   phone                   String?
   email                   String?
   address                 String?
+  /// DV del RUC cuando el RUC guardado no lo trae pegado (Factura Fácil lo exige
+  /// para receptores contribuyente/gobierno).
+  dv                      String?
+  /// Ubicación DGI `PP-DD-CC` del receptor. Obligatoria para facturar
+  /// electrónicamente a contribuyentes y gobierno.
+  location                String?
   notes                   String?
   // Perfil de agente de retención ITBMS (retención SUFRIDA: el cliente retiene al pagarnos).
   // Vigencia evaluada contra la fecha de la factura (las listas DGI cambian por resolución).
@@ -543,6 +550,33 @@ model Invoice {
   description    String?
   paymentMethod  String?   // EFECTIVO | CREDITO (módulo Facturas PDF)
   journalEntryId String?
+  /// Tasa de ITBMS aplicada al crear la factura. Se guarda porque la emisión
+  /// electrónica necesita el CÓDIGO de la tasa (7/10/15/exento), no solo el monto.
+  itbmsRate      Float     @default(0.07)
+
+  // ── Facturación electrónica (PAC) ──
+  // La emisión es POSTERIOR al asiento local: estos campos guardan el resultado
+  // del PAC/DGI y permiten reintentar sin duplicar (controlId idempotente).
+  // NO_CONFIGURADO | PENDIENTE | AUTORIZADA | RECHAZADA | ERROR
+  pacStatus              String    @default("NO_CONFIGURADO")
+  pacProvider            String?   // FACTURA_FACIL
+  pacEnvironment         String?   // PRUEBAS | PRODUCCION al momento de emitir
+  pacControlId           String?   // header.id enviado (idempotencia)
+  pacAttempts            Int       @default(0)
+  cufe                   String?
+  pacDocumentUuid        String?
+  pacDocumentNumber      String?
+  pacAuthorizationNumber String?
+  pacPdfUrl              String?
+  pacQrData              String?
+  /// XML autorizado (o rechazado, para diagnóstico). Se sirve por
+  /// GET /api/facturas/:id/xml y se omite de las listas por tamaño.
+  pacXml                 String?
+  /// Mensajes del PAC/DGI en JSON (convención del repo: Transaction.metadata).
+  pacMessages            String?
+  pacAuthorizedAt        DateTime?
+  pacLastError           String?
+
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -555,6 +589,7 @@ model Invoice {
   @@index([companyId])
   @@index([clientId])
   @@index([status])
+  @@index([companyId, pacStatus])
   @@map("invoice")
 }
 
@@ -1645,6 +1680,52 @@ model EmailFacturaConfig {
   company Company @relation(fields: [companyId], references: [id])
 
   @@map("email_factura_config")
+}
+
+/// Configuración de emisión electrónica (PAC / agente autorizado) por empresa.
+///
+/// Una sola configuración activa por empresa: si mañana se cambia de proveedor
+/// se actualiza `provider` con sus credenciales. Tener dos PAC emitiendo por la
+/// misma empresa produciría dos secuencias fiscales distintas para el mismo RUC.
+///
+/// Los identificadores son del proveedor (Factura Fácil: X-FF-Company,
+/// X-FF-API-Key, X-FF-Branch). `companyUuid` y `pacApiKey` son nullable a
+/// propósito: la ficha se puede crear antes de que el proveedor entregue los
+/// accesos; `enabled` exige ambos (ver services/pac/company-config.ts).
+///
+/// `pacApiKey` y `pacBasicPassword` están en ENCRYPTED_FIELDS
+/// (services/crypto-fields.ts): se cifran en reposo y se descifran al leerlas.
+/// La API NUNCA devuelve esos valores; solo informa si están cargados.
+model PacConfig {
+  id              String   @id @default(cuid())
+  companyId       String   @unique
+  provider        String   @default("FACTURA_FACIL")
+  /// PRUEBAS | PRODUCCION. La emisión real exige PRODUCCION explícito.
+  environment     String   @default("PRUEBAS")
+  /// UUID del emisor en el PAC (Factura Fácil: X-FF-Company).
+  companyUuid     String?
+  /// API key del emisor (Factura Fácil: X-FF-API-Key). Cifrada en reposo.
+  pacApiKey       String?
+  /// HTTP Basic, si el proveedor lo exige además del API key.
+  basicUser       String?
+  /// Contraseña Basic. Cifrada en reposo.
+  pacBasicPassword String?
+  /// Sucursal: UUID en cabecera (X-FF-Branch) o código de 4 caracteres en el cuerpo.
+  branchUuid      String?
+  branchCode      String?
+  /// Punto de venta / emisión (Factura Fácil: 3 dígitos).
+  pos             String   @default("001")
+  /// Interruptor de emisión. Apagado = se puede configurar y probar, no emitir.
+  enabled         Boolean  @default(false)
+  lastTestAt      DateTime?
+  lastTestOk      Boolean?
+  lastTestError   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("pac_config")
 }
 
 /// Ledger de correos vistos. Va aparte de `expense_claim` por tres razones: un correo

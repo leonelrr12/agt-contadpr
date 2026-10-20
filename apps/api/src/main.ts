@@ -37,6 +37,7 @@ import { reembolsosRouter } from './routes/reembolsos';
 import { facturasEmailRouter } from './routes/facturas-email';
 import { despachoRouter } from './routes/despacho';
 import { companiesRouter } from './routes/companies';
+import { pacRouter } from './routes/pac';
 import { planRateLimiter } from './middleware/plan-rate-limit';
 import { requireAuth, requireRole, limitarRolesExclusivos } from './middleware/auth';
 import { errorHandler, notFoundHandler } from './middleware/error-handler';
@@ -212,6 +213,9 @@ app.use('/api/reembolsos', reembolsosRouter);
 app.use('/api/facturas-email', facturasEmailRouter);
 app.use('/api/despacho', despachoRouter);
 app.use('/api/companies', companiesRouter);
+// Configuración de emisión electrónica por empresa (PAC). El router exige rol
+// admin/superadmin y el módulo Facturas PDF. Aún no emite: solo configura y prueba.
+app.use('/api/pac', pacRouter);
 app.use('/api/config', requireRole('admin', 'superadmin'), configRouter);
 app.use('/api/keys', apiKeysRouter);
 app.use('/api/admin', requireRole('superadmin'), adminRouter);

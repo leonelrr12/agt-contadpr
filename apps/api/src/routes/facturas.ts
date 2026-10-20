@@ -11,6 +11,8 @@ import { findOrCreateClient } from '../services/counterparty';
 import { retencionCobroInfo, marcarClienteAgente } from '../services/retencion-itbms';
 import { checkNotBlocked } from '../services/journal-guard';
 import { prepararSalidaVenta, confirmarSalidaVenta } from '../services/inventario';
+import { emitInvoiceWithPac } from '../services/pac/emit-invoice';
+import type { InvoiceEmission } from '../services/pac/emit-invoice';
 
 export const facturasRouter = Router();
 
@@ -19,6 +21,19 @@ export const facturasRouter = Router();
 facturasRouter.use(requireModulo('facturas-pdf'));
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Respuesta resumida de la emisión: sin el XML (se sirve por su endpoint). */
+function resumenFacturaElectronica(e: InvoiceEmission) {
+  return {
+    status: e.status,
+    message: e.message,
+    cufe: e.cufe,
+    documentNumber: e.documentNumber,
+    authorizationNumber: e.authorizationNumber,
+    pdfUrl: e.pdfUrl,
+    messages: e.messages,
+  };
+}
 
 /** Resuelve la cuenta de ventas: alias 'ventas' o primera cuenta 4.x. */
 async function resolveSalesAccount(agent: AccountingAgent, prisma: any, companyId: string): Promise<string> {
@@ -124,6 +139,7 @@ facturasRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventa
       const invoice = await tx.invoice.create({
         data: {
           companyId, clientId: client.id, number, amount: subtotal, itbms, total,
+          itbmsRate: tasa,
           dueDate: vence, date: fecha, description: desc, paymentMethod, journalEntryId: je.id,
           items: { create: itbmsItems.map((it: any) => ({ descripcion: it.descripcion, cantidad: it.cantidad, precio: it.precio, itbms: it.itbms, productId: it.productId || null })) },
         },
@@ -154,7 +170,37 @@ facturasRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventa
       after: { number: result.invoice.number, total: result.invoice.total },
     }).catch(() => {});
 
-    res.status(201).json({ ...result.invoice, avisosInventario: result.avisos });
+    // La emisión electrónica va DESPUÉS del commit. Si el PAC falla, la factura
+    // y el asiento ya existen: quedan marcados (ERROR/NO_CONFIGURADO) y se
+    // reintentan desde POST /:id/emitir sin duplicar.
+    let emision: InvoiceEmission;
+    try {
+      emision = await emitInvoiceWithPac(req.prisma, companyId, result.invoice.id);
+    } catch (err: any) {
+      console.error('[Facturas] Emisión PAC:', err?.message);
+      emision = {
+        status: 'ERROR',
+        message: 'No se pudo emitir electrónicamente. La factura quedó guardada.',
+        messages: [],
+        invoice: result.invoice,
+      };
+    }
+
+    await logAudit(req.prisma, {
+      userId: req.user!.userId,
+      action: `FACTURA_PAC_${emision.status}`,
+      entity: 'Invoice',
+      entityId: result.invoice.id,
+      after: { status: emision.status, cufe: emision.cufe || null },
+    }).catch(() => {});
+
+    const invoiceOut: any = { ...(emision.invoice || result.invoice) };
+    delete invoiceOut.pacXml;
+    res.status(201).json({
+      ...invoiceOut,
+      avisosInventario: result.avisos,
+      facturaElectronica: resumenFacturaElectronica(emision),
+    });
   } catch (e: any) {
     if (e.code === 'P2002') {
       res.status(409).json({ error: 'Número de factura duplicado, reintenta.', code: 'NUMBER_CONFLICT' });
@@ -162,6 +208,33 @@ facturasRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventa
     }
     const status = e.status || 500;
     res.status(status).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/facturas/:id/emitir — emite o reintenta la factura electrónica.
+ * Si ya está AUTORIZADA devuelve el documento guardado sin llamar al PAC.
+ */
+facturasRouter.post('/:id/emitir', requireRole('admin', 'contador', 'superadmin', 'inventario'), async (req, res) => {
+  try {
+    const emision = await emitInvoiceWithPac(req.prisma, req.user!.companyId, req.params.id);
+    await logAudit(req.prisma, {
+      userId: req.user!.userId,
+      action: `FACTURA_PAC_RETRY_${emision.status}`,
+      entity: 'Invoice',
+      entityId: req.params.id,
+      after: { status: emision.status, cufe: emision.cufe || null },
+    }).catch(() => {});
+
+    const invoiceOut: any = { ...emision.invoice };
+    delete invoiceOut.pacXml;
+    res.json({
+      ...invoiceOut,
+      facturaElectronica: resumenFacturaElectronica(emision),
+    });
+  } catch (e: any) {
+    const status = e.status || 500;
+    res.status(status).json({ error: e.message || 'No se pudo emitir la factura electrónica.' });
   }
 });
 
@@ -178,6 +251,8 @@ facturasRouter.get('/', async (req, res) => {
     req.prisma.invoice.count({ where }),
     req.prisma.invoice.findMany({
       where,
+      // El XML puede ser grande: se sirve por GET /:id/xml y no viaja en la lista.
+      omit: { pacXml: true },
       include: { client: { select: { id: true, name: true, taxId: true } } },
       orderBy: { date: 'desc' },
       skip: (page - 1) * pageSize,
@@ -191,6 +266,7 @@ facturasRouter.get('/', async (req, res) => {
 facturasRouter.get('/:id', async (req, res) => {
   const invoice = await req.prisma.invoice.findFirst({
     where: { id: req.params.id, companyId: req.user!.companyId },
+    omit: { pacXml: true },
     include: {
       items: true,
       client: {
@@ -206,10 +282,26 @@ facturasRouter.get('/:id', async (req, res) => {
   res.json(invoice);
 });
 
+/** GET /api/facturas/:id/xml — XML autorizado (o rechazado) guardado. */
+facturasRouter.get('/:id/xml', async (req, res) => {
+  const invoice = await req.prisma.invoice.findFirst({
+    where: { id: req.params.id, companyId: req.user!.companyId },
+    select: { number: true, pacXml: true },
+  });
+  if (!invoice) { res.status(404).json({ error: 'Factura no encontrada' }); return; }
+  if (!invoice.pacXml) { res.status(404).json({ error: 'La factura no tiene XML autorizado.' }); return; }
+
+  const nombre = `Factura-${(invoice.number || req.params.id).replace(/[^A-Za-z0-9_-]/g, '-')}.xml`;
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+  res.send(invoice.pacXml);
+});
+
 /** GET /api/facturas/:id/pdf — descarga el PDF. */
 facturasRouter.get('/:id/pdf', async (req, res) => {
   const invoice = await req.prisma.invoice.findFirst({
     where: { id: req.params.id, companyId: req.user!.companyId },
+    omit: { pacXml: true },
     include: { items: true, client: true },
   });
   if (!invoice) { res.status(404).json({ error: 'Factura no encontrada' }); return; }
@@ -280,8 +372,7 @@ facturasRouter.patch('/:id/pay', requireRole('admin', 'contador', 'superadmin'),
         autoMarcadoAgente = !info.esAgente;
       }
 
-      let journalEntryId = invoice.journalEntryId;
-      let jeId = journalEntryId;
+      let jeId = invoice.journalEntryId;
       // Cuenta del depósito (solo relevante en crédito): cuentaId explícita o alias 'caja'
       let cuentaIdResuelta: string | null = null;
       if (invoice.paymentMethod === 'CREDITO') {
