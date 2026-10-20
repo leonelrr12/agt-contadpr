@@ -1028,6 +1028,19 @@ async function openClientProfileModal(clientId) {
       <input id="pf-name" value="${escapeHtml(c.name || '')}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
       <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">RUC</label>
       <input id="pf-ruc" value="${escapeHtml(c.taxId || '')}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px;background:#f3f4f6" readonly>
+      <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Dirección</label>
+      <input id="pf-address" maxlength="300" value="${escapeHtml(c.address || '')}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <div style="flex:0 0 90px">
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">DV</label>
+          <input id="pf-dv" maxlength="2" value="${escapeHtml(c.dv || '')}" placeholder="88" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+        </div>
+        <div style="flex:1">
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Ubicación DGI (PP-DD-CC)</label>
+          <input id="pf-location" maxlength="8" value="${escapeHtml(c.location || '')}" placeholder="8-8-8" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
+        </div>
+      </div>
+      <div style="font-size:11px;color:#6b7280;margin-top:6px">DV y ubicación son obligatorios para facturar electrónicamente a contribuyentes. Si el RUC ya trae el DV al final, se separa solo.</div>
       <label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13px;cursor:pointer">
         <input type="checkbox" id="pf-agente" ${c.esAgenteRetenedor ? 'checked' : ''}> <strong>Es agente de retención ITBMS</strong>
       </label>
@@ -1058,6 +1071,9 @@ async function saveClientProfileModal(clientId, btn) {
   const body = {
     name: document.getElementById('pf-name').value,
     taxId: document.getElementById('pf-ruc').value,
+    address: document.getElementById('pf-address').value.trim(),
+    dv: document.getElementById('pf-dv').value.trim(),
+    location: document.getElementById('pf-location').value.trim(),
     esAgenteRetenedor: document.getElementById('pf-agente').checked,
   };
   if (body.esAgenteRetenedor) {

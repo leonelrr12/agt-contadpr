@@ -1545,6 +1545,35 @@ body.spa { height: 100vh; }
 }
 .emp-note { margin-top: 4px; font-size: 11px; color: #6b7280; }
 
+/* Emisión electrónica (PAC) en la ficha de la empresa — js/empresa.js */
+.emp-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+}
+.emp-check input { margin-top: 2px; accent-color: #1565c0; flex: 0 0 auto; }
+.emp-pac-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.emp-pac-status {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.emp-pac-status.ok { color: #059669; font-weight: 600; }
+.emp-pac-status.error { color: #dc2626; font-weight: 600; }
+
 /* ── Flujo de caja: resumen del período (js/informes.js) ── */
 .flujo-resumen {
   max-width: 560px;

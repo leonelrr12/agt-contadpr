@@ -13,7 +13,9 @@ const KEY = KEY_B64 ? Buffer.from(KEY_B64, 'base64') : null;
 // User.email queda FUERA: se usa como login y es unique.
 // `imapPassword` (buzón de facturas por correo) se cifra en reposo y se descifra
 // al leerlo con el cliente extendido; el barrido usa ese cliente, no el crudo.
-const ENCRYPTED_FIELDS = ['taxId', 'email', 'phone', 'reference', 'imapPassword'];
+// `pacApiKey`/`pacBasicPassword` (emisión electrónica) siguen la misma regla: la
+// API solo informa si están cargadas, nunca las devuelve.
+const ENCRYPTED_FIELDS = ['taxId', 'email', 'phone', 'reference', 'imapPassword', 'pacApiKey', 'pacBasicPassword'];
 // Modelo excluido del cifrado por completo
 const EXCLUDED_MODELS = new Set(['User', 'AuthToken', 'ApiKey']);
 

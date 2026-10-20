@@ -99,17 +99,35 @@ async function loadFacturasList() {
       const c = { PENDIENTE: ['#f59e0b', '#fffbeb'], VENCIDA: ['#dc2626', '#fef2f2'], PAGADA: ['#059669', '#f0fdf4'], RECHAZADA: ['#6b7280', '#f3f4f6'] }[s] || ['#6b7280', '#f3f4f6'];
       return `<span style="font-size:11px;background:${c[1]};color:${c[0]};padding:2px 8px;border-radius:10px;font-weight:600">${s}</span>`;
     };
-    const rows = items.map(f => `<tr>
+    const pacChip = (f) => {
+      const c = {
+        AUTORIZADA: ['#059669', '#f0fdf4', '✅ Autorizada'],
+        RECHAZADA: ['#dc2626', '#fef2f2', '❌ DGI rechazó'],
+        ERROR: ['#b45309', '#fffbeb', '⚠️ Error PAC'],
+        PENDIENTE: ['#6b7280', '#f3f4f6', '⏳ Pendiente'],
+        NO_CONFIGURADO: ['#6b7280', '#f3f4f6', '— No configurada'],
+      }[f.pacStatus] || ['#6b7280', '#f3f4f6', '— No configurada'];
+      const title = f.pacLastError ? ` title="${escapeHtml(f.pacLastError)}"` : '';
+      const cufe = f.cufe ? `<div style="font-size:9px;color:#9ca3af;margin-top:2px" title="${escapeHtml(f.cufe)}">${escapeHtml(f.cufe.slice(0, 12))}…</div>` : '';
+      return `<span${title} style="font-size:11px;background:${c[1]};color:${c[0]};padding:2px 8px;border-radius:10px;font-weight:600;white-space:nowrap">${c[2]}</span>${cufe}`;
+    };
+    const rows = items.map(f => {
+      const puedeEmitir = ['NO_CONFIGURADO', 'PENDIENTE', 'ERROR', 'RECHAZADA'].includes(f.pacStatus || 'NO_CONFIGURADO');
+      return `<tr>
       <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0"><strong>${escapeHtml(f.number || '—')}</strong></td>
       <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0">${escapeHtml(f.client?.name || '—')}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0">${new Date(f.date).toLocaleDateString('es-PA')}</td>
       <td style="text-align:right;padding:8px 10px;border-bottom:1px solid #f0f0f0;font-weight:600">${fmtFac(f.total)}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0">${statusChip(f.status)}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0">
+      <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0">${pacChip(f)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap">
         <button onclick="downloadFacturaPdf('${f.id}')" style="padding:4px 10px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:5px;cursor:pointer">📄 PDF</button>
+        ${f.pacStatus === 'AUTORIZADA' ? `<button onclick="downloadFacturaXml('${f.id}')" style="margin-left:4px;padding:4px 10px;font-size:11px;background:#6b7280;color:#fff;border:none;border-radius:5px;cursor:pointer">XML</button>` : ''}
+        ${puedeEmitir ? `<button onclick="reemitirFactura('${f.id}')" style="margin-left:4px;padding:4px 10px;font-size:11px;background:#7c3aed;color:#fff;border:none;border-radius:5px;cursor:pointer">${f.pacStatus === 'RECHAZADA' ? '↻ Reintentar' : '🧾 Emitir'}</button>` : ''}
         ${f.status !== 'PAGADA' && f.status !== 'RECHAZADA' ? `<button onclick="payFactura('${f.id}')" style="margin-left:4px;padding:4px 10px;font-size:11px;background:#059669;color:#fff;border:none;border-radius:5px;cursor:pointer">💵 Cobrar</button>` : ''}
       </td>
-    </tr>`).join('');
+    </tr>`;
+    }).join('');
     el.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr>
         <th style="text-align:left;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280">Nº Factura</th>
@@ -117,6 +135,7 @@ async function loadFacturasList() {
         <th style="text-align:left;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280">Fecha</th>
         <th style="text-align:right;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280">Total</th>
         <th style="text-align:left;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280">Estado</th>
+        <th style="text-align:left;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280">Electrónica</th>
         <th style="width:32px"></th>
       </tr></thead><tbody>${rows}</tbody></table></div>`;
   } catch (e) { el.innerHTML = '<div style="text-align:center;padding:32px;color:#dc2626">Error al cargar</div>'; }
@@ -136,6 +155,47 @@ async function downloadFacturaPdf(id) {
     a.href = url; a.download = nombre;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
+  } catch (e) { await showAlert('❌ Error de conexión'); }
+}
+
+/** XML autorizado que devolvió el PAC (solo existe si la factura se autorizó). */
+async function downloadFacturaXml(id) {
+  try {
+    const token = getToken();
+    const res = await fetch(`${API_URL}/facturas/${id}/xml?token=${encodeURIComponent(token)}`);
+    if (!res.ok) { await showAlert('❌ XML no disponible para esta factura'); return; }
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="([^"]+)"/);
+    const nombre = m ? m[1] : 'Factura.xml';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = nombre;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) { await showAlert('❌ Error de conexión'); }
+}
+
+/** Reintenta la emisión electrónica de una factura ya guardada. */
+async function reemitirFactura(id) {
+  const ok = await showConfirm('¿Emitir o reintentar la factura electrónica?');
+  if (!ok) return;
+  try {
+    const res = await authFetch(`${API_URL}/facturas/${id}/emitir`, { method: 'POST' });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) { await showAlert('❌ ' + (d.error || 'No se pudo emitir')); return; }
+
+    const fe = d.facturaElectronica || {};
+    if (fe.status === 'AUTORIZADA') {
+      await showAlert(`✅ Factura electrónica autorizada.${fe.cufe ? `\nCUFE: ${fe.cufe}` : ''}`, { type: 'success', title: 'Emitida' });
+    } else if (fe.status === 'RECHAZADA') {
+      await showAlert('❌ La DGI rechazó la factura:\n' + (fe.message || 'Sin detalle'));
+    } else if (fe.status === 'NO_CONFIGURADO') {
+      await showAlert('⚠️ ' + (fe.message || 'El PAC no está configurado o está deshabilitado.'));
+    } else {
+      await showAlert('⚠️ ' + (fe.message || 'No se pudo emitir electrónicamente.'));
+    }
+    loadFacturasList();
   } catch (e) { await showAlert('❌ Error de conexión'); }
 }
 
@@ -358,8 +418,24 @@ async function saveFactura() {
     const d = await res.json();
     closeFacturaModal();
     loadFacturasList();
+
+    // Resultado de la emisión electrónica (si el PAC está configurado). La
+    // factura ya existe aunque el PAC falle: se muestra el estado y se puede
+    // reintentar desde la lista.
+    const fe = d.facturaElectronica || {};
+    let mensaje = `Factura ${d.number} emitida por ${fmtFac(d.total)}.`;
+    if (fe.status === 'AUTORIZADA') {
+      mensaje += `\n\n✅ Factura electrónica autorizada.${fe.cufe ? `\nCUFE: ${fe.cufe}` : ''}`;
+    } else if (fe.status === 'RECHAZADA') {
+      mensaje += `\n\n❌ La DGI rechazó la factura electrónica:\n${fe.message || 'Sin detalle'}`;
+    } else if (fe.status === 'ERROR') {
+      mensaje += `\n\n⚠️ No se pudo emitir electrónicamente:\n${fe.message || 'Error del PAC'}\n\nLa factura quedó guardada; podés reintentar desde la lista.`;
+    } else if (fe.status === 'NO_CONFIGURADO') {
+      mensaje += '\n\nℹ️ No se emitió electrónicamente: el PAC no está configurado o está deshabilitado.';
+    }
+
     const descargar = await showConfirm(
-      `Factura ${d.number} emitida por ${fmtFac(d.total)}.\n\n¿Querés descargar el PDF?`,
+      `${mensaje}\n\n¿Querés descargar el PDF?`,
       { type: 'success', title: 'Factura emitida', confirmText: 'Descargar PDF', cancelText: 'Ahora no' },
     );
     if (descargar) downloadFacturaPdf(d.id);

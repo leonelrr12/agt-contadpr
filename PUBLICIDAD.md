@@ -9,11 +9,15 @@ si no coincide, el que pierde es el vendedor que está enfrente.
 Cómo se usa: cada bloque está listo para copiar y pegar. **Gancho** es el título del anuncio o el primer
 renglón del mensaje; **cuerpo** es el texto; **remate** cierra con el WhatsApp.
 
+**Facturación electrónica:** la integración existe y está probada en código, pero la emisión se activa
+**por empresa cuando carga las credenciales de un PAC autorizado**. Los textos de 1.7 y §9 lo dicen así.
+No prometas emisión electrónica sin PAC configurado: sin él, la app emite el PDF con la leyenda de la DGI.
+
 ---
 
-## 1. Los seis ángulos
+## 1. Los siete ángulos
 
-Cada uno es un anuncio distinto. El mismo producto, seis puertas de entrada — según a quién le duela qué.
+Cada uno es un anuncio distinto. El mismo producto, siete puertas de entrada — según a quién le duela qué.
 
 ### 1.1 · Digitar facturas
 
@@ -80,6 +84,18 @@ Cada uno es un anuncio distinto. El mismo producto, seis puertas de entrada — 
 > se aprueban sus facturas de una vez: **el que paga es el que aprueba**.
 **Remate:** Te lo configuramos con tu gente → WhatsApp 6403-4863
 
+### 1.7 · Facturación electrónica DGI
+
+**Gancho:** Emití la factura electrónica sin salir de tu contabilidad.
+**Cuerpo:**
+> La venta se registra en Contador507 y la factura electrónica sale desde la misma pantalla: la app la
+> manda al PAC autorizado y la DGI la autoriza con su CUFE. El XML queda archivado y el estado de cada
+> factura se ve en la lista.
+>
+> Si la DGI la rechaza, no perdés el asiento ni la factura: la app te dice el motivo y la reintentás.
+> Se activa configurando las credenciales del PAC de la empresa (hoy, Factura Fácil).
+**Remate:** Te ayudamos a configurar tu PAC → WhatsApp 6403-4863
+
 ---
 
 ## 2. Frases de una línea
@@ -94,6 +110,9 @@ Para títulos de anuncio, bio de Instagram, asunto de correo, primer renglón de
 - El 430 sale del mayor, no de tu calculadora.
 - La planilla completa, sin pelear con las tasas.
 - Cada empleado manda su gasto desde el celular.
+- Emití la factura electrónica sin salir de la contabilidad.
+- Tu factura de venta sale con CUFE, XML y PDF del PAC.
+- Si la DGI la rechaza, te dice por qué y la reintentás.
 - Contabilidad panameña de verdad: ITBMS, CSS, ISR y cierre de año.
 - Para el contador: tres clientes por $19.99 al mes.
 
@@ -104,6 +123,7 @@ Para títulos de anuncio, bio de Instagram, asunto de correo, primer renglón de
 | Audiencia | Qué le duele | Qué anuncio usar |
 |---|---|---|
 | **Ferretería, restaurante, distribuidora, taller** | Digitar, cuadrar el banco, saber si gana | 1.1, 1.2, 1.5 |
+| **Negocio que factura a otras empresas (B2B)** | Emitir CFE sin pelear con el portal del PAC | 1.7 |
 | **Construcción, reparto, servicios con gente en la calle** | Los viáticos y los papelitos | **1.6** |
 | **Negocio con proveedores que facturan por correo** | Cargar facturas de compra | 1.1 + canal del correo (§4) |
 | **Contador independiente / despacho chico** | Cuántos clientes puede llevar | §5 (despacho) |
@@ -145,9 +165,12 @@ Escalones: Despacho 10 $39.99 · Despacho 25 $79.99 · Despacho 50+ $149.99 (mov
 
 Adelantarse es lo que hace que después no haya reclamo:
 
-- **«¿Emite factura electrónica?»** — No. Lee las facturas electrónicas que te mandan tus proveedores,
-  pero para emitir CFE hace falta un PAC autorizado. Emite facturas en PDF con los datos y la leyenda de
-  resolución de la DGI.
+- **«¿Emite factura electrónica?»** — Sí, **con un PAC autorizado configurado** (hoy Factura Fácil). La
+  empresa carga sus credenciales y la factura de venta se emite desde Contador507 con CUFE, XML y estado.
+  **Sin PAC configurado** la app no inventa una autorización: emite el PDF con la numeración y la leyenda
+  de resolución de la DGI.
+- **«¿Tengo que contratar un PAC aparte?»** — La emisión electrónica funciona con un PAC autorizado; te
+  ayudamos a configurarlo. Sin PAC, la app sigue emitiendo el PDF con la leyenda de la DGI.
 - **«¿Le presenta a la DGI por mí?»** — No. Prepara el borrador, la declaración y los asientos;
   presentar y firmar es tuyo.
 - **«¿Reemplaza a mi contador?»** — No. Le saca la digitación y el cálculo, y le deja la revisión con el
@@ -157,7 +180,7 @@ Adelantarse es lo que hace que después no haya reclamo:
 
 ---
 
-## 7. Tres campañas armadas
+## 7. Cuatro campañas armadas
 
 **A · «La calle» (viáticos)** — para construcción, reparto y servicios.
 Anuncio con el ángulo 1.6. Público: negocios con cuadrillas. Cierre: ofrecer configurarlo con su gente
@@ -170,6 +193,11 @@ Anuncio corto con el canal 3. Cierre: «mandanos el QR de una factura y te mostr
 **C · «Tres clientes por $19.99» (despacho)** — el §5.
 Público: contadores. Ojo: hablarle de **clientes que puede llevar**, no de funciones.
 
+**D · «Factura electrónica sin portal» (B2B)** — el §1.7.
+Público: negocios que ya facturan a otras empresas y hoy entran al portal del PAC a cargar cada CFE.
+Cierre: «traé tus credenciales del PAC y lo configuramos». Ojo: vender la **integración**, no un botón
+que emite sin PAC.
+
 ---
 
 ## 8. Datos fijos (siempre iguales en todo anuncio)
@@ -179,3 +207,56 @@ Público: contadores. Ojo: hablarle de **clientes que puede llevar**, no de func
 - **Precios y planes:** contador507.com/planes.html · **Qué hace:** contador507.com/funciones.html
 - **Pago:** Yappy al 6403-4863 · Transferencia ACH, Caja de Ahorros, cuenta de ahorros 590000078733, titular Leonel Rodriguez
 - **Prueba:** 14 días gratis, sin tarjeta (1 empresa, 3 usuarios, 50 movimientos, **todos los módulos**)
+
+---
+
+## 9. Posts listos para redes (facturación electrónica)
+
+> Todos suponen que el negocio tiene su PAC configurado. Mientras no haya credenciales, usá la versión
+> «te ayudamos a configurarlo» y no prometas emisión inmediata.
+
+### 9.1 · Instagram / Facebook (feed)
+
+**Texto:**
+> Tu factura electrónica no tiene que nacer en el portal del PAC.
+>
+> En Contador507 la venta se registra una vez y la factura sale desde la misma pantalla, con su CUFE y su
+> XML. Si la DGI la rechaza, te dice por qué y la reintentás sin rehacer el asiento.
+>
+> Contabilidad y facturación electrónica en el mismo lugar.
+>
+> 📱 Escribinos: 6403-4863
+> #ContabilidadPanamá #FacturaElectrónica #DGI #Pymes
+
+**Imagen sugerida:** la lista de facturas con el chip «✅ Autorizada» y el CUFE, al lado del asiento en borrador.
+
+### 9.2 · Carrusel de 3 placas (Instagram)
+
+1. **Placa 1:** «Factura electrónica sin salir de la contabilidad.»
+2. **Placa 2:** «Registrás la venta. La app manda el CFE al PAC. La DGI responde con CUFE.»
+3. **Placa 3:** «¿Rechazo? La factura y el asiento quedan. Corregís y reintentás. 👉 6403-4863.»
+
+### 9.3 · LinkedIn (despachos)
+
+> Para los despachos: cada cliente puede tener su propio PAC y sus credenciales, y la factura electrónica
+> se emite desde la misma empresa donde llevás su contabilidad.
+>
+> Sin cambiar de sistema y sin volver al portal del proveedor. El estado de cada CFE queda a la vista,
+> junto al asiento.
+>
+> Contador507 · contador507.com/funciones.html
+
+### 9.4 · Estado de WhatsApp / historia
+
+> 🧾 Tu factura electrónica, sin salir de la contabilidad.
+> CUFE, XML y estado en la misma app.
+> 👉 6403-4863
+
+### 9.5 · Historia con encuesta
+
+> ¿Dónde emitís tus facturas electrónicas hoy?
+> A) En el portal del PAC
+> B) En mi sistema contable
+> C) No sé / lo hace mi contador
+>
+> Si contestaste A, te mostramos cómo hacerlo desde Contador507.
