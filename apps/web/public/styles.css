@@ -286,6 +286,15 @@ body.spa { height: 100vh; }
   flex-direction: column;
 }
 
+/* «Mis empresas» pinta TODO su contenido desde despacho.js (no tiene una lista
+   interna que scrollee), así que el panel es el que scrollea. Sin esto, #main
+   (`overflow: hidden`) recortaba las tarjetas de abajo sin forma de llegar. */
+#panel-despacho-content:not(.hidden) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 /* Solo los divs de contenido scrollean — el header (h2, p, tabs, filtros) queda fijo arriba */
 #revision-inline-list,
 #informes-inline-result,
