@@ -61,7 +61,7 @@ Verificado contra el código el 25-09-2026. **Si algo no está en esta lista, no
 | Extracción de PDFs DGI (10 campos) | `services/pdf-extractor.ts` |
 | Plan de cuentas + clasificación automática | `account-lookup.ts`, `account-resolver.ts` |
 | Clientes / proveedores auto-creados | modelos `Client`, `Supplier` |
-| Conciliación bancaria — match automático por monto+fecha **por día calendario** y **vínculo fino N:1** (una fila del extracto sostenida por varias partidas del libro: las 4 facturas cobradas con un solo ACH), con vinculador en la página | `reconcile.ts`, `bank-matcher.ts`, `conciliacion.html`, tabla `bank_row_match` (migración `0036`) |
+| Conciliación bancaria — match automático por monto+fecha **por día calendario** y **vínculo fino N:1** (una fila del extracto sostenida por varias partidas del libro: las 4 facturas cobradas con un solo ACH), con vinculador en el panel del SPA | `reconcile.ts`, `bank-matcher.ts`, `js/conciliacion.js` (panel de `index.html` y shell de `conciliacion.html`), tabla `bank_row_match` (migración `0036`) |
 | Importación masiva CSV/XLSX **idempotente** | `import.ts`, `csv-parser.ts` |
 | Transacciones recurrentes (cron 30 min) | `recurring-processor.ts`, modelo `RecurringTemplate` |
 | Calendario fiscal PA (ITBMS día 15, CSS día 5, aviso/ISR 31 marzo) | `services/tax-calendar.ts` |

@@ -1,0 +1,125 @@
+/* conciliacion.css — Conciliación bancaria.
+ *
+ * La usan los dos shells: el panel del SPA (#panel-conciliacion-content dentro de
+ * <main>) y la página suelta /conciliacion.html, que monta el mismo panel.
+ *
+ * TODO va scopeado al panel a propósito: en el SPA conviven con el resto de la
+ * app y clases genéricas como `.btn`, `.summary-card` o los `table` de la
+ * derecha pisarían otros paneles.
+ */
+
+/* Sin `margin: 0 auto`: al centrar, en pantallas anchas el margen izquierdo crecía
+   y la pantalla arrancaba más a la derecha que el resto de los paneles. */
+#panel-conciliacion-content .reconcile-container { max-width: 1200px; margin: 0; padding: 24px; }
+#panel-conciliacion-content .reconcile-header { margin-bottom: 24px; }
+#panel-conciliacion-content .reconcile-header h1 { font-size: 24px; color: #1a1a2e; margin: 0 0 8px 0; }
+#panel-conciliacion-content .reconcile-header p { color: #6b7280; margin: 0; font-size: 14px; }
+#panel-conciliacion-content .upload-zone {
+  border: 2px dashed #d0d5dd; border-radius: 12px; padding: 48px 24px;
+  text-align: center; background: #f9fafb; transition: all 0.2s;
+  cursor: pointer; margin-bottom: 24px;
+}
+#panel-conciliacion-content .upload-zone:hover,
+#panel-conciliacion-content .upload-zone.dragover { border-color: #1565c0; background: #f0f7ff; }
+#panel-conciliacion-content .upload-zone-icon { font-size: 48px; margin-bottom: 12px; }
+#panel-conciliacion-content .upload-zone h3 { margin: 0 0 8px 0; color: #1a1a2e; }
+#panel-conciliacion-content .summary-cards { display: flex; gap: 16px; margin-bottom: 24px; }
+#panel-conciliacion-content .summary-card { flex: 1; background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); text-align: center; }
+#panel-conciliacion-content .summary-card .num { font-size: 28px; font-weight: 700; }
+#panel-conciliacion-content .summary-card .label { font-size: 12px; color: #6b7280; margin-top: 4px; }
+#panel-conciliacion-content .summary-card.ok .num { color: #059669; }
+#panel-conciliacion-content .summary-card.warn .num { color: #d97706; }
+#panel-conciliacion-content .summary-card.err .num { color: #dc2626; }
+#panel-conciliacion-content .section { margin-bottom: 24px; }
+#panel-conciliacion-content .section-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; padding: 8px 12px; border-radius: 6px; }
+#panel-conciliacion-content .section-matched { background: #d1fae5; color: #065f46; }
+#panel-conciliacion-content .section-unmatched { background: #fee2e2; color: #991b1b; }
+#panel-conciliacion-content .section-book { background: #fef3c7; color: #92400e; }
+#panel-conciliacion-content .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+#panel-conciliacion-content .badge-ok { background: #d1fae5; color: #065f46; }
+/* El extracto abierto de la grilla: el mismo azul del borde de su tarjeta. */
+#panel-conciliacion-content .badge-abierta { background: #1565c0; color: #fff; }
+#panel-conciliacion-content .badge-warn { background: #fef3c7; color: #92400e; }
+#panel-conciliacion-content .badge-err { background: #fee2e2; color: #991b1b; }
+#panel-conciliacion-content .badge-neutral { background: #e5e7eb; color: #374151; }
+#panel-conciliacion-content .btn { padding: 8px 16px; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; }
+#panel-conciliacion-content .btn-primary { background: #059669; color: #fff; }
+#panel-conciliacion-content .btn-primary:hover { background: #047857; }
+#panel-conciliacion-content .btn-primary:disabled { background: #9ca3af; cursor: not-allowed; }
+#panel-conciliacion-content .btn-secondary { background: #e5e7eb; color: #374151; }
+#panel-conciliacion-content .btn-danger { background: #dc2626; color: #fff; }
+#panel-conciliacion-content .btn-sm { padding: 4px 10px; font-size: 11px; }
+#panel-conciliacion-content .conc-link { background: none; border: none; padding: 0; color: #1565c0; cursor: pointer; font: inherit; text-decoration: underline; }
+#panel-conciliacion-content .loading { text-align: center; padding: 32px; color: #6b7280; }
+#panel-conciliacion-content .spinner { display: inline-block; width: 32px; height: 32px; border: 3px solid #e5e7eb; border-top-color: #1565c0; border-radius: 50%; animation: conc-spin 0.8s linear infinite; }
+@keyframes conc-spin { to { transform: rotate(360deg); } }
+#panel-conciliacion-content .actions-bar { display: flex; gap: 12px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
+#panel-conciliacion-content .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+#panel-conciliacion-content .form-grid label { font-size: 12px; color: #6b7280; display: block; margin-bottom: 2px; }
+#panel-conciliacion-content .form-grid input,
+#panel-conciliacion-content .form-grid select { width: 100%; padding: 8px; border: 1px solid #d0d5dd; border-radius: 6px; box-sizing: border-box; }
+
+/* Vinculador: una fila del extracto contra una o varias partidas del libro.
+ * z-index 9000: por encima del sidebar móvil (100) y por debajo de los diálogos
+ * de la app (10000), que se abren encima de este overlay. */
+#panel-conciliacion-content #pick-overlay,
+#panel-conciliacion-content #entry-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 9000; }
+#panel-conciliacion-content #pick-card,
+#panel-conciliacion-content #entry-card { background: #fff; border-radius: 12px; width: 100%; max-width: 860px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.25); }
+#panel-conciliacion-content #pick-head { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; }
+#panel-conciliacion-content #pick-head h3 { margin: 0 0 4px 0; font-size: 16px; color: #1a1a2e; }
+#panel-conciliacion-content #pick-head .fila { font-size: 13px; color: #374151; }
+#panel-conciliacion-content #pick-head .buscar { margin-top: 10px; width: 100%; padding: 8px; border: 1px solid #d0d5dd; border-radius: 6px; box-sizing: border-box; }
+#panel-conciliacion-content #pick-lista { overflow-y: auto; flex: 1; }
+#panel-conciliacion-content #pick-lista table { width: 100%; border-collapse: collapse; font-size: 13px; }
+#panel-conciliacion-content #pick-lista th { text-align: left; padding: 8px 12px; background: #f9fafb; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; font-size: 12px; }
+#panel-conciliacion-content #pick-lista td { padding: 8px 12px; border-bottom: 1px solid #f3f4f6; }
+#panel-conciliacion-content #pick-lista td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#panel-conciliacion-content #pick-lista input[type="number"] { width: 110px; padding: 4px 6px; border: 1px solid #d0d5dd; border-radius: 6px; text-align: right; }
+#panel-conciliacion-content #pick-lista tr.ya { background: #f0fdf4; }
+#panel-conciliacion-content #pick-pie { padding: 14px 20px; border-top: 1px solid #e5e7eb; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+#panel-conciliacion-content #pick-pie .cuadre { font-size: 13px; color: #374151; }
+#panel-conciliacion-content #pick-pie .cuadre b { font-variant-numeric: tabular-nums; }
+#panel-conciliacion-content #pick-pie .cuadre.ok b { color: #059669; }
+#panel-conciliacion-content #pick-pie .cuadre.falta b { color: #d97706; }
+#panel-conciliacion-content #pick-pie .cuadre.sobra b { color: #dc2626; }
+#panel-conciliacion-content #pick-pie .acciones { margin-left: auto; display: flex; gap: 8px; }
+
+/* Formulario del asiento que falta (el «+ Crear asiento» del extracto): el lado
+ * del extracto va fijo y el contador elige UNA cuenta —la contrapartida— de una
+ * lista con filtro, en vez de los dos prompt() de antes. */
+#panel-conciliacion-content #entry-card { max-width: 620px; }
+#panel-conciliacion-content #entry-head { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; }
+#panel-conciliacion-content #entry-head h3 { margin: 0 0 4px 0; font-size: 16px; color: #1a1a2e; }
+#panel-conciliacion-content #entry-head .fila { font-size: 13px; color: #374151; }
+#panel-conciliacion-content #entry-head .nota { margin: 6px 0 0 0; }
+#panel-conciliacion-content #entry-body { padding: 12px 20px 20px; overflow-y: auto; }
+#panel-conciliacion-content #entry-body label { font-size: 12px; color: #6b7280; display: block; margin-bottom: 2px; }
+#panel-conciliacion-content #entry-body .lado { font-size: 11px; color: #6b7280; margin-top: 4px; }
+#panel-conciliacion-content #entry-body input[type="text"] { width: 100%; padding: 8px; border: 1px solid #d0d5dd; border-radius: 6px; box-sizing: border-box; }
+#panel-conciliacion-content #entry-body .buscar { width: 100%; padding: 6px 8px; border: 1px solid #d0d5dd; border-radius: 6px; box-sizing: border-box; margin-bottom: 6px; font-size: 12px; }
+#panel-conciliacion-content #entry-body select { width: 100%; border: 1px solid #d0d5dd; border-radius: 6px; padding: 4px; box-sizing: border-box; font-size: 12px; }
+#panel-conciliacion-content #entry-body .banco { margin-top: 12px; padding: 10px 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 13px; color: #374151; }
+#panel-conciliacion-content #entry-body .banco .etiqueta { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.4px; }
+#panel-conciliacion-content #entry-body .manual { margin-top: 16px; font-size: 12px; color: #6b7280; }
+#panel-conciliacion-content #entry-pie { padding: 14px 20px; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ── Celular ──
+ * Esta pantalla se usa desde el celular (el contador sube el extracto y concilia
+ * ahí mismo). Las tablas del detalle —varias columnas de montos y fechas— se
+ * deslizan de costado en vez de recortarse contra el borde. */
+@media (max-width: 768px) {
+  #panel-conciliacion-content .reconcile-container { padding: 14px; }
+  #panel-conciliacion-content .reconcile-header h1 { font-size: 20px; }
+  #panel-conciliacion-content #step-detail,
+  #panel-conciliacion-content #step-upload,
+  #panel-conciliacion-content #step-history { overflow-x: auto; }
+  #panel-conciliacion-content table { font-size: 12.5px; }
+  #panel-conciliacion-content table th,
+  #panel-conciliacion-content table td { padding: 8px 10px; }
+  #panel-conciliacion-content #pick-card,
+  #panel-conciliacion-content #entry-card { max-height: 85vh; }
+  #panel-conciliacion-content .reconcile-header { flex-wrap: wrap; gap: 8px; }
+  #panel-conciliacion-content .reconcile-header .btn,
+  #panel-conciliacion-content .reconcile-header button { font-size: 13px; padding: 8px 12px; }
+}
