@@ -267,7 +267,8 @@ body.spa { height: 100vh; }
   flex-shrink: 0;
 }
 
-/* Paneles: ocupan el espacio disponible, sin scroll propio */
+/* Paneles: ocupan el espacio disponible. El scroll vive adentro: en la lista
+   interna cuando la hay, o en el propio panel (despacho, conciliación). */
 #panel-informes-content:not(.hidden),
 #panel-revision-content:not(.hidden),
 #panel-auxiliares-content:not(.hidden),
@@ -295,11 +296,18 @@ body.spa { height: 100vh; }
   overflow-y: auto;
 }
 
+/* Conciliación también pinta todo su contenido desde js/conciliacion.js: el panel
+   es el que scrollea (el detalle con sus tres tablas es más alto que la pantalla). */
+#panel-conciliacion-content:not(.hidden) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 /* Solo los divs de contenido scrollean — el header (h2, p, tabs, filtros) queda fijo arriba */
 #revision-inline-list,
 #informes-inline-result,
 #recurring-list,
-#conciliacion-inline-list,
 #import-inline-zone,
 #import-inline-preview,
 #taxcalendar-inline-list,

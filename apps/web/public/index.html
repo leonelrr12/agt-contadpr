@@ -29,8 +29,9 @@
   <meta name="twitter:description" content="Agente contable con IA para Panamá. Facturas, asientos y reportes automatizados.">
   <meta name="twitter:image" content="https://contador507.com/og-image.png">
 
-  <link rel="stylesheet" href="styles.css?v=48">
+  <link rel="stylesheet" href="styles.css?v=49">
   <link rel="stylesheet" href="dialogos.css?v=1">
+  <link rel="stylesheet" href="conciliacion.css?v=2">
 </head>
 <body class="spa">
   <!-- Sprite de iconos del menú (stroke heredado de .nav-ico en styles.css) -->
@@ -377,7 +378,8 @@
         </div>
       </div>
 
-      <!-- Conciliación ya no tiene panel interno: el menú abre /conciliacion.html -->
+      <!-- Conciliación: panel del SPA, pintado por js/conciliacion.js -->
+      <div id="panel-conciliacion-content" class="hidden"></div>
 
       <!-- Panel de Calendario Fiscal -->
       <!-- Panel de Salud Financiera -->
@@ -708,7 +710,8 @@
   <script src="js/capture.js?v=75"></script>
   <script src="js/capture-qr.js?v=74"></script>
   <script src="js/chat.js?v=77"></script>
-  <script src="js/router.js?v=81"></script>
+  <script src="js/router.js?v=82"></script>
+  <script src="js/conciliacion.js?v=1"></script>
   <script src="js/admin.js?v=95"></script>
   <script src="js/ayuda.js?v=1"></script>
   <script src="js/init.js?v=81"></script>
