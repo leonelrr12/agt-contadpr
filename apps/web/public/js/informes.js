@@ -532,16 +532,48 @@ async function loadAuxiliarData() {
         })));
   } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; }
 }
+/**
+ * Resumen de antigüedad para CxC/CxP.
+ * El backend devuelve los tramos finos: current (aún no vence), d30 (1-30),
+ * d60 (31-60), d90 (61-90), d120 (91-120) y over120 (121+).
+ * La UI los agrupa como los lee el contador: Corriente = 0-30 (current + d30),
+ * «30 días» = 31-60, «60 días» = 61-90, «90 días» = 91-120 y «120+» = 121+.
+ */
+function buildAgingResumen(aging) {
+  const t = (Array.isArray(aging) ? aging : []).reduce((a, r) => {
+    // Compat: una API vieja (sin el corte 91-120/121+) manda todo en over90.
+    const over120 = r.over120 != null ? r.over120 : (r.over90 || 0);
+    return {
+      corriente: a.corriente + (r.current || 0) + (r.d30 || 0),
+      b30: a.b30 + (r.d60 || 0),
+      b60: a.b60 + (r.d90 || 0),
+      b90: a.b90 + (r.d120 || 0),
+      b120: a.b120 + over120,
+    };
+  }, { corriente: 0, b30: 0, b60: 0, b90: 0, b120: 0 });
+  const fmt = n => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const tiles = [
+    ['Total', t.corriente + t.b30 + t.b60 + t.b90 + t.b120, '#1a1a2e'],
+    ['Corriente', t.corriente, '#059669'],
+    ['30 días', t.b30, '#d97706'],
+    ['60 días', t.b60, '#ea580c'],
+    ['90 días', t.b90, '#dc2626'],
+    ['120+ días', t.b120, '#991b1b'],
+  ];
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">'
+    + tiles.map(([label, value, color]) =>
+      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">${label}</div><div style="font-size:18px;font-weight:700;color:${color}">${fmt(value)}</div></div>`).join('')
+    + '</div>';
+}
+
 async function loadAuxCxC(el) {
   try {
-    const [rc, rs] = await Promise.all([authFetch(`${API_URL}/clients`), authFetch(`${API_URL}/clients/report/summary`)]);
-    if (!rc || !rs) { el.innerHTML = '<div class="empty">Error</div>'; return; }
-    const clients = await rc.json(), sum = await rs.json();
-    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">'+
-      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Clientes</div><div style="font-size:20px;font-weight:700">${sum.totalClients}</div></div>`+
-      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Por Cobrar</div><div style="font-size:20px;font-weight:700;color:#f59e0b">$${sum.totalDue.toLocaleString()}</div></div>`+
-      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Vencidas</div><div style="font-size:20px;font-weight:700;color:#ef4444">${sum.overdueInvoices}</div></div>`+
-    '</div>';
+    // El resumen sale del aging (los mismos tramos que el reporte de antigüedad);
+    // `/clients` sigue siendo la fuente de la tabla.
+    const [rc, ra] = await Promise.all([authFetch(`${API_URL}/clients`), authFetch(`${API_URL}/clients/report/aging`)]);
+    if (!rc || !ra || !rc.ok || !ra.ok) { el.innerHTML = '<div class="empty">Error</div>'; return; }
+    const clients = await rc.json(), aging = await ra.json();
+    let html = buildAgingResumen(aging);
     html += clients.filter(c => c.totalDue > 0).length
       ? buildInformesTable(['Cliente','RUC','Pendiente','Facturas',''], clients.filter(c => c.totalDue > 0).map(c => ({
           detalleId: c.id,
@@ -554,14 +586,11 @@ async function loadAuxCxC(el) {
 }
 async function loadAuxCxP(el) {
   try {
-    const [rc, rs] = await Promise.all([authFetch(`${API_URL}/suppliers`), authFetch(`${API_URL}/suppliers/report/summary`)]);
-    if (!rc || !rs) { el.innerHTML = '<div class="empty">Error</div>'; return; }
-    const supps = await rc.json(), sum = await rs.json();
-    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">'+
-      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Proveedores</div><div style="font-size:20px;font-weight:700">${sum.totalSuppliers}</div></div>`+
-      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Por Pagar</div><div style="font-size:20px;font-weight:700;color:#f59e0b">$${sum.totalOwed.toLocaleString()}</div></div>`+
-      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Vencidas</div><div style="font-size:20px;font-weight:700;color:#ef4444">${sum.overdueBills}</div></div>`+
-    '</div>';
+    // Mismo resumen que CxC, con los tramos de `/suppliers/report/aging`.
+    const [rc, ra] = await Promise.all([authFetch(`${API_URL}/suppliers`), authFetch(`${API_URL}/suppliers/report/aging`)]);
+    if (!rc || !ra || !rc.ok || !ra.ok) { el.innerHTML = '<div class="empty">Error</div>'; return; }
+    const supps = await rc.json(), aging = await ra.json();
+    let html = buildAgingResumen(aging);
     html += supps.filter(s => s.totalOwed > 0).length
       ? buildInformesTable(['Proveedor','RUC','Pendiente','Facturas',''], supps.filter(s => s.totalOwed > 0).map(s => ({
           detalleId: s.id,
