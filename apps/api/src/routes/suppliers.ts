@@ -142,19 +142,21 @@ suppliersRouter.get('/report/aging', async (req, res) => {
 
   const now = new Date();
   const result = suppliers.map(s => {
-    let current = 0, d30 = 0, d60 = 0, d90 = 0, over90 = 0;
+    let current = 0, d30 = 0, d60 = 0, d90 = 0, d120 = 0, over120 = 0;
     for (const b of s.bills) {
       const daysOverdue = Math.floor((now.getTime() - new Date(b.dueDate).getTime()) / (1000 * 60 * 60 * 24));
       if (daysOverdue <= 0) current += b.total;
       else if (daysOverdue <= 30) d30 += b.total;
       else if (daysOverdue <= 60) d60 += b.total;
       else if (daysOverdue <= 90) d90 += b.total;
-      else over90 += b.total;
+      else if (daysOverdue <= 120) d120 += b.total;
+      else over120 += b.total;
     }
     return {
       id: s.id, name: s.name, taxId: s.taxId,
-      current, d30, d60, d90, over90,
-      totalOwed: current + d30 + d60 + d90 + over90,
+      current, d30, d60, d90, d120, over120,
+      over90: d120 + over120, // compat: los consumidores viejos ven el tramo >90 completo
+      totalOwed: current + d30 + d60 + d90 + d120 + over120,
     };
   }).filter(r => r.totalOwed > 0).sort((a, b) => b.totalOwed - a.totalOwed);
 
