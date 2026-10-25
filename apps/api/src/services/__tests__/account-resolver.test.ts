@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveAccount } from '../account-resolver';
+import { resolveAccount, filterImportPaymentAccounts } from '../account-resolver';
 
 /**
  * Resolución de la cuenta de banco/caja de la columna "Banco/Cuenta" de un
@@ -35,5 +35,29 @@ describe('resolveAccount — código y nombre', () => {
 
   it('un nombre genérico ("Bancos") no resuelve: no hay cuenta que inventar', () => {
     expect(resolveAccount(cuentas as any, 'Bancos')).toBeNull();
+  });
+});
+
+/**
+ * Columna Banco/Cuenta del import: además de bancos (1.1.02.*) y cajas, admite
+ * la tarjeta de crédito (2.1.03.*) — la compra queda debiendo en esa cuenta,
+ * no se paga desde el banco por defecto. Quien la admite es el import (solo
+ * gastos/compras); la Planilla sigue con bancos/cajas.
+ */
+describe('filterImportPaymentAccounts — tarjetas en la columna Banco/Cuenta', () => {
+  const catalogo = [
+    { id: 'b1', code: '1.1.02.01', name: 'Banco General', aliases: [] },
+    { id: 'c1', code: '1.1.01', name: 'Caja', aliases: [] },
+    { id: 't1', code: '2.1.03.02', name: 'Tarjeta Visa', aliases: [] },
+    { id: 'g1', code: '6.1.01', name: 'Gastos de Papelería', aliases: [] },
+  ];
+
+  it('incluye bancos, cajas y tarjetas; excluye cuentas de gasto', () => {
+    expect(filterImportPaymentAccounts(catalogo as any).map(a => a.code))
+      .toEqual(['1.1.02.01', '1.1.01', '2.1.03.02']);
+  });
+
+  it('la tarjeta del archivo se resuelve por su código', () => {
+    expect(resolveAccount(filterImportPaymentAccounts(catalogo as any) as any, '2.1.03.02')?.id).toBe('t1');
   });
 });

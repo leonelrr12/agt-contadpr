@@ -10,7 +10,7 @@ function importMode() {
 }
 
 const IMPORT_MODE_HINTS = {
-  transacciones: 'Sube el CSV/Excel con tus transacciones históricas. La IA clasificará cada concepto. En Gastos/Compras, la columna "Estado" (Contado/Crédito) define el pago: "Crédito" carga a Proveedores y exige Nº de factura; Contado/sin estado sale del banco indicado en la columna "Banco/Cuenta" (opcional) o del banco por defecto de Configuración. En esa columna escribe el nombre o el código de una cuenta de banco o caja (ej. "Banco General" o "1.1.02.01"; también "1.1.02.01 Banco General") — la columna "Banco" del preview muestra la cuenta que usará cada fila.',
+  transacciones: 'Sube el CSV/Excel con tus transacciones históricas. La IA clasificará cada concepto. En Gastos/Compras, la columna "Estado" (Contado/Crédito) define el pago: "Crédito" carga a Proveedores y exige Nº de factura; Contado/sin estado sale de la cuenta indicada en la columna "Banco/Cuenta" (opcional) o del banco por defecto de Configuración. En esa columna escribe el nombre o el código de una cuenta de banco, caja o tarjeta de crédito (ej. "Banco General", "1.1.02.01", "2.1.03.02"; también "1.1.02.01 Banco General") — si es tarjeta, la compra queda debiendo en esa cuenta. La columna "Banco" del preview muestra la cuenta que usará cada fila.',
   cobros: 'Pagos/abonos a facturas: columnas Cliente, Fecha de Pago, Cuenta (banco), Factura # y TOTAL. Las filas SIN "Fecha de Pago" y "Cuenta" son facturas aún no pagadas: quedan ⏳ pendientes y se omiten. Puedes re-subir el mismo archivo: los pagos ya aplicados no se duplican (se omiten).',
 };
 
@@ -253,7 +253,7 @@ function renderImportInlinePreview() {
     }
 
     const thead = document.getElementById('import-inline-thead');
-    thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Pago</th><th title="Cuenta de banco/caja de la que sale (o entra) el dinero: la del archivo, o el banco por defecto si no viene o no se reconoce">Banco</th><th>Ref</th><th>RUC</th><th>Concepto</th><th>Cuenta</th><th>Conf</th><th></th></tr>';
+    thead.innerHTML = '<tr><th>#</th><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Pago</th><th title="Cuenta de la que sale (o entra) el dinero: banco o caja, o la tarjeta de crédito del archivo en gastos/compras; si no viene o no se reconoce, se usa el banco por defecto">Banco</th><th>Ref</th><th>RUC</th><th>Concepto</th><th>Cuenta</th><th>Conf</th><th></th></tr>';
     let html = '';
     previewRows.forEach((r, i) => {
       const conf = r.classification;
@@ -289,7 +289,12 @@ function renderImportInlinePreview() {
       let bancoHtml = '—';
       const b = r.bank;
       if (b) {
-        const cuentaTxt = `${escapeHtml(b.name || 'Bancos')}${b.code ? ` <span style="color:#9ca3af;font-size:10px">(${escapeHtml(b.code)})</span>` : ''}`;
+        // Tarjeta de crédito (2.1.03.*): la compra queda debiendo en esa cuenta,
+        // no sale del banco. Se marca para que no parezca una cuenta bancaria.
+        const tagTarjeta = b.code && b.code.startsWith('2.1.03')
+          ? ' <span style="color:#7c3aed;font-size:10px;font-weight:600" title="Compra con tarjeta de crédito: queda debiendo en esta cuenta">tarjeta</span>'
+          : '';
+        const cuentaTxt = `${escapeHtml(b.name || 'Bancos')}${b.code ? ` <span style="color:#9ca3af;font-size:10px">(${escapeHtml(b.code)})</span>` : ''}${tagTarjeta}`;
         if (b.unresolved) {
           const respaldo = b.source === 'generico' ? 'la cuenta bancaria genérica' : 'el banco por defecto de Configuración';
           bancoHtml = `<span style="color:#dc2626;font-size:11px;font-weight:600" title="El valor de la columna Banco/Cuenta no está en el catálogo de cuentas: se usará ${respaldo}">⚠️ «${escapeHtml(b.unresolved)}» no reconocido</span><br><span style="font-size:10px;color:#6b7280">→ ${cuentaTxt}</span>`;

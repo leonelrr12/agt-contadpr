@@ -11,11 +11,11 @@ import { AccountingAgent } from '@agt-contador/agents';
 import { importExecuteSchema } from '../validation/schemas';
 import { syncEntityFromEntry } from '../services/entity-service';
 import {
-  loadCompanyAccounts, filterPayoutAccounts, resolveAccount, normalizeNameKey,
+  loadCompanyAccounts, filterImportPaymentAccounts, resolveAccount, normalizeNameKey,
 } from '../services/account-resolver';
 import type { CompanyAccount as CobroAccount } from '../services/account-resolver';
 import { loadAccountFlags, blockedMessage, blockedAccounts } from '../services/journal-guard';
-import { missingAnexoFields } from '@agt-contador/shared';
+import { missingAnexoFields, proveedorAnexo } from '@agt-contador/shared';
 
 export const importRouter = Router();
 
@@ -177,7 +177,7 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
     const bancoDefaultId: string | null = company?.bancoDefaultId || null;
     const cuentasEmpresa = await loadCompanyAccounts(req.prisma, req.user!.companyId);
     const previewPayoutCache: { accounts: CobroAccount[] | null } = {
-      accounts: filterPayoutAccounts(cuentasEmpresa),
+      accounts: filterImportPaymentAccounts(cuentasEmpresa),
     };
     // Cuenta a la que apunta el alias 'banco-general': donde termina la línea
     // si no hay cuenta del archivo ni banco por defecto.
@@ -197,22 +197,27 @@ importRouter.post('/preview', upload.single('file'), async (req, res) => {
       const rawConcept = conceptColName ? (parsed.rows[i]._raw[conceptColName]?.trim() || null) : null;
       const classification = rowConceptForClassify(row) ? classifications[i] : null;
 
-      // Cuenta de banco que quedará en el asiento (null = la columna no aplica
-      // a esta fila: crédito, efectivo, venta…). `unresolved` = el valor del
-      // archivo no está en el catálogo y se usará la cuenta de respaldo.
+      // Cuenta de pago que quedará en el asiento (null = la columna no aplica
+      // a esta fila: crédito, efectivo, venta…). Puede ser un banco/caja o,
+      // en gastos/compras, la tarjeta de crédito indicada. `unresolved` = el
+      // valor del archivo no está en el catálogo y se usará la de respaldo.
       let bank: { code: string | null; name: string; source: string; unresolved: string | null } | null = null;
       if (filaUsaBancoDelArchivo(row)) {
         const rawBanco = (row.bankName || '').trim();
         const payout = await resolveImportPayoutAccount(
           req.prisma, req.user!.companyId, rawBanco || null, bancoDefaultId, previewPayoutCache,
+          filaAdmiteTarjeta(row.type),
         );
-        const unresolved = rawBanco && !resolveAccount(previewPayoutCache.accounts || [], rawBanco)
-          ? rawBanco : null;
+        // ¿La cuenta salió del ARCHIVO? Misma regla que el resolver (incluye
+        // que la tarjeta no vale para cobros): si no, hay aviso en rojo.
+        const delArchivo = payout && rawBanco
+          && resolveAccount(previewPayoutCache.accounts || [], rawBanco)?.id === payout.id;
+        const unresolved = rawBanco && !delArchivo ? rawBanco : null;
         const cuenta = payout || bancoGenerico;
         bank = {
           code: cuenta?.code || null,
           name: cuenta?.name || 'Bancos',
-          source: payout ? (rawBanco && !unresolved ? 'archivo' : 'default') : 'generico',
+          source: payout ? (delArchivo ? 'archivo' : 'default') : 'generico',
           unresolved,
         };
       }
@@ -332,6 +337,21 @@ function filaUsaBancoDelArchivo(row: ImportRow): boolean {
   return typeNorm === 'COBRO_CLIENTE' && row.paymentMethod !== 'EFECTIVO';
 }
 
+/** ¿La cuenta es una tarjeta de crédito (2.1.03.*)? */
+function esTarjeta(code: string | null | undefined): boolean {
+  return !!code && code.startsWith('2.1.03');
+}
+
+/**
+ * La tarjeta del archivo solo aplica a gastos/compras: la compra queda
+ * debiendo en ESA tarjeta (2.1.03.*), no se paga desde un banco. Un cobro no
+ * entra a una tarjeta: para cobros la columna sigue siendo solo banco/caja.
+ */
+function filaAdmiteTarjeta(type: string): boolean {
+  const t = (type || '').toUpperCase();
+  return t === 'GASTO' || t === 'COMPRA';
+}
+
 function r2(n: number): number { return Math.round(n * 100) / 100; }
 
 /**
@@ -370,7 +390,10 @@ function rowConceptForClassify(row: ImportRow): string {
 
 /** Validación completa de una fila: base + lo que exija su cuenta con Anexo. */
 function missingRowFields(row: ImportRow, cuenta: { requiresAnexo: boolean } | null | undefined): string[] {
-  return [...missingImportFields(row), ...missingAnexoFields(row, cuenta)];
+  // El Anexo exige Nombre: sin columna Proveedor/Nombre se usa la Descripción
+  // (misma regla que el guardado, para que el preview no mienta).
+  const proveedor = proveedorAnexo(row, cuenta);
+  return [...missingImportFields(row), ...missingAnexoFields({ ...row, provider: proveedor }, cuenta)];
 }
 
 // ── Totales del lote (para cuadrar contra los asientos) ──
@@ -571,12 +594,12 @@ function buildImportRows(
 }
 
 /**
- * Cuenta de banco/caja de donde sale el dinero de un gasto/compra al contado.
- * Cadena (igual que el chat): (1) banco indicado en la fila del archivo
- * (columna "Banco/Cuenta", match exacto/alias/typo) → (2) banco por defecto
- * de la empresa (Company.bancoDefaultId, Panel Admin → Configuración) →
- * null = se mantiene el alias 'banco-general' (fallback histórico).
- * Solo candidatas: cuentas de banco (código 1.1.02.*) o cajas.
+ * Cuenta de pago de un gasto/compra al contado (columna "Banco/Cuenta").
+ * Cadena (igual que el chat): (1) cuenta indicada en la fila del archivo
+ * (columna "Banco/Cuenta", match exacto/alias/typo; banco, caja o —solo si
+ * `permitirTarjeta`— tarjeta 2.1.03.*) → (2) banco por defecto de la empresa
+ * (Company.bancoDefaultId, Panel Admin → Configuración) → null = se mantiene
+ * el alias 'banco-general' (fallback histórico).
  */
 async function resolveImportPayoutAccount(
   prisma: any,
@@ -584,16 +607,17 @@ async function resolveImportPayoutAccount(
   bankName: string | null,
   bancoDefaultId: string | null,
   cache: { accounts: CobroAccount[] | null },
+  permitirTarjeta = false,
 ): Promise<CobroAccount | null> {
   if (!cache.accounts) {
-    cache.accounts = filterPayoutAccounts(await loadCompanyAccounts(prisma, companyId));
+    cache.accounts = filterImportPaymentAccounts(await loadCompanyAccounts(prisma, companyId));
   }
   const bancos = cache.accounts;
   if (bancos.length === 0) return null;
 
   if (bankName && bankName.trim()) {
     const acc = resolveAccount(bancos, bankName);
-    if (acc) return acc;
+    if (acc && (permitirTarjeta || !esTarjeta(acc.code))) return acc;
   }
   if (bancoDefaultId) {
     const cfg = bancos.find(a => a.id === bancoDefaultId);
@@ -699,8 +723,12 @@ async function executeImportRows(
         classConfidence = classResult.confidence;
       }
 
-      // Cuenta con Anexo: exige RUC/Cédula, Nombre y (en crédito) Nº de factura
-      const missingAnexo = missingAnexoFields(row, accountFlags.get(accountId));
+      // Cuenta con Anexo: exige RUC/Cédula, Nombre y (en crédito) Nº de factura.
+      // Sin columna Proveedor/Nombre, el Nombre es la Descripción de la fila:
+      // ese mismo valor se guarda en metadata.provider (lo lee el informe Anexos).
+      const cuentaFila = accountFlags.get(accountId);
+      const proveedor = proveedorAnexo(row, cuentaFila);
+      const missingAnexo = missingAnexoFields({ ...row, provider: proveedor }, cuentaFila);
       if (missingAnexo.length > 0) {
         throw new Error(`Faltan datos obligatorios (cuenta con Anexo): ${missingAnexo.join(', ')}`);
       }
@@ -722,7 +750,7 @@ async function executeImportRows(
         // inventa el 7%, decisión del dueño 18-09). Con la casilla "Calcular
         // ITBMS" activada se deja la tasa de la empresa y el agente lo calcula.
         itbmsRate: calcularItbms ? undefined : 0,
-        provider: row.provider || null,
+        provider: proveedor,
         reference: row.reference || null,
         ruc: row.ruc || null,
         suggestedResponse: '',
@@ -731,13 +759,15 @@ async function executeImportRows(
       const classification = { concept: classifiedConcept, accountId, confidence: classConfidence };
       const entry = accountant.generateEntry(dialog, classification);
 
-      // Cuenta de banco de la fila (columna "Banco/Cuenta") cuando aplica:
-      // gastos/compras que salen del banco y cobros que entran. Crédito
-      // (Proveedores), tarjeta, caja/efectivo y los demás tipos no se tocan.
+      // Cuenta de pago de la fila (columna "Banco/Cuenta") cuando aplica:
+      // gastos/compras al contado —banco/caja o la tarjeta indicada (2.1.03.*,
+      // la fila queda debiendo en ESA tarjeta)— y cobros que entran al banco.
+      // Crédito (Proveedores), caja/efectivo y los demás tipos no se tocan.
       const typeNorm = (row.type || '').toUpperCase();
       if (filaUsaBancoDelArchivo(row)) {
         const payout = await resolveImportPayoutAccount(
           prisma, companyId, row.bankName || null, bancoDefaultId, payoutCache,
+          filaAdmiteTarjeta(row.type),
         );
         if (typeNorm === 'COBRO_CLIENTE') {
           // Cobro recibido: el dinero ENTRA a la cuenta del archivo (columna
@@ -753,9 +783,10 @@ async function executeImportRows(
             }
           }
         } else if (payout) {
-          // Gastos/Compras al contado: el dinero SALE de la cuenta bancaria que
-          // indica la fila o del banco por defecto de la empresa. Sin ninguna,
-          // se deja el alias 'banco-general' como siempre.
+          // Gastos/Compras: el dinero SALE de la cuenta que indica la fila (un
+          // banco/caja, o una tarjeta de crédito = compra a crédito con esa
+          // tarjeta) o del banco por defecto de la empresa. Sin ninguna, se
+          // deja el alias 'banco-general' como siempre.
           for (const l of entry.credit) {
             if (l.accountId === 'banco-general') {
               l.accountId = payout.id;
@@ -820,7 +851,7 @@ async function executeImportRows(
               // así una carga masiva del asistente IA (que no deja `source`).
               // Los asientos importados antes de este cambio quedan sin marca.
               m.source = 'import-masivo';
-              if (row.provider) m.provider = row.provider;
+              if (proveedor) m.provider = proveedor;
               if (row.reference) m.reference = row.reference;
               // El informe Anexos-DGI lee invoiceNumber (referencia de la factura)
               if (row.reference) m.invoiceNumber = row.reference;
@@ -838,7 +869,7 @@ async function executeImportRows(
 
       // Sincronizar auxiliar (CxC/CxP) FUERA de la transacción de la fila:
       // si falla no aborta la fila ya guardada (y no envenena las demás).
-      if (row.provider) {
+      if (proveedor) {
         try {
           await syncEntityFromEntry(prisma, companyId, je);
         } catch (e: any) {
