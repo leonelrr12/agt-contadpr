@@ -32,3 +32,19 @@ export function missingAnexoFields(
   }
   return missing;
 }
+
+/**
+ * Nombre del tercero que va al Anexo. Manda la columna Proveedor/Nombre; si el
+ * archivo no la trae, se usa la DESCRIPCIÓN de la fila ("Delta", "Hotel
+ * Jolemaro") — los archivos del dueño ponen el comercio ahí. Solo aplica a
+ * cuentas con Anexo: en las demás filas el proveedor no se toca.
+ */
+export function proveedorAnexo(
+  row: { provider?: string | null; description?: string | null },
+  cuenta: { requiresAnexo: boolean } | null | undefined,
+): string | null {
+  const provider = (row.provider || '').trim();
+  if (provider) return provider;
+  if (!cuenta?.requiresAnexo) return null;
+  return (row.description || '').trim() || null;
+}

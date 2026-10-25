@@ -64,6 +64,18 @@ export function filterPayoutAccounts(accounts: CompanyAccount[]): CompanyAccount
 }
 
 /**
+ * Candidatas para la columna "Banco/Cuenta" del import de transacciones:
+ * bancos y cajas, más las tarjetas de crédito (2.1.03.*). La tarjeta solo
+ * aplica a gastos/compras (la fila queda debiendo en esa cuenta); quien la usa
+ * decide con `permitirTarjeta`.
+ */
+export function filterImportPaymentAccounts(accounts: CompanyAccount[]): CompanyAccount[] {
+  const payout = filterPayoutAccounts(accounts);
+  const ids = new Set(payout.map(a => a.id));
+  return [...payout, ...accounts.filter(a => a.code.startsWith('2.1.03') && !ids.has(a.id))];
+}
+
+/**
  * Resuelve la cuenta de destino desde el texto del archivo:
  * 1. código del catálogo embebido en la celda ("1.1.02.01 Banco General",
  *    "1.1.02.01 - Banco General"): el código explícito manda,

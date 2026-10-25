@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { cellToText } from './tabular-utils';
 
 export interface ParsedRow {
   date: string | null;
@@ -399,7 +400,7 @@ export async function parseCobrosFile(
     sheet.eachRow((row, rowNum) => {
       const values: string[] = [];
       row.eachCell({ includeEmpty: true }, (cell) => {
-        values.push(String(cell.value ?? '').trim());
+        values.push(cellToText(cell.value, cell));
       });
       while (values.length > 0 && values[values.length - 1] === '') values.pop();
       if (values.length === 0) return;
@@ -524,7 +525,7 @@ export async function parseImportFile(
     sheet.eachRow((row) => {
       const values: string[] = [];
       row.eachCell({ includeEmpty: true }, (cell) => {
-        values.push(String(cell.value ?? '').trim());
+        values.push(cellToText(cell.value, cell));
       });
       // Recortar celdas vacías al final
       while (values.length > 0 && values[values.length - 1] === '') values.pop();
@@ -688,7 +689,7 @@ export async function parseCargaInicialFile(
     sheet.eachRow((row, rowNum) => {
       const values: string[] = [];
       row.eachCell({ includeEmpty: true }, (cell) => {
-        values.push(String(cell.value ?? '').trim());
+        values.push(cellToText(cell.value, cell));
       });
       while (values.length > 0 && values[values.length - 1] === '') values.pop();
       if (values.length === 0) return;
@@ -917,7 +918,7 @@ async function leerTabla(buffer: Buffer, fileName: string): Promise<{ headers: s
     if (!sheet) throw new Error('El archivo Excel no tiene hojas.');
     sheet.eachRow((row, rowNum) => {
       const values: string[] = [];
-      row.eachCell({ includeEmpty: true }, (cell) => values.push(String(cell.value ?? '').trim()));
+      row.eachCell({ includeEmpty: true }, (cell) => values.push(cellToText(cell.value, cell)));
       while (values.length > 0 && values[values.length - 1] === '') values.pop();
       if (values.length === 0) return;
       if (rowNum === 1) headers.push(...values);

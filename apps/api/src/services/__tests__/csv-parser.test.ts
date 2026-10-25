@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import ExcelJS from 'exceljs';
 import { parseImportFile, parseCobrosFile, debitCreditDeFila } from '../csv-parser';
+import { cellToText } from '../tabular-utils';
 
 /**
  * El tipo de cada fila decide el asiento (una VENTA acredita la cuenta de
@@ -244,5 +246,179 @@ describe('parseCobrosFile — columna del Nº de factura', () => {
     ].join('\n');
     const parsed = await parseCobrosFile(Buffer.from(csv, 'utf8'), 'pagos.csv');
     expect(parsed.rows[0].invoiceNumber).toBe('ACH-998877');
+  });
+});
+
+/**
+ * Celdas de Excel que ExcelJS entrega como OBJETO (fórmula, hipervínculo,
+ * texto enriquecido). `String(cell.value)` las convertía en el literal
+ * "[object Object]": la columna Banco/Cuenta caía en silencio al banco por
+ * defecto (el preview avisaba «[object Object]» no reconocido) y el asiento
+ * salía con la cuenta equivocada.
+ */
+describe('parseImportFile — celdas de XLSX con fórmula, hipervínculo o texto enriquecido', () => {
+  async function xlsxConBanco(valor: any): Promise<string | null | undefined> {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Hoja1');
+    ws.addRow(['Fecha', 'Detalle', 'Monto', 'Banco/Cuenta', 'Estado']);
+    ws.addRow(['01/10/2026', 'Compra papelería', 100, valor, 'Contado']);
+    const buffer = await wb.xlsx.writeBuffer();
+    const parsed = await parseImportFile(Buffer.from(buffer), 'x.xlsx');
+    return parsed.rows[0].bankName;
+  }
+
+  it('una celda con fórmula entrega el resultado, no "[object Object]"', async () => {
+    expect(await xlsxConBanco({ formula: '"1.1.02.02 Banistmo"', result: '1.1.02.02 Banistmo' }))
+      .toBe('1.1.02.02 Banistmo');
+  });
+
+  it('una celda con hipervínculo entrega el texto visible', async () => {
+    expect(await xlsxConBanco({ text: '1.1.02.02 Banistmo', hyperlink: 'https://x' }))
+      .toBe('1.1.02.02 Banistmo');
+  });
+
+  it('un texto enriquecido concatena sus tramos', async () => {
+    expect(await xlsxConBanco({ richText: [{ text: '1.1.02.02 ' }, { text: 'Banistmo' }] }))
+      .toBe('1.1.02.02 Banistmo');
+  });
+
+  it('una fecha nativa de Excel llega como YYYY-MM-DD (sin correrse un día)', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Hoja1');
+    ws.addRow(['Fecha', 'Detalle', 'Monto']);
+    ws.addRow([new Date(Date.UTC(2026, 9, 1)), 'Compra papelería', 100]);
+    const buffer = await wb.xlsx.writeBuffer();
+    const parsed = await parseImportFile(Buffer.from(buffer), 'x.xlsx');
+    expect(parsed.rows[0].date).toBe('2026-10-01');
+  });
+});
+
+/**
+ * Fórmula SIN resultado cacheado: es el caso real de los archivos exportados
+ * (o guardados con cálculo manual) — el XML no trae `<v>`, ExcelJS solo da
+ * `{ formula }` y el valor NO está en el archivo. Antes caía en
+ * "[object Object]" (y al banco por defecto); ahora se evalúa lo que no
+ * depende de otras celdas y, si no, se muestra la fórmula.
+ */
+describe('parseImportFile — fórmula sin valor calculado en la celda', () => {
+  async function bankNameDeFormula(formula: string): Promise<string | null | undefined> {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Hoja1');
+    ws.addRow(['Fecha', 'Detalle', 'Monto', 'Banco/Cuenta', 'Estado']);
+    ws.addRow(['01/10/2026', 'Compra papelería', 100, { formula }, 'Contado']);
+    const buffer = await wb.xlsx.writeBuffer();
+    const parsed = await parseImportFile(Buffer.from(buffer), 'x.xlsx');
+    return parsed.rows[0].bankName;
+  }
+
+  it('un literal de texto se resuelve', async () => {
+    expect(await bankNameDeFormula('"1.1.02.02 Banistmo"')).toBe('1.1.02.02 Banistmo');
+  });
+
+  it('una concatenación de literales se resuelve', async () => {
+    expect(await bankNameDeFormula('"1.1.02.02"&" "&"Banistmo"')).toBe('1.1.02.02 Banistmo');
+  });
+
+  it('CONCATENATE de literales se resuelve', async () => {
+    expect(await bankNameDeFormula('CONCATENATE("1.1.02.02", " Banistmo")')).toBe('1.1.02.02 Banistmo');
+  });
+
+  it('si depende de otras celdas, muestra la fórmula — nunca "[object Object]"', async () => {
+    expect(await bankNameDeFormula('VLOOKUP(A2,Hoja2!A:B,2,FALSE)'))
+      .toBe('=VLOOKUP(A2,Hoja2!A:B,2,FALSE)');
+  });
+});
+
+/**
+ * El caso real (25-10): la columna Banco/Cuenta trae `BUSCARV(H2;$J$2:$K$6;2;FALSO)`
+ * y el archivo NO trae el valor calculado. La tabla de búsqueda está en la
+ * misma hoja; el código de cuenta sale de ahí (H2 = "2810-1" → 1.1.02.02).
+ */
+describe('parseImportFile — BUSCARV/VLOOKUP sin valor cacheado (tabla en la misma hoja)', () => {
+  async function bancoConFormula(formula: string, clave: string): Promise<string | null | undefined> {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Hoja1');
+    ws.addRow(['Fecha', 'Detalle', 'Monto', 'Banco/Cuenta', 'Estado']);
+    ws.addRow(['01/10/2026', 'Compra papelería', 100, { formula }, 'Contado']);
+    ws.getCell('H2').value = clave;
+    ws.addRow([]);
+    const tabla: Array<[string, string]> = [
+      ['8829-7', '1.1.02.01'],
+      ['2810-1', '1.1.02.02'],
+      ['6305-5', '1.1.02.03'],
+      ['Por Clasificar', '1.1.02.09'],
+      ['TC-**** 1798', '2.1.03.02'],
+    ];
+    tabla.forEach(([k, v], i) => {
+      ws.getCell(`J${i + 2}`).value = k;
+      ws.getCell(`K${i + 2}`).value = v;
+    });
+    const buffer = await wb.xlsx.writeBuffer();
+    const parsed = await parseImportFile(Buffer.from(buffer), 'x.xlsx');
+    return parsed.rows[0].bankName;
+  }
+
+  it('BUSCARV en español con punto y coma resuelve la cuenta', async () => {
+    expect(await bancoConFormula('BUSCARV(H2;$J$2:$K$6;2;FALSO)', '2810-1')).toBe('1.1.02.02');
+  });
+
+  it('VLOOKUP en inglés con comas resuelve la cuenta', async () => {
+    expect(await bancoConFormula('VLOOKUP(H2,$J$2:$K$6,2,FALSE)', '8829-7')).toBe('1.1.02.01');
+  });
+
+  it('una referencia simple (=H2) se lee de su celda', async () => {
+    expect(await bancoConFormula('H2', '6305-5')).toBe('6305-5');
+  });
+
+  it('si la clave no está en la tabla, muestra la fórmula (no inventa el banco)', async () => {
+    expect(await bancoConFormula('BUSCARV(H2;$J$2:$K$6;2;FALSO)', 'NO-EXISTE'))
+      .toBe('=BUSCARV(H2;$J$2:$K$6;2;FALSO)');
+  });
+});
+
+/**
+ * Fórmula COMPARTIDA (la que Excel guarda al arrastrar la fórmula hacia
+ * abajo): el maestro tiene el texto y las demás celdas solo un índice. Sin
+ * valor cacheado, ExcelJS traduce la fórmula por celda (`cell.formula`) y hay
+ * que usarla — si no, las filas siguientes caen al banco por defecto en
+ * silencio.
+ */
+describe('parseImportFile — BUSCARV compartido (arrastrado hacia abajo)', () => {
+  it('cada fila resuelve su propia clave, no solo la primera', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Hoja1');
+    ws.addRow(['Fecha', 'Detalle', 'Monto', 'Banco/Cuenta', 'Estado']);
+    ws.addRow(['01/10/2026', 'Compra A', 100,
+      { formula: 'VLOOKUP(H2,$J$2:$K$6,2,FALSE)', shareType: 'shared', ref: 'D2:D3' }, 'Contado']);
+    ws.addRow(['02/10/2026', 'Compra B', 200, { sharedFormula: 'D2' }, 'Contado']);
+    ws.getCell('H2').value = '2810-1';
+    ws.getCell('H3').value = '8829-7';
+    [['8829-7', '1.1.02.01'], ['2810-1', '1.1.02.02'], ['6305-5', '1.1.02.03'],
+      ['Por Clasificar', '1.1.02.09'], ['TC-**** 1798', '2.1.03.02']]
+      .forEach(([k, v], i) => {
+        ws.getCell(`J${i + 2}`).value = k;
+        ws.getCell(`K${i + 2}`).value = v;
+      });
+    const buffer = await wb.xlsx.writeBuffer();
+    const parsed = await parseImportFile(Buffer.from(buffer), 'x.xlsx');
+    expect(parsed.rows.slice(0, 2).map(r => r.bankName)).toEqual(['1.1.02.02', '1.1.02.01']);
+  });
+});
+
+/**
+ * El archivo real de Odesa (25-10) trae el resultado de la fórmula
+ * (`<v>2.1.03.02</v>`) pero la columna CUENTA tiene formato de fecha: ExcelJS
+ * intenta convertir "2.1.03.02" en fecha → Invalid Date. Ese Invalid Date se
+ * formateaba como "NaN-NaN-NaN" y la fila caía al banco por defecto. Ahora se
+ * descarta y la fórmula se evalúa.
+ */
+describe('cellToText — resultado de fórmula ilegible (formato de fecha)', () => {
+  it('una fecha inválida devuelve vacío, no "NaN-NaN-NaN"', () => {
+    expect(cellToText(new Date('no-es-fecha'))).toBe('');
+  });
+
+  it('si el resultado cacheado es una fecha inválida, se evalúa la fórmula', () => {
+    expect(cellToText({ formula: '"1.1.02.02 Banistmo"', result: new Date('no-es-fecha') }))
+      .toBe('1.1.02.02 Banistmo');
   });
 });
