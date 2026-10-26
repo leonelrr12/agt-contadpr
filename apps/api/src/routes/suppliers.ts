@@ -116,6 +116,37 @@ suppliersRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), asyn
   res.json(updated);
 });
 
+// DELETE /api/suppliers/:id — borrar solo si no tiene historia.
+suppliersRouter.delete('/:id', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
+  const companyId = req.user!.companyId;
+  const supplier = await req.prisma.supplier.findFirst({
+    where: { id: req.params.id, companyId },
+  });
+  if (!supplier) { res.status(404).json({ error: 'Proveedor no encontrado' }); return; }
+
+  const [bills, workerAccounts] = await Promise.all([
+    req.prisma.bill.count({ where: { supplierId: supplier.id, companyId } }),
+    req.prisma.workerAccount.count({ where: { supplierId: supplier.id, companyId } }),
+  ]);
+  if (bills || workerAccounts) {
+    res.status(409).json({
+      error: `No se puede eliminar a "${supplier.name}": tiene ${bills} factura(s) y ${workerAccounts} cuenta(s) de trabajador asociadas.`,
+    });
+    return;
+  }
+
+  try {
+    await req.prisma.supplier.delete({ where: { id: supplier.id } });
+    res.json({ ok: true });
+  } catch (error: any) {
+    if (error?.code === 'P2003') {
+      res.status(409).json({ error: 'No se puede eliminar: tiene movimientos asociados.' });
+      return;
+    }
+    throw error;
+  }
+});
+
 // GET /api/suppliers/:id/bills — Facturas de un proveedor (con saldo real)
 suppliersRouter.get('/:id/bills', async (req, res) => {
   const bills = await req.prisma.bill.findMany({

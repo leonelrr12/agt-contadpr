@@ -140,6 +140,39 @@ clientsRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), async 
   res.json(updated);
 });
 
+// DELETE /api/clients/:id — borrar solo si no tiene historia contable.
+// Un cliente con facturas o retenciones no se borra: se rompería la trazabilidad
+// de CxC y del 430. El mensaje dice exactamente qué lo bloquea.
+clientsRouter.delete('/:id', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
+  const companyId = req.user!.companyId;
+  const client = await req.prisma.client.findFirst({
+    where: { id: req.params.id, companyId },
+  });
+  if (!client) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
+
+  const [invoices, retenciones] = await Promise.all([
+    req.prisma.invoice.count({ where: { clientId: client.id, companyId } }),
+    req.prisma.retentionItbms.count({ where: { clientId: client.id, companyId } }),
+  ]);
+  if (invoices || retenciones) {
+    res.status(409).json({
+      error: `No se puede eliminar a "${client.name}": tiene ${invoices} factura(s) y ${retenciones} retención(es) asociadas. Anula o reasigna antes de borrarlo.`,
+    });
+    return;
+  }
+
+  try {
+    await req.prisma.client.delete({ where: { id: client.id } });
+    res.json({ ok: true });
+  } catch (error: any) {
+    if (error?.code === 'P2003') {
+      res.status(409).json({ error: 'No se puede eliminar: tiene movimientos asociados.' });
+      return;
+    }
+    throw error;
+  }
+});
+
 // GET /api/clients/:id/invoices — Facturas de un cliente (con saldo real)
 clientsRouter.get('/:id/invoices', async (req, res) => {
   const invoices = await req.prisma.invoice.findMany({
