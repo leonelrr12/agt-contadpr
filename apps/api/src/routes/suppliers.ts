@@ -40,8 +40,19 @@ suppliersRouter.get('/:id', async (req, res) => {
 // Crear un proveedor es parte de cargar una compra: lo hace quien la carga.
 // Registrar la factura del proveedor (`POST /:id/bills`) NO: esa vía no genera asiento.
 suppliersRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventario'), async (req, res) => {
-  const { name, taxId, phone, email, paymentTerms, notes } = req.body;
+  const { name, taxId, phone, email, paymentTerms, notes, dv, address, location, tradeName, contactName, taxIdType } = req.body;
   if (!name) { res.status(400).json({ error: 'El nombre es requerido' }); return; }
+
+  const dvLimpio = dv === undefined ? undefined : (String(dv).trim() || null);
+  if (dvLimpio && !/^\d{1,2}$/.test(dvLimpio)) {
+    res.status(400).json({ error: 'El DV debe ser de 1 o 2 dígitos.' });
+    return;
+  }
+  const locationLimpia = location === undefined ? undefined : (String(location).trim() || null);
+  if (locationLimpia && !/^\d{1,2}-\d{1,2}-\d{1,2}$/.test(locationLimpia)) {
+    res.status(400).json({ error: 'La ubicación debe tener el formato PP-DD-CC (ej. 8-8-8).' });
+    return;
+  }
 
   const existing = await findSupplier(req.prisma, req.user!.companyId, { name, taxId });
   if (existing) {
@@ -51,7 +62,14 @@ suppliersRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'invent
 
   try {
     const supplier = await req.prisma.supplier.create({
-      data: { name, taxId, phone, email, paymentTerms: paymentTerms || '30', notes, companyId: req.user!.companyId },
+      // `as any`: ver la nota de clients.ts (migración 0049 pendiente de aplicar).
+      data: {
+        name, taxId, phone, email, paymentTerms: paymentTerms || '30', notes,
+        dv: dvLimpio, address, location: locationLimpia,
+        tradeName, contactName, taxIdType,
+        fiscalSource: 'MANUAL', fiscalUpdatedAt: new Date(),
+        companyId: req.user!.companyId,
+      } as any,
     });
     res.status(201).json(supplier);
   } catch (error: any) {
@@ -65,15 +83,35 @@ suppliersRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'invent
 
 // PUT /api/suppliers/:id — Actualizar
 suppliersRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
-  const { name, taxId, phone, email, paymentTerms, notes } = req.body;
+  const { name, taxId, phone, email, paymentTerms, notes, dv, address, location, tradeName, contactName, taxIdType } = req.body;
   const existing = await req.prisma.supplier.findFirst({
     where: { id: req.params.id, companyId: req.user!.companyId },
   });
   if (!existing) { res.status(404).json({ error: 'Proveedor no encontrado' }); return; }
 
+  const dvLimpio = dv === undefined ? undefined : (String(dv).trim() || null);
+  if (dvLimpio && !/^\d{1,2}$/.test(dvLimpio)) {
+    res.status(400).json({ error: 'El DV debe ser de 1 o 2 dígitos.' });
+    return;
+  }
+  const locationLimpia = location === undefined ? undefined : (String(location).trim() || null);
+  if (locationLimpia && !/^\d{1,2}-\d{1,2}-\d{1,2}$/.test(locationLimpia)) {
+    res.status(400).json({ error: 'La ubicación debe tener el formato PP-DD-CC (ej. 8-8-8).' });
+    return;
+  }
+
+  const data: any = { name, taxId, phone, email, paymentTerms, notes, address };
+  if (dv !== undefined) data.dv = dvLimpio;
+  if (location !== undefined) data.location = locationLimpia;
+  if (tradeName !== undefined) data.tradeName = String(tradeName ?? '').trim() || null;
+  if (contactName !== undefined) data.contactName = String(contactName ?? '').trim() || null;
+  if (taxIdType !== undefined) data.taxIdType = String(taxIdType ?? '').trim() || null;
+  data.fiscalSource = 'MANUAL';
+  data.fiscalUpdatedAt = new Date();
+
   const updated = await req.prisma.supplier.update({
     where: { id: req.params.id },
-    data: { name, taxId, phone, email, paymentTerms, notes },
+    data,
   });
   res.json(updated);
 });

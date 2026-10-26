@@ -61,7 +61,11 @@ async function resolveSalesAccount(agent: AccountingAgent, prisma: any, companyI
 // El rol `inventario` emite ventas: es quien atiende el mostrador y descuenta stock.
 // Cobrar (`PATCH /:id/pay`) y configurar NO: eso es tesorería y administración.
 facturasRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventario'), requireQuota, validate(createFacturaSchema), async (req, res) => {
-  const { clientId, clientName, clientTaxId, items, itbmsRate, date, dueDate, paymentMethod } = req.body;
+  const {
+    clientId, clientName, clientTaxId, items, itbmsRate, date, dueDate, paymentMethod,
+    clientDv, clientPhone, clientEmail, clientAddress, clientLocation,
+    clientTradeName, clientContactName, clientTaxIdType,
+  } = req.body;
   const tasa = itbmsRate ?? 0.07;
   const companyId = req.user!.companyId;
 
@@ -74,7 +78,19 @@ facturasRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventa
         if (!client) throw Object.assign(new Error('Cliente no encontrado'), { status: 404 });
       } else {
         // Dedupe por RUC/nombre (higiene de duplicidad) — ver services/counterparty.ts
-        client = await findOrCreateClient(tx, companyId, { name: clientName || 'CONSUMIDOR FINAL', taxId: clientTaxId });
+        client = await findOrCreateClient(tx, companyId, {
+          name: clientName || 'CONSUMIDOR FINAL',
+          taxId: clientTaxId,
+          dv: clientDv,
+          phone: clientPhone,
+          email: clientEmail,
+          address: clientAddress,
+          location: clientLocation,
+          tradeName: clientTradeName,
+          contactName: clientContactName,
+          taxIdType: clientTaxIdType,
+          fiscalSource: 'MANUAL',
+        });
       }
 
       // 2) Número correlativo atómico (serie + increment)

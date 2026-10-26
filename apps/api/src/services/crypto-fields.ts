@@ -3,6 +3,9 @@
 // Si FIELD_ENC_KEY no está definida, las funciones son pass-through (modo sin cifrar).
 // La clave debe ser base64 de 32 bytes — se genera con: openssl rand -base64 32
 import crypto from 'crypto';
+import { hashField } from '@agt-contador/shared';
+
+export { hashField };
 
 const KEY_B64 = process.env.FIELD_ENC_KEY || '';
 const KEY = KEY_B64 ? Buffer.from(KEY_B64, 'base64') : null;
@@ -54,11 +57,8 @@ export function decryptField(value: unknown): unknown {
 }
 
 // Hash determinista con clave para búsquedas exactas (dedupe de RUC) sin filtrar el valor.
-export function hashField(plain: string): string {
-  if (!KEY || KEY.length !== 32) return '';
-  const searchKey = crypto.createHmac('sha256', KEY).update('search').digest();
-  return crypto.createHmac('sha256', searchKey).update(String(plain)).digest('hex');
-}
+// La implementación vive en @agt-contador/shared para que la API y los agentes
+// calculen EXACTAMENTE el mismo hash sobre el RUC base (sin DV ni separadores).
 
 /** Cifra los campos sensibles de un objeto `data` de Prisma (muta y devuelve el mismo objeto). */
 export function encryptData(data: any, model: string | undefined): any {

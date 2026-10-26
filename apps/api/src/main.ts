@@ -41,7 +41,8 @@ import { pacRouter } from './routes/pac';
 import { planRateLimiter } from './middleware/plan-rate-limit';
 import { requireAuth, requireRole, limitarRolesExclusivos } from './middleware/auth';
 import { errorHandler, notFoundHandler } from './middleware/error-handler';
-import { encryptData, decryptResult, hashField } from './services/crypto-fields';
+import { encryptData, decryptResult } from './services/crypto-fields';
+import { hashRucBase, separarRucDv } from '@agt-contador/shared';
 
 const app = express();
 const prisma: any = new PrismaClient().$extends({
@@ -52,12 +53,18 @@ const prisma: any = new PrismaClient().$extends({
       $allOperations: async ({ model, operation, args, query }) => {
         if (['Company', 'Client', 'Supplier'].includes(model) && ['create', 'createMany', 'update', 'updateMany'].includes(operation)) {
           // taxIdHash determinista para dedupe de RUC sin filtrar el valor.
+          // Se hashea el RUC BASE (sin DV ni separadores) y, si el taxId trae
+          // el DV pegado (`...-50`), se guarda aparte en `dv`: así el mismo
+          // tercero no se duplica por escribirlo con o sin DV.
           // Al vaciar el RUC se limpia el hash (evita dedupe obsoleto).
           const d: any = (args as any).data;
           if (d && 'taxId' in d) {
             const taxIdPlain = d.taxId;
             if (typeof taxIdPlain === 'string' && taxIdPlain && !taxIdPlain.startsWith('v1:')) {
-              d.taxIdHash = hashField(taxIdPlain);
+              const partes = separarRucDv(taxIdPlain);
+              if (partes.base) d.taxId = partes.base;
+              if (partes.dv && d.dv == null) d.dv = partes.dv;
+              d.taxIdHash = hashRucBase(partes.base || taxIdPlain);
             } else if (!taxIdPlain) {
               d.taxIdHash = null;
             }

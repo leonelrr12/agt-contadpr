@@ -18,6 +18,7 @@
  */
 
 import { createHash } from 'crypto';
+import { normalizarRucBase } from '@agt-contador/shared';
 import { parseLocalDate } from '../lib/dates';
 
 /**
@@ -52,13 +53,12 @@ export type FacturaPendiente = FacturaExtraida;
  * `342-240-75526-50` (el DV va en su propio grupo). Sin quitarlo, la misma
  * factura produce dos claves de deduplicación distintas y entra dos veces: fue
  * el duplicado del 17-10 (PDF y XML del mismo correo, 1.5 s de diferencia).
+ *
+ * La implementación vive en @agt-contador/shared para que clientes,
+ * proveedores y reembolsos usen exactamente la misma regla.
  */
 export function normalizarRuc(ruc: string | null | undefined): string {
-  const grupos = String(ruc || '').split(/\D+/).filter(Boolean);
-  // El DV es un grupo final de 1–2 dígitos (`-50`, `-88`). El cuerpo del RUC
-  // siempre termina en un grupo más largo (`...-75526`, `...-2015`): no se toca.
-  if (grupos.length >= 3 && grupos[grupos.length - 1].length <= 2) grupos.pop();
-  return grupos.join('');
+  return normalizarRucBase(ruc);
 }
 
 /**
