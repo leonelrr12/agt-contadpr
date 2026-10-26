@@ -17,8 +17,12 @@ function makePrismaStub() {
     { id: 'acct-combustible', code: '6.01.02', name: 'Gastos de Combustible', type: 'GASTO', isActive: true, requiresAnexo: false },
     { id: 'acct-gastos-varios', code: '6.06.01', aliases: ['gasto'], name: 'Gastos Varios', type: 'GASTO', isActive: true, requiresAnexo: false },
   ];
+  const createdSuppliers: any[] = [];
+  const createdBills: any[] = [];
   return {
     ...basePrismaStub(),
+    __createdSuppliers: createdSuppliers,
+    __createdBills: createdBills,
     company: {
       findUnique: async () => ({ declaraITBMS: true }),
     },
@@ -31,6 +35,23 @@ function makePrismaStub() {
     account: {
       findMany: async () => cuentas,
       findFirst: async (args: any) => cuentas.find((c) => c.id === args?.where?.id) || null,
+    },
+    supplier: {
+      findMany: async () => [],
+      findFirst: async () => null,
+      create: async (args: any) => {
+        createdSuppliers.push(args.data);
+        return { id: 'sup-1', ...args.data };
+      },
+      update: async (args: any) => ({ id: 'sup-1', ...args.data }),
+    },
+    bill: {
+      findMany: async () => [],
+      create: async (args: any) => {
+        createdBills.push(args.data);
+        return { id: 'bill-1', ...args.data };
+      },
+      update: async (args: any) => ({ id: 'bill-1', ...args.data }),
     },
     journalEntry: {
       create: async (args: any) => {
@@ -115,5 +136,18 @@ describe('OrchestratorAgent', () => {
     const processResult = await orchestrator.process('Compré combustible por $40 con efectivo');
     const confirmResult = await orchestrator.confirm(processResult.result);
     expect(confirmResult.journalEntry).toBeDefined();
+  });
+
+  it('una compra al contado crea el proveedor maestro y NO crea Bill', async () => {
+    const prisma: any = makePrismaStub();
+    const agent = new OrchestratorAgent({ prisma, companyId: 'demo-company', userId: 'demo-user' });
+    const r = await agent.process('Compré combustible en FERRETERÍA XYZ por $40 con efectivo');
+    expect(r.needsConfirmation).toBe(true);
+
+    const saved: any = await agent.confirm(r.result);
+    expect(saved.autoCreated?.type).toBe('proveedor_nuevo');
+    expect(prisma.__createdSuppliers).toHaveLength(1);
+    expect(prisma.__createdSuppliers[0].name).toBeTruthy();
+    expect(prisma.__createdBills).toHaveLength(0); // al contado no hay CxP
   });
 });

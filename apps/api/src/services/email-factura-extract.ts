@@ -17,7 +17,7 @@
  */
 
 import { extractFromPDF, extractFromText, extractInvoiceItems } from './pdf-extractor';
-import { xmlATexto, pareceXmlDeFactura, receptorDeXml, itemsDeXml } from './dgi-xml';
+import { xmlATexto, pareceXmlDeFactura, receptorDeXml, itemsDeXml, emisorDeXml } from './dgi-xml';
 import { descargarFacturaDgi } from './dgi-cute';
 import { normalizarRuc, type FacturaExtraida } from './reembolsos';
 
@@ -89,6 +89,12 @@ async function facturaDePdf(prisma: any, buffer: Buffer): Promise<Omit<FacturaDe
     factura: {
       proveedor: r.provider,
       ruc: r.ruc,
+      dv: r.providerDv,
+      phone: r.providerPhone,
+      email: r.providerEmail,
+      address: r.providerAddress,
+      location: r.providerLocation,
+      fiscalSource: 'PDF',
       numeroFactura: r.invoiceNumber,
       fecha: r.date,
       total: r.total,
@@ -162,6 +168,7 @@ export async function extraerFacturasDeMensaje(
       // tienen que ser exactos (uno decide si la factura es de esta empresa, el
       // otro alimenta la clasificación cuando el proveedor no nombra el rubro).
       const receptor = receptorDeXml(xml);
+      const emisor = emisorDeXml(xml);
       agregar({
         via: 'XML',
         origen: a.filename || 'adjunto.xml',
@@ -170,8 +177,14 @@ export async function extraerFacturasDeMensaje(
         clienteRuc: receptor.ruc || r.clientRuc,
         clienteNombre: receptor.nombre || r.clientName,
         factura: {
-          proveedor: r.provider,
-          ruc: r.ruc,
+          proveedor: emisor.nombre || r.provider,
+          ruc: emisor.ruc || r.ruc,
+          dv: emisor.dv || r.providerDv,
+          phone: emisor.phone || r.providerPhone,
+          email: emisor.email || r.providerEmail,
+          address: emisor.address || r.providerAddress,
+          location: emisor.location || r.providerLocation,
+          fiscalSource: 'XML',
           numeroFactura: r.invoiceNumber,
           fecha: r.date,
           total: r.total,

@@ -20,6 +20,7 @@
 import { createHash } from 'crypto';
 import { normalizarRucBase } from '@agt-contador/shared';
 import { parseLocalDate } from '../lib/dates';
+import { findOrCreateSupplier } from './counterparty';
 
 /**
  * Tipos que se registran como FACTURA RECIBIDA: lo que la empresa compró o
@@ -35,6 +36,15 @@ export interface FacturaExtraida {
   dgiXml?: string | null;
   proveedor?: string | null;
   ruc?: string | null;
+  /** Perfil fiscal del emisor, cuando el XML/PDF lo trae. */
+  dv?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  location?: string | null;
+  taxIdType?: string | null;
+  /** XML | PDF | OCR | MANUAL — trazabilidad del perfil. */
+  fiscalSource?: string | null;
   numeroFactura?: string | null;
   /** 'YYYY-MM-DD' del extractor, o cualquier fecha parseable. */
   fecha?: string | null;
@@ -192,6 +202,26 @@ export async function registrarFacturaRecibida(
         emailMensajeId: emailMensajeId ?? null,
       },
     });
+    // El emisor de la factura es un proveedor de la empresa: se crea/actualiza
+    // SIEMPRE, aunque la compra sea al contado y no exista CxP. Si falla, la
+    // factura ya quedó archivada: no tumbamos el registro por el maestro.
+    if (f.proveedor) {
+      try {
+        await findOrCreateSupplier(prisma, companyId, {
+          name: f.proveedor,
+          taxId: f.ruc,
+          dv: f.dv,
+          phone: f.phone,
+          email: f.email,
+          address: f.address,
+          location: f.location,
+          taxIdType: f.taxIdType,
+          fiscalSource: f.fiscalSource || (f.dgiUrl || f.dgiXml ? 'PDF' : 'MANUAL'),
+        });
+      } catch (err: any) {
+        console.error('[Reembolsos] No se pudo enriquecer el proveedor:', err?.message);
+      }
+    }
     return { creado: true, claim };
   } catch (e: any) {
     // P2002 = carrera con otro mensaje del mismo trabajador. La factura ya está

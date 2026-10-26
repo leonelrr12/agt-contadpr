@@ -29,7 +29,7 @@
   <meta name="twitter:description" content="Agente contable con IA para Panamá. Facturas, asientos y reportes automatizados.">
   <meta name="twitter:image" content="https://contador507.com/og-image.png">
 
-  <link rel="stylesheet" href="styles.css?v=51">
+  <link rel="stylesheet" href="styles.css?v=53">
   <link rel="stylesheet" href="dialogos.css?v=1">
   <link rel="stylesheet" href="conciliacion.css?v=2">
 </head>
@@ -43,6 +43,7 @@
     <symbol id="ic-bank" viewBox="0 0 24 24"><path d="M3.75 9.75 12 4.5l8.25 5.25M5.25 9.75v7.5m4.5-7.5v7.5m4.5-7.5v7.5m4.5-7.5v7.5M3 20.25h18"/></symbol>
     <symbol id="ic-chart" viewBox="0 0 24 24"><path d="M4.5 19.5v-6m5.25 6V8.25m5.25 11.25V4.5m5.25 15V10.5M2.25 21h19.5"/></symbol>
     <symbol id="ic-book" viewBox="0 0 24 24"><path d="M9 7.5h6M9 12h6M9 16.5h3M6.75 3h10.5A2.25 2.25 0 0 1 19.5 5.25v13.5A2.25 2.25 0 0 1 17.25 21H6.75A2.25 2.25 0 0 1 4.5 18.75V5.25A2.25 2.25 0 0 1 6.75 3Z"/></symbol>
+    <symbol id="ic-users" viewBox="0 0 24 24"><path d="M15.75 6.75a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.25a7.5 7.5 0 0 1 15 0M18 13.5a3 3 0 1 0 0-6M21 20.25a6 6 0 0 0-3-5.196"/></symbol>
     <symbol id="ic-calendar" viewBox="0 0 24 24"><path d="M6.75 4.5V2.25m10.5 2.25V2.25M3.75 8.25h16.5M4.5 5.25h15A1.5 1.5 0 0 1 21 6.75v12A1.5 1.5 0 0 1 19.5 20.25h-15A1.5 1.5 0 0 1 3 18.75v-12A1.5 1.5 0 0 1 4.5 5.25Z"/></symbol>
     <symbol id="ic-health" viewBox="0 0 24 24"><path d="M2.25 12h4.5l2.25-6 3 12 2.25-6h7.5"/></symbol>
     <symbol id="ic-receipt" viewBox="0 0 24 24"><path d="M5.25 3.75h13.5v16.5l-2.25-1.5-2.25 1.5-2.25-1.5-2.25 1.5-2.25-1.5-2.25 1.5-2.25-1.5V3.75ZM9 8.25h6M9 12h6M9 15.75h3"/></symbol>
@@ -122,6 +123,7 @@
           <div class="nav-group-body">
             <button class="nav-link" data-view="panel-informes" id="nav-informes-link" title="Informes"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-chart"></use></svg><span class="nav-label">Informes</span></button>
             <button class="nav-link" data-view="panel-auxiliares" id="nav-auxiliares-link" title="Auxiliares"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-book"></use></svg><span class="nav-label">Auxiliares</span></button>
+            <button class="nav-link" data-view="panel-terceros" id="nav-terceros-link" title="Terceros"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-users"></use></svg><span class="nav-label">Terceros</span></button>
             <button class="nav-link" data-view="panel-taxcalendar" id="nav-taxcalendar-link" title="Calendario Fiscal"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-calendar"></use></svg><span class="nav-label">Calendario Fiscal</span></button>
             <button class="nav-link" data-view="panel-salud" id="nav-salud-link" title="Salud Financiera"><svg class="nav-ico" viewBox="0 0 24 24"><use href="#ic-health"></use></svg><span class="nav-label">Salud Financiera</span></button>
           </div>
@@ -441,6 +443,23 @@
         <div id="aux-sidebar-content"></div>
       </div>
 
+      <!-- Panel de Terceros: maestro de clientes y proveedores -->
+      <div id="panel-terceros-content" class="hidden" style="padding:24px;max-width:1100px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:4px">
+          <div>
+            <h2 style="margin:0;color:#1a1a2e">👥 Terceros</h2>
+            <p style="margin:4px 0 0 0;color:#6b7280;font-size:13px">Clientes y proveedores registrados en esta empresa</p>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button onclick="loadTerceros()" title="Volver a leer la base de terceros" style="padding:8px 16px;font-size:13px;background:#e5e7eb;color:#374151;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">🔄 Actualizar</button>
+            <button id="terceros-nuevo-btn" onclick="abrirTerceroModal('Cliente')" style="padding:8px 16px;font-size:13px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">➕ Nuevo tercero</button>
+          </div>
+        </div>
+        <div id="terceros-resumen" style="font-size:12px;color:#6b7280;margin:14px 0 8px"></div>
+        <input type="search" id="terceros-search" oninput="renderTerceros()" placeholder="🔍 Buscar por nombre, RUC, DV, teléfono, email o dirección..." style="width:100%;max-width:560px;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-bottom:12px">
+        <div id="terceros-list"><div style="text-align:center;padding:32px;color:#6b7280">Cargando...</div></div>
+      </div>
+
       <!-- Panel de Revisión -->
       <div id="panel-revision-content" class="hidden" style="padding:24px;max-width:1000px">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px">
@@ -510,6 +529,7 @@
           <button class="panel-tab-btn" data-panel="config" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚙️ Configuración</button>
           <button class="panel-tab-btn" data-panel="empresa" id="tab-empresa-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🏢 Empresa</button>
           <button class="panel-tab-btn" data-panel="carga-inicial" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📋 Carga Inicial</button>
+          <button class="panel-tab-btn" data-panel="terceros-import" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📥 Carga de Terceros</button>
           <button class="panel-tab-btn" data-panel="cierres-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🗓 Cierres</button>
           <button class="panel-tab-btn" data-panel="usuarios-admin" id="tab-usuarios-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">👥 Usuarios</button>
         </div>
@@ -611,6 +631,8 @@
             </div>
           </div>
         </div>
+        <!-- Carga masiva de Terceros desde CSV/XLSX -->
+        <div id="terceros-import-content" class="hidden"></div>
               <!-- Cierres Admin -->
         <div id="cierres-admin-content" class="hidden">
           <div class="admin-form-card">
@@ -710,7 +732,7 @@
   <script src="js/capture.js?v=75"></script>
   <script src="js/capture-qr.js?v=74"></script>
   <script src="js/chat.js?v=77"></script>
-  <script src="js/router.js?v=82"></script>
+  <script src="js/router.js?v=84"></script>
   <script src="js/conciliacion.js?v=1"></script>
   <script src="js/admin.js?v=95"></script>
   <script src="js/ayuda.js?v=1"></script>
@@ -721,6 +743,8 @@
   <script src="js/auxiliares-revision.js?v=82"></script>
   <script src="js/entry-modals.js?v=86"></script>
   <script src="js/informes.js?v=103"></script>
+  <script src="js/terceros.js?v=2"></script>
+  <script src="js/terceros-import.js?v=2"></script>
   <script src="js/presupuestos.js?v=2"></script>
   <script src="js/borrador430.js?v=4"></script>
   <script src="js/tax-calendar.js?v=76"></script>

@@ -18,6 +18,7 @@ import { apiKeysRouter } from './routes/api-keys';
 import { billingRouter } from './routes/billing';
 import { clientsRouter } from './routes/clients';
 import { suppliersRouter } from './routes/suppliers';
+import { tercerosRouter } from './routes/terceros';
 import { importRouter } from './routes/import';
 import { planillaRouter } from './routes/planilla';
 import { honorariosRetiredRouter } from './routes/honorarios-retired';
@@ -64,7 +65,9 @@ const prisma: any = new PrismaClient().$extends({
               const partes = separarRucDv(taxIdPlain);
               if (partes.base) d.taxId = partes.base;
               if (partes.dv && d.dv == null) d.dv = partes.dv;
-              d.taxIdHash = hashRucBase(partes.base || taxIdPlain);
+              // Sin FIELD_ENC_KEY el hash es '' (modo local): se guarda null
+              // para no chocar con el unique de taxIdHash.
+              d.taxIdHash = hashRucBase(partes.base || taxIdPlain) || null;
             } else if (!taxIdPlain) {
               d.taxIdHash = null;
             }
@@ -202,6 +205,7 @@ app.use('/api/ocr', ocrRouter);
 app.use('/api/factura', facturaRouter);
 app.use('/api/clients', clientsRouter);
 app.use('/api/suppliers', suppliersRouter);
+app.use('/api/terceros', tercerosRouter);
 app.use('/api/import', importRouter);
 app.use('/api/planilla', planillaRouter);
 app.use('/api/honorarios', honorariosRetiredRouter);  // modo retirado → 410 con guía

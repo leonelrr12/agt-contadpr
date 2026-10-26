@@ -67,6 +67,12 @@ async function extractWithLLM(
   itbmsRate: number | null;
   clientName: string | null;
   clientRuc: string | null;
+  /** Perfil fiscal del EMISOR (proveedor), si el documento lo trae. */
+  providerDv: string | null;
+  providerPhone: string | null;
+  providerEmail: string | null;
+  providerAddress: string | null;
+  providerLocation: string | null;
 } | null> {
   const client = getLLMClient();
   if (!client || !pdfText.trim()) return null;
@@ -99,7 +105,13 @@ Recibes texto crudo extraído de un PDF de factura fiscal panameña. Debes extra
 8. itbmsRate: tasa de ITBMS (número, ej: 7)
 9. clientName: nombre del cliente (si aparece)
 10. clientRuc: RUC del cliente (si aparece)
+11. providerDv: dígito verificador del EMISOR (suele aparecer como "D.V." o "DV" junto a su RUC)
+12. providerPhone: teléfono del EMISOR (el del proveedor, no el del cliente)
+13. providerEmail: correo del EMISOR
+14. providerAddress: dirección del EMISOR (la que está en el encabezado junto a su nombre/RUC; NO la que aparece debajo de "Cliente" o "Dirección" del receptor)
+15. providerLocation: ubicación DGI PP-DD-CC del EMISOR si aparece
 
+No confundas EMISOR (proveedor que emite la factura) con RECEPTOR (cliente/comprador).
 Si no encuentras un campo, pon null.
 Responde SOLO con JSON, sin explicaciones ni markdown.${fewShotContext}`,
         },
@@ -125,6 +137,11 @@ Responde SOLO con JSON, sin explicaciones ni markdown.${fewShotContext}`,
       itbmsRate: typeof parsed.itbmsRate === 'number' ? parsed.itbmsRate : null,
       clientName: parsed.clientName || null,
       clientRuc: parsed.clientRuc || null,
+      providerDv: parsed.providerDv || null,
+      providerPhone: parsed.providerPhone || null,
+      providerEmail: parsed.providerEmail || null,
+      providerAddress: parsed.providerAddress || null,
+      providerLocation: parsed.providerLocation || null,
     };
   } catch (e) {
     console.error('[PDF LLM] Error:', e);
@@ -170,6 +187,25 @@ function parseRUC(text: string): string | null {
   // Generic RUC pattern (with word boundaries to avoid matching dates)
   const m = text.match(/\b(\d{1,4}-\d{1,6}-\d{1,10})\b/);
   return m ? m[1] : null;
+}
+
+/** DV impreso junto al RUC del emisor ("D.V. 18", "DV: 50"). */
+function parseDv(text: string): string | null {
+  const m = text.match(/(?:D\.?\s*V\.?|digito\s+verificador|d[ií]gito\s+verificador)\s*[:#.]?\s*(\d{1,2})\b/i);
+  return m ? m[1] : null;
+}
+
+/** Teléfono del emisor, si el documento lo imprime. El LLM es la vía principal. */
+function parsePhone(text: string): string | null {
+  const m = text.match(/(?:tel[eé]fono|tel\.?|celular|cel\.?|phone)\s*[:#.]?\s*(\+?[\d\s().-]{7,20})/i);
+  if (!m) return null;
+  const v = m[1].replace(/[^\d+]/g, '').trim();
+  return v.length >= 7 ? v : null;
+}
+
+function parseEmail(text: string): string | null {
+  const m = text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+  return m ? m[0].replace(/[.,;)]+$/, '') : null;
 }
 
 function parseProvider(text: string): string | null {
@@ -248,6 +284,12 @@ export interface PDFExtractResult {
   itbmsRate: number | null;
   clientName: string | null;
   clientRuc: string | null;
+  /** Perfil fiscal del EMISOR (proveedor), si el documento lo trae. */
+  providerDv: string | null;
+  providerPhone: string | null;
+  providerEmail: string | null;
+  providerAddress: string | null;
+  providerLocation: string | null;
   confidence: number;
   source: 'pdf-parse' | 'pdf-parse+llm';
 }
@@ -323,6 +365,11 @@ export async function extractFromText(
       itbmsRate: null,
       clientName: null,
       clientRuc: null,
+      providerDv: null,
+      providerPhone: null,
+      providerEmail: null,
+      providerAddress: null,
+      providerLocation: null,
       confidence: 0,
       source: 'pdf-parse',
     };
@@ -347,6 +394,11 @@ export async function extractFromText(
       itbmsRate: llmResult.itbmsRate ?? parseITBMS(rawText).rate,
       clientName: llmResult.clientName || null,
       clientRuc: llmResult.clientRuc || null,
+      providerDv: llmResult.providerDv || parseDv(rawText),
+      providerPhone: llmResult.providerPhone || parsePhone(rawText),
+      providerEmail: llmResult.providerEmail || parseEmail(rawText),
+      providerAddress: llmResult.providerAddress || null,
+      providerLocation: llmResult.providerLocation || null,
       confidence: 0.85,
       source: 'pdf-parse+llm',
     };
@@ -364,6 +416,11 @@ export async function extractFromText(
       itbmsRate,
       clientName: null,
       clientRuc: null,
+      providerDv: parseDv(rawText),
+      providerPhone: parsePhone(rawText),
+      providerEmail: parseEmail(rawText),
+      providerAddress: null,
+      providerLocation: null,
       confidence: rawText.length > 100 ? 0.6 : 0.3,
       source: 'pdf-parse',
     };

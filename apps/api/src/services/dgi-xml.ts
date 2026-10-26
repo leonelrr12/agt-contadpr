@@ -97,6 +97,39 @@ export function xmlATexto(xml: string): string {
   return lineas.join('\n');
 }
 
+/**
+ * Los datos del EMISOR (el proveedor que emite la factura). En el formato CAFE
+ * el primer `dRuc` es el del emisor y el `dDV` su dígito verificador; los tags
+ * de dirección/teléfono/email varían por proveedor y solo se toman si existen.
+ *
+ * No confundir con `receptorDeXml`: acá NUNCA se usa `dNombRec` ni el segundo
+ * `dRuc` (esos son del cliente/empresa que recibe).
+ */
+export interface EmisorXml {
+  nombre: string | null;
+  ruc: string | null;
+  dv: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  location: string | null;
+}
+
+export function emisorDeXml(xml: string): EmisorXml {
+  const primero = (test: RegExp) => valoresDe(xml, test)[0] || null;
+  const nombre = primero(/(nomb|razon|nombre).*(em\b|emisor|proveedor)|(emisor|proveedor).*(nomb|razon|nombre)/i);
+  // El primer RUC es el del emisor; el del receptor viene después. Se excluye
+  // `dTipoRuc` (que solo dice si es RUC/cédula) y se aceptan los nombres del
+  // esquema CAFE y los de otros proveedores.
+  const ruc = valoresDe(xml, /^(d?ruc|numRUC.*|ruc.*(em|emisor|proveedor))$/i)[0] || null;
+  const dv = primero(/^d?dv$/i);
+  const address = primero(/(direccion|dir).*(em\b|emisor|proveedor)|(emisor|proveedor).*(direccion|dir)/i);
+  const phone = primero(/(telefono|tel|celular|phone).*(em\b|emisor|proveedor)|(emisor|proveedor).*(telefono|tel|celular|phone)/i);
+  const email = primero(/(email|correo).*(em\b|emisor|proveedor)|(emisor|proveedor).*(email|correo)/i);
+  const location = primero(/(ubicacion|location).*(em\b|emisor|proveedor)|(emisor|proveedor).*(ubicacion|location)/i);
+  return { nombre, ruc, dv, address, phone, email, location };
+}
+
 /** Todos los valores de las etiquetas cuyo nombre dé en el patrón. */
 function valoresDe(xml: string, test: RegExp): string[] {
   const valores: string[] = [];

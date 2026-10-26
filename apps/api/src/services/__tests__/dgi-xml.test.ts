@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { xmlATexto, pareceXmlDeFactura, receptorDeXml, itemsDeXml } from '../dgi-xml';
+import { xmlATexto, pareceXmlDeFactura, receptorDeXml, itemsDeXml, emisorDeXml } from '../dgi-xml';
 import { extractFromText } from '../pdf-extractor';
 
 /**
@@ -167,6 +167,44 @@ describe('receptorDeXml', () => {
 
   it('sin datos del receptor no inventa nada', () => {
     expect(receptorDeXml('<f><dRuc>1555-1234-5678</dRuc><dNombEm>PROVEEDOR</dNombEm></f>')).toEqual({ nombre: null, ruc: null });
+  });
+});
+
+describe('emisorDeXml', () => {
+  it('saca nombre, RUC y DV del emisor (el primer dRuc y su dDV)', () => {
+    const e = emisorDeXml(XML_CAFE);
+    expect(e.nombre).toBe('RIBA SMITH S A');
+    expect(e.ruc).toBe('342-240-75526');
+    expect(e.dv).toBe('50');
+    // La fixture no trae dirección/teléfono/email del emisor.
+    expect(e.address).toBeNull();
+    expect(e.phone).toBeNull();
+    expect(e.email).toBeNull();
+  });
+
+  it('toma los tags del emisor cuando existen, sin confundirlos con el receptor', () => {
+    const xml = `<f>
+      <dNombEm>FERRETERÍA XYZ S A</dNombEm>
+      <dRuc>8-733-2267</dRuc>
+      <dDV>88</dDV>
+      <dDireccionEm>Calle 1, Ciudad</dDireccionEm>
+      <dTelefonoEm>+507 6000-0000</dTelefonoEm>
+      <dEmailEm>compras@xyz.com</dEmailEm>
+      <dNombRec>OTRO CLIENTE</dNombRec>
+      <dRuc>1555-1234-5678</dRuc>
+      <dDireccionRec>Otra dirección</dDireccionRec>
+    </f>`;
+    const e = emisorDeXml(xml);
+    expect(e).toMatchObject({
+      nombre: 'FERRETERÍA XYZ S A',
+      ruc: '8-733-2267',
+      dv: '88',
+      address: 'Calle 1, Ciudad',
+      phone: '+507 6000-0000',
+      email: 'compras@xyz.com',
+    });
+    expect(e.nombre).not.toContain('OTRO');
+    expect(e.address).not.toContain('Otra');
   });
 });
 

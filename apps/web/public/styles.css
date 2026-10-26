@@ -272,6 +272,7 @@ body.spa { height: 100vh; }
 #panel-informes-content:not(.hidden),
 #panel-revision-content:not(.hidden),
 #panel-auxiliares-content:not(.hidden),
+#panel-terceros-content:not(.hidden),
 #panel-recurring-content:not(.hidden),
 #panel-conciliacion-content:not(.hidden),
 #panel-import-content:not(.hidden),
@@ -318,6 +319,8 @@ body.spa { height: 100vh; }
 #config-content,
 #empresa-content,
 #aux-sidebar-content,
+#terceros-list,
+#terceros-import-content,
 #reembolsos-inline-list,
 #facturas-lista-content,
 #facturas-config-content {
@@ -1367,6 +1370,7 @@ body.spa { height: 100vh; }
   /* Paneles inline tipo Recurrente — margen lateral en desktop */
   #panel-informes-content,
   #panel-auxiliares-content,
+  #panel-terceros-content,
   #panel-revision-content { padding-left: 32px !important; padding-right: 32px !important; }
 }
 /* ── Estilos para reportes inline ──
@@ -1395,6 +1399,7 @@ body.spa { height: 100vh; }
   .entry-drawer { max-width: 100%; }
   #panel-recurring-content,
   #panel-conciliacion-content,
+  #panel-terceros-content,
   #panel-import-content,
   #panel-taxcalendar-content,
   #panel-salud-content,

@@ -53,12 +53,12 @@ clientsRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventar
   const { name, taxId, phone, email, address, dv, location, notes, tradeName, contactName, taxIdType } = req.body;
   if (!name) { res.status(400).json({ error: 'El nombre es requerido' }); return; }
 
-  const dvLimpio = dv === undefined ? undefined : (String(dv).trim() || null);
+  const dvLimpio = dv === undefined ? undefined : (dv == null ? null : (String(dv).trim() || null));
   if (dvLimpio && !/^\d{1,2}$/.test(dvLimpio)) {
     res.status(400).json({ error: 'El DV debe ser de 1 o 2 dígitos.' });
     return;
   }
-  const locationLimpia = location === undefined ? undefined : (String(location).trim() || null);
+  const locationLimpia = location === undefined ? undefined : (location == null ? null : (String(location).trim() || null));
   if (locationLimpia && !/^\d{1,2}-\d{1,2}-\d{1,2}$/.test(locationLimpia)) {
     res.status(400).json({ error: 'La ubicación debe tener el formato PP-DD-CC (ej. 8-8-8).' });
     return;
@@ -104,12 +104,12 @@ clientsRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), async 
   });
   if (!existing) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
 
-  const dvLimpio = dv === undefined ? undefined : (String(dv).trim() || null);
+  const dvLimpio = dv === undefined ? undefined : (dv == null ? null : (String(dv).trim() || null));
   if (dvLimpio && !/^\d{1,2}$/.test(dvLimpio)) {
     res.status(400).json({ error: 'El DV debe ser de 1 o 2 dígitos.' });
     return;
   }
-  const locationLimpia = location === undefined ? undefined : (String(location).trim() || null);
+  const locationLimpia = location === undefined ? undefined : (location == null ? null : (String(location).trim() || null));
   if (locationLimpia && !/^\d{1,2}-\d{1,2}-\d{1,2}$/.test(locationLimpia)) {
     res.status(400).json({ error: 'La ubicación debe tener el formato PP-DD-CC (ej. 8-8-8).' });
     return;
@@ -133,11 +133,52 @@ clientsRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), async 
   if (vigenciaRetencionDesde !== undefined) data.vigenciaRetencionDesde = vigenciaRetencionDesde ? new Date(String(vigenciaRetencionDesde) + 'T12:00:00') : null;
   if (vigenciaRetencionHasta !== undefined) data.vigenciaRetencionHasta = vigenciaRetencionHasta ? new Date(String(vigenciaRetencionHasta) + 'T12:00:00') : null;
 
-  const updated = await req.prisma.client.update({
-    where: { id: req.params.id },
-    data,
+  try {
+    const updated = await req.prisma.client.update({
+      where: { id: req.params.id },
+      data,
+    });
+    res.json(updated);
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      res.status(409).json({ error: 'Ya existe otro cliente con ese nombre o RUC.' });
+      return;
+    }
+    throw error;
+  }
+});
+
+// DELETE /api/clients/:id — borrar solo si no tiene historia contable.
+// Un cliente con facturas o retenciones no se borra: se rompería la trazabilidad
+// de CxC y del 430. El mensaje dice exactamente qué lo bloquea.
+clientsRouter.delete('/:id', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
+  const companyId = req.user!.companyId;
+  const client = await req.prisma.client.findFirst({
+    where: { id: req.params.id, companyId },
   });
-  res.json(updated);
+  if (!client) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
+
+  const [invoices, retenciones] = await Promise.all([
+    req.prisma.invoice.count({ where: { clientId: client.id, companyId } }),
+    req.prisma.retentionItbms.count({ where: { clientId: client.id, companyId } }),
+  ]);
+  if (invoices || retenciones) {
+    res.status(409).json({
+      error: `No se puede eliminar a "${client.name}": tiene ${invoices} factura(s) y ${retenciones} retención(es) asociadas. Anula o reasigna antes de borrarlo.`,
+    });
+    return;
+  }
+
+  try {
+    await req.prisma.client.delete({ where: { id: client.id } });
+    res.json({ ok: true });
+  } catch (error: any) {
+    if (error?.code === 'P2003') {
+      res.status(409).json({ error: 'No se puede eliminar: tiene movimientos asociados.' });
+      return;
+    }
+    throw error;
+  }
 });
 
 // GET /api/clients/:id/invoices — Facturas de un cliente (con saldo real)

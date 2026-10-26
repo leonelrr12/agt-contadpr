@@ -43,12 +43,12 @@ suppliersRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'invent
   const { name, taxId, phone, email, paymentTerms, notes, dv, address, location, tradeName, contactName, taxIdType } = req.body;
   if (!name) { res.status(400).json({ error: 'El nombre es requerido' }); return; }
 
-  const dvLimpio = dv === undefined ? undefined : (String(dv).trim() || null);
+  const dvLimpio = dv === undefined ? undefined : (dv == null ? null : (String(dv).trim() || null));
   if (dvLimpio && !/^\d{1,2}$/.test(dvLimpio)) {
     res.status(400).json({ error: 'El DV debe ser de 1 o 2 dígitos.' });
     return;
   }
-  const locationLimpia = location === undefined ? undefined : (String(location).trim() || null);
+  const locationLimpia = location === undefined ? undefined : (location == null ? null : (String(location).trim() || null));
   if (locationLimpia && !/^\d{1,2}-\d{1,2}-\d{1,2}$/.test(locationLimpia)) {
     res.status(400).json({ error: 'La ubicación debe tener el formato PP-DD-CC (ej. 8-8-8).' });
     return;
@@ -89,12 +89,12 @@ suppliersRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), asyn
   });
   if (!existing) { res.status(404).json({ error: 'Proveedor no encontrado' }); return; }
 
-  const dvLimpio = dv === undefined ? undefined : (String(dv).trim() || null);
+  const dvLimpio = dv === undefined ? undefined : (dv == null ? null : (String(dv).trim() || null));
   if (dvLimpio && !/^\d{1,2}$/.test(dvLimpio)) {
     res.status(400).json({ error: 'El DV debe ser de 1 o 2 dígitos.' });
     return;
   }
-  const locationLimpia = location === undefined ? undefined : (String(location).trim() || null);
+  const locationLimpia = location === undefined ? undefined : (location == null ? null : (String(location).trim() || null));
   if (locationLimpia && !/^\d{1,2}-\d{1,2}-\d{1,2}$/.test(locationLimpia)) {
     res.status(400).json({ error: 'La ubicación debe tener el formato PP-DD-CC (ej. 8-8-8).' });
     return;
@@ -109,11 +109,50 @@ suppliersRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), asyn
   data.fiscalSource = 'MANUAL';
   data.fiscalUpdatedAt = new Date();
 
-  const updated = await req.prisma.supplier.update({
-    where: { id: req.params.id },
-    data,
+  try {
+    const updated = await req.prisma.supplier.update({
+      where: { id: req.params.id },
+      data,
+    });
+    res.json(updated);
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      res.status(409).json({ error: 'Ya existe otro proveedor con ese nombre o RUC.' });
+      return;
+    }
+    throw error;
+  }
+});
+
+// DELETE /api/suppliers/:id — borrar solo si no tiene historia.
+suppliersRouter.delete('/:id', requireRole('admin', 'contador', 'superadmin'), async (req, res) => {
+  const companyId = req.user!.companyId;
+  const supplier = await req.prisma.supplier.findFirst({
+    where: { id: req.params.id, companyId },
   });
-  res.json(updated);
+  if (!supplier) { res.status(404).json({ error: 'Proveedor no encontrado' }); return; }
+
+  const [bills, workerAccounts] = await Promise.all([
+    req.prisma.bill.count({ where: { supplierId: supplier.id, companyId } }),
+    req.prisma.workerAccount.count({ where: { supplierId: supplier.id, companyId } }),
+  ]);
+  if (bills || workerAccounts) {
+    res.status(409).json({
+      error: `No se puede eliminar a "${supplier.name}": tiene ${bills} factura(s) y ${workerAccounts} cuenta(s) de trabajador asociadas.`,
+    });
+    return;
+  }
+
+  try {
+    await req.prisma.supplier.delete({ where: { id: supplier.id } });
+    res.json({ ok: true });
+  } catch (error: any) {
+    if (error?.code === 'P2003') {
+      res.status(409).json({ error: 'No se puede eliminar: tiene movimientos asociados.' });
+      return;
+    }
+    throw error;
+  }
 });
 
 // GET /api/suppliers/:id/bills — Facturas de un proveedor (con saldo real)

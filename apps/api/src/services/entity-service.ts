@@ -14,6 +14,39 @@ import { findOrCreateClient, findOrCreateSupplier, r2 } from './counterparty';
 const CXC_ACCOUNTS = ['1.1.03.01']; // Clientes (cuentas por cobrar)
 const CXP_ACCOUNTS = ['2.1.01'];    // Proveedores (cuentas por pagar)
 
+/** Campos fiscales que la extracción pudo dejar en `Transaction.metadata`. */
+function fiscalDeMetadata(metadata: Record<string, any>) {
+  return {
+    dv: metadata.dv || null,
+    phone: metadata.phone || null,
+    email: metadata.email || null,
+    address: metadata.address || null,
+    location: metadata.location || null,
+    tradeName: metadata.tradeName || null,
+    contactName: metadata.contactName || null,
+    taxIdType: metadata.taxIdType || null,
+    fiscalSource: metadata.fiscalSource || null,
+  };
+}
+
+/** Deja el id del tercero en la Transaction (metadata): traza para las compras
+ *  al contado, que no tienen Bill. No bloquea la sincronización si falla. */
+async function recordarTercero(
+  prisma: any,
+  txn: any,
+  metadata: Record<string, any>,
+  clave: 'clientId' | 'supplierId',
+  id: string,
+): Promise<void> {
+  if (!txn?.id || !id) return;
+  try {
+    await prisma.transaction.update({
+      where: { id: txn.id },
+      data: { metadata: JSON.stringify({ ...metadata, [clave]: id }) },
+    });
+  } catch { /* la metadata es una ayuda, no la fuente contable */ }
+}
+
 export interface SyncResult {
   type: string;
   name: string;
@@ -54,7 +87,7 @@ export async function syncEntityFromEntry(
   // Buscar metadata (provider, ruc, reference) en Transaction asociada
   const txn = await prisma.transaction.findFirst({
     where: { journalEntryId: entryId },
-    select: { metadata: true, type: true, amount: true, description: true },
+    select: { id: true, metadata: true, type: true, amount: true, description: true },
   });
 
   let metadata: Record<string, any> = {};
@@ -64,6 +97,7 @@ export async function syncEntityFromEntry(
 
   const provider = metadata.provider || null;
   const ruc = metadata.ruc || null;
+  const fiscal = fiscalDeMetadata(metadata);
 
   // ── Limpiar Invoice/Bill si ya no hay CxC/CxP ──
   if (!hasCxC) {
@@ -83,7 +117,19 @@ export async function syncEntityFromEntry(
     }
   }
 
-  if (!hasCxC && !hasCxP) return null;
+  // Sin CxC/CxP, el asiento puede ser una compra/gasto al contado: el maestro
+  // de proveedores se guarda igual (el Bill es solo para compras a crédito).
+  if (!hasCxC && !hasCxP) {
+    if (!provider) return null;
+    const tipo = String(txn?.type || '').toUpperCase();
+    const hasGasto = lines.some((l: any) => l.account?.code?.startsWith('5.') || l.account?.code?.startsWith('6.'));
+    const hasIngreso = lines.some((l: any) => l.account?.code?.startsWith('4.'));
+    const esCompraOGasto = ['GASTO', 'COMPRA'].includes(tipo) || (hasGasto && !hasIngreso);
+    if (!esCompraOGasto) return null;
+    const supplier = await findOrCreateSupplier(prisma, companyId, { name: provider, taxId: ruc, ...fiscal });
+    await recordarTercero(prisma, txn, metadata, 'supplierId', supplier.id);
+    return { type: 'proveedor_maestro', name: provider };
+  }
   if (!provider) return null; // sin nombre no podemos crear entidad
 
   // ── CxC: Cliente + Invoice ──
@@ -115,7 +161,8 @@ export async function syncEntityFromEntry(
       return { type: 'cliente_existente', name: provider };
     }
 
-    const client = await findOrCreateClient(prisma, companyId, { name: provider, taxId: ruc });
+    const client = await findOrCreateClient(prisma, companyId, { name: provider, taxId: ruc, ...fiscal });
+    await recordarTercero(prisma, txn, metadata, 'clientId', client.id);
 
     // Calcular montos desde las líneas
     const cxcLine = lines.find((l: any) => CXC_ACCOUNTS.includes(l.account?.code));
@@ -173,7 +220,8 @@ export async function syncEntityFromEntry(
       return { type: 'proveedor_existente', name: provider };
     }
 
-    const supplier = await findOrCreateSupplier(prisma, companyId, { name: provider, taxId: ruc });
+    const supplier = await findOrCreateSupplier(prisma, companyId, { name: provider, taxId: ruc, ...fiscal });
+    await recordarTercero(prisma, txn, metadata, 'supplierId', supplier.id);
 
     const cxpLine = lines.find((l: any) => CXP_ACCOUNTS.includes(l.account?.code));
     const total = cxpLine?.credit || cxpLine?.debit || (txn?.amount || 0);
