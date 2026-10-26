@@ -320,6 +320,7 @@ body.spa { height: 100vh; }
 #empresa-content,
 #aux-sidebar-content,
 #terceros-list,
+#terceros-import-content,
 #reembolsos-inline-list,
 #facturas-lista-content,
 #facturas-config-content {

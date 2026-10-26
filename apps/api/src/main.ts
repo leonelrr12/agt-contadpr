@@ -18,6 +18,7 @@ import { apiKeysRouter } from './routes/api-keys';
 import { billingRouter } from './routes/billing';
 import { clientsRouter } from './routes/clients';
 import { suppliersRouter } from './routes/suppliers';
+import { tercerosRouter } from './routes/terceros';
 import { importRouter } from './routes/import';
 import { planillaRouter } from './routes/planilla';
 import { honorariosRetiredRouter } from './routes/honorarios-retired';
@@ -204,6 +205,7 @@ app.use('/api/ocr', ocrRouter);
 app.use('/api/factura', facturaRouter);
 app.use('/api/clients', clientsRouter);
 app.use('/api/suppliers', suppliersRouter);
+app.use('/api/terceros', tercerosRouter);
 app.use('/api/import', importRouter);
 app.use('/api/planilla', planillaRouter);
 app.use('/api/honorarios', honorariosRetiredRouter);  // modo retirado → 410 con guía
