@@ -109,11 +109,19 @@ suppliersRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), asyn
   data.fiscalSource = 'MANUAL';
   data.fiscalUpdatedAt = new Date();
 
-  const updated = await req.prisma.supplier.update({
-    where: { id: req.params.id },
-    data,
-  });
-  res.json(updated);
+  try {
+    const updated = await req.prisma.supplier.update({
+      where: { id: req.params.id },
+      data,
+    });
+    res.json(updated);
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      res.status(409).json({ error: 'Ya existe otro proveedor con ese nombre o RUC.' });
+      return;
+    }
+    throw error;
+  }
 });
 
 // DELETE /api/suppliers/:id — borrar solo si no tiene historia.

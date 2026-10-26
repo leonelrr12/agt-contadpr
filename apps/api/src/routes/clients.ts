@@ -133,11 +133,19 @@ clientsRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), async 
   if (vigenciaRetencionDesde !== undefined) data.vigenciaRetencionDesde = vigenciaRetencionDesde ? new Date(String(vigenciaRetencionDesde) + 'T12:00:00') : null;
   if (vigenciaRetencionHasta !== undefined) data.vigenciaRetencionHasta = vigenciaRetencionHasta ? new Date(String(vigenciaRetencionHasta) + 'T12:00:00') : null;
 
-  const updated = await req.prisma.client.update({
-    where: { id: req.params.id },
-    data,
-  });
-  res.json(updated);
+  try {
+    const updated = await req.prisma.client.update({
+      where: { id: req.params.id },
+      data,
+    });
+    res.json(updated);
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      res.status(409).json({ error: 'Ya existe otro cliente con ese nombre o RUC.' });
+      return;
+    }
+    throw error;
+  }
 });
 
 // DELETE /api/clients/:id — borrar solo si no tiene historia contable.
