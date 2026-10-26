@@ -53,12 +53,12 @@ clientsRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventar
   const { name, taxId, phone, email, address, dv, location, notes, tradeName, contactName, taxIdType } = req.body;
   if (!name) { res.status(400).json({ error: 'El nombre es requerido' }); return; }
 
-  const dvLimpio = dv === undefined ? undefined : (String(dv).trim() || null);
+  const dvLimpio = dv === undefined ? undefined : (dv == null ? null : (String(dv).trim() || null));
   if (dvLimpio && !/^\d{1,2}$/.test(dvLimpio)) {
     res.status(400).json({ error: 'El DV debe ser de 1 o 2 dígitos.' });
     return;
   }
-  const locationLimpia = location === undefined ? undefined : (String(location).trim() || null);
+  const locationLimpia = location === undefined ? undefined : (location == null ? null : (String(location).trim() || null));
   if (locationLimpia && !/^\d{1,2}-\d{1,2}-\d{1,2}$/.test(locationLimpia)) {
     res.status(400).json({ error: 'La ubicación debe tener el formato PP-DD-CC (ej. 8-8-8).' });
     return;
@@ -104,12 +104,12 @@ clientsRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), async 
   });
   if (!existing) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
 
-  const dvLimpio = dv === undefined ? undefined : (String(dv).trim() || null);
+  const dvLimpio = dv === undefined ? undefined : (dv == null ? null : (String(dv).trim() || null));
   if (dvLimpio && !/^\d{1,2}$/.test(dvLimpio)) {
     res.status(400).json({ error: 'El DV debe ser de 1 o 2 dígitos.' });
     return;
   }
-  const locationLimpia = location === undefined ? undefined : (String(location).trim() || null);
+  const locationLimpia = location === undefined ? undefined : (location == null ? null : (String(location).trim() || null));
   if (locationLimpia && !/^\d{1,2}-\d{1,2}-\d{1,2}$/.test(locationLimpia)) {
     res.status(400).json({ error: 'La ubicación debe tener el formato PP-DD-CC (ej. 8-8-8).' });
     return;
