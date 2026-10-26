@@ -820,10 +820,13 @@ export class OrchestratorAgent {
     });
 
     // ── Auto-crear cliente o proveedor ──
-    // Solo se crea cuando el método de pago es CRÉDITO (genera cuenta por cobrar/pagar).
-    // Para pagos al contado (efectivo, tarjeta, transferencia) no se crea entidad.
+    // El PROVEEDOR se crea/actualiza en TODA compra o gasto, incluso al contado:
+    // es el maestro de terceros y no depende de que exista una cuenta por pagar.
+    // El cliente sigue creándose solo a crédito (VENTA/COBRO con CxC).
+    // El Bill (CxP) se crea únicamente cuando la compra es a CRÉDITO.
     let autoCreated: { type: string; name: string } | null = null;
-    if (dialog.provider && dialog.paymentMethod === 'CREDITO') {
+    const esCompraOGasto = ['GASTO', 'COMPRA', 'PAGO_PROVEEDOR'].includes(String(dialog.type));
+    if (dialog.provider && (esCompraOGasto || dialog.paymentMethod === 'CREDITO')) {
       autoCreated = await this.autoCreateEntity(dialog, entryData.id, result.selectedEntityId);
     }
 
@@ -1044,8 +1047,10 @@ export class OrchestratorAgent {
         if (isPayment) {
           // PAGO_PROVEEDOR: abonar a facturas pendientes (FIFO)
           await this.applyPaymentToBills(supplier.id, dialog.amount);
-        } else {
-          // COMPRA/GASTO: crear nueva factura por pagar
+        } else if (dialog.paymentMethod === 'CREDITO') {
+          // COMPRA/GASTO a crédito: nace la cuenta por pagar. Al contado NO se
+          // crea Bill: el proveedor ya quedó en el maestro y el asiento tocó
+          // banco/caja (o la tarjeta), no CxP.
           const itbms = dialog.itbmsAmount || (dialog.itbms ? Math.round(dialog.amount * 0.07 * 100) / 100 : 0);
           await this.prisma.bill.create({
             data: {

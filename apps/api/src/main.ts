@@ -64,7 +64,9 @@ const prisma: any = new PrismaClient().$extends({
               const partes = separarRucDv(taxIdPlain);
               if (partes.base) d.taxId = partes.base;
               if (partes.dv && d.dv == null) d.dv = partes.dv;
-              d.taxIdHash = hashRucBase(partes.base || taxIdPlain);
+              // Sin FIELD_ENC_KEY el hash es '' (modo local): se guarda null
+              // para no chocar con el unique de taxIdHash.
+              d.taxIdHash = hashRucBase(partes.base || taxIdPlain) || null;
             } else if (!taxIdPlain) {
               d.taxIdHash = null;
             }
