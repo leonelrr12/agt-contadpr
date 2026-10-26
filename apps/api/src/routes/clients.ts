@@ -194,7 +194,7 @@ clientsRouter.get('/report/aging', async (req, res) => {
 
   const now = new Date();
   const result = clients.map(c => {
-    let current = 0, d30 = 0, d60 = 0, d90 = 0, over90 = 0;
+    let current = 0, d30 = 0, d60 = 0, d90 = 0, d120 = 0, over120 = 0;
     for (const inv of c.invoices) {
       const saldo = invoiceSaldo(inv);
       if (saldo <= 0.01) continue; // pagadas (aunque status no lo diga) y parciales al 100%
@@ -203,12 +203,14 @@ clientsRouter.get('/report/aging', async (req, res) => {
       else if (daysOverdue <= 30) d30 += saldo;
       else if (daysOverdue <= 60) d60 += saldo;
       else if (daysOverdue <= 90) d90 += saldo;
-      else over90 += saldo;
+      else if (daysOverdue <= 120) d120 += saldo;
+      else over120 += saldo;
     }
     return {
       id: c.id, name: c.name, taxId: c.taxId,
-      current, d30, d60, d90, over90,
-      totalDue: current + d30 + d60 + d90 + over90,
+      current, d30, d60, d90, d120, over120,
+      over90: d120 + over120, // compat: los consumidores viejos ven el tramo >90 completo
+      totalDue: current + d30 + d60 + d90 + d120 + over120,
     };
   }).filter(r => r.totalDue > 0).sort((a, b) => b.totalDue - a.totalDue);
 

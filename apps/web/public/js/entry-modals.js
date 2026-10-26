@@ -753,6 +753,10 @@ async function showEntryDrawer(entryId, accountId) {
     entry.reviewNotes ? `📝 Notas de revisión: ${escapeHtml(entry.reviewNotes)}` : null,
   ].filter(Boolean);
 
+  // Clonar: mismo criterio que el botón "Asiento Manual" y 📋 Copiar de
+  // Revisión (admin/superadmin). Lleva a Revisión y abre el modal de copia.
+  const puedeClonar = ['admin', 'superadmin'].includes(getUser()?.role);
+
   body.innerHTML = `
     <div style="font-weight:700;font-size:15px;line-height:1.35">${escapeHtml(entry.description || 'Sin descripción')}</div>
     ${o ? `<div style="margin-top:8px">
@@ -784,6 +788,9 @@ async function showEntryDrawer(entryId, accountId) {
     </table>
 
     ${auditoria.length ? `<div style="margin-top:14px;padding-top:12px;border-top:1px solid #f0f0f0;font-size:11.5px;color:#6b7280;line-height:1.8">${auditoria.join('<br>')}</div>` : ''}
+    ${puedeClonar ? `<div style="margin-top:14px">
+      <button onclick="clonarAuxiliarAsiento(event, '${entry.id}')" title="Ir a Revisión y copiar este asiento como Asiento Manual (mismas cuentas, montos en cero)" style="width:100%;padding:8px 12px;font-size:12.5px;background:#475569;color:#fff;border:none;border-radius:6px;cursor:pointer">📋 Clonar asiento</button>
+    </div>` : ''}
     <div style="margin-top:12px;font-size:10.5px;color:#9ca3af">Asiento ${escapeHtml(entry.id.slice(0, 10))}…</div>
   `;
 

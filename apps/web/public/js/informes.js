@@ -495,53 +495,196 @@ function switchAuxTab(tab, btn) {
   else if (tab === 'cxp') loadAuxCxP(sub);
 }
 
-async function loadAuxCuenta(el) {
-  el.innerHTML = '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center"><select id="informes-aux-select" onchange="loadAuxiliarData()" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;min-width:280px"><option value="">Selecciona una cuenta...</option></select><input type="date" id="aux-from" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px"><input type="date" id="aux-to" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px"><button onclick="loadAuxiliarData()" style="padding:8px 14px;border:1px solid #1565c0;border-radius:6px;background:#1565c0;color:#fff;cursor:pointer;font-size:12px">🔍 Buscar</button></div><div id="informes-aux-data"><div style="text-align:center;padding:32px;color:#6b7280">Selecciona una cuenta</div></div>';
-  try { const res = await authFetch(`${API_URL}/accounts`); const accounts = await res.json(); const sel = document.getElementById('informes-aux-select'); const sorted = detailAccounts(accounts); if (sel) sorted.forEach(a => { sel.innerHTML += `<option value="${a.id}">${a.code} — ${a.name}</option>`; }); } catch(e) {}
+/* ── Estado del auxiliar de Cuenta ──
+ * El panel se repinta cada vez que se entra a Auxiliares o se cambia de
+ * pestaña (Cuenta/CxC/CxP/Anexos/Retenciones): sin esto, la cuenta, las
+ * fechas y el buscador se perdían al volver. Se guardan acá y se reinyectan. */
+let _auxFiltro = { cuentaId: '', from: '', to: '', q: '' };
+/** Último resultado de /journal/mayor/:id: el buscador filtra sobre esto,
+ *  sin volver a pedir datos a la API. */
+let _auxMayor = null;
+
+/** Guarda en memoria lo que hay escrito en los controles del auxiliar. */
+function auxFiltroCambio() {
+  _auxFiltro = {
+    cuentaId: document.getElementById('informes-aux-select')?.value || '',
+    from: document.getElementById('aux-from')?.value || '',
+    to: document.getElementById('aux-to')?.value || '',
+    q: document.getElementById('aux-search')?.value || '',
+  };
 }
+
+async function loadAuxCuenta(el) {
+  const f = _auxFiltro;
+  el.innerHTML = `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+    <select id="informes-aux-select" onchange="auxFiltroCambio(); loadAuxiliarData()" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;min-width:280px"><option value="">Selecciona una cuenta...</option></select>
+    <input type="date" id="aux-from" value="${escapeHtml(f.from)}" title="Desde" onchange="auxFiltroCambio()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px">
+    <input type="date" id="aux-to" value="${escapeHtml(f.to)}" title="Hasta" onchange="auxFiltroCambio()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px">
+    <button onclick="loadAuxiliarData()" style="padding:8px 14px;border:1px solid #1565c0;border-radius:6px;background:#1565c0;color:#fff;cursor:pointer;font-size:12px">🔍 Buscar</button></div>
+    <div id="aux-result-head" class="hidden" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+      <div id="aux-account-name" style="font-weight:600"></div>
+      <input type="search" id="aux-search" value="${escapeHtml(f.q)}" placeholder="🔍 Buscar texto o número..." oninput="auxFiltroCambio(); renderAuxiliarTable()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;flex:0 1 260px;min-width:200px">
+    </div>
+    <div id="informes-aux-data"><div style="text-align:center;padding:32px;color:#6b7280">Selecciona una cuenta</div></div>`;
+  try {
+    const res = await authFetch(`${API_URL}/accounts`);
+    const accounts = await res.json();
+    const sel = document.getElementById('informes-aux-select');
+    if (!sel) return;
+    const sorted = detailAccounts(accounts);
+    sorted.forEach(a => { sel.innerHTML += `<option value="${a.id}">${a.code} — ${a.name}</option>`; });
+    // Si había una cuenta elegida se conserva y se vuelve a consultar el mayor
+    // con las mismas fechas (y el mismo buscador, que filtra en pantalla).
+    if (_auxFiltro.cuentaId && sorted.some(a => a.id === _auxFiltro.cuentaId)) {
+      sel.value = _auxFiltro.cuentaId;
+      loadAuxiliarData();
+    }
+  } catch(e) {}
+}
+
+/** La fila nombre + buscador solo aparece cuando hay movimientos cargados:
+ *  así el buscador no compite por espacio con el botón 🔍 Buscar. */
+function setAuxResultHead(visible, account) {
+  const head = document.getElementById('aux-result-head');
+  if (!head) return;
+  if (!visible) { head.classList.add('hidden'); return; }
+  const name = document.getElementById('aux-account-name');
+  if (name) name.textContent = `${account?.code || ''} — ${account?.name || ''}`;
+  head.classList.remove('hidden');
+}
+
 async function loadAuxiliarData() {
-  const id = document.getElementById('informes-aux-select')?.value;
+  auxFiltroCambio();
+  const id = _auxFiltro.cuentaId;
   if (!id) return;
-  const from = document.getElementById('aux-from')?.value || '';
-  const to = document.getElementById('aux-to')?.value || '';
   const params = new URLSearchParams();
-  if (from) params.set('startDate', from);
-  if (to) params.set('endDate', to);
+  if (_auxFiltro.from) params.set('startDate', _auxFiltro.from);
+  if (_auxFiltro.to) params.set('endDate', _auxFiltro.to);
   const el = document.getElementById('informes-aux-data');
+  if (!el) return;
   el.innerHTML = 'Cargando...';
+  _auxMayor = null;
+  setAuxResultHead(false);
   try {
     const res = await authFetch(`${API_URL}/journal/mayor/${id}?${params}`);
     const d = await res.json();
-    if (!d.detail || !d.detail.length) { el.innerHTML = '<div style="text-align:center;padding:24px;color:#6b7280">Sin movimientos</div>'; return; }
-    const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-    // Cada línea es clickeable: abre el asiento ORIGINAL completo (drawer).
-    // `e.id` es el asiento, no la línea — así se ve también la contrapartida.
-    el.innerHTML = `<div style="margin-bottom:6px;font-weight:600">${d.account.code} — ${d.account.name}</div>` +
-      '<div style="font-size:11.5px;color:#6b7280;margin-bottom:8px">🔍 Click en un movimiento para ver el asiento original que lo generó</div>' +
-      buildInformesTable(['Fecha','Detalle','Débito','Crédito','Saldo',''],
-        d.detail.map(e => ({
-          rowAttrs: `class="aux-row" data-entry-id="${e.id}" style="cursor:pointer" title="Ver el asiento original" onclick="showEntryDrawer('${e.id}', '${id}')"`,
-          cells: [
-            new Date(e.date).toLocaleDateString('es-PA'),
-            escapeHtml(e.description||''),
-            `<span style="color:#2e7d32">${fmt(e.debit||0)}</span>`,
-            `<span style="color:#c62828">${fmt(e.credit||0)}</span>`,
-            `<strong>${fmt(e.balance||0)}</strong>`,
-            '<span style="color:#1565c0">🔍</span>',
-          ],
-        })));
-  } catch(e) { el.innerHTML = '<div class="empty">Error</div>'; }
+    _auxMayor = {
+      account: d.account,
+      detail: Array.isArray(d.detail) ? d.detail : [],
+      totals: d.totals || null,
+    };
+    renderAuxiliarTable();
+  } catch(e) {
+    const actual = document.getElementById('informes-aux-data');
+    if (actual) actual.innerHTML = '<div class="empty">Error</div>';
+  }
 }
+
+/** ¿La línea casa con TODAS las palabras del buscador? Busca en el detalle,
+ *  la fecha y los montos (con y sin separador de miles): "150" encuentra
+ *  $1,150.00 y "agosto" encuentra el detalle del movimiento. */
+function auxLineMatches(e, terms) {
+  const num = n => (Number(n) || 0).toFixed(2);
+  const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fecha = e.date ? new Date(e.date).toLocaleDateString('es-PA') : '';
+  const hay = normalizeSearch([
+    e.description,
+    fecha,
+    String(e.date || '').slice(0, 10),
+    num(e.debit), num(e.credit), num(e.balance),
+    money(e.debit), money(e.credit), money(e.balance),
+  ].join(' '));
+  return terms.every(t => hay.includes(t));
+}
+
+/** Pinta el mayor ya cargado aplicando el buscador en pantalla y el pie con
+ *  los totales de débito y crédito de lo que se está mostrando. */
+function renderAuxiliarTable() {
+  const el = document.getElementById('informes-aux-data');
+  if (!el || !_auxMayor) return;
+  const raw = document.getElementById('aux-search')?.value ?? _auxFiltro.q;
+  const terms = normalizeSearch(raw).trim().split(/\s+/).filter(Boolean);
+  const all = _auxMayor.detail;
+  const shown = terms.length ? all.filter(e => auxLineMatches(e, terms)) : all;
+  // Sin movimientos no hay fila de nombre ni buscador; con resultados (aunque
+  // el filtro no deje ninguno) se mantiene visible para poder limpiarlo.
+  setAuxResultHead(all.length > 0, _auxMayor.account);
+
+  if (!all.length) { el.innerHTML = '<div style="text-align:center;padding:24px;color:#6b7280">Sin movimientos</div>'; return; }
+  if (!shown.length) {
+    el.innerHTML = `<div style="text-align:center;padding:24px;color:#6b7280">🔍 Sin coincidencias para «${escapeHtml(raw)}»</div>`;
+    return;
+  }
+
+  const fmtMoney = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt = n => (Number(n) || 0) === 0 ? '—' : fmtMoney(n);
+  const totDeb = shown.reduce((s, e) => s + (Number(e.debit) || 0), 0);
+  const totCred = shown.reduce((s, e) => s + (Number(e.credit) || 0), 0);
+  // Cada línea es clickeable: abre el asiento ORIGINAL completo (drawer), que
+  // es donde vive 📋 Clonar. `e.id` es el asiento, no la línea — así se ve
+  // también la contrapartida.
+  el.innerHTML = '<div style="font-size:11.5px;color:#6b7280;margin-bottom:8px">🔍 Click en un movimiento para ver el asiento original que lo generó</div>' +
+    (terms.length ? `<div style="font-size:11.5px;color:#6b7280;margin-bottom:6px">Mostrando ${shown.length} de ${all.length} movimiento(s)</div>` : '') +
+    buildInformesTable(['Fecha','Detalle','Débito','Crédito','Saldo',''],
+      shown.map(e => ({
+        rowAttrs: `class="aux-row" data-entry-id="${e.id}" style="cursor:pointer" title="Ver el asiento original" onclick="showEntryDrawer('${e.id}', '${_auxFiltro.cuentaId}')"`,
+        cells: [
+          new Date(e.date).toLocaleDateString('es-PA'),
+          escapeHtml(e.description||''),
+          `<span style="color:#2e7d32">${fmt(e.debit)}</span>`,
+          `<span style="color:#c62828">${fmt(e.credit)}</span>`,
+          `<strong>${fmt(e.balance)}</strong>`,
+          '<span style="color:#1565c0">🔍</span>',
+        ],
+      })),
+      ['', `<span style="font-size:12px">Total (${shown.length} movimiento(s))</span>`,
+       `<span style="color:#2e7d32">${fmtMoney(totDeb)}</span>`,
+       `<span style="color:#c62828">${fmtMoney(totCred)}</span>`,
+       terms.length ? '' : `<strong>${fmtMoney(_auxMayor.totals?.finalBalance ?? shown[shown.length - 1].balance)}</strong>`,
+       '']);
+}
+/**
+ * Resumen de antigüedad para CxC/CxP.
+ * El backend devuelve los tramos finos: current (aún no vence), d30 (1-30),
+ * d60 (31-60), d90 (61-90), d120 (91-120) y over120 (121+).
+ * La UI los agrupa como los lee el contador: Corriente = 0-30 (current + d30),
+ * «30 días» = 31-60, «60 días» = 61-90, «90 días» = 91-120 y «120+» = 121+.
+ */
+function buildAgingResumen(aging) {
+  const t = (Array.isArray(aging) ? aging : []).reduce((a, r) => {
+    // Compat: una API vieja (sin el corte 91-120/121+) manda todo en over90.
+    const over120 = r.over120 != null ? r.over120 : (r.over90 || 0);
+    return {
+      corriente: a.corriente + (r.current || 0) + (r.d30 || 0),
+      b30: a.b30 + (r.d60 || 0),
+      b60: a.b60 + (r.d90 || 0),
+      b90: a.b90 + (r.d120 || 0),
+      b120: a.b120 + over120,
+    };
+  }, { corriente: 0, b30: 0, b60: 0, b90: 0, b120: 0 });
+  const fmt = n => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const tiles = [
+    ['Total', t.corriente + t.b30 + t.b60 + t.b90 + t.b120, '#1a1a2e'],
+    ['Corriente', t.corriente, '#059669'],
+    ['30 días', t.b30, '#d97706'],
+    ['60 días', t.b60, '#ea580c'],
+    ['90 días', t.b90, '#dc2626'],
+    ['120+ días', t.b120, '#991b1b'],
+  ];
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">'
+    + tiles.map(([label, value, color]) =>
+      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">${label}</div><div style="font-size:18px;font-weight:700;color:${color}">${fmt(value)}</div></div>`).join('')
+    + '</div>';
+}
+
 async function loadAuxCxC(el) {
   try {
-    const [rc, rs] = await Promise.all([authFetch(`${API_URL}/clients`), authFetch(`${API_URL}/clients/report/summary`)]);
-    if (!rc || !rs) { el.innerHTML = '<div class="empty">Error</div>'; return; }
-    const clients = await rc.json(), sum = await rs.json();
-    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">'+
-      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Clientes</div><div style="font-size:20px;font-weight:700">${sum.totalClients}</div></div>`+
-      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Por Cobrar</div><div style="font-size:20px;font-weight:700;color:#f59e0b">$${sum.totalDue.toLocaleString()}</div></div>`+
-      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Vencidas</div><div style="font-size:20px;font-weight:700;color:#ef4444">${sum.overdueInvoices}</div></div>`+
-    '</div>';
+    // El resumen sale del aging (los mismos tramos que el reporte de antigüedad);
+    // `/clients` sigue siendo la fuente de la tabla.
+    const [rc, ra] = await Promise.all([authFetch(`${API_URL}/clients`), authFetch(`${API_URL}/clients/report/aging`)]);
+    if (!rc || !ra || !rc.ok || !ra.ok) { el.innerHTML = '<div class="empty">Error</div>'; return; }
+    const clients = await rc.json(), aging = await ra.json();
+    let html = buildAgingResumen(aging);
     html += clients.filter(c => c.totalDue > 0).length
       ? buildInformesTable(['Cliente','RUC','Pendiente','Facturas',''], clients.filter(c => c.totalDue > 0).map(c => ({
           detalleId: c.id,
@@ -554,14 +697,11 @@ async function loadAuxCxC(el) {
 }
 async function loadAuxCxP(el) {
   try {
-    const [rc, rs] = await Promise.all([authFetch(`${API_URL}/suppliers`), authFetch(`${API_URL}/suppliers/report/summary`)]);
-    if (!rc || !rs) { el.innerHTML = '<div class="empty">Error</div>'; return; }
-    const supps = await rc.json(), sum = await rs.json();
-    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">'+
-      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Proveedores</div><div style="font-size:20px;font-weight:700">${sum.totalSuppliers}</div></div>`+
-      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Por Pagar</div><div style="font-size:20px;font-weight:700;color:#f59e0b">$${sum.totalOwed.toLocaleString()}</div></div>`+
-      `<div style="background:#fff;border-radius:8px;padding:14px"><div style="font-size:11px;color:#6b7280">Vencidas</div><div style="font-size:20px;font-weight:700;color:#ef4444">${sum.overdueBills}</div></div>`+
-    '</div>';
+    // Mismo resumen que CxC, con los tramos de `/suppliers/report/aging`.
+    const [rc, ra] = await Promise.all([authFetch(`${API_URL}/suppliers`), authFetch(`${API_URL}/suppliers/report/aging`)]);
+    if (!rc || !ra || !rc.ok || !ra.ok) { el.innerHTML = '<div class="empty">Error</div>'; return; }
+    const supps = await rc.json(), aging = await ra.json();
+    let html = buildAgingResumen(aging);
     html += supps.filter(s => s.totalOwed > 0).length
       ? buildInformesTable(['Proveedor','RUC','Pendiente','Facturas',''], supps.filter(s => s.totalOwed > 0).map(s => ({
           detalleId: s.id,

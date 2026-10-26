@@ -34,10 +34,10 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
 
     if (view === 'panel-recurring') { hideAllPanels(); loadPanelRecurring(); return; }
     if (view === 'panel-import') { hideAllPanels(); loadPanelImport(); return; }
-    // Conciliación vive en su propia página: el menú lleva directo ahí. El panel
-    // interno pedía cuenta y archivo, y al terminar abría la página que vuelve a
-    // pedir lo mismo — dos entradas para lo mismo, y la de acá sin el detalle.
-    if (view === 'panel-conciliacion') { window.location.href = '/conciliacion.html'; return; }
+    // Conciliación es un panel más del SPA (conciliacion.js): subir, vincular y
+    // crear asientos sin salir del frame. /conciliacion.html sigue existiendo como
+    // shell para los enlaces viejos, montando el mismo panel.
+    if (view === 'panel-conciliacion') { hideAllPanels(); document.getElementById('panel-conciliacion-content').classList.remove('hidden'); loadPanelConciliacion(); return; }
     if (view === 'panel-taxcalendar') { hideAllPanels(); loadPanelTaxCalendar(); return; }
     if (view === 'panel-salud') { hideAllPanels(); loadPanelSalud(); return; }
     if (view === 'panel-auxiliares') { hideAllPanels(); loadPanelAuxiliares(); return; }

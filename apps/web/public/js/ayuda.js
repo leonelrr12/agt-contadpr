@@ -7,8 +7,9 @@
 // Dos formas de engancharlo:
 //   · SPA (`index.html`): los paneles del mapa `AYUDA_POR_PANEL` reciben el botón solos,
 //     en la esquina de arriba a la derecha.
-//   · Páginas sueltas (`conciliacion.html`, `inventario.html`, `planilla.html`): llaman
-//     a `ayudaEnCabecera('#selector', 'tema')` y el botón va al lado del título.
+//   · Páginas sueltas (`inventario.html`, `planilla.html`) y la conciliación —panel
+//     del SPA y página suelta, las dos desde `js/conciliacion.js`—: llaman a
+//     `ayudaEnCabecera('#selector', 'tema')` y el botón va al lado del título.
 //
 // Sin dependencias y sin estado: el diálogo se arma al vuelo y se cierra solo.
 

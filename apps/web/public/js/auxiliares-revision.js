@@ -212,6 +212,23 @@ async function reviewCopy(id) {
   } catch (e) { await showAlert('Error de conexión'); }
 }
 
+/**
+ * Clona un asiento desde el visor del asiento original (drawer del auxiliar):
+ * cierra el visor, lleva al usuario a Revisión (donde vive el Asiento Manual y
+ * el flujo de clonado) y abre el mismo modal 📋 Copiar de las tarjetas
+ * pendientes —cuentas del original, fecha de hoy y montos en cero—. No se crea
+ * nada hasta guardar en el modal.
+ */
+function clonarAuxiliarAsiento(ev, entryId) {
+  // El botón vive dentro del drawer; que el click no cierre/abra otra cosa.
+  if (ev) ev.stopPropagation();
+  if (typeof closeEntryDrawer === 'function') closeEntryDrawer();
+  const nav = document.querySelector('#sidebar-nav .nav-link[data-view="panel-revision"]');
+  if (!nav) return;
+  nav.click();
+  reviewCopy(entryId);
+}
+
 async function reviewReject(id) {
   // Mostrar modal para pedir motivo del rechazo
   const overlay = document.createElement('div'); overlay.className = 'app-dialog-overlay';
