@@ -72,6 +72,13 @@ export interface ResumenImport {
 const norm = (s: unknown) =>
   String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
+/** Palabras significativas del nombre, para detectar posibles duplicados. */
+function tokensNombre(nombre: string): string[] {
+  return normalizarNombreTercero(nombre)
+    .split(' ')
+    .filter((t) => t.length >= 2 && !['de', 'del', 'la', 'el', 'los', 'las', 'y', 's'].includes(t));
+}
+
 const ALIAS = {
   tipo: ['tipo', 'clasificacion', 'clase'],
   razon: ['razon social', 'razon'],
@@ -203,17 +210,28 @@ export async function parseTercerosFile(buffer: Buffer, fileName: string): Promi
   });
 }
 
-/** Índice de los registros existentes por RUC base y por nombre normalizado. */
+/** Índice de los registros existentes por RUC base, nombre y alias comercial. */
 function indexar(rows: any[]) {
   const porRuc = new Map<string, any>();
   const porNombre = new Map<string, any>();
+  const porAlias = new Map<string, any>();
+  const aliasTokens: { row: any; nombre: string; tokens: string[] }[] = [];
   for (const r of rows) {
     const base = normalizarRucBase(r.taxId);
     if (base) porRuc.set(base, r);
     const n = normalizarNombreTercero(r.name);
-    if (n) porNombre.set(n, r);
+    if (n) {
+      porNombre.set(n, r);
+      if (!porAlias.has(n)) porAlias.set(n, r);
+      aliasTokens.push({ row: r, nombre: r.name, tokens: tokensNombre(r.name) });
+    }
+    const t = normalizarNombreTercero(r.tradeName);
+    if (t && t !== n) {
+      if (!porAlias.has(t)) porAlias.set(t, r);
+      aliasTokens.push({ row: r, nombre: r.tradeName, tokens: tokensNombre(r.tradeName) });
+    }
   }
-  return { porRuc, porNombre };
+  return { porRuc, porNombre, porAlias, aliasTokens };
 }
 
 const CAMPOS: { key: keyof FilaTercero; label: string; field: string }[] = [
@@ -292,22 +310,48 @@ export function planificarTerceros(
     const idx = indices[tipo];
     const byRuc = baseKey ? idx.porRuc.get(baseKey) : null;
     const byName = nombreKey ? idx.porNombre.get(nombreKey) : null;
+    const aliasKeys = [f.name, f.tradeName].filter(Boolean).map((n) => normalizarNombreTercero(n)).filter(Boolean);
+    const byAlias = aliasKeys.map((a) => idx.porAlias.get(a)).find(Boolean) || null;
 
-    if (byRuc && byName && byRuc.id !== byName.id) {
+    if (byRuc && byAlias && byRuc.id !== byAlias.id) {
       item.estado = 'conflicto';
-      item.detalle = 'El RUC y el nombre pertenecen a dos terceros distintos en la BD.';
+      item.detalle = 'El RUC y el nombre comercial pertenecen a dos terceros distintos en la BD.';
       plan.push(item);
       continue;
     }
-    if (!byRuc && byName && byName.taxId && baseKey && normalizarRucBase(byName.taxId) !== baseKey) {
+    if (byName && byAlias && byName.id !== byAlias.id) {
+      item.estado = 'conflicto';
+      item.detalle = 'El nombre y el nombre comercial apuntan a dos terceros distintos en la BD.';
+      plan.push(item);
+      continue;
+    }
+
+    const existing = byRuc || byAlias || byName;
+    if (existing && existing.taxId && baseKey && normalizarRucBase(existing.taxId) !== baseKey) {
       item.estado = 'conflicto';
       item.detalle = 'Ya existe un tercero con ese nombre y OTRO RUC. Corrige el archivo o edítalo en Terceros.';
       plan.push(item);
       continue;
     }
 
-    const existing = byRuc || byName;
     if (!existing) {
+      // Última red: un nombre con las mismas palabras (una contiene a la otra)
+      // puede ser el mismo tercero escrito distinto ("Alejandro Acevedo" vs
+      // "Alejandro Rodríguez Acevedo"). No se crea: se avisa para revisar.
+      const rowTokens = tokensNombre(f.name || '');
+      const subset = (a: string[], b: string[]) => a.length >= 2 && a.every((t) => b.includes(t));
+      const posible = idx.aliasTokens.find((e) =>
+        e.tokens.length >= 2 && rowTokens.length >= 2
+        && e.tokens.length !== rowTokens.length
+        && (subset(e.tokens, rowTokens) || subset(rowTokens, e.tokens)),
+      );
+      if (posible) {
+        item.estado = 'conflicto';
+        item.detalle = `Posible duplicado de «${posible.nombre}» (nombre parecido). Revisa Terceros o ajusta el archivo.`;
+        plan.push(item);
+        continue;
+      }
+
       item.estado = 'nuevo';
       item.detalle = 'Se creará.';
       item.data = {

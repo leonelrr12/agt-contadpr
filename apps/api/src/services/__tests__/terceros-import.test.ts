@@ -78,6 +78,20 @@ describe('parseTercerosFile', () => {
     expect(rows.every((r) => !r.error)).toBe(true);
     expect(rows[0]).toMatchObject({ name: 'CABLES & WIRELESS', tradeName: '+Movil Panama', dv: '96' });
   });
+
+  it('acepta el formato exacto del dueño, sin UBICACION ni PLAZO', async () => {
+    const header = 'TIPO,RUC,DV,NOMBRE,RAZON SOCIAL,TIPO INDENTIFICACION,TELEFONO,EMAIL,DIRECCION,NOTAS';
+    const rows = await parseTercerosFile(Buffer.from([
+      header,
+      'Proveedor,46004-187-302083,96,+Movil Panama,CABLES & WIRILESS,RUC,,,,',
+      'Proveedor,8-786-1842,89,ALEJANDRO RODRIGUEZ ACEVEDO,,CEDULA,,,,',
+    ].join('\n'), 'utf8'), 'terceros.csv');
+
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => !r.error)).toBe(true);
+    expect(rows[0]).toMatchObject({ name: 'CABLES & WIRILESS', tradeName: '+Movil Panama', dv: '96' });
+    expect(rows[1]).toMatchObject({ name: 'ALEJANDRO RODRIGUEZ ACEVEDO', tradeName: null, dv: '89' });
+  });
 });
 
 const existenteCliente = {
@@ -144,6 +158,35 @@ describe('planificarTerceros', () => {
     ], { client: [existenteCliente], supplier: [] }, 'completar');
     expect(r.filas[0].estado).toBe('sin_cambios');
     expect(r.filas[1].estado).toBe('nuevo');
+  });
+
+  it('encuentra un proveedor histórico por nombre comercial y le completa el RUC', () => {
+    const proveedor = {
+      id: 's2', name: '+Movil Panama', taxId: null, dv: null, tradeName: null,
+      contactName: null, taxIdType: null, phone: null, email: null, address: null,
+      location: null, notes: null, paymentTerms: '30',
+    };
+    const r = planificarTerceros([
+      fila({
+        tipo: 'Proveedor', name: 'CABLES & WIRILESS', tradeName: '+Movil Panama',
+        taxId: '46004-187-302083', dv: '96',
+      }),
+    ], { client: [], supplier: [proveedor] }, 'completar');
+    expect(r.filas[0].estado).toBe('actualiza');
+    expect(r.filas[0].data).toMatchObject({ taxId: '46004-187-302083', dv: '96' });
+  });
+
+  it('avisa posible duplicado por nombre parcial en vez de crear otro', () => {
+    const persona = {
+      id: 'c2', name: 'Alejandro Acevedo', taxId: null, dv: null, tradeName: null,
+      contactName: null, taxIdType: null, phone: null, email: null, address: null,
+      location: null, notes: null,
+    };
+    const r = planificarTerceros([
+      fila({ name: 'Alejandro Rodriguez Acevedo', taxId: '8-786-1842', dv: '89', taxIdType: 'CEDULA' }),
+    ], { client: [persona], supplier: [] }, 'completar');
+    expect(r.filas[0].estado).toBe('conflicto');
+    expect(r.filas[0].detalle).toContain('Posible duplicado');
   });
 });
 
