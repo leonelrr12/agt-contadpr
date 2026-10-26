@@ -369,7 +369,23 @@ export function planificarTerceros(
     const data: Record<string, any> = {};
     const cambios: string[] = [];
 
-    // El nombre solo se toca en modo actualizar (completar jamás renombra).
+    // El registro pudo nacer con el nombre comercial (p. ej. «+Movil Panama»)
+    // y el archivo trae la razón social. En modo completar se promueve la
+    // razón social a `name` y el comercial se conserva en `tradeName`; no se
+    // pierde ninguno de los dos.
+    const existingNorm = normalizarNombreTercero(existing.name);
+    const rowTradeNorm = normalizarNombreTercero(f.tradeName);
+    if (
+      modo === 'completar'
+      && rowTradeNorm && rowTradeNorm === existingNorm
+      && normalizarNombreTercero(f.name) !== existingNorm
+      && !existing.tradeName
+    ) {
+      data.name = f.name;
+      data.tradeName = existing.name;
+      cambios.push('Nombre (razón social)');
+    }
+    // El nombre solo se toca además en modo actualizar (completar jamás renombra).
     if (modo === 'actualizar' && f.name && f.name !== existing.name) {
       data.name = f.name;
       cambios.push('Nombre');

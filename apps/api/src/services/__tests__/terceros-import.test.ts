@@ -173,7 +173,12 @@ describe('planificarTerceros', () => {
       }),
     ], { client: [], supplier: [proveedor] }, 'completar');
     expect(r.filas[0].estado).toBe('actualiza');
-    expect(r.filas[0].data).toMatchObject({ taxId: '46004-187-302083', dv: '96' });
+    expect(r.filas[0].data).toMatchObject({
+      name: 'CABLES & WIRILESS',
+      tradeName: '+Movil Panama',
+      taxId: '46004-187-302083',
+      dv: '96',
+    });
   });
 
   it('avisa posible duplicado por nombre parcial en vez de crear otro', () => {
