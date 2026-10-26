@@ -12,6 +12,7 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
        'panel-conciliacion-content','panel-taxcalendar-content','panel-salud-content','panel-whatsapp-content',
        'panel-reembolsos-content','panel-despacho-content',
        'panel-auxiliares-content','panel-revision-content',
+       'panel-terceros-content',
        'panel-informes-content','panel-admin-content','panel-facturas-content'].forEach(id => {
         const el = document.getElementById(id); if (el) el.classList.add('hidden');
       });
@@ -41,6 +42,7 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
     if (view === 'panel-taxcalendar') { hideAllPanels(); loadPanelTaxCalendar(); return; }
     if (view === 'panel-salud') { hideAllPanels(); loadPanelSalud(); return; }
     if (view === 'panel-auxiliares') { hideAllPanels(); loadPanelAuxiliares(); return; }
+    if (view === 'panel-terceros') { hideAllPanels(); loadPanelTerceros(); return; }
     if (view === 'panel-revision') { hideAllPanels(); loadPanelRevision(); return; }
     if (view === 'panel-informes') { hideAllPanels(); loadPanelInformes(); return; }
     if (view === 'panel-facturas') { hideAllPanels(); loadPanelFacturas(); return; }
