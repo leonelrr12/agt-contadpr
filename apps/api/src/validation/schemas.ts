@@ -251,6 +251,15 @@ export const createFacturaSchema = z.object({
   clientId: z.string().optional(),
   clientName: z.string().min(1).optional(),
   clientTaxId: z.string().optional(),
+  // Perfil fiscal del cliente nuevo: el PAC lo exige para contribuyentes.
+  clientDv: z.string().optional(),
+  clientPhone: z.string().optional(),
+  clientEmail: z.string().optional(),
+  clientAddress: z.string().optional(),
+  clientLocation: z.string().optional(),
+  clientTradeName: z.string().optional(),
+  clientContactName: z.string().optional(),
+  clientTaxIdType: z.string().optional(),
   items: z.array(z.object({
     descripcion: z.string().min(1, 'Descripción requerida'),
     cantidad: z.number().int().min(1).default(1),

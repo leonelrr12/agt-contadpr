@@ -490,6 +490,14 @@ model Client {
   /// Ubicación DGI `PP-DD-CC` del receptor. Obligatoria para facturar
   /// electrónicamente a contribuyentes y gobierno.
   location                String?
+  /// Perfil fiscal ampliado: nombre comercial y persona de contacto.
+  tradeName               String?
+  contactName             String?
+  /// RUC | CEDULA | PASAPORTE (null = sin clasificar).
+  taxIdType               String?
+  /// De dónde salió el perfil fiscal: MANUAL | XML | PDF | OCR | IMPORT | CHAT.
+  fiscalSource            String?
+  fiscalUpdatedAt         DateTime?
   notes                   String?
   // Perfil de agente de retención ITBMS (retención SUFRIDA: el cliente retiene al pagarnos).
   // Vigencia evaluada contra la fecha de la factura (las listas DGI cambian por resolución).
@@ -516,8 +524,21 @@ model Supplier {
   name          String
   taxId         String?
   taxIdHash     String?    // HMAC determinista — dedupe de RUC sin filtrar el valor
+  /// DV del RUC cuando el RUC guardado no lo trae pegado (mismo criterio que Client).
+  dv            String?
   phone         String?
   email         String?
+  address       String?
+  /// Ubicación DGI `PP-DD-CC` (si el proveedor la informa).
+  location      String?
+  /// Perfil fiscal ampliado: nombre comercial y persona de contacto.
+  tradeName     String?
+  contactName   String?
+  /// RUC | CEDULA | PASAPORTE (null = sin clasificar).
+  taxIdType     String?
+  /// De dónde salió el perfil fiscal: MANUAL | XML | PDF | OCR | IMPORT | CHAT.
+  fiscalSource  String?
+  fiscalUpdatedAt DateTime?
   paymentTerms  String?   @default("30") // días de crédito por defecto
   notes         String?
   createdAt     DateTime  @default(now())

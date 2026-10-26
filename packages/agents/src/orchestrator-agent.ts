@@ -1,17 +1,16 @@
-import crypto from 'crypto';
 import { DialogAgent } from './dialog-agent';
 import { ClassificationAgent, type ClassificationAgentConfig } from './classification-agent';
 import { AccountingAgent } from './accounting-agent';
 import { checkNotBlocked } from './journal-guard';
 import type { DialogResult, DialogContext, PrismaLike } from './types';
 import type { AccountingEntry } from './accounting-agent';
-import { missingAnexoFields } from '@agt-contador/shared';
+import { missingAnexoFields, hashRucBase, normalizarNombreTercero, separarRucDv } from '@agt-contador/shared';
 
 /**
- * Hash determinista del RUC (HMAC-SHA256) para dedupe sin filtrar el valor
- * cifrado. Duplicada de apps/api/src/services/crypto-fields.ts porque este
- * paquete no puede importar código de la API; la derivación es idéntica.
- * Los registros se guardan con taxIdHash al escribir (extensión en main.ts).
+ * El hash del RUC y la normalización de nombres viven en
+ * `@agt-contador/shared` para que la API y los agentes calculen EXACTAMENTE lo
+ * mismo sobre el RUC base (sin DV ni separadores). Los registros se guardan con
+ * `taxIdHash` al escribir (extensión de Prisma en main.ts).
  */
 
 /** Tope de retención para un cobro (duplicado local de services/retencion-itbms).
@@ -31,13 +30,6 @@ function retencionCobroInfoLocal(client: any, itbms: number, fechaFactura: Date)
  *  Así A-000003, A000003 y 000003 apuntan a la MISMA factura. */
 function claveNumeroFactura(numero: string | null | undefined): string {
   return String(numero || '').replace(/\D/g, '').replace(/^0+/, '');
-}
-function hashRuc(plain: string): string {
-  const keyB64 = process.env.FIELD_ENC_KEY || '';
-  const key = keyB64 ? Buffer.from(keyB64, 'base64') : null;
-  if (!key || key.length !== 32) return '';
-  const searchKey = crypto.createHmac('sha256', key).update('search').digest();
-  return crypto.createHmac('sha256', searchKey).update(String(plain)).digest('hex');
 }
 
 /** Parsea una fecha YYYY-MM-DD usando mediodía local para evitar
@@ -851,7 +843,7 @@ export class OrchestratorAgent {
     // Coincidencia por RUC (si se suministra): identifica de forma única
     // (el valor está cifrado en BD — se compara por taxIdHash determinista)
     if (ruc) {
-      const hash = hashRuc(ruc);
+      const hash = hashRucBase(ruc);
       if (hash) {
         const byRucC = await this.prisma.client.findFirst({ where: { companyId: this.companyId, taxIdHash: hash }, select: { id: true, name: true } });
         if (byRucC) matches.push({ id: byRucC.id, name: byRucC.name, type: 'cliente' });
@@ -891,27 +883,11 @@ export class OrchestratorAgent {
   }
 
   /**
-   * Normaliza un nombre para comparación difusa:
-   * - Elimina sufijos legales (S A, S.A., SA, S DE R L, etc.)
-   * - Elimina puntuación y colapsa espacios
+   * Normaliza un nombre para comparación difusa (implementación compartida con
+   * la API para que el dedupe sea el mismo en todos los canales).
    */
   private normalizeName(name: string): string {
-    return name
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')              // Panamá → Panama
-      .toLowerCase()
-      .replace(/\./g, ' ')                         // S.A. → S A
-      .replace(/\bs\s*a\b/g, '')                   // S A → ''
-      .replace(/\bsa\b/g, '')                      // SA → ''
-      .replace(/\bs\s*de\s*r\s*l\b/g, '')          // S DE R L → ''
-      .replace(/\bc\s*por\s*a\b/g, '')             // C POR A → ''
-      .replace(/\binc\b/g, '')                     // Inc → ''
-      .replace(/\bltda\b/g, '')                    // Ltda → ''
-      .replace(/\bcorp\b/g, '')                    // Corp → ''
-      .replace(/\bco\b/g, '')                      // Co → ''
-      .replace(/[,;]/g, ' ')                       // puntuación → espacio
-      .replace(/\s+/g, ' ')                        // colapsar espacios
-      .trim();
+    return normalizarNombreTercero(name);
   }
 
   /**
@@ -920,7 +896,7 @@ export class OrchestratorAgent {
   private async findClientByName(name: string, ruc?: string | null): Promise<any> {
     // 0. Coincidencia por RUC (taxIdHash determinista — el valor está cifrado)
     if (ruc) {
-      const hash = hashRuc(ruc);
+      const hash = hashRucBase(ruc);
       if (hash) {
         const byRuc = await this.prisma.client.findFirst({
           where: { companyId: this.companyId, taxIdHash: hash },
@@ -959,7 +935,7 @@ export class OrchestratorAgent {
   private async findSupplierByName(name: string, ruc?: string | null): Promise<any> {
     // 0. Coincidencia por RUC (taxIdHash determinista — el valor está cifrado)
     if (ruc) {
-      const hash = hashRuc(ruc);
+      const hash = hashRucBase(ruc);
       if (hash) {
         const byRuc = await this.prisma.supplier.findFirst({
           where: { companyId: this.companyId, taxIdHash: hash },
@@ -997,6 +973,9 @@ export class OrchestratorAgent {
   private async autoCreateEntity(dialog: any, journalEntryId: string, selectedEntityId?: string): Promise<{ type: string; name: string } | null> {
     const name = dialog.provider?.trim();
     if (!name) return null;
+    // El RUC puede venir con el DV pegado (`...-50`): se guarda la base en
+    // taxId y el DV aparte, igual que la API y el backfill.
+    const fisc = separarRucDv(dialog.ruc);
 
     const isCustomer = dialog.type === 'VENTA' || dialog.type === 'COBRO_CLIENTE';
     const isSupplier = dialog.type === 'GASTO' || dialog.type === 'COMPRA' || dialog.type === 'PAGO_PROVEEDOR';
@@ -1011,11 +990,14 @@ export class OrchestratorAgent {
         const isNew = !client;
         if (!client) {
           client = await this.prisma.client.create({
-            data: { companyId: this.companyId, name, taxId: dialog.ruc || null },
+            data: { companyId: this.companyId, name, taxId: fisc.base || null, ...(fisc.dv ? { dv: fisc.dv } : {}) },
           });
-        } else if (!client.taxId && dialog.ruc) {
+        } else if (!client.taxId && fisc.base) {
           // Cliente existente sin RUC: completarlo con el del texto
-          client = await this.prisma.client.update({ where: { id: client.id }, data: { taxId: dialog.ruc } });
+          client = await this.prisma.client.update({
+            where: { id: client.id },
+            data: { taxId: fisc.base, ...(fisc.dv ? { dv: fisc.dv } : {}) },
+          });
         }
 
         if (isPayment) {
@@ -1049,11 +1031,14 @@ export class OrchestratorAgent {
         const isNew = !supplier;
         if (!supplier) {
           supplier = await this.prisma.supplier.create({
-            data: { companyId: this.companyId, name, taxId: dialog.ruc || null },
+            data: { companyId: this.companyId, name, taxId: fisc.base || null, ...(fisc.dv ? { dv: fisc.dv } : {}) },
           });
-        } else if (!supplier.taxId && dialog.ruc) {
+        } else if (!supplier.taxId && fisc.base) {
           // Proveedor existente sin RUC: completarlo con el del texto
-          supplier = await this.prisma.supplier.update({ where: { id: supplier.id }, data: { taxId: dialog.ruc } });
+          supplier = await this.prisma.supplier.update({
+            where: { id: supplier.id },
+            data: { taxId: fisc.base, ...(fisc.dv ? { dv: fisc.dv } : {}) },
+          });
         }
 
         if (isPayment) {

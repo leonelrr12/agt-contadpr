@@ -50,7 +50,7 @@ clientsRouter.get('/:id', async (req, res) => {
 // POST /api/clients — Crear cliente (dedupe por RUC/nombre: higiene de duplicidad)
 // Crear un cliente es parte de facturar: lo hace quien emite la venta.
 clientsRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventario'), async (req, res) => {
-  const { name, taxId, phone, email, address, dv, location, notes } = req.body;
+  const { name, taxId, phone, email, address, dv, location, notes, tradeName, contactName, taxIdType } = req.body;
   if (!name) { res.status(400).json({ error: 'El nombre es requerido' }); return; }
 
   const dvLimpio = dv === undefined ? undefined : (String(dv).trim() || null);
@@ -72,7 +72,14 @@ clientsRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventar
 
   try {
     const client = await req.prisma.client.create({
-      data: { name, taxId, phone, email, address, dv: dvLimpio, location: locationLimpia, notes, companyId: req.user!.companyId },
+      // `as any`: el cliente Prisma generado se actualiza al aplicar la migración
+      // 0049; el código va adelante para no regenerar contra una BD sin columnas.
+      data: {
+        name, taxId, phone, email, address, dv: dvLimpio, location: locationLimpia, notes,
+        tradeName, contactName, taxIdType,
+        fiscalSource: 'MANUAL', fiscalUpdatedAt: new Date(),
+        companyId: req.user!.companyId,
+      } as any,
     });
     res.status(201).json(client);
   } catch (error: any) {
@@ -89,6 +96,7 @@ clientsRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), async 
   const {
     name, taxId, phone, email, address, notes,
     dv, location,
+    tradeName, contactName, taxIdType,
     esAgenteRetenedor, porcentajeRetencionItbms, vigenciaRetencionDesde, vigenciaRetencionHasta,
   } = req.body;
   const existing = await req.prisma.client.findFirst({
@@ -110,6 +118,12 @@ clientsRouter.put('/:id', requireRole('admin', 'contador', 'superadmin'), async 
   const data: any = { name, taxId, phone, email, address, notes };
   if (dv !== undefined) data.dv = dvLimpio;
   if (location !== undefined) data.location = locationLimpia;
+  if (tradeName !== undefined) data.tradeName = String(tradeName ?? '').trim() || null;
+  if (contactName !== undefined) data.contactName = String(contactName ?? '').trim() || null;
+  if (taxIdType !== undefined) data.taxIdType = String(taxIdType ?? '').trim() || null;
+  // La edición desde la ficha es manual: deja la trazabilidad del perfil.
+  data.fiscalSource = 'MANUAL';
+  data.fiscalUpdatedAt = new Date();
   if (esAgenteRetenedor !== undefined) data.esAgenteRetenedor = !!esAgenteRetenedor;
   if (porcentajeRetencionItbms !== undefined) {
     const pct = Number(porcentajeRetencionItbms);

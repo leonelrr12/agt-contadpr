@@ -2,49 +2,95 @@
  * Resolver único de contrapartes (Client/Supplier) — higiene de duplicidad.
  *
  * Orden de dedupe (igual para clientes y proveedores):
- *   1. RUC: taxIdHash determinista (HMAC) — el valor cifrado no se puede
- *      comparar en SQL (AES-GCM con IV aleatorio); el hash se setea
- *      automáticamente en main.ts (Client/Supplier/Company).
+ *   1. RUC: se compara por el RUC BASE (sin DV ni separadores) con
+ *      `taxIdHash` determinista. El mismo RUC puede llegar como
+ *      `342-240-75526`, `342-240-75526-50` o solo dígitos; si se hashea tal
+ *      como llega, el tercero entra dos veces (ver packages/shared/src/ruc.ts).
  *   2. Nombre exacto (case-insensitive).
- *   3. Nombre normalizado (quita S.A., C.A., INC., LIDA, puntuación…).
+ *   3. Nombre normalizado (quita tildes, S.A., C.A., INC., LIDA, puntuación…).
  *
- * Lo usan los 5 puntos de creación: emisión de factura, import normal
+ * Además de crear, COMPLETA los campos fiscales que el registro existente no
+ * tenga (dv, teléfono, email, dirección, ubicación…). Nunca pisa un dato ya
+ * cargado: la prioridad MANUAL > XML/PDF oficial > OCR/chat se decide en el
+ * llamador; acá el registro existente siempre gana.
+ *
+ * Lo usan los puntos de creación: emisión de factura, import normal
  * (entity-service), chat/WhatsApp (orchestrator-agent), CRUD clients/suppliers.
  */
-import { hashField } from './crypto-fields';
+import { hashField, normalizarNombreTercero, normalizarRucBase, separarRucDv } from '@agt-contador/shared';
 
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
-
-/** Normaliza el nombre de una persona jurídica para comparar variantes. */
-export function normalizeName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/\./g, ' ')
-    .replace(/\bs\s*a\b/g, '')
-    .replace(/\bsa\b/g, '')
-    .replace(/\bs\s*de\s*r\s*l\b/g, '')
-    .replace(/\bc\s*por\s*a\b/g, '')
-    .replace(/\binc\b/g, '')
-    .replace(/\bltda\b/g, '')
-    .replace(/[^a-z0-9áéíóúüñ ]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 export interface CounterpartyInput {
   name?: string | null;
   taxId?: string | null;
+  dv?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  location?: string | null;
+  tradeName?: string | null;
+  contactName?: string | null;
+  taxIdType?: string | null;
+  /** MANUAL | XML | PDF | OCR | IMPORT | CHAT — trazabilidad del perfil. */
+  fiscalSource?: string | null;
 }
 
-async function findByRucHash(prisma: any, model: 'client' | 'supplier', companyId: string, taxId: string): Promise<any | null> {
-  const hash = hashField(taxId.trim());
+/** Campos fiscales que se completan solo si el registro no los tiene. */
+const CAMPOS_FISCALES = [
+  'dv', 'phone', 'email', 'address', 'location',
+  'tradeName', 'contactName', 'taxIdType',
+] as const;
+
+type Modelo = 'client' | 'supplier';
+
+/** RUC base + DV separado + hash canónico. */
+function fiscal(input: CounterpartyInput) {
+  const partes = separarRucDv(input.taxId);
+  const base = partes.base || null;
+  const dv = String(input.dv ?? '').trim() || partes.dv;
+  const hash = base ? hashField(normalizarRucBase(base)) : '';
+  return { base, dv: dv || null, hash: hash || null };
+}
+
+/** Normaliza los campos opcionales: recorta y convierte '' en null. */
+function limpiar(input: CounterpartyInput): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const campo of CAMPOS_FISCALES) {
+    const v = String(input[campo] ?? '').trim();
+    if (v) out[campo] = v;
+  }
+  return out;
+}
+
+async function findByRucHash(prisma: any, model: Modelo, companyId: string, taxId: string): Promise<any | null> {
+  const base = normalizarRucBase(taxId);
+  if (!base) return null;
+  const hash = hashField(base);
   if (!hash) return null;
-  return prisma[model].findFirst({ where: { companyId, taxIdHash: hash } });
+
+  const byHash = await prisma[model].findFirst({ where: { companyId, taxIdHash: hash } });
+  if (byHash) return byHash;
+
+  // Compatibilidad con registros viejos: el hash se calculó sobre el texto
+  // crudo (con DV y/o guiones). Se prueban esas variantes para no duplicar
+  // mientras corre el backfill; después del backfill esto no encuentra nada.
+  const variantes = new Set<string>();
+  variantes.add(String(taxId).trim());
+  const partes = separarRucDv(taxId);
+  if (partes.base) variantes.add(partes.base);
+  for (const v of variantes) {
+    const h = hashField(v);
+    if (!h || h === hash) continue;
+    const found = await prisma[model].findFirst({ where: { companyId, taxIdHash: h } });
+    if (found) return found;
+  }
+  return null;
 }
 
 async function findByName(
   prisma: any,
-  model: 'client' | 'supplier',
+  model: Modelo,
   companyId: string,
   name: string,
 ): Promise<any | null> {
@@ -53,7 +99,7 @@ async function findByName(
   });
   if (match) return match;
 
-  const normalized = normalizeName(name);
+  const normalized = normalizarNombreTercero(name);
   if (normalized.length < 3) return null;
 
   const rows = await prisma[model].findMany({
@@ -61,7 +107,7 @@ async function findByName(
     select: { id: true, name: true },
   });
   for (const r of rows) {
-    const rNorm = normalizeName(r.name);
+    const rNorm = normalizarNombreTercero(r.name);
     if (rNorm === normalized || (rNorm.includes(normalized) && normalized.length >= 4) || (normalized.includes(rNorm) && rNorm.length >= 4)) {
       return r;
     }
@@ -69,7 +115,7 @@ async function findByName(
   return null;
 }
 
-/** Busca una contraparte existente: por RUC (hash) y luego por nombre. */
+/** Busca una contraparte existente: por RUC canónico y luego por nombre. */
 export async function findClient(prisma: any, companyId: string, input: CounterpartyInput): Promise<any | null> {
   const taxId = (input.taxId || '').trim() || null;
   if (taxId) {
@@ -93,30 +139,64 @@ export async function findSupplier(prisma: any, companyId: string, input: Counte
 }
 
 /**
- * Find-or-create: si existe (RUC/nombre) lo devuelve — completando el RUC si
- * al registro le faltaba; si no, crea. Maneja la carrera de unique (P2002).
+ * Completa los campos fiscales vacíos de un registro existente. No pisa nada.
+ * Devuelve el registro actualizado (o el mismo si no había nada que completar).
+ */
+async function completarFiscal(prisma: any, model: Modelo, existing: any, input: CounterpartyInput, fiscalData: ReturnType<typeof fiscal>): Promise<any> {
+  const data: Record<string, any> = {};
+  for (const [campo, valor] of Object.entries(limpiar(input))) {
+    if (valor && !existing[campo]) data[campo] = valor;
+  }
+  // RUC: si el registro no tenía RUC, se completa con la base canónica.
+  if (fiscalData.base && !existing.taxId) {
+    data.taxId = fiscalData.base;
+  }
+  if (fiscalData.dv && !existing.dv) data.dv = fiscalData.dv;
+  if (fiscalData.hash && !existing.taxIdHash) data.taxIdHash = fiscalData.hash;
+  if (!Object.keys(data).length) return existing;
+
+  if (input.fiscalSource) {
+    data.fiscalSource = input.fiscalSource;
+    data.fiscalUpdatedAt = new Date();
+  }
+  try {
+    return await prisma[model].update({ where: { id: existing.id }, data });
+  } catch (error: any) {
+    // Carrera con otro request sobre el mismo RUC/nombre: se devuelve el
+    // existente sin romper la factura. El siguiente pase completará el dato.
+    if (error?.code === 'P2002') return existing;
+    throw error;
+  }
+}
+
+/**
+ * Find-or-create con enriquecimiento: si existe (RUC/nombre) completa los
+ * campos fiscales que falten; si no, crea con todo lo que venga.
  */
 export async function findOrCreateClient(prisma: any, companyId: string, input: CounterpartyInput): Promise<any> {
   const name = (input.name || '').trim();
-  const taxId = (input.taxId || '').trim() || null;
   if (!name) throw new Error('El nombre del cliente es requerido');
+  const f = fiscal(input);
 
-  const existing = await findClient(prisma, companyId, { name, taxId });
-  if (existing) {
-    if (taxId && !existing.taxId) {
-      try {
-        return await prisma.client.update({ where: { id: existing.id }, data: { taxId } });
-      } catch { /* carrera — devolver el existente igual */ }
-    }
-    return existing;
-  }
+  const existing = await findClient(prisma, companyId, { name, taxId: input.taxId });
+  if (existing) return completarFiscal(prisma, 'client', existing, input, f);
 
   try {
-    return await prisma.client.create({ data: { companyId, name, taxId } });
+    return await prisma.client.create({
+      data: {
+        companyId,
+        name,
+        taxId: f.base,
+        taxIdHash: f.hash,
+        ...(f.dv ? { dv: f.dv } : {}),
+        ...limpiar(input),
+        ...(input.fiscalSource ? { fiscalSource: input.fiscalSource, fiscalUpdatedAt: new Date() } : {}),
+      },
+    });
   } catch (error: any) {
     if (error?.code === 'P2002') {
-      const winner = await findClient(prisma, companyId, { name, taxId });
-      if (winner) return winner;
+      const winner = await findClient(prisma, companyId, { name, taxId: input.taxId });
+      if (winner) return completarFiscal(prisma, 'client', winner, input, f);
     }
     throw error;
   }
@@ -124,28 +204,34 @@ export async function findOrCreateClient(prisma: any, companyId: string, input: 
 
 export async function findOrCreateSupplier(prisma: any, companyId: string, input: CounterpartyInput): Promise<any> {
   const name = (input.name || '').trim();
-  const taxId = (input.taxId || '').trim() || null;
   if (!name) throw new Error('El nombre del proveedor es requerido');
+  const f = fiscal(input);
 
-  const existing = await findSupplier(prisma, companyId, { name, taxId });
-  if (existing) {
-    if (taxId && !existing.taxId) {
-      try {
-        return await prisma.supplier.update({ where: { id: existing.id }, data: { taxId } });
-      } catch { /* carrera — devolver el existente igual */ }
-    }
-    return existing;
-  }
+  const existing = await findSupplier(prisma, companyId, { name, taxId: input.taxId });
+  if (existing) return completarFiscal(prisma, 'supplier', existing, input, f);
 
   try {
-    return await prisma.supplier.create({ data: { companyId, name, taxId } });
+    return await prisma.supplier.create({
+      data: {
+        companyId,
+        name,
+        taxId: f.base,
+        taxIdHash: f.hash,
+        ...(f.dv ? { dv: f.dv } : {}),
+        ...limpiar(input),
+        ...(input.fiscalSource ? { fiscalSource: input.fiscalSource, fiscalUpdatedAt: new Date() } : {}),
+      },
+    });
   } catch (error: any) {
     if (error?.code === 'P2002') {
-      const winner = await findSupplier(prisma, companyId, { name, taxId });
-      if (winner) return winner;
+      const winner = await findSupplier(prisma, companyId, { name, taxId: input.taxId });
+      if (winner) return completarFiscal(prisma, 'supplier', winner, input, f);
     }
     throw error;
   }
 }
+
+/** Compatibilidad: el normalizador histórico vivía acá. */
+export const normalizeName = normalizarNombreTercero;
 
 export { r2 };
