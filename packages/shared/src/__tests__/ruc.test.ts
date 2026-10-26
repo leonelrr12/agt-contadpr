@@ -21,6 +21,12 @@ describe('separarRucDv', () => {
     expect(separarRucDv('794485')).toEqual({ base: '794485', dv: null });
   });
 
+  it('el Número Tributario (NT) de gobierno se conserva entero y sin DV', () => {
+    expect(separarRucDv('NT-123-456-7')).toEqual({ base: 'NT-123-456-7', dv: null });
+    expect(separarRucDv('NT 123456')).toEqual({ base: 'NT 123456', dv: null });
+    expect(normalizarRucBase('NT-123-456-7')).toBe('NT1234567');
+  });
+
   it('tolera vacíos y espacios', () => {
     expect(separarRucDv('')).toEqual({ base: '', dv: null });
     expect(separarRucDv(null)).toEqual({ base: '', dv: null });

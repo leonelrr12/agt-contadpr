@@ -146,8 +146,8 @@ function abrirTerceroModal(tipo, id) {
   const val = (k) => escapeHtml(d[k] || '');
   const campo = 'width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px';
   const label = 'font-size:11px;color:#6b7280;display:block;margin-bottom:3px';
-  const tiposId = ['', 'RUC', 'CEDULA', 'PASAPORTE'].map((v) =>
-    `<option value="${v}"${(d.taxIdType || '') === v ? ' selected' : ''}>${v === '' ? '— Sin clasificar —' : v === 'CEDULA' ? 'Cédula' : v === 'PASAPORTE' ? 'Pasaporte' : 'RUC'}</option>`).join('');
+  const tiposId = ['', 'RUC', 'CEDULA', 'NT', 'PASAPORTE'].map((v) =>
+    `<option value="${v}"${(d.taxIdType || '') === v ? ' selected' : ''}>${v === '' ? '— Sin clasificar —' : v === 'CEDULA' ? 'Cédula' : v === 'NT' ? 'Número Tributario (NT)' : v === 'PASAPORTE' ? 'Pasaporte' : 'RUC'}</option>`).join('');
 
   const overlay = document.createElement('div');
   overlay.className = 'app-dialog-overlay';

@@ -493,7 +493,7 @@ model Client {
   /// Perfil fiscal ampliado: nombre comercial y persona de contacto.
   tradeName               String?
   contactName             String?
-  /// RUC | CEDULA | PASAPORTE (null = sin clasificar).
+  /// RUC | CEDULA | PASAPORTE | NT (Número Tributario de gobierno).
   taxIdType               String?
   /// De dónde salió el perfil fiscal: MANUAL | XML | PDF | OCR | IMPORT | CHAT.
   fiscalSource            String?
@@ -534,7 +534,7 @@ model Supplier {
   /// Perfil fiscal ampliado: nombre comercial y persona de contacto.
   tradeName     String?
   contactName   String?
-  /// RUC | CEDULA | PASAPORTE (null = sin clasificar).
+  /// RUC | CEDULA | PASAPORTE | NT (Número Tributario de gobierno).
   taxIdType     String?
   /// De dónde salió el perfil fiscal: MANUAL | XML | PDF | OCR | IMPORT | CHAT.
   fiscalSource  String?
