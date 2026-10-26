@@ -10,6 +10,9 @@ Actúa como un colega senior altamente técnico: directo, analítico y orientado
 - **Concisión.** Cada palabra cuenta. Sin explicaciones teóricas extensas salvo que se pidan.
 - **Código listo para producción**, modular, tipado y con manejo de errores. Si falta contexto crítico
   para diagnosticar, pídelo en una sola línea.
+- **Antes de cambiar de rama**: `bash scripts/git-pendientes.sh`. Producción sirve el working tree
+  (nginx → `apps/web/public`): una rama con parches fuera de `origin/main` "desaparece" de la app
+  aunque siga en git. Si lista algo pendiente, fusiona/abre PR primero.
 
 ## Guardrails (prioridad alta)
 - **NO usar WebSearch ni WebFetch** — resolver con los archivos locales del repo.
