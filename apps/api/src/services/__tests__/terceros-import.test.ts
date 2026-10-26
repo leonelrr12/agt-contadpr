@@ -74,9 +74,10 @@ describe('parseTercerosFile', () => {
   it('la plantilla XLSX se lee con el mismo parser', async () => {
     const buffer = await construirPlantillaTerceros();
     const rows = await parseTercerosFile(buffer, 'plantilla-terceros.xlsx');
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     expect(rows.every((r) => !r.error)).toBe(true);
     expect(rows[0]).toMatchObject({ name: 'CABLES & WIRELESS', tradeName: '+Movil Panama', dv: '96' });
+    expect(rows[3]).toMatchObject({ taxId: 'NT-123456', taxIdType: 'NT', dv: null });
   });
 
   it('acepta el formato exacto del dueño, sin UBICACION ni PLAZO', async () => {
@@ -91,6 +92,19 @@ describe('parseTercerosFile', () => {
     expect(rows.every((r) => !r.error)).toBe(true);
     expect(rows[0]).toMatchObject({ name: 'CABLES & WIRILESS', tradeName: '+Movil Panama', dv: '96' });
     expect(rows[1]).toMatchObject({ name: 'ALEJANDRO RODRIGUEZ ACEVEDO', tradeName: null, dv: '89' });
+  });
+
+  it('acepta Número Tributario (NT) y no lo parte como si tuviera DV', async () => {
+    const rows = await parseTercerosFile(csv(
+      'Proveedor,NT-123-456-7,,MUNICIPIO DE PANAMA,,NT,,,,,,',
+      'Proveedor,NT-999-888,,GOBIERNO NACIONAL,,,,,,,,,,',
+    ), 'terceros.csv');
+
+    expect(rows[0]).toMatchObject({ taxId: 'NT-123-456-7', taxIdType: 'NT', dv: null });
+    expect(rows[0].error).toBeUndefined();
+    // Si el tipo viene vacío, el prefijo NT lo identifica solo.
+    expect(rows[1]).toMatchObject({ taxId: 'NT-999-888', taxIdType: 'NT', dv: null });
+    expect(rows[1].error).toBeUndefined();
   });
 });
 

@@ -12,7 +12,7 @@
  *   NOMBRE       -> tradeName (nombre comercial; si no hay razón social, pasa a name)
  *   RUC          -> taxId base (sin DV)
  *   DV           -> dv
- *   TIPO IDENTIFICACION -> taxIdType
+ *   TIPO IDENTIFICACION -> taxIdType (RUC | CEDULA | NT | PASAPORTE)
  *   UBICACIÓN    -> location (PP-DD-CC)
  *
  * Modos:
@@ -109,6 +109,7 @@ function tipoIdentificacion(raw: string): { value: string | null; error?: string
   if (n === 'ruc') return { value: 'RUC' };
   if (n.startsWith('ced') || n === 'ci') return { value: 'CEDULA' };
   if (n.startsWith('pas')) return { value: 'PASAPORTE' };
+  if (n === 'nt' || n === 'n t' || n.startsWith('numero tributario') || n.startsWith('nro tributario')) return { value: 'NT' };
   return { value: null, error: `Tipo de identificación no válido: "${raw}"` };
 }
 
@@ -121,6 +122,11 @@ function validarTaxId(raw: string, tipoId: string | null): string | null {
   }
   if (tipoId === 'PASAPORTE') {
     if (!/^[A-Za-z0-9-]{4,30}$/.test(v)) throw new Error(`Pasaporte inválido: "${v}"`);
+    return v;
+  }
+  // Número Tributario de entidades de gobierno: se conserva el prefijo NT.
+  if (tipoId === 'NT') {
+    if (!/^[A-Za-z0-9][A-Za-z0-9\s.-]{2,30}$/.test(v)) throw new Error(`Número Tributario inválido: "${v}"`);
     return v;
   }
   if (!/^[\d\s./-]+$/.test(v)) {
@@ -172,20 +178,32 @@ export async function parseTercerosFile(buffer: Buffer, fileName: string): Promi
         : null;
       if (!out.name) throw new Error('Falta el nombre (RAZON SOCIAL o NOMBRE).');
 
+      const identificacionRaw = cell(row, ix.ruc);
+      const pareceNT = /^NT(?=\d|[-\s]|$)/i.test(identificacionRaw);
       const tid = tipoIdentificacion(cell(row, ix.tipoId));
       if (tid.error) throw new Error(tid.error);
-      out.taxIdType = tid.value;
+      let tipoId = tid.value;
+      // Si el documento empieza con NT, el tipo es NT aunque la columna venga
+      // vacía o diga RUC: es el Número Tributario de una entidad de gobierno.
+      if (pareceNT && (!tipoId || tipoId === 'RUC')) tipoId = 'NT';
+      out.taxIdType = tipoId;
 
-      const identificacion = validarTaxId(cell(row, ix.ruc), out.taxIdType);
+      const identificacion = validarTaxId(identificacionRaw, tipoId);
       if (identificacion) {
-        const partes = separarRucDv(identificacion);
         const dvCol = cell(row, ix.dv).replace(/[^\d]/g, '');
         if (dvCol && dvCol.length > 2) throw new Error(`DV inválido: "${cell(row, ix.dv)}"`);
-        if (partes.dv && dvCol && partes.dv !== dvCol) {
-          throw new Error(`El DV del RUC (${partes.dv}) no coincide con la columna DV (${dvCol}).`);
+        if (tipoId === 'NT') {
+          // El NT no se parte: se guarda completo, con el prefijo.
+          out.taxId = identificacion;
+          out.dv = dvCol || null;
+        } else {
+          const partes = separarRucDv(identificacion);
+          if (partes.dv && dvCol && partes.dv !== dvCol) {
+            throw new Error(`El DV del RUC (${partes.dv}) no coincide con la columna DV (${dvCol}).`);
+          }
+          out.taxId = partes.base;
+          out.dv = dvCol || partes.dv || null;
         }
-        out.taxId = partes.base;
-        out.dv = dvCol || partes.dv || null;
       } else if (cell(row, ix.dv)) {
         throw new Error('Hay DV pero falta RUC/Cédula.');
       }
@@ -479,6 +497,7 @@ export async function construirPlantillaTerceros(): Promise<Buffer> {
   ws.addRow(['Proveedor', '46004-187-302083', '96', '+Movil Panama', 'CABLES & WIRELESS', 'RUC', '', '', '', '', '', '30']);
   ws.addRow(['Proveedor', '8-786-1842', '89', 'ALEJANDRO RODRIGUEZ ACEVEDO', '', 'CEDULA', '', '', '', '', '', '']);
   ws.addRow(['Cliente', '8-733-2267', '88', 'Ferretería El Tornillo', 'FERRETERÍA EL TORNILLO, S.A.', 'RUC', '+507 6000-0000', 'compras@tornillo.com', 'Calle 1, Ciudad', '8-8-8', 'Ejemplo de cliente', '']);
+  ws.addRow(['Proveedor', 'NT-123456', '', 'MUNICIPIO DE PANAMA', 'MUNICIPIO DE PANAMA', 'NT', '', '', '', '', 'Entidad de gobierno: Número Tributario', '']);
 
   const inst = wb.addWorksheet('Instrucciones');
   inst.addRows([
@@ -486,9 +505,9 @@ export async function construirPlantillaTerceros(): Promise<Buffer> {
     ['TIPO', 'Cliente o Proveedor (obligatorio)'],
     ['RAZON SOCIAL', 'Nombre legal. Es el nombre principal; si falta, se usa NOMBRE.'],
     ['NOMBRE', 'Nombre comercial (opcional).'],
-    ['RUC', 'RUC o cédula SIN el dígito verificador.'],
-    ['DV', 'Dígito verificador (1-2 dígitos). Si el RUC ya lo trae, no lo repitas.'],
-    ['TIPO IDENTIFICACION', 'RUC, CEDULA o PASAPORTE.'],
+    ['RUC', 'RUC, cédula o Número Tributario (NT-...) SIN el dígito verificador del RUC.'],
+    ['DV', 'Dígito verificador del RUC (1-2 dígitos). El NT no lleva DV.'],
+    ['TIPO IDENTIFICACION', 'RUC, CEDULA, NT (Número Tributario de gobierno) o PASAPORTE.'],
     ['UBICACION', 'Código PP-DD-CC (ej. 8-8-8). Necesario para facturar a contribuyentes.'],
     ['PLAZO DE PAGO', 'Solo proveedores; días de crédito (ej. 30).'],
     ['', ''],
