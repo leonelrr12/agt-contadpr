@@ -31,7 +31,7 @@ export function separarRucDv(ruc?: string | null): RucPartes {
 
   // El Número Tributario (NT) de las entidades de gobierno NO lleva DV en el
   // sentido del RUC panameño: se conserva entero (`NT-123-456`) y no se parte.
-  if (/^NT(?:[-\s]|$)/i.test(raw)) return { base: raw, dv: null };
+  if (/^NT(?=\d|[-\s]|$)/i.test(raw)) return { base: raw, dv: null };
 
   const grupos = raw.split(/\D+/).filter(Boolean);
   if (grupos.length >= 3 && grupos[grupos.length - 1].length <= 2) {
@@ -50,7 +50,7 @@ export function separarRucDv(ruc?: string | null): RucPartes {
  *  que casualmente tenga los mismos dígitos. */
 export function normalizarRucBase(ruc?: string | null): string {
   const base = separarRucDv(ruc).base;
-  if (/^NT(?:[-\s]|$)/i.test(base)) return `NT${base.replace(/\D/g, '')}`;
+  if (/^NT(?=\d|[-\s]|$)/i.test(base)) return `NT${base.replace(/\D/g, '')}`;
   return base.replace(/\D/g, '');
 }
 

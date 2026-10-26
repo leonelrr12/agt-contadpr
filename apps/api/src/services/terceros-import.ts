@@ -179,7 +179,7 @@ export async function parseTercerosFile(buffer: Buffer, fileName: string): Promi
       if (!out.name) throw new Error('Falta el nombre (RAZON SOCIAL o NOMBRE).');
 
       const identificacionRaw = cell(row, ix.ruc);
-      const pareceNT = /^NT(?:[-\s]|$)/i.test(identificacionRaw);
+      const pareceNT = /^NT(?=\d|[-\s]|$)/i.test(identificacionRaw);
       const tid = tipoIdentificacion(cell(row, ix.tipoId));
       if (tid.error) throw new Error(tid.error);
       let tipoId = tid.value;
