@@ -4,6 +4,7 @@ import {
   planificarTerceros,
   aplicarPlanTerceros,
   resumir,
+  construirPlantillaTerceros,
   type FilaTercero,
 } from '../terceros-import';
 
@@ -68,6 +69,14 @@ describe('parseTercerosFile', () => {
       'Cliente,8-733-2267,88,Cliente X,,RUC,,,,MAL,',
     ), 'terceros.csv');
     expect(rows[0].error).toContain('Ubicación inválida');
+  });
+
+  it('la plantilla XLSX se lee con el mismo parser', async () => {
+    const buffer = await construirPlantillaTerceros();
+    const rows = await parseTercerosFile(buffer, 'plantilla-terceros.xlsx');
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => !r.error)).toBe(true);
+    expect(rows[0]).toMatchObject({ name: 'CABLES & WIRELESS', tradeName: '+Movil Panama', dv: '96' });
   });
 });
 
