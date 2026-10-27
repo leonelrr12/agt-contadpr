@@ -414,6 +414,48 @@ export class OrchestratorAgent {
     return { id: cuentaId, name: accs[0]?.name || 'Cuenta' };
   }
 
+  /** Deja el id del maestro en la Transaction (metadata). El informe Anexos lo
+   *  usa para mostrar el nombre/RUC corregido del maestro, no el texto crudo. */
+  private async recordarTercero(
+    journalEntryId: string,
+    clave: 'clientId' | 'supplierId',
+    id: string,
+  ): Promise<void> {
+    if (!journalEntryId || !id) return;
+    try {
+      const txn = await (this.prisma as any).transaction.findFirst({
+        where: { journalEntryId },
+        select: { id: true, metadata: true },
+      });
+      if (!txn?.id) return;
+      let m: any = {};
+      try { m = JSON.parse(txn.metadata || '{}'); } catch { /* metadata corrupta */ }
+      await (this.prisma as any).transaction.update({
+        where: { id: txn.id },
+        data: { metadata: JSON.stringify({ ...m, [clave]: id }) },
+      });
+    } catch { /* la metadata es una ayuda, no la fuente contable */ }
+  }
+
+  /** Primera cuenta con Anexo que el asiento DEBITA (el Anexo es del proveedor). */
+  private async cuentaAnexoDebitada(entry: any): Promise<{ id: string; name: string } | null> {
+    const ids = [
+      ...new Set(
+        (entry?.debit || [])
+          .map((d: any) => d.accountId)
+          .filter((id: any) => typeof id === 'string' && id.length > 0),
+      ),
+    ] as string[];
+    if (!ids.length) return null;
+    const cuentas = await (this.prisma as any).account.findMany({
+      where: { id: { in: ids }, companyId: this.companyId },
+      select: { id: true, name: true, requiresAnexo: true },
+    });
+    // El filtro por id se repite en memoria: algunos stubs devuelven el catálogo
+    // completo y no queremos que una cuenta Anexo ajena a las líneas dispare el alta.
+    return (cuentas || []).find((c: any) => ids.includes(c.id) && c.requiresAnexo) || null;
+  }
+
   /** Cuenta clasificada con su flag de Anexo: devuelve el aviso si faltan datos. */
   private async faltanDatosAnexo(dialog: any, accountId?: string | null): Promise<string | null> {
     if (!accountId) return null;
@@ -785,6 +827,12 @@ export class OrchestratorAgent {
     const faltaAnexo = await this.faltanDatosAnexo(dialog, result.classification?.accountId);
     if (faltaAnexo) throw Object.assign(new Error(faltaAnexo), { status: 400, code: 'ANEXO_REQUIRED' });
 
+    // Criterio Anexo: el asiento DEBITA una cuenta con "Lleva Anexo" → el
+    // tercero es un proveedor. Se excluyen ventas/cobros: las cuentas de costo
+    // (5.01.01…) llevan Anexo, pero ahí el nombre de la metadata es el cliente.
+    const cuentaAnexo = dialog.provider ? await this.cuentaAnexoDebitada(entry) : null;
+    const vieneDeAnexo = !!cuentaAnexo && !['VENTA', 'COBRO_CLIENTE'].includes(String(dialog.type));
+
     const entryData = await this.prisma.journalEntry.create({
       data: {
         date: parseLocalDate(dialog.date),
@@ -826,8 +874,17 @@ export class OrchestratorAgent {
     // El Bill (CxP) se crea únicamente cuando la compra es a CRÉDITO.
     let autoCreated: { type: string; name: string } | null = null;
     const esCompraOGasto = ['GASTO', 'COMPRA', 'PAGO_PROVEEDOR'].includes(String(dialog.type));
-    if (dialog.provider && (esCompraOGasto || dialog.paymentMethod === 'CREDITO')) {
-      autoCreated = await this.autoCreateEntity(dialog, entryData.id, result.selectedEntityId);
+    // Las ventas también alimentan el maestro de clientes al contado: antes solo
+    // se creaba el cliente si había CxC (CREDITO). El Invoice sigue naciendo
+    // únicamente a crédito (ver autoCreateEntity).
+    const esVenta = ['VENTA', 'COBRO_CLIENTE'].includes(String(dialog.type));
+    if (dialog.provider && (esCompraOGasto || esVenta || dialog.paymentMethod === 'CREDITO' || vieneDeAnexo)) {
+      const conceptoOrigen = String(dialog.concept || cuentaAnexo?.name || '').trim();
+      const notas = vieneDeAnexo && conceptoOrigen ? `Concepto: ${conceptoOrigen}` : null;
+      autoCreated = await this.autoCreateEntity(dialog, entryData.id, result.selectedEntityId, {
+        notes: notas,
+        forzarProveedor: vieneDeAnexo,
+      });
     }
 
     return { journalEntry: entryData, autoCreated };
@@ -973,7 +1030,12 @@ export class OrchestratorAgent {
    * Auto-crea un Client o Supplier según el tipo de transacción.
    * Si ya existe (incluso con nombre similar), lo reutiliza.
    */
-  private async autoCreateEntity(dialog: any, journalEntryId: string, selectedEntityId?: string): Promise<{ type: string; name: string } | null> {
+  private async autoCreateEntity(
+    dialog: any,
+    journalEntryId: string,
+    selectedEntityId?: string,
+    opts?: { notes?: string | null; forzarProveedor?: boolean },
+  ): Promise<{ type: string; name: string } | null> {
     const name = dialog.provider?.trim();
     if (!name) return null;
     // El RUC puede venir con el DV pegado (`...-50`): se guarda la base en
@@ -981,7 +1043,11 @@ export class OrchestratorAgent {
     const fisc = separarRucDv(dialog.ruc);
 
     const isCustomer = dialog.type === 'VENTA' || dialog.type === 'COBRO_CLIENTE';
-    const isSupplier = dialog.type === 'GASTO' || dialog.type === 'COMPRA' || dialog.type === 'PAGO_PROVEEDOR';
+    const isSupplier =
+      dialog.type === 'GASTO' ||
+      dialog.type === 'COMPRA' ||
+      dialog.type === 'PAGO_PROVEEDOR' ||
+      (!!opts?.forzarProveedor && !isCustomer);
     const isPayment = dialog.type === 'COBRO_CLIENTE' || dialog.type === 'PAGO_PROVEEDOR';
 
     try {
@@ -1002,12 +1068,13 @@ export class OrchestratorAgent {
             data: { taxId: fisc.base, ...(fisc.dv ? { dv: fisc.dv } : {}) },
           });
         }
+        await this.recordarTercero(journalEntryId, 'clientId', client.id);
 
         if (isPayment) {
           // COBRO_CLIENTE: abonar a facturas pendientes (FIFO)
           await this.applyPaymentToInvoices(client.id, dialog.amount);
-        } else {
-          // VENTA: crear nueva factura por cobrar
+        } else if (dialog.paymentMethod === 'CREDITO') {
+          // VENTA a crédito: nace la cuenta por cobrar
           const itbms = dialog.itbmsAmount || (dialog.itbms ? Math.round(dialog.amount * 0.07 * 100) / 100 : 0);
           try {
             await this.prisma.invoice.create({
@@ -1026,6 +1093,7 @@ export class OrchestratorAgent {
             throw e;
           }
         }
+        // Venta al contado: solo el maestro. El asiento tocó caja/banco, no CxC.
         return { type: isNew ? 'cliente_nuevo' : isPayment ? 'cliente_abono' : 'cliente_existente', name };
       } else if (isSupplier) {
         let supplier = selectedEntityId
@@ -1033,8 +1101,17 @@ export class OrchestratorAgent {
           : await this.findSupplierByName(name, dialog.ruc);
         const isNew = !supplier;
         if (!supplier) {
+          // La nota solo se escribe al crear: si el proveedor ya existe, manda
+          // lo que el usuario tenga cargado.
+          const notes = String(opts?.notes ?? '').trim();
           supplier = await this.prisma.supplier.create({
-            data: { companyId: this.companyId, name, taxId: fisc.base || null, ...(fisc.dv ? { dv: fisc.dv } : {}) },
+            data: {
+              companyId: this.companyId,
+              name,
+              taxId: fisc.base || null,
+              ...(fisc.dv ? { dv: fisc.dv } : {}),
+              ...(notes ? { notes } : {}),
+            },
           });
         } else if (!supplier.taxId && fisc.base) {
           // Proveedor existente sin RUC: completarlo con el del texto
@@ -1043,6 +1120,7 @@ export class OrchestratorAgent {
             data: { taxId: fisc.base, ...(fisc.dv ? { dv: fisc.dv } : {}) },
           });
         }
+        await this.recordarTercero(journalEntryId, 'supplierId', supplier.id);
 
         if (isPayment) {
           // PAGO_PROVEEDOR: abonar a facturas pendientes (FIFO)

@@ -80,14 +80,21 @@ export async function syncEntityFromEntry(
     }
   }
 
-  // Detectar si el asiento afecta CxC o CxP (comparar por code de cuenta, no por UUID)
-  const hasCxC = lines.some((l: any) => CXC_ACCOUNTS.includes(l.account?.code));
-  const hasCxP = lines.some((l: any) => CXP_ACCOUNTS.includes(l.account?.code));
+  // Detectar si el asiento afecta CxC o CxP (comparar por code de cuenta, no por UUID).
+  // El LADO importa: un débito a CxC es una venta a crédito; un crédito a CxC es un
+  // cobro (no debe crear otra Invoice). Igual al revés con CxP: crédito = compra a
+  // crédito (nace el Bill); débito = pago (no debe crear otro Bill).
+  const hasCxC = lines.some(
+    (l: any) => CXC_ACCOUNTS.includes(l.account?.code) && (l.debit || 0) > 0,
+  );
+  const hasCxP = lines.some(
+    (l: any) => CXP_ACCOUNTS.includes(l.account?.code) && (l.credit || 0) > 0,
+  );
 
   // Buscar metadata (provider, ruc, reference) en Transaction asociada
   const txn = await prisma.transaction.findFirst({
     where: { journalEntryId: entryId },
-    select: { id: true, metadata: true, type: true, amount: true, description: true },
+    select: { id: true, metadata: true, type: true, amount: true, description: true, concept: true },
   });
 
   let metadata: Record<string, any> = {};
@@ -98,6 +105,23 @@ export async function syncEntityFromEntry(
   const provider = metadata.provider || null;
   const ruc = metadata.ruc || null;
   const fiscal = fiscalDeMetadata(metadata);
+
+  // ── Criterio Anexo ──
+  // Un asiento que DEBITA una cuenta con `requiresAnexo` es una compra de
+  // servicios/gastos: el Anexo DGI es del proveedor. Se excluyen las ventas
+  // (sin línea de ingreso, sin CxC y tipo distinto de VENTA/COBRO): las cuentas
+  // de costo 5.01.01/02/03 llevan Anexo, pero en una venta con inventario el
+  // débito es el costo de lo vendido y el nombre de la metadata es el CLIENTE.
+  const tipo = String(txn?.type || '').toUpperCase();
+  const hasGasto = lines.some(
+    (l: any) => l.account?.code?.startsWith('5.') || l.account?.code?.startsWith('6.'),
+  );
+  const hasIngreso = lines.some((l: any) => l.account?.code?.startsWith('4.'));
+  const anexoDebitLine = lines.find((l: any) => (l.debit || 0) > 0 && l.account?.requiresAnexo);
+  const esVenta = ['VENTA', 'COBRO_CLIENTE'].includes(tipo) || hasIngreso || hasCxC;
+  const vieneDeAnexo = !!anexoDebitLine && !esVenta;
+  const conceptoOrigen = String(txn?.concept || anexoDebitLine?.account?.name || '').trim();
+  const notasAnexo = vieneDeAnexo && conceptoOrigen ? `Concepto: ${conceptoOrigen}` : null;
 
   // ── Limpiar Invoice/Bill si ya no hay CxC/CxP ──
   if (!hasCxC) {
@@ -121,12 +145,29 @@ export async function syncEntityFromEntry(
   // de proveedores se guarda igual (el Bill es solo para compras a crédito).
   if (!hasCxC && !hasCxP) {
     if (!provider) return null;
-    const tipo = String(txn?.type || '').toUpperCase();
-    const hasGasto = lines.some((l: any) => l.account?.code?.startsWith('5.') || l.account?.code?.startsWith('6.'));
-    const hasIngreso = lines.some((l: any) => l.account?.code?.startsWith('4.'));
-    const esCompraOGasto = ['GASTO', 'COMPRA'].includes(tipo) || (hasGasto && !hasIngreso);
+
+    // Venta al contado (sin CxC): el cliente también alimenta el maestro. No nace
+    // Invoice porque no hay cuenta por cobrar; la venta a crédito entra por la
+    // rama CxC de arriba (CxC al DEBE). Sirve igual para inventario y servicios.
+    if (esVenta) {
+      const client = await findOrCreateClient(prisma, companyId, {
+        name: provider,
+        taxId: ruc,
+        ...fiscal,
+      });
+      await recordarTercero(prisma, txn, metadata, 'clientId', client.id);
+      return { type: 'cliente_maestro', name: provider };
+    }
+
+    const esCompraOGasto =
+      ['GASTO', 'COMPRA'].includes(tipo) || (hasGasto && !hasIngreso) || vieneDeAnexo;
     if (!esCompraOGasto) return null;
-    const supplier = await findOrCreateSupplier(prisma, companyId, { name: provider, taxId: ruc, ...fiscal });
+    const supplier = await findOrCreateSupplier(prisma, companyId, {
+      name: provider,
+      taxId: ruc,
+      ...fiscal,
+      ...(notasAnexo ? { notes: notasAnexo } : {}),
+    });
     await recordarTercero(prisma, txn, metadata, 'supplierId', supplier.id);
     return { type: 'proveedor_maestro', name: provider };
   }
@@ -220,7 +261,12 @@ export async function syncEntityFromEntry(
       return { type: 'proveedor_existente', name: provider };
     }
 
-    const supplier = await findOrCreateSupplier(prisma, companyId, { name: provider, taxId: ruc, ...fiscal });
+    const supplier = await findOrCreateSupplier(prisma, companyId, {
+      name: provider,
+      taxId: ruc,
+      ...fiscal,
+      ...(notasAnexo ? { notes: notasAnexo } : {}),
+    });
     await recordarTercero(prisma, txn, metadata, 'supplierId', supplier.id);
 
     const cxpLine = lines.find((l: any) => CXP_ACCOUNTS.includes(l.account?.code));

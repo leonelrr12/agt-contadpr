@@ -111,6 +111,26 @@ describe('identidad canónica de terceros', () => {
     expect(encontrado.dv).toBe('88');
   });
 
+  it('la nota del alta por Anexo se guarda solo al crear y no pisa la existente', async () => {
+    const prisma: any = fakePrisma();
+    const primero = await findOrCreateSupplier(prisma, 'co-1', {
+      name: 'CONSULTORA XYZ',
+      taxId: '8-123-456',
+      notes: 'Concepto: Honorarios',
+    });
+    expect(primero.notes).toBe('Concepto: Honorarios');
+
+    const segundo = await findOrCreateSupplier(prisma, 'co-1', {
+      name: 'CONSULTORA XYZ',
+      taxId: '8-123-456',
+      notes: 'Concepto: Otro',
+    });
+
+    expect(segundo.id).toBe(primero.id);
+    expect(segundo.notes).toBe('Concepto: Honorarios');
+    expect(prisma.rows.supplier).toHaveLength(1);
+  });
+
   it('el proveedor guarda DV, dirección y ubicación en el alta', async () => {
     const prisma: any = fakePrisma();
     const s = await findOrCreateSupplier(prisma, 'co-1', {

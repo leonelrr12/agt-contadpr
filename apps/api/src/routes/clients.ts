@@ -1,17 +1,10 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth';
 import { findClient } from '../services/counterparty';
+import { invoiceSaldo } from '../services/saldos';
+import { buildTerceroResumen } from '../services/tercero-resumen';
 
 export const clientsRouter = Router();
-
-/**
- * Saldo real de una factura de cliente: 0 cuando está pagada/rechazada;
- * con abonos parciales (InvoicePayment → paidAmount) queda el restante.
- */
-function invoiceSaldo(i: { total: number; paidAmount?: number | null; status: string }): number {
-  if (i.status === 'PAGADA' || i.status === 'RECHAZADA') return 0;
-  return Math.max(0, Math.round((i.total - (i.paidAmount || 0)) * 100) / 100);
-}
 
 // GET /api/clients — Listar clientes
 clientsRouter.get('/', async (req, res) => {
@@ -181,6 +174,17 @@ clientsRouter.delete('/:id', requireRole('admin', 'contador', 'superadmin'), asy
   }
 });
 
+// GET /api/clients/:id/resumen — Estado de cuenta del panel Terceros (💵)
+clientsRouter.get('/:id/resumen', async (req, res) => {
+  try {
+    const data = await buildTerceroResumen(req.prisma, req.user!.companyId, 'cliente', req.params.id);
+    if (!data) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
+    res.json(data);
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'No se pudo calcular el estado de cuenta' });
+  }
+});
+
 // GET /api/clients/:id/invoices — Facturas de un cliente (con saldo real)
 clientsRouter.get('/:id/invoices', async (req, res) => {
   const invoices = await req.prisma.invoice.findMany({
@@ -278,13 +282,19 @@ clientsRouter.get('/report/summary', async (req, res) => {
     req.prisma.client.count({ where: { companyId: req.user!.companyId } }),
     req.prisma.invoice.aggregate({
       _sum: { total: true, paidAmount: true },
-      where: { companyId: req.user!.companyId, status: { notIn: ['PAGADA', 'RECHAZADA'] } },
+      where: {
+        companyId: req.user!.companyId,
+        status: { notIn: ['PAGADA', 'RECHAZADA'] },
+        // Las facturas de contado no son CxC aunque su status siga PENDIENTE.
+        OR: [{ paymentMethod: null }, { paymentMethod: { not: 'EFECTIVO' } }],
+      },
     }),
     req.prisma.invoice.count({
       where: {
         companyId: req.user!.companyId,
         status: { notIn: ['PAGADA', 'RECHAZADA'] },
         dueDate: { lt: new Date() },
+        OR: [{ paymentMethod: null }, { paymentMethod: { not: 'EFECTIVO' } }],
       },
     }),
   ]);

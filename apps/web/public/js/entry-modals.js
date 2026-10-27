@@ -149,10 +149,74 @@ function pickEntryAccItem(el) {
 }
 
 // entry-modals.js (11/14) — modales de edición/corrección de asientos
+/* ── Tercero del asiento (Anexo DGI / cliente o proveedor) ──
+ * El bloque se muestra cuando alguna línea toca una cuenta que exige Anexo o
+ * una cuenta de resultado (INGRESO = cliente; GASTO/COSTO = proveedor). En las
+ * cuentas con 📎 Nombre y RUC son obligatorios; en crédito también la factura.
+ * El backend guarda todo en la Transaction y de ahí se alimenta el maestro. */
+function terceroAsientoHtml(ns, tercero) {
+  const v = (x) => escapeHtml(x || '');
+  return `<div id="${ns}-tercero" style="display:none;margin-bottom:12px;padding:10px 12px;border:1px solid #bfdbfe;background:#eff6ff;border-radius:8px">
+    <div style="font-size:12px;font-weight:600;color:#1e40af;margin-bottom:6px">Tercero (Anexo DGI / cliente o proveedor)</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div style="flex:2;min-width:180px">
+        <label style="font-size:10px;color:#6b7280;display:block;margin-bottom:2px">Nombre</label>
+        <input id="${ns}-tercero-provider" type="text" value="${v(tercero?.provider)}" placeholder="Nombre del tercero" style="width:100%;padding:7px;border:1px solid #d1d5db;border-radius:5px;box-sizing:border-box;font-size:12px">
+      </div>
+      <div style="flex:1;min-width:140px">
+        <label style="font-size:10px;color:#6b7280;display:block;margin-bottom:2px">RUC/Cédula</label>
+        <input id="${ns}-tercero-ruc" type="text" value="${v(tercero?.ruc)}" placeholder="RUC o cédula" style="width:100%;padding:7px;border:1px solid #d1d5db;border-radius:5px;box-sizing:border-box;font-size:12px">
+      </div>
+      <div style="flex:1;min-width:140px">
+        <label style="font-size:10px;color:#6b7280;display:block;margin-bottom:2px">Nº factura (opcional)</label>
+        <input id="${ns}-tercero-ref" type="text" value="${v(tercero?.reference)}" placeholder="Factura del tercero" style="width:100%;padding:7px;border:1px solid #d1d5db;border-radius:5px;box-sizing:border-box;font-size:12px">
+      </div>
+    </div>
+    <div style="font-size:10px;color:#6b7280;margin-top:4px">Obligatorio en cuentas con 📎 Anexo. En ventas alimenta el maestro de clientes; en compras/gastos, el de proveedores.</div>
+  </div>`;
+}
+
+function toggleTerceroAsiento(ns, activeAccounts, lines, tercero) {
+  const wrap = document.getElementById(`${ns}-tercero`);
+  if (!wrap) return;
+  const relevante = (lines || []).some((l) => {
+    const a = (activeAccounts || []).find((x) => x.id === l.accountId);
+    return !!a && (a.requiresAnexo || ['INGRESO', 'GASTO', 'COSTO'].includes(a.type));
+  });
+  const provider = document.getElementById(`${ns}-tercero-provider`);
+  const yaTiene = !!(tercero?.provider || tercero?.ruc || (provider && provider.value.trim()));
+  wrap.style.display = (relevante || yaTiene) ? '' : 'none';
+}
+
+function leerTerceroAsiento(overlay, ns) {
+  const val = (id) => (overlay.querySelector(`#${ns}-${id}`)?.value || '').trim();
+  return {
+    provider: val('tercero-provider'),
+    ruc: val('tercero-ruc'),
+    reference: val('tercero-ref'),
+  };
+}
+
+function validarTerceroAsiento(activeAccounts, lines, tercero) {
+  const byId = new Map((activeAccounts || []).map((a) => [a.id, a]));
+  const anexo = (lines || []).map((l) => byId.get(l.accountId)).find((a) => a?.requiresAnexo);
+  if (!anexo) return null;
+  const missing = [];
+  if (!tercero.provider) missing.push('Nombre del tercero');
+  if (!tercero.ruc) missing.push('RUC/Cédula');
+  const esCredito = (lines || []).some((l) => {
+    const a = byId.get(l.accountId);
+    return (a?.code === '1.1.03.01' && (l.debit || 0) > 0) || (a?.code === '2.1.01' && (l.credit || 0) > 0);
+  });
+  if (esCredito && !tercero.reference) missing.push('Nº de factura (obligatorio en crédito)');
+  if (!missing.length) return null;
+  return `📎 La cuenta ${anexo.code} — ${anexo.name} lleva Anexo DGI: faltan ${missing.join(', ')}.`;
+}
+
 /* ── Maquinaria compartida de líneas editables (edit/create de asientos) ── */
 // Expone en window: <ns>Lines, <ns>UpdateLine, <ns>RemoveLine, <ns>AddLine, <ns>UpdateBalance
 // para los onchange/onclick inline del modal. Retorna helpers para el flujo de guardado.
-function setupEntryLines({ tbody, balanceEl, saveBtn, activeAccounts, namespace, initialLines, focusCuentaAlAgregar = false }) {
+function setupEntryLines({ tbody, balanceEl, saveBtn, activeAccounts, namespace, initialLines, focusCuentaAlAgregar = false, onChange = null }) {
   const lines = initialLines.slice();
   if (lines.length < 2) lines.push({ accountId: '', debit: 0, credit: 0 });
 
@@ -260,6 +324,7 @@ function setupEntryLines({ tbody, balanceEl, saveBtn, activeAccounts, namespace,
     balanceEl.style.background = enCero ? '#fffbeb' : ok ? '#ecfdf5' : '#fef2f2';
     balanceEl.style.color = enCero ? '#92400e' : ok ? '#059669' : '#dc2626';
     saveBtn.disabled = !ok;
+    if (typeof onChange === 'function') onChange(lines);
   }
 
   window[namespace + 'Lines'] = lines;
@@ -342,6 +407,8 @@ async function showEditEntryModal(entryId) {
 
     <div id="edit-entry-balance" style="padding:8px 12px;border-radius:6px;font-size:13px;font-weight:600;margin-bottom:12px;text-align:right"></div>
 
+    ${terceroAsientoHtml('editEntry', entry.tercero)}
+
     <div class="app-dialog-buttons">
       <button class="app-dialog-btn secondary" id="edit-entry-cancel">Cancelar</button>
       <button class="app-dialog-btn primary" id="edit-entry-save" disabled>Guardar</button>
@@ -371,6 +438,7 @@ async function showEditEntryModal(entryId) {
       debit: l.debit || 0,
       credit: l.credit || 0,
     })),
+    onChange: () => toggleTerceroAsiento('editEntry', activeAccounts, window.editEntryLines, entry.tercero),
   });
 
   // Eventos
@@ -385,6 +453,10 @@ async function showEditEntryModal(entryId) {
     // Validar que cada línea tenga cuenta
     const invalid = window.editEntryLines.some(l => !l.accountId);
     if (invalid) { await showAlert('Todas las líneas deben tener una cuenta asignada'); return; }
+
+    const tercero = leerTerceroAsiento(overlay, 'editEntry');
+    const faltaTercero = validarTerceroAsiento(activeAccounts, window.editEntryLines, tercero);
+    if (faltaTercero) { await showAlert(faltaTercero); return; }
 
     saveBtn.disabled = true;
     saveBtn.textContent = 'Guardando...';
@@ -401,6 +473,9 @@ async function showEditEntryModal(entryId) {
             debit: l.debit || 0,
             credit: l.credit || 0,
           })),
+          provider: tercero.provider,
+          ruc: tercero.ruc,
+          reference: tercero.reference,
         }),
       });
       if (res.ok) {
@@ -508,6 +583,8 @@ async function showCreateEntryModal(originalEntry, originalEntryId, mode) {
 
     <div id="create-entry-balance" style="padding:8px 12px;border-radius:6px;font-size:13px;font-weight:600;margin-bottom:12px;text-align:right"></div>
 
+    ${terceroAsientoHtml('createEntry', originalEntry?.tercero)}
+
     <div class="app-dialog-buttons">
       <button class="app-dialog-btn secondary" id="create-entry-cancel">Cancelar</button>
       <button class="app-dialog-btn primary" id="create-entry-save" disabled>${saveLabel}</button>
@@ -555,6 +632,7 @@ async function showCreateEntryModal(originalEntry, originalEntryId, mode) {
     namespace: 'createEntry',
     initialLines,
     focusCuentaAlAgregar: true, // al agregar línea, el cursor va a su cuenta
+    onChange: () => toggleTerceroAsiento('createEntry', activeAccounts, window.createEntryLines, originalEntry?.tercero),
   });
 
   // Bloquear la pantalla mientras el modal esté abierto: solo se cierra
@@ -574,6 +652,10 @@ async function showCreateEntryModal(originalEntry, originalEntryId, mode) {
 
     const invalid = window.createEntryLines.some(l => !l.accountId);
     if (invalid) { await showAlert('Todas las líneas deben tener una cuenta asignada'); return; }
+
+    const tercero = leerTerceroAsiento(overlay, 'createEntry');
+    const faltaTercero = validarTerceroAsiento(activeAccounts, window.createEntryLines, tercero);
+    if (faltaTercero) { await showAlert(faltaTercero); return; }
 
     saveBtn.disabled = true;
     saveBtn.textContent = savingLabel;
@@ -627,6 +709,9 @@ async function showCreateEntryModal(originalEntry, originalEntryId, mode) {
             debit: l.debit || 0,
             credit: l.credit || 0,
           })),
+          provider: tercero.provider,
+          ruc: tercero.ruc,
+          reference: tercero.reference,
         }),
       });
       if (res.ok) {

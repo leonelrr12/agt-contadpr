@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth';
 import { findSupplier } from '../services/counterparty';
+import { buildTerceroResumen } from '../services/tercero-resumen';
 
 export const suppliersRouter = Router();
 
@@ -152,6 +153,17 @@ suppliersRouter.delete('/:id', requireRole('admin', 'contador', 'superadmin'), a
       return;
     }
     throw error;
+  }
+});
+
+// GET /api/suppliers/:id/resumen — Estado de cuenta del panel Terceros (💵)
+suppliersRouter.get('/:id/resumen', async (req, res) => {
+  try {
+    const data = await buildTerceroResumen(req.prisma, req.user!.companyId, 'proveedor', req.params.id);
+    if (!data) { res.status(404).json({ error: 'Proveedor no encontrado' }); return; }
+    res.json(data);
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'No se pudo calcular el estado de cuenta' });
   }
 });
 

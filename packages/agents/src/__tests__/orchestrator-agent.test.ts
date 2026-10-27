@@ -15,20 +15,26 @@ function makePrismaStub() {
     { id: 'acct-prestamos', code: '2.2.01', aliases: ['prestamos-lp'], name: 'Préstamos por Pagar LP', type: 'PASIVO', isActive: true, requiresAnexo: false },
     { id: 'acct-ventas', code: '4.01.01', aliases: ['ventas'], name: 'Ventas', type: 'INGRESO', isActive: true, requiresAnexo: false },
     { id: 'acct-combustible', code: '6.01.02', name: 'Gastos de Combustible', type: 'GASTO', isActive: true, requiresAnexo: false },
+    { id: 'acct-honorarios', code: '6.02.01', name: 'Honorarios Profesionales', type: 'GASTO', isActive: true, requiresAnexo: true },
     { id: 'acct-gastos-varios', code: '6.06.01', aliases: ['gasto'], name: 'Gastos Varios', type: 'GASTO', isActive: true, requiresAnexo: false },
   ];
   const createdSuppliers: any[] = [];
   const createdBills: any[] = [];
+  const createdClients: any[] = [];
+  const createdInvoices: any[] = [];
   return {
     ...basePrismaStub(),
     __createdSuppliers: createdSuppliers,
     __createdBills: createdBills,
+    __createdClients: createdClients,
+    __createdInvoices: createdInvoices,
     company: {
       findUnique: async () => ({ declaraITBMS: true }),
     },
     concept: {
       findMany: async () => [
         { name: 'Combustible', accountId: 'acct-combustible', confidence: 0.95, account: { name: 'Gastos de Combustible' } },
+        { name: 'Honorarios', accountId: 'acct-honorarios', confidence: 0.95, account: { name: 'Honorarios Profesionales' } },
         { name: 'Ventas', accountId: 'acct-ventas', confidence: 0.95, account: { name: 'Ventas' } },
       ],
     },
@@ -53,6 +59,22 @@ function makePrismaStub() {
       },
       update: async (args: any) => ({ id: 'bill-1', ...args.data }),
     },
+    client: {
+      findMany: async () => [],
+      findFirst: async () => null,
+      create: async (args: any) => {
+        createdClients.push(args.data);
+        return { id: 'cli-1', ...args.data };
+      },
+    },
+    invoice: {
+      findMany: async () => [],
+      create: async (args: any) => {
+        createdInvoices.push(args.data);
+        return { id: 'inv-1', ...args.data };
+      },
+      update: async (args: any) => ({ id: 'inv-1', ...args.data }),
+    },
     journalEntry: {
       create: async (args: any) => {
         entryIdCounter++;
@@ -61,6 +83,8 @@ function makePrismaStub() {
     },
     transaction: {
       create: async (args: any) => ({ id: `tx-${entryIdCounter}`, ...args.data }),
+      findFirst: async () => ({ id: 'tx-1', metadata: '{}' }),
+      update: async (args: any) => ({ id: 'tx-1', ...args.data }),
     },
   };
 }
@@ -149,5 +173,67 @@ describe('OrchestratorAgent', () => {
     expect(prisma.__createdSuppliers).toHaveLength(1);
     expect(prisma.__createdSuppliers[0].name).toBeTruthy();
     expect(prisma.__createdBills).toHaveLength(0); // al contado no hay CxP
+  });
+
+  it('una venta al contado crea el cliente maestro y NO crea Invoice', async () => {
+    const prisma: any = makePrismaStub();
+    const agent = new OrchestratorAgent({ prisma, companyId: 'demo-company', userId: 'demo-user' });
+    const result: any = {
+      dialog: {
+        type: 'VENTA',
+        amount: 100,
+        description: 'Venta de servicio',
+        concept: 'Ventas',
+        paymentMethod: 'EFECTIVO',
+        date: '2026-10-27',
+        provider: 'CLIENTE XYZ',
+        ruc: '8-777-1',
+        missingFields: [],
+      },
+      entry: {
+        debit: [{ accountId: 'acct-caja', amount: 100, name: 'Caja' }],
+        credit: [{ accountId: 'acct-ventas', amount: 100, name: 'Ventas' }],
+        description: 'Venta de servicio',
+      },
+      classification: { accountId: 'acct-ventas', concept: 'Ventas', confidence: 0.95 },
+    };
+
+    const saved: any = await agent.confirm(result);
+
+    expect(saved.autoCreated?.type).toBe('cliente_nuevo');
+    expect(prisma.__createdClients).toHaveLength(1);
+    expect(prisma.__createdClients[0].name).toBe('CLIENTE XYZ');
+    expect(prisma.__createdInvoices).toHaveLength(0); // al contado no hay CxC
+  });
+
+  it('un gasto con Anexo crea el proveedor con el concepto en Notas', async () => {
+    const prisma: any = makePrismaStub();
+    const agent = new OrchestratorAgent({ prisma, companyId: 'demo-company', userId: 'demo-user' });
+    const result: any = {
+      dialog: {
+        type: 'GASTO',
+        amount: 100,
+        description: 'Honorarios',
+        concept: 'Honorarios',
+        paymentMethod: 'EFECTIVO',
+        date: '2026-10-27',
+        provider: 'CONSULTORA XYZ',
+        ruc: '8-123-456',
+        missingFields: [],
+      },
+      entry: {
+        debit: [{ accountId: 'acct-honorarios', amount: 100, name: 'Honorarios Profesionales' }],
+        credit: [{ accountId: 'acct-caja', amount: 100, name: 'Caja' }],
+        description: 'Honorarios',
+      },
+      classification: { accountId: 'acct-honorarios', concept: 'Honorarios', confidence: 0.95 },
+    };
+
+    const saved: any = await agent.confirm(result);
+
+    expect(saved.autoCreated?.type).toBe('proveedor_nuevo');
+    expect(prisma.__createdSuppliers).toHaveLength(1);
+    expect(prisma.__createdSuppliers[0].notes).toBe('Concepto: Honorarios');
+    expect(prisma.__createdBills).toHaveLength(0);
   });
 });

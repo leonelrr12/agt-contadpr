@@ -6,6 +6,7 @@ import { calcularEstadoResultados } from '../services/estado-resultados';
 import { exportReport } from '../services/export';
 import { buildBudgetComparison } from '../services/budget-comparison';
 import { buildBorrador430 } from '../services/borrador-430';
+import { hashRucBase } from '@agt-contador/shared';
 import type { ExportFormat } from '../services/export';
 
 export const reportsRouter = Router();
@@ -190,25 +191,104 @@ export async function buildAnexosDgiReport(
     orderBy: { date: 'asc' },
   });
 
-  // Factura: metadata.invoiceNumber → nº del Invoice/Bill del asiento → metadata.reference
+  // Factura y maestro: metadata.invoiceNumber → nº del Invoice/Bill del asiento →
+  // metadata.reference. El maestro se resuelve por metadata.supplierId/clientId
+  // (lo escribe syncEntityFromEntry al crear el tercero) o por el Bill/Invoice del
+  // asiento. La metadata cruda queda como respaldo para los asientos viejos.
   const jeIds = [...new Set(txs.map((t: any) => t.journalEntryId).filter(Boolean))];
   const [invoices, bills] = await Promise.all([
-    jeIds.length > 0 ? prisma.invoice.findMany({ where: { journalEntryId: { in: jeIds } }, select: { journalEntryId: true, number: true } }) : [],
-    jeIds.length > 0 ? prisma.bill.findMany({ where: { journalEntryId: { in: jeIds } }, select: { journalEntryId: true, number: true } }) : [],
+    jeIds.length > 0
+      ? prisma.invoice.findMany({
+          where: { journalEntryId: { in: jeIds } },
+          select: {
+            journalEntryId: true,
+            number: true,
+            client: { select: { id: true, name: true, taxId: true, dv: true } },
+          },
+        })
+      : [],
+    jeIds.length > 0
+      ? prisma.bill.findMany({
+          where: { journalEntryId: { in: jeIds } },
+          select: {
+            journalEntryId: true,
+            number: true,
+            supplier: { select: { id: true, name: true, taxId: true, dv: true } },
+          },
+        })
+      : [],
   ]);
-  const auxByJe = new Map<string, string | null>();
-  for (const i of invoices) auxByJe.set(i.journalEntryId, i.number);
-  for (const b of bills) if (!auxByJe.has(b.journalEntryId)) auxByJe.set(b.journalEntryId, b.number);
+  const auxByJe = new Map<string, { number: string | null; client?: any; supplier?: any }>();
+  for (const i of invoices) auxByJe.set(i.journalEntryId, { number: i.number, client: i.client });
+  for (const b of bills) {
+    const prev = auxByJe.get(b.journalEntryId) || { number: null };
+    auxByJe.set(b.journalEntryId, {
+      ...prev,
+      number: prev.number || b.number,
+      supplier: b.supplier,
+    });
+  }
 
-  const terceros = new Map<string, any>();
-  for (const tx of txs) {
+  // La metadata se parsea una sola vez: de ahí salen los ids del maestro y el
+  // nombre/RUC de respaldo. Los ids apuntan a las tablas Client/Supplier, que
+  // son las que corrigen nombre y RUC; el Anexo deja de mostrar el texto crudo.
+  const filas: { tx: any; m: any }[] = txs.map((tx: any) => {
     let m: any = {};
     try { m = JSON.parse(tx.metadata || '{}'); } catch {}
-    // Tercero: el proveedor del chat/PDF/import o el nombre de la carga de honorarios
-    const tercero = m.provider || m.nombre || null;
+    return { tx, m };
+  });
+  // Se traen los maestros completos (no solo los ids de la metadata): así una
+  // fila vieja sin supplierId/clientId también encuentra su proveedor por el
+  // hash canónico del RUC y el informe deja de mostrar el nombre/RUC crudo.
+  const [suppliers, clients] = await Promise.all([
+    prisma.supplier.findMany({
+      where: { companyId },
+      select: { id: true, name: true, taxId: true, dv: true, taxIdHash: true },
+    }),
+    prisma.client.findMany({
+      where: { companyId },
+      select: { id: true, name: true, taxId: true, dv: true, taxIdHash: true },
+    }),
+  ]);
+  const supplierById = new Map(suppliers.map((s: any) => [s.id, s]));
+  const clientById = new Map(clients.map((c: any) => [c.id, c]));
+  const supplierByHash = new Map(
+    suppliers.filter((s: any) => s.taxIdHash).map((s: any) => [s.taxIdHash, s]),
+  );
+  const clientByHash = new Map(
+    clients.filter((c: any) => c.taxIdHash).map((c: any) => [c.taxIdHash, c]),
+  );
+  /** RUC del maestro: `taxId` es la base y `dv` el dígito separado. */
+  const rucCompleto = (t: any) => {
+    const base = String(t?.taxId || '').trim();
+    const dv = String(t?.dv || '').trim();
+    return base ? (dv ? `${base}-${dv}` : base) : null;
+  };
+  const esVentaTx = (tipo: any) => ['VENTA', 'COBRO_CLIENTE'].includes(String(tipo || '').toUpperCase());
+
+  const terceros = new Map<string, any>();
+  for (const { tx, m } of filas) {
+    const aux = tx.journalEntryId ? auxByJe.get(tx.journalEntryId) : null;
+    const venta = esVentaTx(tx.type);
+    // Venta → cliente; compra/gasto/pago → proveedor. Si el id no está en la
+    // metadata, el Bill/Invoice del asiento da el maestro; si tampoco, metadata.
+    let maestro =
+      (venta ? clientById.get(m.clientId) : supplierById.get(m.supplierId)) ||
+      (venta ? aux?.client : aux?.supplier) ||
+      clientById.get(m.clientId) ||
+      supplierById.get(m.supplierId) ||
+      null;
+    if (!maestro && m.ruc) {
+      // Respaldo para asientos viejos: el RUC canónico identifica al maestro
+      // aunque la metadata no traiga el id. Se prefiere el lado que toca.
+      const hash = hashRucBase(m.ruc);
+      maestro = (venta ? clientByHash.get(hash) : supplierByHash.get(hash)) ||
+        supplierByHash.get(hash) || clientByHash.get(hash) || null;
+    }
+    const tercero = maestro?.name || m.provider || m.nombre || null;
     if (!tercero) continue;
-    const ruc = m.ruc || null;
-    const factura = m.invoiceNumber || (tx.journalEntryId ? auxByJe.get(tx.journalEntryId) : null) || m.reference || null;
+    const ruc = maestro ? (rucCompleto(maestro) || m.ruc || null) : (m.ruc || null);
+    const factura = m.invoiceNumber || aux?.number || m.reference || null;
     const key = `${tercero}|${ruc || ''}`;
     const t = terceros.get(key) || { tercero, ruc, movimientos: 0, total: 0, detalle: [] };
     const monto = r2(tx.amount);

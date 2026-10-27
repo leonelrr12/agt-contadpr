@@ -19,6 +19,105 @@ import {
 
 export const journalRouter = Router();
 
+type CuentaAsiento = {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+  requiresAnexo: boolean;
+};
+
+type TerceroAsiento = {
+  provider: string | null;
+  ruc: string | null;
+  reference: string | null;
+};
+
+/** Cuentas únicas de las líneas, con lo necesario para validar Anexo y tercero. */
+async function cuentasDeLineas(prisma: any, companyId: string, lines: any[]): Promise<CuentaAsiento[]> {
+  const ids = [...new Set((lines || []).map((l: any) => l.accountId).filter(Boolean))];
+  if (!ids.length) return [];
+  const rows = await prisma.account.findMany({
+    where: { id: { in: ids }, companyId },
+    select: { id: true, code: true, name: true, type: true, requiresAnexo: true },
+  });
+  // Prisma ya filtra por `in`; el filtro en memoria evita que un stub (o un
+  // catálogo devuelto de más) cuele una cuenta Anexo que no está en las líneas.
+  const byId = new Map((rows || []).map((c: CuentaAsiento) => [c.id, c]));
+  return ids.map((id: string) => byId.get(id)).filter(Boolean) as CuentaAsiento[];
+}
+
+function leerTercero(body: any): TerceroAsiento {
+  const texto = (v: any) => String(v ?? '').trim() || null;
+  return {
+    provider: texto(body.provider),
+    ruc: texto(body.ruc),
+    reference: texto(body.reference ?? body.invoiceNumber),
+  };
+}
+
+/** Crédito = CxC al DEBE (venta a crédito) o CxP al HABER (compra a crédito). */
+function esCreditoAsiento(cuentas: CuentaAsiento[], lines: any[]): boolean {
+  const byId = new Map(cuentas.map((c) => [c.id, c]));
+  return (lines || []).some((l: any) => {
+    const c = byId.get(l.accountId);
+    return (c?.code === '1.1.03.01' && (l.debit || 0) > 0) ||
+      (c?.code === '2.1.01' && (l.credit || 0) > 0);
+  });
+}
+
+function tipoDeAsiento(cuentas: CuentaAsiento[], lines: any[]): string {
+  const byId = new Map(cuentas.map((c) => [c.id, c]));
+  const con = (pred: (c: CuentaAsiento | undefined, l: any) => boolean) =>
+    (lines || []).some((l: any) => pred(byId.get(l.accountId), l));
+  const hasIngreso = con((c) => !!c?.code?.startsWith('4.'));
+  const cxcDebit = con((c, l) => c?.code === '1.1.03.01' && (l.debit || 0) > 0);
+  const cxcCredit = con((c, l) => c?.code === '1.1.03.01' && (l.credit || 0) > 0);
+  const cxpCredit = con((c, l) => c?.code === '2.1.01' && (l.credit || 0) > 0);
+  const cxpDebit = con((c, l) => c?.code === '2.1.01' && (l.debit || 0) > 0);
+  if (hasIngreso || cxcDebit) return 'VENTA';
+  if (cxpCredit) return 'COMPRA';
+  if (cxcCredit) return 'COBRO_CLIENTE';
+  if (cxpDebit) return 'PAGO_PROVEEDOR';
+  return 'GASTO';
+}
+
+/** ¿El asiento toca una cuenta donde el tercero tiene sentido? (Anexo, resultado o CxC/CxP). */
+function cuentaDeTercero(cuentas: CuentaAsiento[]): boolean {
+  return cuentas.some(
+    (c) =>
+      c.requiresAnexo ||
+      ['INGRESO', 'GASTO', 'COSTO'].includes(c.type) ||
+      ['1.1.03.01', '2.1.01'].includes(c.code),
+  );
+}
+
+/** Anexo: la cuenta exige Nombre y RUC; en crédito, también Nº de factura. */
+function faltaTerceroAnexo(cuentas: CuentaAsiento[], lines: any[], tercero: TerceroAsiento): string | null {
+  const anexo = cuentas.find((c) => c.requiresAnexo);
+  if (!anexo) return null;
+  const missing: string[] = [];
+  if (!tercero.provider) missing.push('Nombre del tercero');
+  if (!tercero.ruc) missing.push('RUC/Cédula');
+  if (esCreditoAsiento(cuentas, lines) && !tercero.reference) {
+    missing.push('Nº de factura (obligatorio en crédito)');
+  }
+  if (!missing.length) return null;
+  return `📎 La cuenta ${anexo.code} — ${anexo.name} lleva Anexo DGI: faltan ${missing.join(', ')}.`;
+}
+
+/** Metadata que leen el sync, el Anexo y el visor del asiento. */
+function datosTerceroAsiento(tercero: TerceroAsiento) {
+  return {
+    provider: tercero.provider,
+    ruc: tercero.ruc,
+    reference: tercero.reference,
+    invoiceNumber: tercero.reference,
+    fiscalSource: 'MANUAL',
+    source: 'asiento-manual',
+  };
+}
+
 journalRouter.get('/pendientes', async (req, res) => {
   const { startDate, endDate } = req.query;
   const where: Record<string, unknown> = {
@@ -222,18 +321,35 @@ journalRouter.get('/:id', async (req, res) => {
       // Concepto con que se clasificó el movimiento: la descripción del asiento
       // lleva el detalle original, así que el visor muestra aquí a qué concepto
       // (cuenta) fue. `take: 1` porque un asiento tiene a lo sumo una.
-      transactions: { select: { type: true, concept: true }, take: 1 },
+      transactions: { select: { type: true, concept: true, metadata: true }, take: 1 },
     },
   });
   if (!entry) { res.status(404).json({ error: 'Journal entry not found' }); return; }
+  // Tercero del asiento (Anexo/venta/compra) para prellenar el modal de edición.
+  let tercero: { provider: string | null; ruc: string | null; reference: string | null } | null = null;
+  const tx = entry.transactions?.[0];
+  if (tx?.metadata) {
+    try {
+      const m = JSON.parse(tx.metadata);
+      tercero = {
+        provider: m.provider || m.nombre || null,
+        ruc: m.ruc || null,
+        reference: m.invoiceNumber || m.reference || null,
+      };
+    } catch { /* metadata corrupta: el modal abre sin tercero */ }
+  }
   // `origin`: de dónde salió el asiento (factura, cobro, importación, manual…).
-  // Lo consume el visor "Asiento original" del auxiliar de cuenta.
+  // Lo consume el visor "Asiento original" del auxiliar de cuenta. La metadata
+  // cruda no se devuelve: el frontend solo necesita el tercero ya resumido.
   const origin = await resolveEntryOrigin(req.prisma, req.user!.companyId, entry);
-  res.json({ ...entry, origin });
+  const transactions = (entry.transactions || []).map(({ metadata, ...t }: any) => t);
+  res.json({ ...entry, transactions, origin, tercero });
 });
 
 journalRouter.post('/', requireQuota, validate(createJournalEntrySchema), async (req, res) => {
-  const { date, description, lines } = req.body;
+  const { date, description, lines, provider, ruc, reference } = req.body;
+  const companyId = req.user!.companyId;
+  const userId = req.user!.userId;
   const totalDebit = lines.reduce((s: number, l: { debit: number }) => s + (l.debit || 0), 0);
   const totalCredit = lines.reduce((s: number, l: { credit: number }) => s + (l.credit || 0), 0);
 
@@ -248,25 +364,74 @@ journalRouter.post('/', requireQuota, validate(createJournalEntrySchema), async 
     return;
   }
 
-  const blocked = await checkNotBlocked(req.prisma, req.user!.companyId, lines.map((l: { accountId: string }) => l.accountId));
+  const blocked = await checkNotBlocked(req.prisma, companyId, lines.map((l: { accountId: string }) => l.accountId));
   if (blocked) { res.status(400).json({ error: blocked }); return; }
 
-  const entry = await req.prisma.journalEntry.create({
-    data: {
-      date: parseLocalDate(date),
-      description,
-      companyId: req.user!.companyId,
-      createdById: req.user!.userId,
-      lines: {
-        create: lines.map((l: { accountId: string; debit?: number; credit?: number }) => ({
-          accountId: l.accountId,
-          debit: l.debit || 0,
-          credit: l.credit || 0,
-        })),
-      },
-    },
-    include: { lines: { include: { account: true } } },
-  });
+  let cuentas: CuentaAsiento[] = [];
+  try {
+    cuentas = await cuentasDeLineas(req.prisma, companyId, lines);
+  } catch (e) {
+    res.status(500).json({ error: 'No se pudieron cargar las cuentas del asiento' });
+    return;
+  }
+  const tercero = leerTercero({ provider, ruc, reference });
+  const faltaTercero = faltaTerceroAnexo(cuentas, lines, tercero);
+  if (faltaTercero) { res.status(400).json({ error: faltaTercero }); return; }
+  const conTercero = cuentaDeTercero(cuentas) && !!(tercero.provider || tercero.ruc);
+  const tipo = tipoDeAsiento(cuentas, lines);
+  const esCredito = esCreditoAsiento(cuentas, lines);
+
+  // El asiento y su Transaction (la fuente de metadata que lee el sync) nacen
+  // juntos: si falla una de las dos, no queda un asiento sin tercero.
+  let entry: any;
+  try {
+    entry = await req.prisma.$transaction(async (tx: any) => {
+      const created = await tx.journalEntry.create({
+        data: {
+          date: parseLocalDate(date),
+          description,
+          companyId,
+          createdById: userId,
+          lines: {
+            create: lines.map((l: { accountId: string; debit?: number; credit?: number }) => ({
+              accountId: l.accountId,
+              debit: l.debit || 0,
+              credit: l.credit || 0,
+            })),
+          },
+        },
+        include: { lines: { include: { account: true } } },
+      });
+
+      if (conTercero) {
+        await tx.transaction.create({
+          data: {
+            type: tipo,
+            amount: Math.round(totalDebit * 100) / 100,
+            description,
+            concept: description,
+            paymentMethod: esCredito ? 'CREDITO' : null,
+            date: parseLocalDate(date),
+            companyId,
+            createdById: userId,
+            journalEntryId: created.id,
+            metadata: JSON.stringify(datosTerceroAsiento(tercero)),
+          },
+        });
+      }
+      return created;
+    });
+  } catch (e: any) {
+    res.status(e?.status || 500).json({ error: e?.message || 'No se pudo crear el asiento' });
+    return;
+  }
+
+  // Crear/actualizar el maestro (cliente en ventas, proveedor en compras/gastos)
+  if (conTercero) {
+    try {
+      await syncEntityFromEntry(req.prisma, companyId, entry);
+    } catch (e) { /* el asiento ya quedó; el sync no debe tumbar la creación */ }
+  }
 
   // Contar como movimiento (asiento contable creado)
   await incrementUsage(req);
@@ -349,13 +514,23 @@ journalRouter.post('/:id/anular', requireRole('admin', 'contador', 'superadmin')
 
 // PUT /:id — Editar un asiento BORRADOR (solo admin)
 journalRouter.put('/:id', requireRole('admin', 'superadmin'), validate(updateJournalEntrySchema), async (req, res) => {
-  const { date, description, lines } = req.body;
+  const { date, description, lines, provider, ruc, reference } = req.body;
+  const companyId = req.user!.companyId;
+  const userId = req.user!.userId;
 
   // Editar un borrador con cuenta bloqueada se rechaza (anular sí se permite)
-  const blocked = await checkNotBlocked(req.prisma, req.user!.companyId, lines.map((l: { accountId: string }) => l.accountId));
+  const blocked = await checkNotBlocked(req.prisma, companyId, lines.map((l: { accountId: string }) => l.accountId));
   if (blocked) { res.status(400).json({ error: blocked }); return; }
 
   try {
+    const cuentas = await cuentasDeLineas(req.prisma, companyId, lines);
+    const tercero = leerTercero({ provider, ruc, reference });
+    const faltaTercero = faltaTerceroAnexo(cuentas, lines, tercero);
+    if (faltaTercero) { res.status(400).json({ error: faltaTercero }); return; }
+    const tocaTercero = provider !== undefined || ruc !== undefined || reference !== undefined;
+    const tipo = tipoDeAsiento(cuentas, lines);
+    const esCredito = esCreditoAsiento(cuentas, lines);
+
     const result = await req.prisma.$transaction(async (tx: any) => {
       const entry = await tx.journalEntry.findFirst({
         where: { id: req.params.id, companyId: req.user!.companyId },
@@ -409,6 +584,60 @@ journalRouter.put('/:id', requireRole('admin', 'superadmin'), validate(updateJou
           createdBy: { select: { name: true } },
         },
       });
+
+      // Mantener la Transaction (metadata del tercero y tipo del asiento) en
+      // línea con las líneas editadas. Los asientos que no tienen tercero no
+      // crean Transaction: no hay nada que sincronizar.
+      const existingTxn = await tx.transaction.findFirst({
+        where: { journalEntryId: entry.id },
+        select: { id: true, metadata: true },
+      });
+      if (existingTxn) {
+        let m: any = {};
+        try { m = JSON.parse(existingTxn.metadata || '{}'); } catch { /* metadata corrupta: se rehace */ }
+        const esManual = !m.source || m.source === 'asiento-manual';
+        const metadata = { ...m };
+        if (tocaTercero) {
+          const cambiaProveedor =
+            (provider !== undefined && (m.provider || null) !== tercero.provider) ||
+            (ruc !== undefined && (m.ruc || null) !== tercero.ruc);
+          // Si cambia la identidad, los ids viejos apuntan a otro maestro:
+          // el sync los vuelve a escribir con el que corresponda.
+          if (cambiaProveedor) { delete metadata.supplierId; delete metadata.clientId; }
+          if (provider !== undefined) metadata.provider = tercero.provider;
+          if (ruc !== undefined) metadata.ruc = tercero.ruc;
+          if (reference !== undefined) {
+            metadata.reference = tercero.reference;
+            metadata.invoiceNumber = tercero.reference;
+          }
+          if (esManual) metadata.fiscalSource = 'MANUAL';
+        }
+        if (esManual) metadata.source = metadata.source || 'asiento-manual';
+        const data: any = { metadata: JSON.stringify(metadata) };
+        if (esManual) {
+          data.type = tipo;
+          data.amount = Math.round(totalDebit * 100) / 100;
+          data.description = description;
+          data.concept = description;
+          data.paymentMethod = esCredito ? 'CREDITO' : null;
+        }
+        await tx.transaction.update({ where: { id: existingTxn.id }, data });
+      } else if (tocaTercero && cuentaDeTercero(cuentas) && (tercero.provider || tercero.ruc)) {
+        await tx.transaction.create({
+          data: {
+            type: tipo,
+            amount: Math.round(totalDebit * 100) / 100,
+            description,
+            concept: description,
+            paymentMethod: esCredito ? 'CREDITO' : null,
+            date: parseLocalDate(date),
+            companyId,
+            createdById: userId,
+            journalEntryId: entry.id,
+            metadata: JSON.stringify(datosTerceroAsiento(tercero)),
+          },
+        });
+      }
 
       return { updated, previousLines: entry.lines.length };
     });

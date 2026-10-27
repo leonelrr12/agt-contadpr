@@ -34,6 +34,8 @@ export interface CounterpartyInput {
   taxIdType?: string | null;
   /** MANUAL | XML | PDF | OCR | IMPORT | CHAT — trazabilidad del perfil. */
   fiscalSource?: string | null;
+  /** Concepto contable que dio origen al alta (solo se escribe al CREAR). */
+  notes?: string | null;
 }
 
 /** Campos fiscales que se completan solo si el registro no los tiene. */
@@ -206,6 +208,9 @@ export async function findOrCreateSupplier(prisma: any, companyId: string, input
   const name = (input.name || '').trim();
   if (!name) throw new Error('El nombre del proveedor es requerido');
   const f = fiscal(input);
+  // La nota es la traza del alta (p. ej. "Concepto: Honorarios"): se escribe
+  // solo al crear. El registro existente manda y no se pisa.
+  const notes = String(input.notes ?? '').trim();
 
   const existing = await findSupplier(prisma, companyId, { name, taxId: input.taxId });
   if (existing) return completarFiscal(prisma, 'supplier', existing, input, f);
@@ -219,6 +224,7 @@ export async function findOrCreateSupplier(prisma: any, companyId: string, input
         taxIdHash: f.hash,
         ...(f.dv ? { dv: f.dv } : {}),
         ...limpiar(input),
+        ...(notes ? { notes } : {}),
         ...(input.fiscalSource ? { fiscalSource: input.fiscalSource, fiscalUpdatedAt: new Date() } : {}),
       },
     });

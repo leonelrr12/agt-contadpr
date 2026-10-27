@@ -63,6 +63,11 @@ export const createJournalEntrySchema = z.object({
     debit: z.number().min(0).optional().default(0),
     credit: z.number().min(0).optional().default(0),
   })).min(2, 'Se requieren al menos 2 líneas de asiento'),
+  // Tercero del asiento manual (Anexo DGI / venta / compra). Opcional para los
+  // asientos que no tocan terceros; las cuentas con Anexo lo exigen.
+  provider: z.string().nullable().optional(),
+  ruc: z.string().nullable().optional(),
+  reference: z.string().nullable().optional(),
 });
 
 export const reviewJournalSchema = z.object({
@@ -82,6 +87,9 @@ export const updateJournalEntrySchema = z.object({
     debit: z.number().min(0).optional().default(0),
     credit: z.number().min(0).optional().default(0),
   })).min(2, 'Se requieren al menos 2 líneas de asiento'),
+  provider: z.string().nullable().optional(),
+  ruc: z.string().nullable().optional(),
+  reference: z.string().nullable().optional(),
 });
 
 // ── Orchestrate ──
