@@ -4,7 +4,7 @@ import { AccountingAgent } from './accounting-agent';
 import { checkNotBlocked } from './journal-guard';
 import type { DialogResult, DialogContext, PrismaLike } from './types';
 import type { AccountingEntry } from './accounting-agent';
-import { missingAnexoFields, hashRucBase, normalizarNombreTercero, separarRucDv } from '@agt-contador/shared';
+import { missingAnexoFields, hashRucBase, normalizarNombreTercero, separarIdentificacion, esIdentificacionEmpresa } from '@agt-contador/shared';
 
 /**
  * El hash del RUC y la normalización de nombres viven en
@@ -878,7 +878,15 @@ export class OrchestratorAgent {
     // se creaba el cliente si había CxC (CREDITO). El Invoice sigue naciendo
     // únicamente a crédito (ver autoCreateEntity).
     const esVenta = ['VENTA', 'COBRO_CLIENTE'].includes(String(dialog.type));
-    if (dialog.provider && (esCompraOGasto || esVenta || dialog.paymentMethod === 'CREDITO' || vieneDeAnexo)) {
+    const esCxP = dialog.paymentMethod === 'CREDITO';
+    // Regla B: fuera de Anexo, CxP o pago a proveedor, el maestro solo recibe
+    // EMPRESAS (RUC/NT). Una persona en un gasto sin Anexo (6.01.16/18) no crea
+    // proveedor; sí lo haría si es Honorarios (Anexo) o una compra a crédito.
+    const permisoProveedor = vieneDeAnexo || esCxP || String(dialog.type) === 'PAGO_PROVEEDOR';
+    const proveedorOk = dialog.provider && !esVenta
+      ? await this.proveedorEsEmpresa(dialog, permisoProveedor)
+      : true;
+    if (dialog.provider && (esVenta || ((esCompraOGasto || esCxP || vieneDeAnexo) && proveedorOk))) {
       const conceptoOrigen = String(dialog.concept || cuentaAnexo?.name || '').trim();
       const notas = vieneDeAnexo && conceptoOrigen ? `Concepto: ${conceptoOrigen}` : null;
       autoCreated = await this.autoCreateEntity(dialog, entryData.id, result.selectedEntityId, {
@@ -1026,6 +1034,26 @@ export class OrchestratorAgent {
     return null;
   }
 
+  /** Regla B: ¿el proveedor es una empresa (RUC/NT) o una persona? */
+  private async proveedorEsEmpresa(dialog: any, permiso: boolean): Promise<boolean> {
+    if (permiso) return true;
+    const name = String(dialog.provider || '').trim();
+    if (!name) return false;
+    const existente = await this.findSupplierByName(name, dialog.ruc);
+    if (existente) {
+      return esIdentificacionEmpresa({
+        taxIdType: existente.taxIdType,
+        taxId: existente.taxId,
+        dv: existente.dv,
+      });
+    }
+    return esIdentificacionEmpresa({
+      taxIdType: dialog.taxIdType,
+      taxId: dialog.ruc,
+      dv: dialog.dv,
+    });
+  }
+
   /**
    * Auto-crea un Client o Supplier según el tipo de transacción.
    * Si ya existe (incluso con nombre similar), lo reutiliza.
@@ -1039,8 +1067,9 @@ export class OrchestratorAgent {
     const name = dialog.provider?.trim();
     if (!name) return null;
     // El RUC puede venir con el DV pegado (`...-50`): se guarda la base en
-    // taxId y el DV aparte, igual que la API y el backfill.
-    const fisc = separarRucDv(dialog.ruc);
+    // taxId y el DV aparte, igual que la API y el backfill. Una cédula
+    // (`8-819-33`) se guarda entera: el último grupo no es un DV.
+    const fisc = separarIdentificacion(dialog.ruc);
 
     const isCustomer = dialog.type === 'VENTA' || dialog.type === 'COBRO_CLIENTE';
     const isSupplier =

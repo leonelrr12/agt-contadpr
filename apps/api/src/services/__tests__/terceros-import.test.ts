@@ -64,6 +64,22 @@ describe('parseTercerosFile', () => {
     expect(rows[0].error).toContain('no coincide');
   });
 
+  it('la columna DV manda: no parte una base que termina en 1-2 dígitos', async () => {
+    const rows = await parseTercerosFile(csv(
+      'Proveedor,8-819-43,33,Ferreteria Valle Dorado,,CEDULA,,,,,,',
+    ), 'terceros.csv');
+    expect(rows[0].taxId).toBe('8-819-43');
+    expect(rows[0].dv).toBe('33');
+  });
+
+  it('quita el DV del RUC cuando la columna DV lo repite', async () => {
+    const rows = await parseTercerosFile(csv(
+      'Proveedor,8-819-43-33,33,Ferreteria Valle Dorado,,CEDULA,,,,,,',
+    ), 'terceros.csv');
+    expect(rows[0].taxId).toBe('8-819-43');
+    expect(rows[0].dv).toBe('33');
+  });
+
   it('marca error si la ubicación no es PP-DD-CC', async () => {
     const rows = await parseTercerosFile(csv(
       'Cliente,8-733-2267,88,Cliente X,,RUC,,,,MAL,',

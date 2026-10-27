@@ -41,7 +41,7 @@ function rucValido(raw: unknown): boolean {
 async function main() {
   const { PrismaClient } = await import('@agt-contador/prisma-schema');
   const { encryptField, decryptField, encryptionEnabled } = await import('../apps/api/src/services/crypto-fields');
-  const { separarRucDv, normalizarRucBase, normalizarNombreTercero, hashField } = await import('@agt-contador/shared');
+  const { separarRucDv, normalizarRucBase, normalizarNombreTercero, hashField, esIdentificacionEmpresa } = await import('@agt-contador/shared');
 
   if (!encryptionEnabled()) {
     console.error('❌ FIELD_ENC_KEY no está definida: no se puede cifrar el RUC/teléfono/email de los proveedores.');
@@ -54,11 +54,26 @@ async function main() {
   const [txs, claims, existentes] = await Promise.all([
     prisma.transaction.findMany({
       where: { type: { in: ['GASTO', 'COMPRA'] } },
-      select: { id: true, companyId: true, metadata: true },
+      select: {
+        id: true, companyId: true, metadata: true,
+        journalEntry: {
+          select: {
+            lines: {
+              select: {
+                debit: true, credit: true,
+                account: { select: { code: true, requiresAnexo: true } },
+              },
+            },
+          },
+        },
+      },
     }),
     prisma.expenseClaim.findMany({
       where: { proveedor: { not: null } },
-      select: { id: true, companyId: true, proveedor: true, rucEmisor: true, dgiUrl: true, origen: true },
+      select: {
+        id: true, companyId: true, proveedor: true, rucEmisor: true,
+        dgiUrl: true, origen: true, workerId: true,
+      },
     }),
     prisma.supplier.findMany({
       select: { id: true, companyId: true, name: true, taxId: true, dv: true, phone: true, email: true, address: true },
@@ -78,9 +93,11 @@ async function main() {
     companyId: string; name: string; taxId: string | null; dv: string | null;
     phone: string | null; email: string | null; address: string | null; location: string | null;
     taxIdType: string | null; fiscalSource: string | null;
+    /** Regla B: el candidato entra al maestro solo por Anexo, CxP, RUC o reembolso. */
+    tieneAnexo?: boolean; tieneCxP?: boolean; esEmpresa?: boolean; worker?: boolean;
   };
   const candidatos = new Map<string, Candidato>();
-  const stats = { tx: txs.length, claims: claims.length, sinNombre: 0, ruido: 0, conflictoNombre: 0 };
+  const stats = { tx: txs.length, claims: claims.length, sinNombre: 0, ruido: 0, conflictoNombre: 0, sinRegla: 0 };
 
   const agregar = (c: Candidato) => {
     const name = String(c.name || '').trim();
@@ -89,6 +106,7 @@ async function main() {
     const ruc = rucValido(c.taxId) ? c.taxId : null;
     const partes = separarRucDv(ruc);
     const base = normalizarRucBase(ruc);
+    const esEmpresa = esIdentificacionEmpresa({ taxIdType: c.taxIdType, taxId: c.taxId, dv: c.dv });
     // La clave es el nombre normalizado: el schema tiene unique (companyId,name),
     // así que dos variantes con RUC y sin RUC son el MISMO proveedor.
     const key = `N|${c.companyId}|${normalizarNombreTercero(name)}`;
@@ -105,6 +123,10 @@ async function main() {
         location: c.location || null,
         taxIdType: c.taxIdType || null,
         fiscalSource: c.fiscalSource || null,
+        tieneAnexo: !!c.tieneAnexo,
+        tieneCxP: !!c.tieneCxP,
+        esEmpresa,
+        worker: !!c.worker,
       });
       return;
     }
@@ -123,11 +145,18 @@ async function main() {
     prev.location ||= c.location || null;
     prev.taxIdType ||= c.taxIdType || null;
     prev.fiscalSource ||= c.fiscalSource || null;
+    prev.tieneAnexo ||= !!c.tieneAnexo;
+    prev.tieneCxP ||= !!c.tieneCxP;
+    prev.esEmpresa ||= esEmpresa;
+    prev.worker ||= !!c.worker;
   };
 
   for (const tx of txs) {
     let m: any = {};
     try { m = JSON.parse(tx.metadata || '{}'); } catch { /* metadata rota */ }
+    const lineas = (tx as any).journalEntry?.lines || [];
+    const tieneAnexo = lineas.some((l: any) => (l.debit || 0) > 0 && l.account?.requiresAnexo);
+    const tieneCxP = lineas.some((l: any) => (l.credit || 0) > 0 && l.account?.code === '2.1.01');
     agregar({
       companyId: tx.companyId,
       name: m.provider || '',
@@ -139,6 +168,8 @@ async function main() {
       location: m.location || null,
       taxIdType: m.taxIdType || null,
       fiscalSource: m.fiscalSource || 'IMPORT',
+      tieneAnexo,
+      tieneCxP,
     });
   }
   for (const c of claims) {
@@ -148,6 +179,7 @@ async function main() {
       taxId: c.rucEmisor || null,
       dv: null, phone: null, email: null, address: null, location: null, taxIdType: null,
       fiscalSource: (c.dgiUrl ? 'PDF' : 'MANUAL'),
+      worker: !!c.workerId,
     });
   }
 
@@ -158,6 +190,11 @@ async function main() {
   const simNombre = new Map(porNombre);
   const porEmpresa = new Map<string, { nuevos: number; existentes: number }>();
   for (const c of candidatos.values()) {
+    // Regla B: sin Anexo, CxP, RUC ni reembolso no se crea proveedor.
+    if (!c.tieneAnexo && !c.tieneCxP && !c.esEmpresa && !c.worker) {
+      stats.sinRegla++;
+      continue;
+    }
     const base = normalizarRucBase(c.taxId);
     const nombre = normalizarNombreTercero(c.name);
     const match = (base && simRuc.get(`${c.companyId}|${base}`))
@@ -179,7 +216,7 @@ async function main() {
 
   console.log(`\n=== Backfill de proveedores históricos ${APLICAR ? '(APLICANDO)' : '(dry-run)'} ===`);
   console.log(`Transactions GASTO/COMPRA: ${stats.tx} · ExpenseClaim: ${stats.claims}`);
-  console.log(`Sin nombre: ${stats.sinNombre} · Descartados como ruido: ${stats.ruido}`);
+  console.log(`Sin nombre: ${stats.sinNombre} · Descartados como ruido: ${stats.ruido} · Sin regla B (sin Anexo/CxP/RUC/worker): ${stats.sinRegla}`);
   if (stats.conflictoNombre) console.log(`⚠️ Nombres normalizados con RUC distinto (se conserva el primero): ${stats.conflictoNombre}`);
   console.log(`Proveedores únicos (RUC/nombre): ${candidatos.size}`);
   console.log(`Ya existen: ${existentesMatch} · Se fusionan por RUC/nombre repetido: ${fusionados} · A crear: ${nuevos}`);
@@ -200,6 +237,7 @@ async function main() {
 
   let creados = 0;
   for (const c of candidatos.values()) {
+    if (!c.tieneAnexo && !c.tieneCxP && !c.esEmpresa && !c.worker) continue;
     const base = normalizarRucBase(c.taxId);
     const ya = (base && porRuc.get(`${c.companyId}|${base}`))
       || porNombre.get(`${c.companyId}|${normalizarNombreTercero(c.name)}`);

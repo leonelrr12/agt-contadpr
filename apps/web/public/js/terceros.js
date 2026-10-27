@@ -165,6 +165,35 @@ function terceroHaystack(t) {
   ].join(' '));
 }
 
+/**
+ * Refresca UN tercero en memoria con la fila que devolvió el POST/PUT, sin
+ * recargar toda la lista. Se fusiona con la copia local para conservar las
+ * facturas/bills que usa el estado de cuenta (la fila sola no los trae).
+ */
+function actualizarTerceroEnMemoria(tipo, data) {
+  if (!data || !data.id) { loadTerceros(); return; }
+  const idx = _terceros.findIndex((t) => t.tipo === tipo && t.data.id === data.id);
+  if (idx >= 0) {
+    _terceros[idx].data = { ..._terceros[idx].data, ...data };
+    _terceros[idx]._eco = ecoTercero(_terceros[idx]);
+  } else {
+    const nuevo = { tipo, data };
+    nuevo._eco = ecoTercero(nuevo);
+    _terceros.push(nuevo);
+  }
+  _tercerosResumen = calcularResumenTerceros(_terceros);
+  renderTerceros();
+}
+
+/** Quita un tercero eliminado sin volver a pedir las dos listas completas. */
+function quitarTerceroEnMemoria(tipo, id) {
+  const idx = _terceros.findIndex((t) => t.tipo === tipo && t.data.id === id);
+  if (idx < 0) { loadTerceros(); return; }
+  _terceros.splice(idx, 1);
+  _tercerosResumen = calcularResumenTerceros(_terceros);
+  renderTerceros();
+}
+
 function renderTerceros() {
   const list = document.getElementById('terceros-list');
   const resumen = document.getElementById('terceros-resumen');
@@ -232,6 +261,7 @@ function renderTerceros() {
     ];
     if (puede) {
       acciones.push(
+        `<button onclick="abrirFusionTercero('${t.tipo}', '${d.id}')" title="Fusionar con otro ${t.tipo.toLowerCase()}" style="padding:3px 8px;font-size:11px;background:#7c3aed;color:#fff;border:none;border-radius:4px;cursor:pointer">🔀</button>`,
         `<button onclick="abrirTerceroModal('${t.tipo}', '${d.id}')" title="Editar ${t.tipo.toLowerCase()}" style="padding:3px 8px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">✏️</button>`,
         `<button onclick="eliminarTercero('${t.tipo}', '${d.id}')" title="Eliminar ${t.tipo.toLowerCase()}" style="padding:3px 8px;font-size:11px;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer">🗑️</button>`,
       );
@@ -406,6 +436,152 @@ function renderEstadoTerceroHtml(d) {
     </div>`;
 }
 
+/* ── Fusionar un tercero duplicado ── */
+
+function abrirFusionTercero(tipo, id) {
+  if (!puedeEditarTerceros()) return;
+  const origen = _terceros.find((t) => t.tipo === tipo && t.data.id === id);
+  if (!origen) { showAlert('No se encontró el tercero'); return; }
+  const candidatos = _terceros.filter((t) => t.tipo === tipo && t.data.id !== id);
+  if (!candidatos.length) { showAlert(`No hay otro ${tipo.toLowerCase()} para fusionar.`); return; }
+
+  const docsDe = (d) => (tipo === 'Cliente' ? d.invoices : d.bills) || [];
+  const etiquetaRuc = (d) => [d.taxId, d.dv].filter(Boolean).join('-') || 'Sin RUC/Cédula';
+  let destinoId = '';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'app-dialog-overlay';
+  overlay.id = 'tercero-fusion-overlay';
+  overlay.innerHTML = `<div class="app-dialog" style="max-width:760px;max-height:90vh;overflow-y:auto">
+    <div style="font-weight:700;font-size:16px;margin-bottom:4px">🔀 Fusionar ${tipo.toLowerCase()}</div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:12px">El registro actual <strong>${escapeHtml(origen.data.name || '—')}</strong> se eliminará; todo su historial pasa al maestro que elijas. El nombre y el RUC del maestro se conservan.</div>
+    <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px">Buscar el maestro que se conserva</label>
+    <input id="fusion-search" type="search" placeholder="Nombre, RUC o DV..." style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px;margin-bottom:8px">
+    <div id="fusion-list" style="max-height:240px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:12px;background:#fff"></div>
+    <div id="fusion-preview" style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;font-size:12px;color:#374151;margin-bottom:12px">Elegí el maestro que se conserva.</div>
+    <div class="app-dialog-buttons">
+      <button class="app-dialog-btn secondary" id="fusion-cancel">Cancelar</button>
+      <button class="app-dialog-btn primary" id="fusion-confirm" disabled>🔀 Fusionar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  const list = overlay.querySelector('#fusion-list');
+  const preview = overlay.querySelector('#fusion-preview');
+  const confirm = overlay.querySelector('#fusion-confirm');
+  const search = overlay.querySelector('#fusion-search');
+
+  const renderLista = () => {
+    const terms = normalizeSearch(search.value || '').split(/\s+/).filter(Boolean);
+    const shown = candidatos.filter((t) => {
+      const d = t.data || {};
+      const hay = normalizeSearch(`${d.name || ''} ${d.tradeName || ''} ${d.taxId || ''} ${d.dv || ''}`);
+      return terms.every((x) => hay.includes(x));
+    });
+    list.innerHTML = shown.length
+      ? shown.map((t) => {
+          const d = t.data || {};
+          const sel = d.id === destinoId;
+          return `<button type="button" data-id="${d.id}" style="display:block;width:100%;text-align:left;padding:8px 10px;border:none;border-bottom:1px solid #f1f5f9;background:${sel ? '#eff6ff' : '#fff'};cursor:pointer">
+            <div style="font-weight:600;font-size:12px;color:#1a1a2e">${escapeHtml(d.name || '—')}</div>
+            <div style="font-size:10px;color:#6b7280">${escapeHtml(etiquetaRuc(d))} · ${docsDe(d).length} documento(s) formal(es)</div>
+          </button>`;
+        }).join('')
+      : '<div style="padding:14px;color:#6b7280;font-size:12px">Sin coincidencias.</div>';
+    list.querySelectorAll('button[data-id]').forEach((btn) => {
+      btn.onclick = () => {
+        destinoId = btn.dataset.id;
+        renderLista();
+        actualizarPreview();
+      };
+    });
+  };
+
+  const actualizarPreview = () => {
+    const target = candidatos.find((t) => t.data.id === destinoId);
+    if (!target) {
+      preview.textContent = 'Elegí el maestro que se conserva.';
+      confirm.disabled = true;
+      return;
+    }
+    const d0 = origen.data || {};
+    const d1 = target.data || {};
+    preview.innerHTML = `<div style="font-weight:600;margin-bottom:4px">Maestro: ${escapeHtml(d1.name || '—')}</div>
+      <div style="font-size:11px;color:#6b7280">${escapeHtml(etiquetaRuc(d1))} · ${docsDe(d1).length} documento(s) formal(es)</div>
+      <div style="margin-top:8px;border-top:1px solid #e5e7eb;padding-top:8px">Se elimina: <strong>${escapeHtml(d0.name || '—')}</strong> (${escapeHtml(etiquetaRuc(d0))})</div>
+      <div style="font-size:11px;color:#6b7280;margin-top:4px">Se mueven ${docsDe(d0).length} documento(s) formal(es), movimientos de inventario/cuentas de trabajador (si aplica) y la metadata de las Transactions.</div>`;
+    confirm.disabled = false;
+  };
+
+  const post = (forzar) => authFetch(`${API_URL}/terceros/fusionar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tipo, origenId: id, destinoId, forzar }),
+  });
+
+  search.oninput = renderLista;
+  overlay.querySelector('#fusion-cancel').onclick = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+  confirm.onclick = async () => {
+    const target = candidatos.find((t) => t.data.id === destinoId);
+    if (!target) return;
+    const ok = await showConfirm(
+      `¿Fusionar "${origen.data.name}" dentro de "${target.data.name}"?\n\n`
+      + 'Se mueven facturas/bills, movimientos y metadata; el registro duplicado se elimina. '
+      + 'El nombre y el RUC del maestro se conservan.',
+    );
+    if (!ok) return;
+
+    confirm.disabled = true;
+    confirm.textContent = 'Fusionando...';
+    try {
+      let res = await post(false);
+      let data = await res.json().catch(() => ({}));
+      if (!res.ok && data.code === 'RUC_DISTINTO') {
+        const ok2 = await showConfirm(
+          `⚠️ Los RUC son distintos:\n\n`
+          + `${origen.data.name}: ${etiquetaRuc(origen.data)}\n`
+          + `${target.data.name}: ${etiquetaRuc(target.data)}\n\n`
+          + '¿Confirmás que son el mismo tercero? Se conservará el RUC del maestro.',
+        );
+        if (!ok2) {
+          confirm.disabled = false;
+          confirm.textContent = '🔀 Fusionar';
+          return;
+        }
+        res = await post(true);
+        data = await res.json().catch(() => ({}));
+      }
+      if (!res.ok) {
+        await showAlert(`❌ ${data.error || 'No se pudo fusionar'}`);
+        confirm.disabled = false;
+        confirm.textContent = '🔀 Fusionar';
+        return;
+      }
+      overlay.remove();
+      const m = data.movidos || {};
+      await showAlert(
+        `✅ Fusionado.\n\n`
+        + `Facturas de proveedor: ${m.bills || 0}\n`
+        + `Facturas de cliente: ${m.invoices || 0}\n`
+        + `Retenciones: ${m.retenciones || 0}\n`
+        + `Cuentas de trabajador: ${m.workerAccounts || 0}\n`
+        + `Movimientos de inventario: ${m.inventoryMovements || 0}\n`
+        + `Movimientos con tercero: ${m.transactions || 0}`,
+      );
+      loadTerceros();
+    } catch (e) {
+      await showAlert('Error de conexión');
+      confirm.disabled = false;
+      confirm.textContent = '🔀 Fusionar';
+    }
+  };
+
+  renderLista();
+  setTimeout(() => search.focus(), 0);
+}
+
 /** Formulario único de alta/edición. El tipo solo se elige al crear. */
 function abrirTerceroModal(tipo, id) {
   if (!puedeEditarTerceros()) return;
@@ -442,7 +618,7 @@ function abrirTerceroModal(tipo, id) {
         <input id="tercero-tradeName" maxlength="200" value="${val('tradeName')}" style="${campo}">
       </div>
       <div>
-        <label style="${label}">RUC / Cédula (sin DV)</label>
+        <label style="${label}">RUC / Cédula</label>
         <input id="tercero-taxId" maxlength="30" value="${val('taxId')}" placeholder="8-733-2267" style="${campo}">
       </div>
       <div>
@@ -543,7 +719,7 @@ async function guardarTercero(overlay, tipoInicial, id) {
     }
     overlay.remove();
     await showAlert(`✅ ${tipo} ${id ? 'actualizado' : 'creado'}.`);
-    loadTerceros();
+    actualizarTerceroEnMemoria(tipo, data);
   } catch (e) {
     await showAlert('Error de conexión');
     save.disabled = false;
@@ -563,6 +739,6 @@ async function eliminarTercero(tipo, id) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { await showAlert(`❌ ${data.error || 'No se pudo eliminar'}`); return; }
     await showAlert('✅ Tercero eliminado.');
-    loadTerceros();
+    quitarTerceroEnMemoria(tipo, id);
   } catch (e) { await showAlert('Error de conexión'); }
 }

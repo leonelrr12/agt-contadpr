@@ -16,6 +16,8 @@
  * el reverso.
  */
 
+import { crearTransaccionReversion } from './reversion-transaction';
+
 export interface AsientoAnulado {
   original: any;
   reversal: any;
@@ -56,8 +58,20 @@ export async function anularAsiento(
     include: { lines: { include: { account: true } } },
   });
 
-  // La Transaction se queda con el original: es el registro del hecho económico. El
-  // reverso se identifica por su descripción, que `entry-origin` ya reconoce.
+  // El original conserva su Transaction (el hecho económico existió). El reverso
+  // lleva su propia Transaction con importe negativo: así los reportes que suman
+  // Transaction.amount (Anexos, Proveedores) netean en el período de la corrección
+  // en vez de mostrar dos compras o de ignorar la anulación.
+  await crearTransaccionReversion(tx, {
+    companyId,
+    userId,
+    journalEntryId: reversal.id,
+    originalJournalEntryId: original.id,
+    description: reversal.description,
+    date: reversal.date,
+    source: 'anulacion',
+  });
+
   await tx.journalEntry.update({
     where: { id: original.id },
     data: { anuladoPorId: reversal.id },

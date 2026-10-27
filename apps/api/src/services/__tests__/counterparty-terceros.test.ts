@@ -149,4 +149,54 @@ describe('identidad canónica de terceros', () => {
     expect(s.location).toBe('8-8-8');
     expect(s.fiscalSource).toBe('PDF');
   });
+
+  it('una cédula se guarda entera: el último grupo no es DV', async () => {
+    const prisma: any = fakePrisma();
+    const s = await findOrCreateSupplier(prisma, 'co-1', {
+      name: 'Ferreteria Valle Dorado',
+      taxId: '8-819-33',
+      taxIdType: 'CEDULA',
+    });
+
+    expect(s.taxId).toBe('8-819-33');
+    expect(s.dv == null).toBe(true);
+    expect(s.taxIdHash).toBe(hashRucBase('8-819-33'));
+  });
+
+  it('sin tipo, la forma también distingue la cédula del RUC', async () => {
+    const prisma: any = fakePrisma();
+    const c = await findOrCreateClient(prisma, 'co-1', {
+      name: 'Jose Velasquez',
+      taxId: '8-940-27',
+    });
+
+    expect(c.taxId).toBe('8-940-27');
+    expect(c.dv == null).toBe(true);
+  });
+
+  it('un DV explícito conserva la base aunque termine en 1-2 dígitos', async () => {
+    const prisma: any = fakePrisma();
+    const s = await findOrCreateSupplier(prisma, 'co-1', {
+      name: 'Ferreteria Valle Dorado',
+      taxId: '8-819-43',
+      dv: '33',
+      taxIdType: 'CEDULA',
+    });
+
+    expect(s.taxId).toBe('8-819-43');
+    expect(s.dv).toBe('33');
+  });
+
+  it('si el RUC completo trae el DV pegado, se quita de la base', async () => {
+    const prisma: any = fakePrisma();
+    const s = await findOrCreateSupplier(prisma, 'co-1', {
+      name: 'Ferreteria Valle Dorado',
+      taxId: '8-819-43-33',
+      dv: '33',
+      taxIdType: 'CEDULA',
+    });
+
+    expect(s.taxId).toBe('8-819-43');
+    expect(s.dv).toBe('33');
+  });
 });

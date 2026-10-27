@@ -43,7 +43,7 @@ import { planRateLimiter } from './middleware/plan-rate-limit';
 import { requireAuth, requireRole, limitarRolesExclusivos } from './middleware/auth';
 import { errorHandler, notFoundHandler } from './middleware/error-handler';
 import { encryptData, decryptResult } from './services/crypto-fields';
-import { hashRucBase, separarRucDv } from '@agt-contador/shared';
+import { hashRucBase, separarIdentificacion } from '@agt-contador/shared';
 
 const app = express();
 const prisma: any = new PrismaClient().$extends({
@@ -57,17 +57,29 @@ const prisma: any = new PrismaClient().$extends({
           // Se hashea el RUC BASE (sin DV ni separadores) y, si el taxId trae
           // el DV pegado (`...-50`), se guarda aparte en `dv`: así el mismo
           // tercero no se duplica por escribirlo con o sin DV.
+          // Un DV explícito manda: el taxId ya es la base y NO se vuelve a
+          // partir (`8-819-43` + DV `33` perdería `-43` en el próximo save).
+          // Sin DV explícito se separa según el tipo/la forma.
           // Al vaciar el RUC se limpia el hash (evita dedupe obsoleto).
           const d: any = (args as any).data;
           if (d && 'taxId' in d) {
             const taxIdPlain = d.taxId;
             if (typeof taxIdPlain === 'string' && taxIdPlain && !taxIdPlain.startsWith('v1:')) {
-              const partes = separarRucDv(taxIdPlain);
-              if (partes.base) d.taxId = partes.base;
-              if (partes.dv && d.dv == null) d.dv = partes.dv;
+              let base = taxIdPlain;
+              let dv: string | null = String(d.dv ?? '').trim() || null;
+              if (dv) {
+                const sufijo = `-${dv}`;
+                if (base.endsWith(sufijo)) base = base.slice(0, -sufijo.length).replace(/[^0-9A-Za-z]+$/, '');
+              } else {
+                const partes = separarIdentificacion(base, d.taxIdType);
+                base = partes.base;
+                dv = partes.dv;
+              }
+              if (base) d.taxId = base;
+              if (dv) d.dv = dv;
               // Sin FIELD_ENC_KEY el hash es '' (modo local): se guarda null
               // para no chocar con el unique de taxIdHash.
-              d.taxIdHash = hashRucBase(partes.base || taxIdPlain) || null;
+              d.taxIdHash = hashRucBase(base || taxIdPlain) || null;
             } else if (!taxIdPlain) {
               d.taxIdHash = null;
             }

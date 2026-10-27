@@ -10,6 +10,8 @@ import { hashRucBase } from '@agt-contador/shared';
  */
 
 const cuenta = { id: 'acc-1', code: '6.02.01', name: 'Honorarios', requiresAnexo: true };
+/** Una cuenta de banco con Anexo sí lista ventas/cobros (no es una cuenta 5.x/6.x). */
+const cuentaBanco = { id: 'acc-bank', code: '1.1.02.01', name: 'Banco General', requiresAnexo: true };
 
 const prismaStub = (
   txs: any[],
@@ -78,6 +80,30 @@ describe('Anexos-DGI: detalle y factura por movimiento', () => {
     expect(r.total).toBe(170.5);
   });
 
+  it('una venta con costo en una cuenta 5.x no entra al Anexo de esa cuenta', async () => {
+    const cuentaCosto = { id: 'acc-5', code: '5.01.01', name: 'Costo de Productos Vendidos', requiresAnexo: true };
+    const r = await buildAnexosDgiReport(prismaStub([
+      tx({ id: 'venta', type: 'VENTA', amount: 1000, description: 'Venta: CLIENTE XYZ', metadata: JSON.stringify({ provider: 'CLIENTE XYZ' }) }),
+      tx({ id: 'compra', type: 'COMPRA', amount: 50, description: 'Compra', metadata: JSON.stringify({ provider: 'PROVEEDOR XYZ', ruc: '8-1-1' }) }),
+    ]) as any, 'c1', { cuenta: cuentaCosto });
+
+    expect(r.terceros).toHaveLength(1);
+    expect(r.terceros[0].tercero).toBe('PROVEEDOR XYZ');
+    expect(r.total).toBe(50);
+  });
+
+  it('un reverso negativo netea al original del mismo tercero', async () => {
+    const r = await buildAnexosDgiReport(prismaStub([
+      tx({ id: 't1', type: 'GASTO', amount: 100, description: 'Compra', metadata: JSON.stringify({ provider: 'PROVEEDOR XYZ', ruc: '8-1-1' }) }),
+      tx({ id: 't2', type: 'GASTO', amount: -100, description: 'ANULACIÓN: Compra', metadata: JSON.stringify({ provider: 'PROVEEDOR XYZ', ruc: '8-1-1' }) }),
+    ]) as any, 'c1', { cuenta });
+
+    expect(r.totalTerceros).toBe(1);
+    expect(r.terceros[0].total).toBe(0);
+    expect(r.total).toBe(0);
+    expect(detalle(r).monto).toBe(100); // el detalle conserva cada movimiento
+  });
+
   it('una transacción sin tercero no entra al anexo', async () => {
     const r = await buildAnexosDgiReport(prismaStub([
       tx({ description: 'Sin proveedor', metadata: JSON.stringify({ source: 'import-masivo' }) }),
@@ -128,7 +154,7 @@ describe('Anexos-DGI: detalle y factura por movimiento', () => {
         { clients: [{ id: 'c2', name: 'CLIENTE MAESTRO', taxId: '8-555-777', dv: null }] },
       ) as any,
       'c1',
-      { cuenta },
+      { cuenta: cuentaBanco },
     );
 
     expect(r.terceros[0].tercero).toBe('CLIENTE MAESTRO');
@@ -164,7 +190,7 @@ describe('Anexos-DGI: detalle y factura por movimiento', () => {
         }] },
       ) as any,
       'c1',
-      { cuenta },
+      { cuenta: cuentaBanco },
     );
 
     expect(r.terceros[0].tercero).toBe('CLIENTE OFICIAL, S.A.');

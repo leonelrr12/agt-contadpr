@@ -676,6 +676,7 @@ async function showCreateEntryModal(originalEntry, originalEntryId, mode) {
             date: todayLocalStr(),
             description: `REVERSIÓN [ref:${originalEntryId.slice(0,12)}]: ${originalEntry.description || 'Asiento original'}`,
             lines: revLines,
+            reversalOf: originalEntryId,
           }),
         });
         if (!revRes.ok) {

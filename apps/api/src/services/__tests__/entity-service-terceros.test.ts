@@ -148,6 +148,54 @@ describe('terceros desde el asiento', () => {
     expect(prisma.rows.supplier).toHaveLength(0);
   });
 
+  it('regla B: un gasto sin Anexo a una cédula NO crea proveedor', async () => {
+    const prisma: any = fakePrisma({ provider: 'CARLOS ORTIZ PINEDA', ruc: '4-756-445' }, 'GASTO');
+    const lines = [
+      { account: { code: '6.01.16', name: 'Viáticos' }, debit: 100, credit: 0 },
+      { account: { code: '1.1.02.01', name: 'Banco' }, debit: 0, credit: 100 },
+    ];
+
+    const r = await syncEntityFromEntry(prisma, 'co-1', entry(lines));
+
+    expect(r).toBeNull();
+    expect(prisma.rows.supplier).toHaveLength(0);
+  });
+
+  it('regla B: un gasto sin Anexo a una EMPRESA con RUC sí crea proveedor', async () => {
+    const prisma: any = fakePrisma({ provider: 'S/M REY', ruc: '541-81-118009' }, 'GASTO');
+    const lines = [
+      { account: { code: '6.01.16', name: 'Viáticos' }, debit: 100, credit: 0 },
+      { account: { code: '1.1.02.01', name: 'Banco' }, debit: 0, credit: 100 },
+    ];
+
+    const r = await syncEntityFromEntry(prisma, 'co-1', entry(lines));
+
+    expect(r).toMatchObject({ type: 'proveedor_maestro', name: 'S/M REY' });
+    expect(prisma.rows.supplier).toHaveLength(1);
+  });
+
+  it('regla B: si ya existe un proveedor persona, un gasto sin Anexo no lo usa', async () => {
+    const prisma: any = fakePrisma({ provider: 'CARLOS ORTIZ PINEDA', ruc: '4-756-445' }, 'GASTO');
+    prisma.rows.supplier.push({
+      id: 's-persona',
+      companyId: 'co-1',
+      name: 'CARLOS ORTIZ PINEDA',
+      taxId: '4-756-445',
+      taxIdHash: null,
+      dv: null,
+      taxIdType: null,
+    });
+    const lines = [
+      { account: { code: '6.01.16', name: 'Viáticos' }, debit: 100, credit: 0 },
+      { account: { code: '1.1.02.01', name: 'Banco' }, debit: 0, credit: 100 },
+    ];
+
+    const r = await syncEntityFromEntry(prisma, 'co-1', entry(lines));
+
+    expect(r).toBeNull();
+    expect(prisma.rows.supplier).toHaveLength(1); // no crea ni toca el existente
+  });
+
   it('un débito en cuenta Anexo crea el proveedor con el concepto en Notas', async () => {
     // Tipo distinto de GASTO/COMPRA y sin línea 5.x/6.x: sin la regla de Anexo
     // este asiento NO creaba proveedor. La cuenta Anexo es la que lo justifica.

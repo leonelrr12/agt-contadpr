@@ -7,6 +7,7 @@ import { getAnioFiscal, anioFiscalRange } from '../lib/fiscal-year';
 import { logAudit } from '../services/audit-log';
 import { syncEntityFromEntry } from '../services/entity-service';
 import { anularAsiento } from '../services/journal-annul';
+import { crearTransaccionReversion } from '../services/reversion-transaction';
 import { resolveEntryOrigin } from '../services/entry-origin';
 import { requireQuota, incrementUsage } from '../middleware/quota';
 import { checkNotBlocked } from '../services/journal-guard';
@@ -116,6 +117,30 @@ function datosTerceroAsiento(tercero: TerceroAsiento) {
     fiscalSource: 'MANUAL',
     source: 'asiento-manual',
   };
+}
+
+/** El reverso tiene que espejar las cuentas y montos del original. */
+function lineasInversas(original: any[], nuevas: any[]): boolean {
+  const porCuenta = (ls: any[]) => {
+    const m = new Map<string, { d: number; c: number }>();
+    for (const l of ls || []) {
+      const k = String(l.accountId);
+      const x = m.get(k) || { d: 0, c: 0 };
+      x.d += Number(l.debit) || 0;
+      x.c += Number(l.credit) || 0;
+      m.set(k, x);
+    }
+    return m;
+  };
+  const a = porCuenta(original);
+  const b = porCuenta(nuevas);
+  if (a.size === 0 || a.size !== b.size) return false;
+  for (const [cuenta, x] of a) {
+    const y = b.get(cuenta);
+    if (!y) return false;
+    if (Math.abs(x.d - y.c) > 0.01 || Math.abs(x.c - y.d) > 0.01) return false;
+  }
+  return true;
 }
 
 journalRouter.get('/pendientes', async (req, res) => {
@@ -347,7 +372,7 @@ journalRouter.get('/:id', async (req, res) => {
 });
 
 journalRouter.post('/', requireQuota, validate(createJournalEntrySchema), async (req, res) => {
-  const { date, description, lines, provider, ruc, reference } = req.body;
+  const { date, description, lines, provider, ruc, reference, reversalOf } = req.body;
   const companyId = req.user!.companyId;
   const userId = req.user!.userId;
   const totalDebit = lines.reduce((s: number, l: { debit: number }) => s + (l.debit || 0), 0);
@@ -375,9 +400,11 @@ journalRouter.post('/', requireQuota, validate(createJournalEntrySchema), async 
     return;
   }
   const tercero = leerTercero({ provider, ruc, reference });
-  const faltaTercero = faltaTerceroAnexo(cuentas, lines, tercero);
+  // El reverso de una corrección es un espejo del original: no es un alta nueva
+  // de tercero y no debe exigir Nombre/RUC aunque toque una cuenta con Anexo.
+  const faltaTercero = reversalOf ? null : faltaTerceroAnexo(cuentas, lines, tercero);
   if (faltaTercero) { res.status(400).json({ error: faltaTercero }); return; }
-  const conTercero = cuentaDeTercero(cuentas) && !!(tercero.provider || tercero.ruc);
+  const conTercero = !reversalOf && cuentaDeTercero(cuentas) && !!(tercero.provider || tercero.ruc);
   const tipo = tipoDeAsiento(cuentas, lines);
   const esCredito = esCreditoAsiento(cuentas, lines);
 
@@ -386,6 +413,25 @@ journalRouter.post('/', requireQuota, validate(createJournalEntrySchema), async 
   let entry: any;
   try {
     entry = await req.prisma.$transaction(async (tx: any) => {
+      if (reversalOf) {
+        const original = await tx.journalEntry.findFirst({
+          where: { id: reversalOf, companyId },
+          select: {
+            id: true,
+            lines: { select: { accountId: true, debit: true, credit: true } },
+          },
+        });
+        if (!original) {
+          throw Object.assign(new Error('El asiento original del reverso no existe'), { status: 400 });
+        }
+        if (!lineasInversas(original.lines, lines)) {
+          throw Object.assign(
+            new Error('El reverso no coincide con las cuentas y montos del asiento original'),
+            { status: 400 },
+          );
+        }
+      }
+
       const created = await tx.journalEntry.create({
         data: {
           date: parseLocalDate(date),
@@ -403,7 +449,19 @@ journalRouter.post('/', requireQuota, validate(createJournalEntrySchema), async 
         include: { lines: { include: { account: true } } },
       });
 
-      if (conTercero) {
+      if (reversalOf) {
+        // La Transaction del reverso nace con el importe NEGATIVO del original
+        // y su misma metadata, para que Anexos/Proveedores neteen la corrección.
+        await crearTransaccionReversion(tx, {
+          companyId,
+          userId,
+          journalEntryId: created.id,
+          originalJournalEntryId: reversalOf,
+          description,
+          date: parseLocalDate(date),
+          source: 'reversion',
+        });
+      } else if (conTercero) {
         await tx.transaction.create({
           data: {
             type: tipo,

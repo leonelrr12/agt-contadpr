@@ -62,6 +62,75 @@ export function formatearRuc(base?: string | null, dv?: string | null): string {
   return d ? `${b.replace(/-+$/, '')}-${d}` : b;
 }
 
+export interface IdentificacionTercero {
+  taxIdType?: string | null;
+  taxId?: string | null;
+  dv?: string | null;
+}
+
+/**
+ * Separa RUC/DV RESPETANDO el tipo de identificación.
+ * Para CEDULA/PASAPORTE/NT se guarda entero. La excepción es un RUC completo
+ * de 4+ grupos con DV al final (`8-819-43-33`): la forma manda aunque el tipo
+ * diga CEDULA, porque una cédula panameña tiene 3 grupos.
+ * Sin tipo se usa la forma: si no parece empresa (p. ej. 8-819-33), se conserva
+ * completo; solo se parte un RUC que la forma reconozca como tal.
+ */
+export function separarIdentificacion(valor?: string | null, tipo?: string | null): RucPartes {
+  const raw = String(valor ?? '').trim();
+  if (!raw) return { base: '', dv: null };
+  const grupos = raw.split(/\D+/).filter(Boolean);
+  if (grupos.length >= 4 && grupos[grupos.length - 1].length <= 2) {
+    return separarRucDv(raw);
+  }
+  const t = String(tipo || '').trim().toUpperCase();
+  if (t === 'CEDULA' || t === 'PASAPORTE' || t === 'NT') {
+    return { base: raw, dv: null };
+  }
+  if (!t && !esIdentificacionEmpresa({ taxId: raw })) {
+    return { base: raw, dv: null };
+  }
+  return separarRucDv(raw);
+}
+
+/**
+ * Regla B de terceros: ¿la identificación es de una EMPRESA (RUC/NT) o de una
+ * persona (cédula/pasaporte)? Se usa para no crear proveedores desde gastos
+ * que no llevan Anexo (p. ej. 6.01.16 Viáticos) cuando el tercero es una
+ * persona; una persona solo entra al maestro por Anexo/Honorarios o CxP.
+ *
+ * El tipo explícito manda. Sin tipo, se reconoce por el DV/la forma del RUC:
+ * una cédula panameña es `4-756-445`; un RUC trae DV (`8-733-2267-88`), una
+ * base larga (`541-81-118009`), provincia > 13 o letras (`PE-…`, `N-…`).
+ * Ante la duda devuelve false: es preferible no crear y que el contador lo
+ * agregue a mano, a inventar un proveedor persona.
+ */
+export function esIdentificacionEmpresa(t: IdentificacionTercero): boolean {
+  const tipo = String(t.taxIdType || '').trim().toUpperCase();
+  if (tipo === 'RUC' || tipo === 'NT') return true;
+  if (tipo === 'CEDULA' || tipo === 'PASAPORTE') return false;
+
+  const raw = String(t.taxId || '').trim();
+  if (!raw) return false;
+  if (/^NT(?=\d|[-\s]|$)/i.test(raw)) return true;
+  if (String(t.dv || '').trim()) return true;
+
+  // Letras en la identificación (PE, N, NT…) → RUC/gobierno, no cédula.
+  if (/[A-Za-z]/.test(raw)) return true;
+
+  const grupos = raw.split(/\D+/).filter(Boolean);
+  if (!grupos.length) return false;
+  const primero = grupos[0];
+  const ultimo = grupos[grupos.length - 1];
+  // Primer grupo de 5+ dígitos o provincia > 13 (las cédulas van de 1 a 13).
+  if (primero.length >= 5 || (Number(primero) || 0) > 13) return true;
+  // RUC con DV pegado: 4+ grupos y el último de 1-2 dígitos.
+  if (grupos.length >= 4 && ultimo.length <= 2) return true;
+  // Base de RUC larga sin DV separado: 541-81-118009.
+  if (grupos.length === 3 && ultimo.length >= 5) return true;
+  return false;
+}
+
 /**
  * Normaliza el nombre para comparar variantes de la misma persona jurídica:
  * sin tildes, minúsculas, sin sufijos legales ni puntuación.

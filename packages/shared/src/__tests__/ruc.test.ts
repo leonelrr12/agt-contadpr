@@ -5,6 +5,8 @@ import {
   formatearRuc,
   normalizarNombreTercero,
   hashRucBase,
+  esIdentificacionEmpresa,
+  separarIdentificacion,
 } from '../ruc';
 
 describe('separarRucDv', () => {
@@ -46,6 +48,55 @@ describe('normalizarRucBase / formatearRuc', () => {
     expect(formatearRuc('342-240-75526', '50')).toBe('342-240-75526-50');
     expect(formatearRuc('342-240-75526', null)).toBe('342-240-75526');
     expect(formatearRuc('', '50')).toBe('');
+  });
+});
+
+describe('esIdentificacionEmpresa (regla B)', () => {
+  it('reconoce RUC completos, bases largas y números de gobierno', () => {
+    expect(esIdentificacionEmpresa({ taxId: '8-733-2267-88' })).toBe(true);
+    expect(esIdentificacionEmpresa({ taxId: '541-81-118009', dv: '06' })).toBe(true);
+    expect(esIdentificacionEmpresa({ taxId: '541-81-118009' })).toBe(true);
+    expect(esIdentificacionEmpresa({ taxId: '155592408-2-2015' })).toBe(true);
+    expect(esIdentificacionEmpresa({ taxId: '342-240-75526' })).toBe(true);
+    expect(esIdentificacionEmpresa({ taxId: 'PE-8-913-05' })).toBe(true);
+    expect(esIdentificacionEmpresa({ taxId: 'NT-123-456' })).toBe(true);
+  });
+
+  it('no confunde cédulas con empresas', () => {
+    expect(esIdentificacionEmpresa({ taxId: '4-756-445' })).toBe(false);
+    expect(esIdentificacionEmpresa({ taxId: '8-940-27' })).toBe(false);
+    expect(esIdentificacionEmpresa({ taxId: '8-1234-567' })).toBe(false);
+    expect(esIdentificacionEmpresa({ taxId: '' })).toBe(false);
+  });
+
+  it('el tipo explícito manda sobre la forma', () => {
+    expect(esIdentificacionEmpresa({ taxIdType: 'CEDULA', taxId: '8-940-27', dv: '27' })).toBe(false);
+    expect(esIdentificacionEmpresa({ taxIdType: 'PASAPORTE', taxId: 'AB123456' })).toBe(false);
+    expect(esIdentificacionEmpresa({ taxIdType: 'RUC', taxId: '4-756-445' })).toBe(true);
+    expect(esIdentificacionEmpresa({ taxIdType: 'NT', taxId: '123' })).toBe(true);
+  });
+});
+
+describe('separarIdentificacion (respeta el tipo)', () => {
+  it('una cédula se guarda entera, aunque termine en 1-2 dígitos', () => {
+    expect(separarIdentificacion('8-819-33', 'CEDULA')).toEqual({ base: '8-819-33', dv: null });
+    expect(separarIdentificacion('8-940-27', 'CEDULA')).toEqual({ base: '8-940-27', dv: null });
+    expect(separarIdentificacion('AB123456', 'PASAPORTE')).toEqual({ base: 'AB123456', dv: null });
+  });
+
+  it('un RUC completo de 4 grupos se parte aunque el tipo diga CEDULA', () => {
+    expect(separarIdentificacion('8-819-43-33', 'CEDULA')).toEqual({ base: '8-819-43', dv: '33' });
+  });
+
+  it('un RUC sí separa base y DV', () => {
+    expect(separarIdentificacion('8-819-33', 'RUC')).toEqual({ base: '8-819', dv: '33' });
+    expect(separarIdentificacion('8-733-2267-88', 'RUC')).toEqual({ base: '8-733-2267', dv: '88' });
+  });
+
+  it('sin tipo usa la forma: cédula entera, RUC partido', () => {
+    expect(separarIdentificacion('8-819-33')).toEqual({ base: '8-819-33', dv: null });
+    expect(separarIdentificacion('8-733-2267-88')).toEqual({ base: '8-733-2267', dv: '88' });
+    expect(separarIdentificacion('541-81-118009')).toEqual({ base: '541-81-118009', dv: null });
   });
 });
 

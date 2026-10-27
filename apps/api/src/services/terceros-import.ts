@@ -22,7 +22,7 @@
  */
 import { leerTabla } from './tabular-utils';
 import ExcelJS from 'exceljs';
-import { normalizarNombreTercero, normalizarRucBase, separarRucDv } from '@agt-contador/shared';
+import { normalizarNombreTercero, normalizarRucBase, separarIdentificacion } from '@agt-contador/shared';
 
 export type TipoTercero = 'Cliente' | 'Proveedor';
 export type ModoImport = 'completar' | 'actualizar';
@@ -197,12 +197,24 @@ export async function parseTercerosFile(buffer: Buffer, fileName: string): Promi
           out.taxId = identificacion;
           out.dv = dvCol || null;
         } else {
-          const partes = separarRucDv(identificacion);
-          if (partes.dv && dvCol && partes.dv !== dvCol) {
-            throw new Error(`El DV del RUC (${partes.dv}) no coincide con la columna DV (${dvCol}).`);
+          // La columna DV explícita manda: la identificación ya es la base y no
+          // se vuelve a partir (`8-819-43` + DV `33` no debe perder `-43`).
+          if (dvCol) {
+            const grupos = identificacion.split(/\D+/).filter(Boolean);
+            const ultimo = grupos[grupos.length - 1] || '';
+            if (grupos.length >= 4 && ultimo.length <= 2 && ultimo !== dvCol) {
+              throw new Error(`El DV del RUC (${ultimo}) no coincide con la columna DV (${dvCol}).`);
+            }
+            let base = identificacion;
+            const sufijo = `-${dvCol}`;
+            if (base.endsWith(sufijo)) base = base.slice(0, -sufijo.length).replace(/[^0-9A-Za-z]+$/, '');
+            out.taxId = base;
+            out.dv = dvCol;
+          } else {
+            const partes = separarIdentificacion(identificacion, tipoId);
+            out.taxId = partes.base;
+            out.dv = partes.dv || null;
           }
-          out.taxId = partes.base;
-          out.dv = dvCol || partes.dv || null;
         }
       } else if (cell(row, ix.dv)) {
         throw new Error('Hay DV pero falta RUC/Cédula.');

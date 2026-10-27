@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { requireRole } from '../middleware/auth';
+import { logAudit } from '../services/audit-log';
+import { fusionarTercero, type TipoFusion } from '../services/tercero-merge';
 import {
   parseTercerosFile,
   planificarTerceros,
@@ -31,6 +33,43 @@ const upload = multer({
 tercerosRouter.use(requireRole('admin', 'contador', 'superadmin'));
 
 const modoDe = (v: unknown): ModoImport => (String(v || 'completar') === 'actualizar' ? 'actualizar' : 'completar');
+
+/**
+ * Fusiona un duplicado en un maestro. Mueve facturas/bills, retenciones,
+ * inventario, cuentas de trabajador y la metadata de las Transactions; después
+ * elimina el duplicado. Es irreversible: la UI pide confirmación.
+ */
+tercerosRouter.post('/fusionar', async (req, res) => {
+  const tipoRaw = String(req.body?.tipo || '').toLowerCase();
+  const tipo: TipoFusion | null =
+    tipoRaw === 'cliente' ? 'cliente' : tipoRaw === 'proveedor' ? 'proveedor' : null;
+  const origenId = String(req.body?.origenId || '').trim();
+  const destinoId = String(req.body?.destinoId || '').trim();
+  const forzar = req.body?.forzar === true;
+
+  if (!tipo || !origenId || !destinoId) {
+    res.status(400).json({ error: 'Indicá tipo, origenId y destinoId' });
+    return;
+  }
+
+  try {
+    const r = await fusionarTercero(req.prisma, req.user!.companyId, tipo, origenId, destinoId, { forzar });
+    await logAudit(req.prisma, {
+      userId: req.user!.userId,
+      action: 'TERCERO_FUSIONADO',
+      entity: tipo === 'cliente' ? 'Client' : 'Supplier',
+      entityId: destinoId,
+      before: { origen: r.origen },
+      after: { destino: r.destino, movidos: r.movidos },
+    });
+    res.json(r);
+  } catch (e: any) {
+    res.status(e.status || 500).json({
+      error: e.message || 'No se pudo fusionar el tercero',
+      ...(e.code ? { code: e.code } : {}),
+    });
+  }
+});
 
 async function cargarExistentes(prisma: any, companyId: string) {
   const campos = {

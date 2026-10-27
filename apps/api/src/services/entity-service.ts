@@ -9,10 +9,32 @@
  */
 
 // Dedupe de contrapartes centralizado (RUC → nombre) en counterparty.ts
-import { findOrCreateClient, findOrCreateSupplier, r2 } from './counterparty';
+import { esIdentificacionEmpresa } from '@agt-contador/shared';
+import { findOrCreateClient, findOrCreateSupplier, findSupplier, r2 } from './counterparty';
 
 const CXC_ACCOUNTS = ['1.1.03.01']; // Clientes (cuentas por cobrar)
 const CXP_ACCOUNTS = ['2.1.01'];    // Proveedores (cuentas por pagar)
+
+/**
+ * Regla B: fuera de Anexo/CxP, el maestro de proveedores solo se alimenta con
+ * EMPRESAS (RUC/NT). Una persona (cédula/pasaporte) solo entra por Honorarios
+ * (cuenta Anexo) o por una compra a crédito (Bill).
+ */
+async function proveedorEsEmpresa(
+  prisma: any,
+  companyId: string,
+  input: { name?: string | null; taxId?: string | null; dv?: string | null; taxIdType?: string | null },
+): Promise<boolean> {
+  const existente = await findSupplier(prisma, companyId, input);
+  if (existente) {
+    return esIdentificacionEmpresa({
+      taxIdType: existente.taxIdType,
+      taxId: existente.taxId,
+      dv: existente.dv,
+    });
+  }
+  return esIdentificacionEmpresa(input);
+}
 
 /** Campos fiscales que la extracción pudo dejar en `Transaction.metadata`. */
 function fiscalDeMetadata(metadata: Record<string, any>) {
@@ -113,9 +135,6 @@ export async function syncEntityFromEntry(
   // de costo 5.01.01/02/03 llevan Anexo, pero en una venta con inventario el
   // débito es el costo de lo vendido y el nombre de la metadata es el CLIENTE.
   const tipo = String(txn?.type || '').toUpperCase();
-  const hasGasto = lines.some(
-    (l: any) => l.account?.code?.startsWith('5.') || l.account?.code?.startsWith('6.'),
-  );
   const hasIngreso = lines.some((l: any) => l.account?.code?.startsWith('4.'));
   const anexoDebitLine = lines.find((l: any) => (l.debit || 0) > 0 && l.account?.requiresAnexo);
   const esVenta = ['VENTA', 'COBRO_CLIENTE'].includes(tipo) || hasIngreso || hasCxC;
@@ -141,8 +160,10 @@ export async function syncEntityFromEntry(
     }
   }
 
-  // Sin CxC/CxP, el asiento puede ser una compra/gasto al contado: el maestro
-  // de proveedores se guarda igual (el Bill es solo para compras a crédito).
+  // Sin CxC/CxP, el asiento puede ser una compra/gasto al contado. Regla B:
+  // el maestro se alimenta si la cuenta lleva Anexo (servicios/Honorarios) o si
+  // el tercero es una empresa con RUC. Una persona en 6.01.16/6.01.18 (Viáticos,
+  // Bienestar) NO crea proveedor; solo entraría por Anexo o por CxP.
   if (!hasCxC && !hasCxP) {
     if (!provider) return null;
 
@@ -159,9 +180,13 @@ export async function syncEntityFromEntry(
       return { type: 'cliente_maestro', name: provider };
     }
 
-    const esCompraOGasto =
-      ['GASTO', 'COMPRA'].includes(tipo) || (hasGasto && !hasIngreso) || vieneDeAnexo;
-    if (!esCompraOGasto) return null;
+    const permiteProveedor = vieneDeAnexo || (await proveedorEsEmpresa(prisma, companyId, {
+      name: provider,
+      taxId: ruc,
+      dv: fiscal.dv,
+      taxIdType: fiscal.taxIdType,
+    }));
+    if (!permiteProveedor) return null;
     const supplier = await findOrCreateSupplier(prisma, companyId, {
       name: provider,
       taxId: ruc,

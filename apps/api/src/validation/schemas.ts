@@ -68,6 +68,8 @@ export const createJournalEntrySchema = z.object({
   provider: z.string().nullable().optional(),
   ruc: z.string().nullable().optional(),
   reference: z.string().nullable().optional(),
+  /** Asiento original que este POST revierte (flujo de corrección). */
+  reversalOf: z.string().optional(),
 });
 
 export const reviewJournalSchema = z.object({

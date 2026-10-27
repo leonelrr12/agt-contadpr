@@ -17,7 +17,7 @@
  * Lo usan los puntos de creación: emisión de factura, import normal
  * (entity-service), chat/WhatsApp (orchestrator-agent), CRUD clients/suppliers.
  */
-import { hashField, normalizarNombreTercero, normalizarRucBase, separarRucDv } from '@agt-contador/shared';
+import { hashField, normalizarNombreTercero, normalizarRucBase, separarIdentificacion, separarRucDv } from '@agt-contador/shared';
 
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -46,13 +46,27 @@ const CAMPOS_FISCALES = [
 
 type Modelo = 'client' | 'supplier';
 
-/** RUC base + DV separado + hash canónico. */
+/**
+ * RUC base + DV separado + hash canónico.
+ * Un DV explícito manda: el taxId se toma como base y no se vuelve a partir
+ * (si el usuario pegó el DV al final, se quita). La cédula/pasaporte sin DV
+ * se guarda entera.
+ */
 function fiscal(input: CounterpartyInput) {
-  const partes = separarRucDv(input.taxId);
-  const base = partes.base || null;
-  const dv = String(input.dv ?? '').trim() || partes.dv;
+  const raw = String(input.taxId ?? '').trim();
+  const dvInput = String(input.dv ?? '').trim();
+  let base = raw;
+  let dv: string | null = dvInput || null;
+  if (dv) {
+    const sufijo = `-${dv}`;
+    if (base.endsWith(sufijo)) base = base.slice(0, -sufijo.length).replace(/[^0-9A-Za-z]+$/, '');
+  } else {
+    const partes = separarIdentificacion(raw, input.taxIdType);
+    base = partes.base;
+    dv = partes.dv;
+  }
   const hash = base ? hashField(normalizarRucBase(base)) : '';
-  return { base, dv: dv || null, hash: hash || null };
+  return { base: base || null, dv: dv || null, hash: hash || null };
 }
 
 /** Normaliza los campos opcionales: recorta y convierte '' en null. */

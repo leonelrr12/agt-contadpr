@@ -162,17 +162,63 @@ describe('OrchestratorAgent', () => {
     expect(confirmResult.journalEntry).toBeDefined();
   });
 
-  it('una compra al contado crea el proveedor maestro y NO crea Bill', async () => {
+  it('una compra al contado de una EMPRESA (RUC) crea el proveedor maestro y NO crea Bill', async () => {
     const prisma: any = makePrismaStub();
     const agent = new OrchestratorAgent({ prisma, companyId: 'demo-company', userId: 'demo-user' });
-    const r = await agent.process('Compré combustible en FERRETERÍA XYZ por $40 con efectivo');
-    expect(r.needsConfirmation).toBe(true);
+    const result: any = {
+      dialog: {
+        type: 'GASTO',
+        amount: 40,
+        description: 'Combustible',
+        concept: 'Combustible',
+        paymentMethod: 'EFECTIVO',
+        date: '2026-10-27',
+        provider: 'FERRETERÍA XYZ',
+        ruc: '8-733-2267-88',
+        missingFields: [],
+      },
+      entry: {
+        debit: [{ accountId: 'acct-combustible', amount: 40, name: 'Gastos de Combustible' }],
+        credit: [{ accountId: 'acct-caja', amount: 40, name: 'Caja' }],
+        description: 'Combustible',
+      },
+      classification: { accountId: 'acct-combustible', concept: 'Combustible', confidence: 0.95 },
+    };
 
-    const saved: any = await agent.confirm(r.result);
+    const saved: any = await agent.confirm(result);
     expect(saved.autoCreated?.type).toBe('proveedor_nuevo');
     expect(prisma.__createdSuppliers).toHaveLength(1);
     expect(prisma.__createdSuppliers[0].name).toBeTruthy();
     expect(prisma.__createdBills).toHaveLength(0); // al contado no hay CxP
+  });
+
+  it('una cédula en un gasto sin Anexo NO crea proveedor (regla B)', async () => {
+    const prisma: any = makePrismaStub();
+    const agent = new OrchestratorAgent({ prisma, companyId: 'demo-company', userId: 'demo-user' });
+    const result: any = {
+      dialog: {
+        type: 'GASTO',
+        amount: 40,
+        description: 'Combustible',
+        concept: 'Combustible',
+        paymentMethod: 'EFECTIVO',
+        date: '2026-10-27',
+        provider: 'CARLOS ORTIZ PINEDA',
+        ruc: '4-756-445',
+        missingFields: [],
+      },
+      entry: {
+        debit: [{ accountId: 'acct-combustible', amount: 40, name: 'Gastos de Combustible' }],
+        credit: [{ accountId: 'acct-caja', amount: 40, name: 'Caja' }],
+        description: 'Combustible',
+      },
+      classification: { accountId: 'acct-combustible', concept: 'Combustible', confidence: 0.95 },
+    };
+
+    const saved: any = await agent.confirm(result);
+
+    expect(saved.autoCreated).toBeNull();
+    expect(prisma.__createdSuppliers).toHaveLength(0);
   });
 
   it('una venta al contado crea el cliente maestro y NO crea Invoice', async () => {

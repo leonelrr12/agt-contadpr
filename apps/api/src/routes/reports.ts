@@ -265,9 +265,15 @@ export async function buildAnexosDgiReport(
     return base ? (dv ? `${base}-${dv}` : base) : null;
   };
   const esVentaTx = (tipo: any) => ['VENTA', 'COBRO_CLIENTE'].includes(String(tipo || '').toUpperCase());
+  // En una cuenta de resultado (5.x/6.x), una venta puede tocar la cuenta por el
+  // costo de lo vendido (5.01.01/02/03) y su Transaction lleva al CLIENTE, no a
+  // un proveedor. Esa fila no es un Anexo de compras: se excluye. Las cuentas de
+  // banco/activo siguen incluyendo ventas y cobros.
+  const excluirVentas = /^[56]\./.test(String(cuenta.code || ''));
 
   const terceros = new Map<string, any>();
   for (const { tx, m } of filas) {
+    if (excluirVentas && esVentaTx(tx.type)) continue;
     const aux = tx.journalEntryId ? auxByJe.get(tx.journalEntryId) : null;
     const venta = esVentaTx(tx.type);
     // Venta → cliente; compra/gasto/pago → proveedor. Si el id no está en la
