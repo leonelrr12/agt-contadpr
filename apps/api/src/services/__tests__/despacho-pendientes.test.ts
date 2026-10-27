@@ -54,6 +54,19 @@ describe('pendientesPorEmpresa', () => {
     expect(e.buzon.detalle).toBeNull();
   });
 
+  it('el CxC vencido excluye las facturas de contado', async () => {
+    const prisma: any = prismaFalso({ vencidas: [] });
+    let args: any;
+    prisma.invoice.findMany = async (a: any) => { args = a; return []; };
+
+    await pendientesPorEmpresa(prisma, EMPRESA);
+
+    expect(args.where.OR).toEqual([
+      { paymentMethod: null },
+      { paymentMethod: { not: 'EFECTIVO' } },
+    ]);
+  });
+
   it('sin suscripción la cuota es 0 y no rompe', async () => {
     const prisma = prismaFalso({ sub: null });
     const [e] = await pendientesPorEmpresa(prisma, EMPRESA);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { billSaldo, invoiceSaldo } from '../saldos';
+import { billSaldo, filtroFacturaCredito, invoiceSaldo } from '../saldos';
 
 describe('saldos de documentos', () => {
   it('una factura de contado no es CxC aunque el status siga PENDIENTE', () => {
@@ -19,5 +19,11 @@ describe('saldos de documentos', () => {
     expect(billSaldo({ total: 400, status: 'PENDIENTE' })).toBe(400);
     expect(billSaldo({ total: 400, status: 'PAGADA' })).toBe(0);
     expect(billSaldo({ total: 400, status: 'RECHAZADA' })).toBe(0);
+  });
+
+  it('el filtro de CxC conserva las de crédito y excluye EFECTIVO', () => {
+    expect(filtroFacturaCredito()).toEqual({
+      OR: [{ paymentMethod: null }, { paymentMethod: { not: 'EFECTIVO' } }],
+    });
   });
 });

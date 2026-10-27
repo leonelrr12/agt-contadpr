@@ -29,3 +29,12 @@ export function billSaldo(b: { total: number; status: string }): number {
 export function esCxC(i: { paymentMethod?: string | null }): boolean {
   return i.paymentMethod !== 'EFECTIVO';
 }
+
+/**
+ * Filtro Prisma para los reportes/agregados de CxC. Las facturas sin
+ * `paymentMethod` son las de crédito creadas por import/chat/manual; las de
+ * contado (EFECTIVO) ya se cobraron y no deben inflar la cuenta por cobrar.
+ */
+export function filtroFacturaCredito() {
+  return { OR: [{ paymentMethod: null }, { paymentMethod: { not: 'EFECTIVO' } }] };
+}

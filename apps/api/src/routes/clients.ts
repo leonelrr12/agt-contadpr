@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth';
 import { findClient } from '../services/counterparty';
-import { invoiceSaldo } from '../services/saldos';
+import { filtroFacturaCredito, invoiceSaldo } from '../services/saldos';
 import { buildTerceroResumen } from '../services/tercero-resumen';
 
 export const clientsRouter = Router();
@@ -286,7 +286,7 @@ clientsRouter.get('/report/summary', async (req, res) => {
         companyId: req.user!.companyId,
         status: { notIn: ['PAGADA', 'RECHAZADA'] },
         // Las facturas de contado no son CxC aunque su status siga PENDIENTE.
-        OR: [{ paymentMethod: null }, { paymentMethod: { not: 'EFECTIVO' } }],
+        ...filtroFacturaCredito(),
       },
     }),
     req.prisma.invoice.count({
@@ -294,7 +294,7 @@ clientsRouter.get('/report/summary', async (req, res) => {
         companyId: req.user!.companyId,
         status: { notIn: ['PAGADA', 'RECHAZADA'] },
         dueDate: { lt: new Date() },
-        OR: [{ paymentMethod: null }, { paymentMethod: { not: 'EFECTIVO' } }],
+        ...filtroFacturaCredito(),
       },
     }),
   ]);

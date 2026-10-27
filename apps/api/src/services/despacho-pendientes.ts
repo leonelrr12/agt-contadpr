@@ -16,6 +16,7 @@
  */
 
 import { ESTADOS_QUE_AVISAN } from './email-facturas-avisos';
+import { filtroFacturaCredito } from './saldos';
 import { suscripcionDeEmpresa } from './suscripcion';
 import type { EmpresaAccesible } from './empresas-usuario';
 
@@ -84,7 +85,12 @@ async function computar(
     // Lo que falta cobrar: `total - paidAmount` no lo suma Prisma, así que se
     // traen las vencidas (son pocas) y se resta acá.
     prisma.invoice.findMany({
-      where: { companyId, status: { in: ['PENDIENTE', 'VENCIDA'] }, dueDate: { lt: hoy } },
+      where: {
+        companyId,
+        status: { in: ['PENDIENTE', 'VENCIDA'] },
+        dueDate: { lt: hoy },
+        ...filtroFacturaCredito(),
+      },
       select: { total: true, paidAmount: true },
     }),
     prisma.taxObligation.findMany({

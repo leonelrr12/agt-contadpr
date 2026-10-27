@@ -6,6 +6,7 @@ import { getAnioFiscal } from '../lib/fiscal-year';
 import { buildBudgetComparison, mesDeComparacion } from './budget-comparison';
 import type { BudgetComparison } from './budget-comparison';
 import { calculateNextRun } from './recurring-processor';
+import { filtroFacturaCredito } from './saldos';
 import { obligacionesProyectadas } from './tax-calendar';
 
 // ── Tipos de respuesta ──
@@ -229,7 +230,7 @@ async function computeSalud(prisma: any, companyId: string): Promise<SaludPayloa
   // CxC / CxP pendientes (patrón clients.ts/suppliers.ts)
   const cxcAgg = await prisma.invoice.aggregate({
     _sum: { total: true },
-    where: { companyId, status: { notIn: ['PAGADA', 'RECHAZADA'] } },
+    where: { companyId, status: { notIn: ['PAGADA', 'RECHAZADA'] }, ...filtroFacturaCredito() },
   });
   const cxpAgg = await prisma.bill.aggregate({
     _sum: { total: true },
@@ -591,7 +592,12 @@ async function computeAlertas(prisma: any, companyId: string, ratios: Ratios, pr
   // Facturas vencidas CxC / CxP
   const vencCxc = await prisma.invoice.aggregate({
     _count: { _all: true }, _sum: { total: true },
-    where: { companyId, status: { notIn: ['PAGADA', 'RECHAZADA'] }, dueDate: { lt: new Date() } },
+    where: {
+      companyId,
+      status: { notIn: ['PAGADA', 'RECHAZADA'] },
+      dueDate: { lt: new Date() },
+      ...filtroFacturaCredito(),
+    },
   });
   if (vencCxc._count._all > 0) {
     alertas.push({ tipo: 'CXC_VENCIDA', severidad: 'warning', mensaje: `${vencCxc._count._all} factura(s) por cobrar vencidas por ${fmtMoney(vencCxc._sum.total || 0)}.` });
