@@ -63,6 +63,30 @@ const Q1_JUNIO: ContextoCorrida = {
 
 const Q2_JUNIO: ContextoCorrida = { ...Q1_JUNIO, fechaDesde: new Date(2026, 5, 16), fechaHasta: new Date(2026, 5, 30), fechaPago: new Date(2026, 5, 30), pagoNumero: 2 };
 
+/** Quincenas de julio de 2026, un mes de 31 días: la primera tiene 15 y la segunda 16. */
+const Q1_JULIO: ContextoCorrida = {
+  ...Q1_JUNIO,
+  fechaDesde: new Date(2026, 6, 1),
+  fechaHasta: new Date(2026, 6, 15),
+  fechaPago: new Date(2026, 6, 15),
+};
+const Q2_JULIO: ContextoCorrida = {
+  ...Q1_JUNIO,
+  fechaDesde: new Date(2026, 6, 16),
+  fechaHasta: new Date(2026, 6, 31),
+  fechaPago: new Date(2026, 6, 31),
+  pagoNumero: 2,
+};
+
+/** La segunda quincena de febrero de 2026: 16 al 28, solo 13 días. */
+const Q2_FEBRERO: ContextoCorrida = {
+  ...Q1_JUNIO,
+  fechaDesde: new Date(2026, 1, 16),
+  fechaHasta: new Date(2026, 1, 28),
+  fechaPago: new Date(2026, 1, 28),
+  pagoNumero: 2,
+};
+
 /** Junio completo, pagado una sola vez: la cuota mensual del acreedor va entera. */
 const MENSUAL_JUNIO: ContextoCorrida = {
   ...Q1_JUNIO,
@@ -324,6 +348,36 @@ describe('prorrateo por fechas', () => {
     const q1 = item(780, {}, Q1_JUNIO);
     const q2 = item(780, {}, Q2_JUNIO);
     expect(sumarMontos(q1.sueldo, q2.sueldo)).toBe(780);
+  });
+
+  it('en un mes de 31 la quincena paga la MITAD, no los días del mes', () => {
+    // 1.220,80 × 15/31 daría 590,71 y × 16/31 630,09: la quincena es media unidad,
+    // y el empleado reconoce dos mitades iguales.
+    const q1 = item(1220.8, {}, Q1_JULIO);
+    const q2 = item(1220.8, {}, Q2_JULIO);
+    expect(q1.diasTrabajados).toBe(15);
+    expect(q2.diasTrabajados).toBe(16);
+    expect(q1.sueldo).toBe(610.4);
+    expect(q2.sueldo).toBe(610.4);
+    expect(sumarMontos(q1.sueldo, q2.sueldo)).toBe(1220.8);
+  });
+
+  it('febrero paga la mitad aunque la segunda quincena tenga 13 días', () => {
+    expect(item(1220.8, {}, Q2_FEBRERO).sueldo).toBe(610.4);
+  });
+
+  it('el céntimo impar de la mitad lo absorbe el último pago del mes', () => {
+    // 1.000,01: la mitad redondeada es 500,01; el segundo pago retiene el resto.
+    expect(item(1000.01, {}, Q1_JULIO).sueldo).toBe(500.01);
+    expect(item(1000.01, {}, Q2_JULIO).sueldo).toBe(500);
+    expect(sumarMontos(500.01, 500)).toBe(1000.01);
+  });
+
+  it('un ingreso a mitad de quincena de julio se prorratea contra el período', () => {
+    // Del 8 al 15 son 8 de los 15 días del período: 610,40 × 8/15.
+    const r = item(1220.8, {}, Q1_JULIO, { fechaIngreso: new Date(2026, 6, 8) });
+    expect(r.diasTrabajados).toBe(8);
+    expect(r.sueldo).toBe(325.55);
   });
 
   it('quien no estaba empleado en el período queda omitido, no en cero', () => {

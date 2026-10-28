@@ -24,6 +24,11 @@
  *  · **El sueldo semanal es `mensual × 12/52`**, no un prorrateo por días del mes.
  *    Es una decisión del dueño (PLANILLA.md §2): 52 semanas son 364 días, así que el
  *    reparto por días dejaría el año corto y la base de cotización también.
+ *
+ *  · **La quincena es la MITAD del sueldo mensual**, tampoco un prorrateo por días
+ *    del mes: 1.220,80 paga 610,40 en julio igual que en junio. La verificación
+ *    contra los asientos reales era de junio (30 días), donde las dos reglas
+ *    coinciden; julio (31) es donde divergen. Decisión del dueño (PLANILLA.md §2).
  */
 
 import { r2, sumarMontos } from '../lib/money';
@@ -333,6 +338,29 @@ export function sueldoSemanal(sueldoMensual: number): number {
 }
 
 /**
+ * El sueldo de una quincena COMPLETA.
+ *
+ * Es la MITAD del mensual, no un prorrateo por días del mes: 1.220,80 paga 610,40
+ * en julio igual que en junio, donde 15/31 y 16/31 darían 590,71 y 630,09. Lo
+ * parcial —ingreso, salida, días editados— se prorratea fuera, contra los días del
+ * período.
+ *
+ * Con un céntimo impar la mitad no es exacta, así que el último pago del mes se
+ * lleva el resto —igual que el ISR—: 1.000,01 paga 500,01 y 500,00, y el mes suma
+ * el sueldo del contrato.
+ */
+export function sueldoQuincenal(
+  sueldoMensual: number,
+  pagoNumero: number,
+  pagosDelMes: number,
+): number {
+  // Un solo pago en el mes es el mes entero, no una quincena suelta.
+  if (pagosDelMes <= 1) return r2(sueldoMensual);
+  const mitad = r2(sueldoMensual / 2);
+  return pagoNumero >= pagosDelMes ? r2(sueldoMensual - mitad) : mitad;
+}
+
+/**
  * Cuántas veces cae `diaSemana` en el mes de `fecha`: 4 o 5.
  *
  * Es lo que hace que el ISR del mes cierre exacto en una nómina semanal. Con la
@@ -429,6 +457,10 @@ export function calcularItem(
   if (desde > hasta) return { omitido: 'no estaba empleado en el período' };
 
   const diasDisponibles = diasEntre(desde, hasta);
+  // Días del período COMPLETO, sin recortar por la ventana de empleo: es el
+  // denominador del prorrateo quincenal (ver R1). `diasDisponibles` viene recortado,
+  // así que un ingreso a mitad de quincena cobraría la mitad entera.
+  const diasDelPeriodo = diasEntre(ctx.fechaDesde, ctx.fechaHasta);
   const diasTrabajados = entrada.diasTrabajados ?? diasDisponibles;
 
   if (diasTrabajados <= 0) return { omitido: 'sin días trabajados en el período' };
@@ -446,17 +478,27 @@ export function calcularItem(
 
   // ── Corridas de SUELDO: el caso completo ──
   if (ctx.tipo === 'SUELDO') {
-    // R1 — el sueldo base es MENSUAL, así que el prorrateo va contra los días del
-    // MES, no los del período: una quincena de 15 días sobre un mes de 31 cobra
-    // 15/31 y la siguiente 16/31, y entre las dos suman el mes exacto.
+    // R1 — la QUINCENA paga la MITAD del mensual, no un prorrateo por días del mes:
+    // 1.220,80 cobra 610,40 en julio igual que en junio (15/31 y 16/31 darían
+    // 590,71 y 630,09). Lo parcial se prorratea contra los días del PERÍODO; por eso
+    // el denominador es el período completo y no `diasDisponibles`.
     //
     // R1b — en la SEMANAL el prorrateo va contra la SEMANA (séptimos), no contra el
     // mes: una semana que cruza el fin de mes no tiene "mes del período", y repartir
     // por días del mes pagaría 364/365 avos del año. Ver `sueldoSemanal`.
+    //
+    // El MENSUAL mantiene el prorrateo contra los días del MES: el mes completo paga
+    // el sueldo entero.
     const sueldoDelPeriodo =
       ctx.periodicidad === 'SEMANAL'
         ? r2((sueldoSemanal(empleado.sueldoBase) * diasTrabajados) / DIAS_DE_LA_SEMANA)
-        : r2((empleado.sueldoBase * diasTrabajados) / diasDelMes(ctx.fechaHasta));
+        : ctx.periodicidad === 'QUINCENAL'
+          ? r2(
+              (sueldoQuincenal(empleado.sueldoBase, ctx.pagoNumero, ctx.pagosDelMes) *
+                diasTrabajados) /
+                diasDelPeriodo,
+            )
+          : r2((empleado.sueldoBase * diasTrabajados) / diasDelMes(ctx.fechaHasta));
 
     // R1c — el descuento por ausencia o tardanza BAJA EL SUELDO, y con él la base de
     // cotización. No es una deducción al neto: eso acreditaría un pasivo que nadie

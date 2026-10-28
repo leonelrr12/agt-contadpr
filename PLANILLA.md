@@ -87,11 +87,15 @@ Antes de escribirlo se contrastó cada regla contra los **77 asientos de planill
 | **ISR = proyección anual ×13** | ✓ ver §3.2 |
 | La tabla mensual progresiva | ✗ descartada: 1.220,80/mes daría 22,81 y el archivo dice 28,10 |
 
+> El archivo verificado era de **junio (30 días)**, y ahí la mitad del mes y el prorrateo por días
+> coinciden: ese dato no distinguía las dos reglas. **Julio (31) es el primer mes donde divergen**, y el
+> 28-10-2026 el dueño confirmó la mitad exacta (610,40, no 590,71).
+
 Reglas del motor:
 
 | # | Regla |
 |---|---|
-| R1 | `sueldo = r2(sueldoBase × diasTrabajados / diasDelMes)` — el sueldo base es **mensual**, así que el prorrateo va contra los días del **mes**, no los del período: en un mes de 31, las dos quincenas cobran 15/31 y 16/31 y entre las dos suman el mes exacto |
+| R1 | **La quincena es la MITAD del sueldo mensual**, no un prorrateo por días del mes: `sueldo = r2((sueldoBase / 2) × diasTrabajados / diasDelPeriodo)` — 1.220,80 paga 610,40 en julio igual que en junio (15/31 daría 590,71). El último pago del mes absorbe el céntimo impar (1.000,01 → 500,01 + 500,00) y el **mensual** sí prorratea contra los días del mes |
 | R1b | **En la SEMANAL** el prorrateo va contra la SEMANA: `sueldo = r2(mensual × 12/52 × diasTrabajados / 7)`. La semana completa paga siempre lo mismo, sea el mes de 28 o de 31 días |
 | R1c | `menosSueldo` (ausencia o tardanza) se resta del sueldo ANTES de cotizar: baja SS, SE y el aporte del patrono. Un descuento mayor que el sueldo del período **reporta la fila** en vez de pagar en negativo |
 | R2 | Base de cotización = `sueldo + horasExtras` |
