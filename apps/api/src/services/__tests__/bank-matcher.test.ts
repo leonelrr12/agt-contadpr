@@ -134,6 +134,35 @@ describe('autoMatch — transferencia entre cuentas propias', () => {
   });
 });
 
+/**
+ * Un extracto de cientos de filas (la cuenta de pagos de ODESA, 573 filas) hacía
+ * una consulta al libro POR FILA y por ronda; el upload superaba el minuto y
+ * nginx devolvía 504 aunque el API siguiera trabajando. Las líneas se consultan
+ * una vez por DÍA y se reusan en todas las rondas.
+ */
+describe('autoMatch — consulta al libro una vez por día', () => {
+  it('varias filas del mismo día comparten la consulta', async () => {
+    const fila = (id: string, dia: string) => ({
+      id, date: fecha(dia), description: `PAGO ${id}`, reference: null,
+      debit: 5, credit: 0, balance: 0, status: 'UNMATCHED', matchedEntryId: null,
+    });
+    const filas = [fila('a1', '2026-01-03'), fila('a2', '2026-01-03'), fila('a3', '2026-01-04')];
+    let consultas = 0;
+    const prisma = {
+      bankStatementRow: {
+        findMany: async ({ where }: any) => (where.status === 'UNMATCHED' ? filas : []),
+        update: async ({ data }: any) => data,
+      },
+      journalLine: { findMany: async () => { consultas++; return []; } },
+      bankRowMatch: vinculosFalsos(),
+    };
+
+    await autoMatch('bs-grande', prisma as any, 'odesa', 'acc-8829');
+
+    expect(consultas).toBe(2); // 03-ene y 04-ene, no 3 filas × 2 bandas
+  });
+});
+
 describe('findUnmatchedBookEntries — solo la cuenta del extracto', () => {
   it('pide los asientos de la cuenta del extracto, no de todos los bancos', async () => {
     let where: any = null;
@@ -145,23 +174,32 @@ describe('findUnmatchedBookEntries — solo la cuenta del extracto', () => {
         findMany: async (args: any) => {
           where = args.where;
           include = args.include;
-          return [{ id: 'je-libre' }];
+          return [{ id: 'je-libre', lines: [{ id: 'jl-libre', debit: 0, credit: 100 }] }];
         },
       },
     };
 
-    const r = await findUnmatchedBookEntries(prisma as any, 'odesa', 'acc-8829', fecha('2026-01-01'), fecha('2026-01-31'));
+    const fin = new Date('2026-01-31T00:00:00.000Z');
+    const r = await findUnmatchedBookEntries(prisma as any, 'odesa', 'acc-8829', fecha('2026-01-01'), fin);
 
     expect(where.lines.some).toEqual({ accountId: 'acc-8829' });
     expect(include.lines.where).toEqual({ accountId: 'acc-8829' });
-    expect(r).toEqual([{ id: 'je-libre' }]);
+    // El fin guardado es medianoche UTC y los asientos van a mediodía local:
+    // la lista de libros tiene que incluir el ÚLTIMO día completo.
+    expect(where.date.lte).toEqual(new Date('2026-01-31T23:59:59.999Z'));
+    expect(r.map((e: any) => e.id)).toEqual(['je-libre']);
   });
 
   it('descarta los asientos que ya sostienen una fila del extracto', async () => {
     const prisma = {
       bankStatementRow: { findMany: async () => [{ matchedEntryId: 'je-conciliado' }] },
       bankRowMatch: vinculosFalsos(),
-      journalEntry: { findMany: async () => [{ id: 'je-conciliado' }, { id: 'je-libre' }] },
+      journalEntry: {
+        findMany: async () => [
+          { id: 'je-conciliado', lines: [{ id: 'jl-conc', debit: 0, credit: 100 }] },
+          { id: 'je-libre', lines: [{ id: 'jl-libre', debit: 0, credit: 100 }] },
+        ],
+      },
     };
 
     const r = await findUnmatchedBookEntries(prisma as any, 'odesa', 'acc-8829');
@@ -173,22 +211,73 @@ describe('findUnmatchedBookEntries — solo la cuenta del extracto', () => {
    * El ACH de Inmobiliaria Don Antonio (20-feb, $17.353,68) son cuatro facturas
    * cobradas de una vez: la fila se vincula a mano con las cuatro y solo una de
    * ellas es el `matchedEntryId` de la fila. Las otras tres también están
-   * conciliadas y no pueden seguir apareciendo como pendientes.
+   * conciliadas POR COMPLETO y no pueden seguir apareciendo como pendientes.
    */
-  it('descarta también los asientos vinculados por línea (varias partidas por fila)', async () => {
+  it('descarta las partidas vinculadas por línea ya aplicadas completas', async () => {
+    const ids = ['je-993', 'je-994', 'je-995', 'je-996', 'je-libre'];
     const prisma = {
       bankStatementRow: { findMany: async () => [{ matchedEntryId: 'je-993' }] },
-      bankRowMatch: vinculosFalsos([
-        { entryId: 'je-993' }, { entryId: 'je-994' }, { entryId: 'je-995' }, { entryId: 'je-996' },
-      ]),
+      bankRowMatch: vinculosFalsos(ids.slice(0, 4).map(id => ({ entryId: id, lineId: `jl-${id.slice(-3)}`, amount: 100 }))),
       journalEntry: {
-        findMany: async () => ['je-993', 'je-994', 'je-995', 'je-996', 'je-libre'].map(id => ({ id })),
+        findMany: async () => ids.map(id => ({
+          id,
+          lines: [{ id: `jl-${id.slice(-3)}`, debit: 0, credit: 100 }],
+        })),
       },
     };
 
     const r = await findUnmatchedBookEntries(prisma as any, 'odesa', 'acc-8829');
 
     expect(r.map((e: any) => e.id)).toEqual(['je-libre']);
+  });
+});
+
+/**
+ * La unidad de "sin conciliar (libros)" es la LÍNEA, no el asiento: aplicar una
+ * parte de una partida (o una de sus dos líneas de banco) no puede esconder el
+ * saldo que falta. Con un vínculo parcial el asiento se ocultaba ENTERO y la
+ * segunda fila del extracto se quedaba sin contraparte visible (28-10).
+ */
+describe('findUnmatchedBookEntries — el saldo que queda de una partida', () => {
+  const conLineas = (lineas: any[], vinculos: any[] = []) => ({
+    bankStatementRow: { findMany: async () => [] },
+    bankRowMatch: vinculosFalsos(vinculos),
+    journalEntry: { findMany: async () => [{ id: 'je-1', lines: lineas }] },
+  });
+
+  it('una línea de $12 con $6 ya aplicados sigue en la lista, con $6', async () => {
+    const prisma = conLineas(
+      [{ id: 'jl-12', debit: 0, credit: 12 }],
+      [{ lineId: 'jl-12', amount: 6 }],
+    );
+
+    const r = await findUnmatchedBookEntries(prisma as any, 'odesa', 'acc-8829');
+
+    expect(r).toHaveLength(1);
+    expect(r[0].lines[0]).toMatchObject({ id: 'jl-12', aplicado: 6, remainingCredit: 6 });
+  });
+
+  it('una línea aplicada por completo no aparece', async () => {
+    const prisma = conLineas(
+      [{ id: 'jl-12', debit: 0, credit: 12 }],
+      [{ lineId: 'jl-12', amount: 12 }],
+    );
+
+    const r = await findUnmatchedBookEntries(prisma as any, 'odesa', 'acc-8829');
+
+    expect(r).toHaveLength(0);
+  });
+
+  it('un asiento con dos líneas de $6: aplicar una no esconde la otra', async () => {
+    const prisma = conLineas(
+      [{ id: 'jl-6a', debit: 6, credit: 0 }, { id: 'jl-6b', debit: 6, credit: 0 }],
+      [{ lineId: 'jl-6a', amount: 6 }],
+    );
+
+    const r = await findUnmatchedBookEntries(prisma as any, 'odesa', 'acc-8829');
+
+    expect(r).toHaveLength(1);
+    expect(r[0].lines.map((l: any) => [l.id, l.remainingDebit])).toEqual([['jl-6b', 6]]);
   });
 });
 

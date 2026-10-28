@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { cellToText } from './tabular-utils';
+import { extraerTablaExtractoPDF } from './pdf-statement';
 
 export interface ParsedRow {
   date: string | null;
@@ -66,6 +67,8 @@ export interface ParseResult {
   rows: ParsedRow[];
   detectedMapping: ColumnMapping;
   totalRows: number;
+  /** Avisos del parseo que NO bloquean la importación (p. ej. cadena de saldos del PDF). */
+  warnings?: string[];
 }
 
 const DATE_PATTERNS = [/fecha/i, /date/i, /día/i, /dia/i];
@@ -510,12 +513,19 @@ export async function parseImportFile(
   buffer: Buffer,
   fileName: string,
 ): Promise<ParseResult> {
-  const isXlsx = fileName.toLowerCase().endsWith('.xlsx');
+  const lower = fileName.toLowerCase();
+  const isXlsx = lower.endsWith('.xlsx');
+  const isPdf = lower.endsWith('.pdf');
 
   let headers: string[] = [];
   let rawRows: string[][] = [];
+  let warnings: string[] = [];
 
-  if (isXlsx) {
+  if (isPdf) {
+    // El extracto en PDF se convierte a la misma tabla cruda que un CSV: de acá
+    // en adelante el detector de columnas y el mapeo de filas son los de siempre.
+    ({ headers, rawRows, warnings } = await extraerTablaExtractoPDF(buffer));
+  } else if (isXlsx) {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer as any);
     const sheet = workbook.worksheets[0];
@@ -644,7 +654,7 @@ export async function parseImportFile(
     return row;
   });
 
-  return { headers, rows, detectedMapping: mapping, totalRows: rows.length };
+  return { headers, rows, detectedMapping: mapping, totalRows: rows.length, warnings };
 }
 
 // ── Carga Inicial ──

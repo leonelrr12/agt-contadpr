@@ -65,15 +65,17 @@ export function daysBetween(d1: Date, d2: Date): number {
 }
 
 /**
- * Encuentra el mejor match para una fila de extracto bancario contra los asientos
- * registrados EN LA CUENTA DEL EXTRACTO.
+ * Encuentra el mejor match para una fila de extracto bancario contra las líneas
+ * de la cuenta del extracto que ya se cargaron para su ventana de fechas.
+ *
+ * La consulta se hace UNA vez por día en `autoMatch` (no una vez por fila):
+ * con extractos de cientos de movimientos, 573 filas × varias rondas eran miles
+ * de consultas y el upload superaba el timeout de nginx (504).
  */
-async function findBestMatch(
+function findBestMatch(
   row: ParsedRow,
-  prisma: any,
-  companyId: string,
-  /** Cuenta del extracto: solo sus líneas pueden sustentar una fila. */
-  bankAccountId: string,
+  /** Líneas de la cuenta del extracto en la ventana de ±5 días de la fila. */
+  bankLines: any[],
   /**
    * Lo que ya está conciliado. La unidad es la LÍNEA del asiento, no el asiento:
    * un asiento puede tener dos líneas de banco (dos transferencias cargadas
@@ -89,7 +91,7 @@ async function findBestMatch(
    * día y dejar lo difuso para el final.
    */
   minConfianza = 0.5,
-): Promise<{ entryId: string; lineId: string; amount: number; confidence: number; matchType: MatchResult['matchType'] } | null> {
+): { entryId: string; lineId: string; amount: number; confidence: number; matchType: MatchResult['matchType'] } | null {
   if (!row.date || (!row.debit && !row.credit)) return null;
 
   const amount = row.debit || row.credit || 0;
@@ -97,36 +99,6 @@ async function findBestMatch(
 
   const rowDate = new Date(row.date);
   const tolerance = 0.02; // 2 centavos de tolerancia
-
-  // Buscar líneas de la CUENTA DEL EXTRACTO en un rango de ±5 días.
-  //
-  // Es la cuenta del extracto, no cualquier 1.1.02.*: con dos bancos propios hay
-  // montos repetidos y el matcher se llevaba el asiento del OTRO banco (mismo
-  // monto y misma fecha), dejando huérfano el de la cuenta correcta — y el
-  // contador veía como "sin conciliar" un movimiento que sí estaba registrado
-  // (los $15 y $60 de enero en la 8829-7, que se los llevó la 2810-1).
-  // La ventana también va por día calendario y cubre el día +5 COMPLETO: los
-  // asientos del borde caen a las 16:00Z y un `lte` a medianoche los dejaba fuera.
-  const rowDay = dayNumber(rowDate);
-  const startDate = new Date((rowDay - 5) * DAY_MS);
-  const endDate = new Date((rowDay + 6) * DAY_MS - 1);
-
-  const bankLines = await prisma.journalLine.findMany({
-    where: {
-      accountId: bankAccountId,
-      journalEntry: {
-        companyId,
-        status: { notIn: ['RECHAZADO', 'ANULADO'] },
-        date: { gte: startDate, lte: endDate },
-      },
-    },
-    include: {
-      journalEntry: {
-        select: { id: true, date: true, description: true },
-      },
-      account: { select: { code: true, name: true } },
-    },
-  });
 
   let bestMatch: { entryId: string; lineId: string; amount: number; confidence: number; matchType: MatchResult['matchType'] } | null = null;
 
@@ -274,6 +246,41 @@ export async function autoMatch(
     matches.push({ rowId: row.id, entryId: match.entryId, confidence: match.confidence, matchType: match.matchType });
   };
 
+  // Las líneas de la cuenta se consultan UNA vez por DÍA del extracto, no una
+  // vez por fila (ni por ronda): con un extracto de 573 filas eran miles de
+  // consultas y el upload superaba el timeout de nginx (504). La ventana de
+  // cada día es la misma de siempre: ±5 días calendario, con el +5 completo.
+  //
+  // Es la cuenta del extracto, no cualquier 1.1.02.*: con dos bancos propios hay
+  // montos repetidos y el matcher se llevaba el asiento del OTRO banco.
+  const cacheLineasPorDia = new Map<number, any[]>();
+  const lineasDelDia = async (fecha: Date): Promise<any[]> => {
+    const day = dayNumber(fecha);
+    const enCache = cacheLineasPorDia.get(day);
+    if (enCache) return enCache;
+
+    const startDate = new Date((day - 5) * DAY_MS);
+    const endDate = new Date((day + 6) * DAY_MS - 1);
+    const lineas = await prisma.journalLine.findMany({
+      where: {
+        accountId: bankAccountId,
+        journalEntry: {
+          companyId,
+          status: { notIn: ['RECHAZADO', 'ANULADO'] },
+          date: { gte: startDate, lte: endDate },
+        },
+      },
+      include: {
+        journalEntry: {
+          select: { id: true, date: true, description: true },
+        },
+        account: { select: { code: true, name: true } },
+      },
+    });
+    cacheLineasPorDia.set(day, lineas);
+    return lineas;
+  };
+
   // Dos bandas, de la mejor confianza a la peor: primero lo del MISMO día o ±2
   // (0.9-1.0) y después lo difuso (0.5-0.7, hasta ±5 días).
   //
@@ -295,7 +302,7 @@ export async function autoMatch(
       // siguiente, ya sin ella en juego.
       const propuestas: Array<{ row: any; match: any }> = [];
       for (const row of pendientes) {
-        const match = await findBestMatch(comoFila(row), prisma, companyId, bankAccountId, ocupados, banda);
+        const match = findBestMatch(comoFila(row), await lineasDelDia(new Date(row.date)), ocupados, banda);
         if (match) propuestas.push({ row, match });
       }
       if (!propuestas.length) break;
@@ -317,8 +324,18 @@ export async function autoMatch(
 }
 
 /**
- * Encuentra asientos de libro NO conciliados de la cuenta del extracto, en su
- * rango de fechas.
+ * Encuentra las PARTIDAS de libro NO conciliadas de la cuenta del extracto, en
+ * su rango de fechas.
+ *
+ * La unidad de la lista es la LÍNEA, no el asiento. Un asiento puede tener dos
+ * líneas de banco (dos transferencias cargadas juntas) y una de ellas seguir
+ * libre; y una línea de $12 aplicada $6 al vincular una fila todavía tiene $6
+ * por conciliar. Antes cualquier vínculo escondía el asiento ENTERO: al hacer el
+ * primer vínculo el saldo que faltaba desaparecía de la lista y no había forma
+ * de conciliar la segunda fila (28-10).
+ *
+ * Los matches viejos (de antes de `bank_row_match`) sí bloquean el asiento
+ * entero: no dejaron constancia de qué línea usaron.
  *
  * La cuenta es la DEL EXTRACTO a propósito: antes se listaban los asientos de
  * TODAS las cuentas 1.1.02.* y el contador veía como "sin conciliar" el
@@ -332,22 +349,38 @@ export async function findUnmatchedBookEntries(
   statementStart?: Date,
   statementEnd?: Date,
 ): Promise<any[]> {
-  // Obtener todos los IDs de asientos ya matcheados en este statement
-  const matchedIds = await prisma.bankStatementRow.findMany({
-    where: { status: 'MATCHED', matchedEntryId: { not: null } },
+  // Vínculos viejos: bloquean el asiento entero (ver arriba).
+  const viejos = await prisma.bankStatementRow.findMany({
+    where: {
+      status: 'MATCHED',
+      matchedEntryId: { not: null },
+      matches: { none: {} },
+      statement: { companyId },
+    },
     select: { matchedEntryId: true },
   });
-  const matchedSet = new Set(matchedIds.map((r: any) => r.matchedEntryId));
+  const bloqueados = new Set<string>(viejos.map((v: any) => v.matchedEntryId));
 
-  // Y los asientos que sostienen una fila por vínculo fino (banco ↔ varias
-  // partidas): una de las cuatro facturas de un depósito ACH también está
-  // conciliada, aunque `matchedEntryId` de la fila apunte a otra.
-  const vinculadas = await prisma.bankRowMatch.findMany({ select: { entryId: true } });
-  for (const v of vinculadas) matchedSet.add(v.entryId);
+  // Lo ya aplicado de cada línea, sumando TODAS las filas de la empresa: una
+  // partida puede repartirse entre varias filas (y entre extractos distintos),
+  // y lo que queda por conciliar es el total menos esa suma.
+  const vinculos = await prisma.bankRowMatch.findMany({
+    where: { row: { statement: { companyId } } },
+    select: { lineId: true, amount: true },
+  });
+  const aplicado = new Map<string, number>();
+  for (const v of vinculos) {
+    aplicado.set(v.lineId, (aplicado.get(v.lineId) || 0) + (Number(v.amount) || 0));
+  }
 
   const dateFilter: any = {};
   if (statementStart) dateFilter.gte = statementStart;
-  if (statementEnd) dateFilter.lte = statementEnd;
+  if (statementEnd) {
+    // El fin del extracto se guarda a medianoche UTC y los asientos a mediodía
+    // local. Un `lte` crudo dejaba fuera el ÚLTIMO día del rango; se incluye
+    // completo (el matcher no usa este filtro, solo la lista de libros).
+    dateFilter.lte = new Date(new Date(statementEnd).getTime() + 24 * 60 * 60 * 1000 - 1);
+  }
 
   const where: any = {
     companyId,
@@ -367,6 +400,23 @@ export async function findUnmatchedBookEntries(
     orderBy: { date: 'asc' },
   });
 
-  // Filtrar: solo los no matcheados
-  return entries.filter((e: any) => !matchedSet.has(e.id));
+  // Solo las líneas con saldo por conciliar: las aplicadas completas no se
+  // ofrecen, y las parciales se ofrecen por lo que queda, no por su total.
+  const pendientes: any[] = [];
+  for (const e of entries) {
+    if (bloqueados.has(e.id)) continue;
+    const lines = (e.lines || [])
+      .map((l: any) => {
+        const usado = Math.round((aplicado.get(l.id) || 0) * 100) / 100;
+        return {
+          ...l,
+          aplicado: usado,
+          remainingDebit: Math.max(0, Math.round((l.debit - usado) * 100) / 100),
+          remainingCredit: Math.max(0, Math.round((l.credit - usado) * 100) / 100),
+        };
+      })
+      .filter((l: any) => l.remainingDebit > 0.005 || l.remainingCredit > 0.005);
+    if (lines.length) pendientes.push({ ...e, lines });
+  }
+  return pendientes;
 }

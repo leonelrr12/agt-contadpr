@@ -177,7 +177,10 @@ app.use('/api/', generalLimiter);
 app.use('/api/auth/forgot-password', authLimiter);
 app.use('/api/auth/login', loginLimiter);
 app.use('/api/import', heavyLimiter);
-app.use('/api/reconcile', heavyLimiter);
+// Solo la subida (parsea PDF/Excel) es pesada. El resto de la conciliación
+// —candidates, match, rematch— son consultas de la sesión de trabajo: con el
+// límite de 10/min el contador se frena a la tercera fila.
+app.use('/api/reconcile/upload', heavyLimiter);
 app.use('/api/orchestrate', llmLimiter);
 app.use('/api/salud', llmLimiter);
 app.use('/api/ocr', heavyLimiter);

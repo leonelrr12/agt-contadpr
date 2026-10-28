@@ -22,6 +22,9 @@ let currentUnmatchedBooks = [];
 /** Fila del extracto que se está vinculando, y las partidas elegidas (lineId → monto). */
 let vinculando = null;
 let candidatos = [];
+/** Candidatos de OTRAS cuentas monetarias (carga histórica / «Por Clasificar»). */
+let candidatosOtros = [];
+let otrosBancosCargados = false;
 const seleccion = new Map();
 /** Fila del extracto para la que se está creando el asiento que falta. */
 let filaCreando = null;
@@ -55,7 +58,7 @@ function conciliacionHTML() {
 <div class="reconcile-container">
   <div class="reconcile-header">
     <h1>🏦 Conciliación Bancaria</h1>
-    <p>Sube tu extracto bancario o el estado de tu tarjeta de crédito (CSV/XLSX). El sistema matchea automáticamente contra los asientos registrados en esa cuenta.</p>
+    <p>Sube tu extracto bancario o el estado de tu tarjeta de crédito (CSV/XLSX/PDF). El sistema matchea automáticamente contra los asientos registrados en esa cuenta.</p>
     ${enSpa ? '' : '<p style="margin-top:8px"><a href="/index.html" style="color:#1565c0;text-decoration:none;font-size:14px">← Volver al Chat</a></p>'}
   </div>
 
@@ -68,12 +71,23 @@ function conciliacionHTML() {
           <option value="">Cargando cuentas...</option>
         </select>
       </div>
+      <div>
+        <label for="fecha-desde">📅 Desde (opcional)</label>
+        <input type="date" id="fecha-desde">
+      </div>
+      <div>
+        <label for="fecha-hasta">📅 Hasta (opcional)</label>
+        <input type="date" id="fecha-hasta">
+      </div>
+      <div style="grid-column:1/-1;font-size:12px;color:#6b7280;margin-top:-4px">
+        Si el extracto trae varios meses, poné el rango que querés conciliar. Vacío = todo el archivo.
+      </div>
     </div>
     <div class="upload-zone" id="drop-zone">
       <div class="upload-zone-icon">🏦</div>
       <h3>Arrastra tu extracto aquí o haz clic para seleccionar</h3>
-      <p>Formatos aceptados: CSV/XLSX del banco o del estado de la tarjeta (Banco General, Banistmo, etc.)</p>
-      <input type="file" id="file-input" accept=".csv,.xlsx" style="display:none">
+      <p>Formatos aceptados: CSV/XLSX del banco o del estado de la tarjeta (Banco General, Banistmo, etc.) o el PDF digital del extracto</p>
+      <input type="file" id="file-input" accept=".csv,.xlsx,.pdf" style="display:none">
     </div>
   </div>
 
@@ -86,6 +100,7 @@ function conciliacionHTML() {
   <!-- Paso 3: Detalle de conciliación -->
   <div id="step-detail" class="hidden">
     <div class="summary-cards" id="summary-cards"></div>
+    <div id="periodo-extracto" style="font-size:13px;color:#374151;margin:-6px 0 14px"></div>
     <div id="aviso-conciliacion" class="hidden" style="padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:16px"></div>
 
     <div class="section">
@@ -110,6 +125,7 @@ function conciliacionHTML() {
 
     <div class="section">
       <div class="section-title section-book">📋 Sin Conciliar — Libros Contables (no en extracto)</div>
+      <div style="font-size:12px;color:#6b7280;margin-bottom:8px">Si el movimiento está en otro banco, caja o en «Por Clasificar», buscá desde la fila del extracto: <b>Vincular → «Buscar en otros bancos»</b>.</div>
       <div style="overflow-x:auto">
         <table class="data-table" id="book-table">
           <thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th></tr></thead>
@@ -241,12 +257,17 @@ async function loadHistory() {
       // El extracto que está abierto se marca: la grilla queda a la vista debajo del
       // detalle y sin la marca no se sabe en cuál se está parado.
       const abierta = currentStatement?.id === s.id;
+      // El período distingue dos cargas del mismo PDF recortadas a meses
+      // distintos (la cuenta de pagos trae 4 meses en un solo archivo).
+      const periodo = s.statementStart && s.statementEnd
+        ? ` • 📅 ${fechaSimple(s.statementStart)} → ${fechaSimple(s.statementEnd)}`
+        : '';
       html += `<div style="background:${abierta ? '#eff6ff' : '#fff'};border:1px solid ${abierta ? '#1565c0' : '#e5e7eb'};border-left:5px solid ${abierta ? '#1565c0' : '#e5e7eb'};border-radius:8px;padding:12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="loadStatement('${s.id}')">
         <div>
           <strong>${esc(s.bankAccount?.name || 'Banco')}</strong>
           ${abierta ? '<span class="badge badge-abierta">abierta</span>' : ''}
           <span style="color:#6b7280;font-size:12px;margin-left:8px">${s.fileName || 'CSV'}</span>
-          <div style="font-size:12px;color:#6b7280;margin-top:2px">${new Date(s.uploadDate).toLocaleDateString('es-PA')} • ${s.matchedCount}/${s.totalRows} conciliados (${pct}%)</div>
+          <div style="font-size:12px;color:#6b7280;margin-top:2px">${new Date(s.uploadDate).toLocaleDateString('es-PA')}${periodo} • ${s.matchedCount}/${s.totalRows} conciliados (${pct}%)</div>
         </div>
         <span class="badge ${pct === 100 ? 'badge-ok' : pct > 50 ? 'badge-warn' : 'badge-err'}">${pct}%</span>
       </div>`;
@@ -260,6 +281,15 @@ async function uploadFile(file) {
   const bankAccountId = document.getElementById('bank-account-select').value;
   if (!bankAccountId) { showAlert('Seleccioná primero la cuenta bancaria o la tarjeta a conciliar.'); return; }
 
+  // Rango opcional: si el extracto trae varios meses, se guarda y concilia solo
+  // ese recorte. Vacío en las dos = todo el archivo (comportamiento de siempre).
+  const desde = (document.getElementById('fecha-desde')?.value || '').trim();
+  const hasta = (document.getElementById('fecha-hasta')?.value || '').trim();
+  if (desde && hasta && desde > hasta) {
+    showAlert('El rango de fechas es inválido: «Desde» no puede ser posterior a «Hasta».');
+    return;
+  }
+
   document.getElementById('step-upload').classList.add('hidden');
   document.getElementById('step-detail').classList.add('hidden');
   document.getElementById('step-loading').classList.remove('hidden');
@@ -267,14 +297,36 @@ async function uploadFile(file) {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('bankAccountId', bankAccountId);
+  formData.append('fechaDesde', desde);
+  formData.append('fechaHasta', hasta);
 
   try {
     const res = await authFetch(`${CONC_API}/reconcile/upload`, { method: 'POST', body: formData });
-    if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+    if (!res.ok) {
+      const tipo = res.headers.get('content-type') || '';
+      if (tipo.includes('application/json')) {
+        const err = await res.json();
+        throw new Error(err.error || `No se pudo subir el extracto (HTTP ${res.status}).`);
+      }
+      // nginx devuelve HTML en los 502/504. Ojo: el handler del API sigue
+      // corriendo aunque el navegador se rinda, así que el extracto pudo
+      // haberse guardado igual.
+      throw new Error(
+        `El servidor tardó en responder (HTTP ${res.status}). Revisá la lista de conciliaciones antes de volver a subir: el extracto puede haberse guardado igual.`,
+      );
+    }
     const data = await res.json();
 
     document.getElementById('step-loading').classList.add('hidden');
     renderDetail(data);
+    // Avisos del parser (p. ej. la cadena de saldos del PDF no cierra): el
+    // extracto se cargó igual, pero el contador tiene que revisarlo.
+    if (Array.isArray(data.warnings) && data.warnings.length) {
+      showAlert(
+        data.warnings.map(w => esc(w)).join('<br><br>'),
+        { type: 'warning', title: 'Extracto cargado con advertencias', icon: '⚠️', okText: 'Entendido' },
+      );
+    }
   } catch (e) {
     showAlert('No se pudo subir el extracto: ' + esc(e.message));
     resetView();
@@ -302,7 +354,13 @@ function renderDetail(data) {
   currentUnmatchedBooks = unmatchedBooks || [];
   cerrarVinculador();
 
-  document.getElementById('step-detail').classList.remove('hidden');
+  // Solo se baja a la vista al ENTRAR al detalle (subida o primera apertura):
+  // los re-render de una acción (guardar vínculo, desvincular, rematch, crear
+  // asiento) pasan por acá con el detalle ya visible y no pueden mover la
+  // pantalla — el contador está trabajando más abajo, en el vinculador o en libros.
+  const detailEl = document.getElementById('step-detail');
+  const entrarAlDetalle = detailEl.classList.contains('hidden');
+  detailEl.classList.remove('hidden');
 
   // Summary
   document.getElementById('summary-cards').innerHTML = `
@@ -311,6 +369,14 @@ function renderDetail(data) {
     <div class="summary-card warn"><div class="num">${summary.unmatchedBookCount}</div><div class="label">Sin conciliar (libros)</div></div>
     <div class="summary-card"><div class="num">${summary.total}</div><div class="label">Total extracto</div></div>
   `;
+
+  // El rango que se cargó (un PDF de varios meses se puede recortar por mes).
+  const periodoEl = document.getElementById('periodo-extracto');
+  if (periodoEl) {
+    periodoEl.textContent = statement.statementStart && statement.statementEnd
+      ? `📅 Período del extracto: ${fechaSimple(statement.statementStart)} → ${fechaSimple(statement.statementEnd)}`
+      : '';
+  }
 
   // Casi nada conciliado es la señal de que el archivo es de OTRA cuenta: el
   // matcher solo mira la cuenta elegida en el selector, y con un archivo de otro
@@ -372,23 +438,33 @@ function renderDetail(data) {
   }
   document.getElementById('unmatched-tbody').innerHTML = uHtml;
 
-  // Unmatched books
+  // Unmatched books — una fila por PARTIDA (línea), con su saldo: un asiento
+  // puede tener dos líneas de banco, y una línea parcialmente aplicada sigue
+  // debiendo la diferencia.
+  const partidasLibro = [];
+  for (const e of unmatchedBooks) {
+    for (const l of (e.lines || [])) partidasLibro.push({ e, l });
+  }
   let bHtml = '';
-  if (unmatchedBooks.length === 0) {
+  if (partidasLibro.length === 0) {
     bHtml = '<tr><td colspan="5" style="text-align:center;color:#6b7280;padding:16px">No hay partidas de libro sin conciliar en este período</td></tr>';
   } else {
-    for (const e of unmatchedBooks.slice(0, 20)) {
-      const bankLine = e.lines[0];
+    for (const { e, l } of partidasLibro.slice(0, 20)) {
+      const debe = restanteDeLinea(l, 'debit');
+      const haber = restanteDeLinea(l, 'credit');
+      const aplicado = (Number(l.debit) || 0) > 0
+        ? (Number(l.debit) || 0) - debe
+        : (Number(l.credit) || 0) - haber;
       bHtml += `<tr>
         <td>${new Date(e.date).toLocaleDateString('es-PA')}</td>
-        <td>${esc(e.description)}</td>
-        <td>${bankLine?.account?.name || '—'}</td>
-        <td>${bankLine?.debit > 0 ? '$' + bankLine.debit.toFixed(2) : '—'}</td>
-        <td>${bankLine?.credit > 0 ? '$' + bankLine.credit.toFixed(2) : '—'}</td>
+        <td>${esc(e.description)}${aplicado > 0.005 ? ` <span class="badge badge-warn" title="Partida parcialmente conciliada: ya se aplicaron $${aplicado.toFixed(2)}; se muestra lo que queda">parcial</span>` : ''}</td>
+        <td>${l.account?.name || '—'}</td>
+        <td>${debe > 0 ? '$' + debe.toFixed(2) : '—'}</td>
+        <td>${haber > 0 ? '$' + haber.toFixed(2) : '—'}</td>
       </tr>`;
     }
-    if (unmatchedBooks.length > 20) {
-      bHtml += `<tr><td colspan="5" style="text-align:center;color:#6b7280">... y ${unmatchedBooks.length - 20} más</td></tr>`;
+    if (partidasLibro.length > 20) {
+      bHtml += `<tr><td colspan="5" style="text-align:center;color:#6b7280">... y ${partidasLibro.length - 20} más</td></tr>`;
     }
   }
   document.getElementById('book-tbody').innerHTML = bHtml;
@@ -399,8 +475,8 @@ function renderDetail(data) {
   // movían los porcentajes— hasta refrescar la página a mano.
   loadHistory();
 
-  // Scroll to detail
-  document.getElementById('step-detail').scrollIntoView({ behavior: 'smooth' });
+  // Scroll to detail: solo al entrar (ver arriba).
+  if (entrarAlDetalle) detailEl.scrollIntoView({ behavior: 'smooth' });
 }
 
 /**
@@ -484,22 +560,44 @@ function abrirVinculador(rowId) {
   if (!row) return;
   vinculando = row;
   seleccion.clear();
+  candidatosOtros = [];
+  otrosBancosCargados = false;
 
   const esEntrada = (row.credit || 0) > 0; // entra plata al banco
   const montoFila = esEntrada ? row.credit : row.debit;
 
   // Las partidas ya vinculadas a esta fila van primero —para poder editarlas—;
   // las demás salen de los asientos sin conciliar de la cuenta del extracto.
-  const ya = (row.matches || []).map(m => ({
-    lineId: m.lineId, date: m.entry?.date, descripcion: m.entry?.description,
-    disponible: esEntrada ? (m.line?.debit || 0) : (m.line?.credit || 0), ya: true,
-  }));
+  const ya = (row.matches || []).map(m => {
+    const total = esEntrada ? (m.line?.debit || 0) : (m.line?.credit || 0);
+    // Lo que ya usan OTRAS filas de la misma partida (una de $12 repartida en
+    // dos filas de $6): al editar esta fila, el máximo es el total menos eso.
+    const deOtras = (m.line?.bankRowMatches || [])
+      .filter(v => v.rowId !== row.id)
+      .reduce((s, v) => s + (Number(v.amount) || 0), 0);
+    const disponible = Math.round(Math.max(total - deOtras, Number(m.amount) || 0) * 100) / 100;
+    return {
+      lineId: m.lineId, date: m.entry?.date, descripcion: m.entry?.description,
+      disponible,
+      total: total > disponible + 0.005 ? total : null,
+      ya: true, otraCuenta: false,
+    };
+  });
   const libres = [];
   for (const e of currentUnmatchedBooks) {
     for (const l of (e.lines || [])) {
-      const disponible = esEntrada ? l.debit : l.credit;
-      if (!(disponible > 0)) continue; // la partida está del otro lado de la fila
-      libres.push({ lineId: l.id, date: e.date, descripcion: e.description, disponible, ya: false });
+      // El saldo de la partida, no su total: lo ya aplicado a otras filas ya
+      // está conciliado. `remaining*` lo calcula la API por línea.
+      const total = esEntrada ? (l.debit || 0) : (l.credit || 0);
+      const disponible = esEntrada
+        ? (l.remainingDebit != null ? Number(l.remainingDebit) : total)
+        : (l.remainingCredit != null ? Number(l.remainingCredit) : total);
+      if (!(disponible > 0.005)) continue; // está del otro lado o no le queda saldo
+      libres.push({
+        lineId: l.id, date: e.date, descripcion: e.description, disponible,
+        total: total > disponible + 0.005 ? total : null,
+        ya: false, otraCuenta: false,
+      });
     }
   }
   candidatos = [...ya, ...libres];
@@ -508,10 +606,69 @@ function abrirVinculador(rowId) {
   document.getElementById('pick-head').innerHTML = `
     <h3>🔗 Vincular partidas del libro</h3>
     <div class="fila"><b>${esc(row.description)}</b> · ${new Date(row.date).toLocaleDateString('es-PA')} · ${esEntrada ? 'entrada' : 'salida'} de <b>$${montoFila.toFixed(2)}</b></div>
-    <input class="buscar" id="pick-buscar" placeholder="Buscar partida por descripción..." oninput="renderLista()">`;
+    <input class="buscar" id="pick-buscar" placeholder="Buscar partida por descripción..." oninput="renderLista()">
+    <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:13px;cursor:pointer">
+      <input type="checkbox" id="pick-otros" onchange="alternarOtrosBancos(this.checked)">
+      Buscar también en otros bancos, caja y tarjetas
+      <span style="color:#6b7280;font-size:12px">(mueve la partida a la cuenta de este extracto)</span>
+    </label>
+    <div id="pick-otros-estado" style="font-size:12px;color:#6b7280;margin-top:4px"></div>`;
   document.getElementById('pick-overlay').classList.remove('hidden');
   renderLista();
   document.getElementById('pick-buscar').focus();
+}
+
+/**
+ * Trae las partidas del período que están en OTRA cuenta monetaria (Caja, otro
+ * banco, tarjeta) y las suma a la lista. No mueve nada todavía: el cambio de
+ * cuenta se aplica al guardar, con confirmación.
+ */
+async function alternarOtrosBancos(activo) {
+  const estado = document.getElementById('pick-otros-estado');
+  const box = document.getElementById('pick-otros');
+  if (!activo) {
+    // Lo que estaba marcado de otras cuentas deja de estar en juego al apagar
+    // la búsqueda: si se guardara, el backend lo rechazaría por no autorizar el
+    // cambio de cuenta y el contador no sabría por qué.
+    for (const c of candidatosOtros) seleccion.delete(c.lineId);
+    candidatos = candidatos.filter(c => !c.otraCuenta);
+    if (estado) estado.textContent = '';
+    renderLista();
+    return;
+  }
+  if (otrosBancosCargados) { renderLista(); return; }
+  if (!vinculando || !currentStatement) return;
+
+  if (estado) estado.textContent = 'Buscando partidas en otras cuentas…';
+  try {
+    const res = await authFetch(`${CONC_API}/reconcile/${currentStatement.id}/candidates?rowId=${encodeURIComponent(vinculando.id)}`);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || 'No se pudo buscar en otros bancos');
+
+    candidatosOtros = (body.candidates || []).map(c => ({
+      lineId: c.lineId,
+      date: c.date,
+      descripcion: c.descripcion,
+      disponible: c.disponible,
+      ya: false,
+      otraCuenta: true,
+      cuenta: `${c.accountCode} — ${c.accountName}`,
+      reabrir: c.entryStatus === 'CONFIRMADO',
+    }));
+    const vistos = new Set(candidatos.map(c => c.lineId));
+    candidatos = [...candidatos, ...candidatosOtros.filter(c => !vistos.has(c.lineId))];
+    otrosBancosCargados = true;
+    if (estado) {
+      estado.textContent = candidatosOtros.length
+        ? `${candidatosOtros.length} partida(s) en otras cuentas del período. Al guardar se mueven a esta cuenta.`
+        : 'No hay partidas de otras cuentas en el período de este extracto.';
+    }
+    renderLista();
+  } catch (e) {
+    if (box) box.checked = false;
+    if (estado) estado.textContent = '';
+    showAlert('No se pudieron buscar otros bancos: ' + esc(e.message));
+  }
 }
 
 function renderLista() {
@@ -520,7 +677,9 @@ function renderLista() {
   const esEntrada = (row.credit || 0) > 0;
   const montoFila = esEntrada ? row.credit : row.debit;
   const q = (document.getElementById('pick-buscar')?.value || '').trim().toLowerCase();
-  const visibles = candidatos.filter(c => !q || String(c.descripcion || '').toLowerCase().includes(q));
+  const visibles = candidatos.filter(c => !q
+    || String(c.descripcion || '').toLowerCase().includes(q)
+    || String(c.cuenta || '').toLowerCase().includes(q));
 
   let html = '<table><thead><tr><th style="width:34px"></th><th>Fecha</th><th>Partida del libro</th><th class="num">Monto</th><th class="num">Aplicar</th></tr></thead><tbody>';
   if (!visibles.length) {
@@ -528,11 +687,14 @@ function renderLista() {
   }
   for (const c of visibles) {
     const marcada = seleccion.has(c.lineId);
-    html += `<tr class="${c.ya ? 'ya' : ''}">
+    const cuenta = c.otraCuenta
+      ? ` <span class="badge badge-warn" title="Al guardar, la partida se mueve a la cuenta de este extracto">🔄 ${esc(c.cuenta)}</span>${c.reabrir ? ' <span class="badge badge-err" title="El asiento está aprobado: vuelve a BORRADOR para re-aprobarlo">se reabre</span>' : ''}`
+      : '';
+    html += `<tr class="${c.ya ? 'ya' : ''}" style="${c.otraCuenta ? 'background:#fffbeb' : ''}">
       <td><input type="checkbox" ${marcada ? 'checked' : ''} onchange="toggleLinea('${c.lineId}')"></td>
       <td>${c.date ? new Date(c.date).toLocaleDateString('es-PA') : '—'}</td>
-      <td>${esc(c.descripcion)}${c.ya ? ' <span class="badge badge-ok">vinculada</span>' : ''}</td>
-      <td class="num">$${c.disponible.toFixed(2)}</td>
+      <td>${esc(c.descripcion)}${c.ya ? ' <span class="badge badge-ok">vinculada</span>' : ''}${cuenta}</td>
+      <td class="num">$${c.disponible.toFixed(2)}${c.total ? ` <span style="color:#6b7280;font-size:11px" title="Total de la partida; el resto ya está conciliado">de $${c.total.toFixed(2)}</span>` : ''}</td>
       <td class="num">${marcada ? `<input type="number" step="0.01" min="0" value="${seleccion.get(c.lineId).toFixed(2)}" onchange="cambiarMonto('${c.lineId}', this.value)">` : '—'}</td>
     </tr>`;
   }
@@ -577,6 +739,8 @@ function cambiarMonto(lineId, valor) {
 function cerrarVinculador() {
   vinculando = null;
   seleccion.clear();
+  candidatosOtros = [];
+  otrosBancosCargados = false;
   document.getElementById('pick-overlay').classList.add('hidden');
 }
 
@@ -584,17 +748,47 @@ async function guardarVinculo() {
   if (!vinculando) return;
   const btn = document.getElementById('btn-guardar-vinculo');
   const links = [...seleccion.entries()].map(([lineId, amount]) => ({ lineId, amount }));
+
+  // Partidas elegidas que están en otra cuenta monetaria: hay que moverlas y
+  // la API lo exige explícito. Se confirma con el detalle de qué cambia.
+  const cruzadas = links
+    .map(l => candidatos.find(c => c.lineId === l.lineId))
+    .filter(c => c && c.otraCuenta);
+  let moverCuenta = false;
+  if (cruzadas.length) {
+    const destino = currentStatement?.bankAccount;
+    const cuentas = [...new Set(cruzadas.map(c => c.cuenta))].join('<br>');
+    const reabrir = cruzadas.some(c => c.reabrir);
+    const ok = await showConfirm(
+      `Se cambiará la cuenta de ${cruzadas.length} partida(s) a <b>${esc(destino?.code || '')} — ${esc(destino?.name || '')}</b>:<br><br>` +
+      `${cuentas}<br><br>` +
+      (reabrir
+        ? 'El asiento está aprobado: vuelve a <b>BORRADOR</b> para que lo re-apruebes.<br><br>'
+        : '') +
+      'El asiento conserva fecha, monto y contrapartidas; solo cambia la cuenta bancaria.<br><br>¿Mover y conciliar?',
+      { title: 'Mover de cuenta', confirmText: 'Mover y conciliar', icon: '🔄' },
+    );
+    if (!ok) return;
+    moverCuenta = true;
+  }
+
   btn.disabled = true;
   btn.textContent = '⏳ Guardando...';
   try {
     const res = await authFetch(`${CONC_API}/reconcile/${currentStatement.id}/match`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rowId: vinculando.id, links }),
+      body: JSON.stringify({ rowId: vinculando.id, links, moverCuenta }),
     });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'No se pudo vincular');
+    const movidas = body.movidas || [];
     renderDetail(body);
+    if (movidas.length) {
+      const reabiertos = movidas.filter(m => m.reabierto).length;
+      showAlert(`✅ ${movidas.length} movimiento(s) movido(s) de cuenta y conciliado(s).` +
+        (reabiertos ? `<br><br>${reabiertos} asiento(s) volvieron a BORRADOR para re-aprobar.` : ''));
+    }
   } catch (e) {
     showAlert('No se pudo guardar el vínculo: ' + esc(e.message));
     btn.disabled = false;
@@ -758,12 +952,21 @@ async function crearAsientoDesdeFila() {
 }
 
 function resetView() {
+  // Un error de subida también pasa por acá: ahí NO se limpia el rango, para
+  // poder corregirlo y reintentar. Se limpia al cerrar un extracto abierto.
+  const habiaExtracto = !!currentStatement;
   currentStatement = null;
   document.getElementById('step-upload').classList.remove('hidden');
   document.getElementById('step-detail').classList.add('hidden');
   document.getElementById('step-loading').classList.add('hidden');
   const fileInput = document.getElementById('file-input');
   if (fileInput) fileInput.value = '';
+  if (habiaExtracto) {
+    const desdeEl = document.getElementById('fecha-desde');
+    const hastaEl = document.getElementById('fecha-hasta');
+    if (desdeEl) desdeEl.value = '';
+    if (hastaEl) hastaEl.value = '';
+  }
   // Se vuelve a pintar la grilla para que se le caiga la marca de "abierta".
   loadHistory();
 }
@@ -777,6 +980,27 @@ function irARevisionDesdeConciliacion() {
   const nav = document.querySelector('#sidebar-nav .nav-link[data-view="panel-revision"]');
   if (nav) nav.click();
   else window.location.href = '/index.html';
+}
+
+/**
+ * Lo que queda por conciliar de una partida del libro en el lado pedido.
+ * La API manda `remainingDebit`/`remainingCredit` (total menos lo aplicado en
+ * otras filas); sin esos campos —respuesta vieja— se usa el total de la línea.
+ */
+function restanteDeLinea(l, lado) {
+  const campo = lado === 'debit' ? 'remainingDebit' : 'remainingCredit';
+  return l[campo] != null ? Number(l[campo]) : (Number(l[lado]) || 0);
+}
+
+/**
+ * Fecha de solo día que viene de la API como medianoche UTC: se muestra con la
+ * parte de fecha del ISO, sin que el navegador la corra un día.
+ */
+function fechaSimple(iso) {
+  if (!iso) return '';
+  const s = String(iso);
+  const [y, m, d] = s.slice(0, 10).split('-');
+  return y && m && d ? `${d}/${m}/${y}` : new Date(iso).toLocaleDateString('es-PA');
 }
 
 function esc(s) {

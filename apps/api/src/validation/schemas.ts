@@ -226,6 +226,10 @@ export const reconcileMatchSchema = z.object({
     lineId: z.string().min(1),
     amount: z.number().positive().optional(),
   })).min(1).optional(),
+  // Cambiar de cuenta la partida (carga histórica: el movimiento está en
+  // «Por Clasificar» u otro banco). Sin este flag, una partida de otra cuenta
+  // se rechaza.
+  moverCuenta: z.boolean().optional(),
 });
 
 export const reconcileCreateEntrySchema = z.object({

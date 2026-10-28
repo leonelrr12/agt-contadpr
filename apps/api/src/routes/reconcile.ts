@@ -8,6 +8,7 @@ import { autoMatch, findUnmatchedBookEntries, daysBetween } from '../services/ba
 import { reconcileMatchSchema, reconcileCreateEntrySchema } from '../validation/schemas';
 import { ClassificationAgent, AccountingAgent } from '@agt-contador/agents';
 import { checkNotBlocked } from '../services/journal-guard';
+import { logAudit } from '../services/audit-log';
 import { parseLocalDate } from '../lib/dates';
 
 export const reconcileRouter = Router();
@@ -17,17 +18,34 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ext = file.originalname.toLowerCase();
-    if (ext.endsWith('.csv') || ext.endsWith('.xlsx') || file.mimetype === 'text/csv') {
+    if (
+      ext.endsWith('.csv') || ext.endsWith('.xlsx') || ext.endsWith('.pdf') ||
+      file.mimetype === 'text/csv' || file.mimetype === 'application/pdf'
+    ) {
       cb(null, true);
     } else {
-      cb(new Error('Formato no soportado. Use CSV o XLSX.'));
+      cb(new Error('Formato no soportado. Use CSV, XLSX o PDF.'));
     }
   },
 });
 
+/** Fecha `YYYY-MM-DD` del filtro opcional del extracto. Vacía = sin límite. */
+function leerFechaDeFiltro(valor: any): { fecha: string | null; invalida: boolean } {
+  const texto = typeof valor === 'string' ? valor.trim() : '';
+  if (!texto) return { fecha: null, invalida: false };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(texto)) return { fecha: null, invalida: true };
+  // Valida el día real (2026-02-31 se desborda a marzo): se compara la fecha
+  // normalizada, no solo el formato.
+  const d = new Date(`${texto}T12:00:00Z`);
+  if (isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== texto) return { fecha: null, invalida: true };
+  return { fecha: texto, invalida: false };
+}
+
 /**
  * POST /api/reconcile/upload
- * Sube un CSV de extracto bancario, lo parsea, guarda, y ejecuta auto-matching.
+ * Sube un CSV/XLSX/PDF de extracto bancario, lo parsea, guarda y ejecuta el
+ * auto-matching. `fechaDesde`/`fechaHasta` (opcionales) recortan el extracto a
+ * un rango: un PDF de 4 meses se puede conciliar mes por mes.
  */
 reconcileRouter.post('/upload', upload.single('file'), async (req, res) => {
   if (!req.file) {
@@ -54,14 +72,32 @@ reconcileRouter.post('/upload', upload.single('file'), async (req, res) => {
       return;
     }
 
+    // Filtro opcional de fechas: un PDF de varios meses se puede conciliar por
+    // mes. Sin rango se conserva el comportamiento de siempre (todo el archivo).
+    const filtroDesde = leerFechaDeFiltro(req.body.fechaDesde);
+    const filtroHasta = leerFechaDeFiltro(req.body.fechaHasta);
+    if (filtroDesde.invalida || filtroHasta.invalida) {
+      res.status(400).json({ error: 'Las fechas del filtro deben ser válidas (formato YYYY-MM-DD).' });
+      return;
+    }
+    if (filtroDesde.fecha && filtroHasta.fecha && filtroDesde.fecha > filtroHasta.fecha) {
+      res.status(400).json({ error: 'El rango de fechas es inválido: «desde» no puede ser posterior a «hasta».' });
+      return;
+    }
+
     const parsed = await parseImportFile(req.file.buffer, req.file.originalname);
+    // Los avisos del parser no bloquean la carga, pero quedan en el log para
+    // poder diagnosticar después una conciliación que quedó corta.
+    if (parsed.warnings?.length) {
+      console.warn('[Reconcile] Avisos del extracto:', parsed.warnings.join(' | '));
+    }
 
     // Un extracto sin ninguna partida con fecha es un archivo que NO supimos
     // leer, no una conciliación vacía: se avisa y no se guarda nada. Antes se
     // aceptaba en silencio y el extracto quedaba en la lista con 0 filas y sin
     // nada que conciliar (pasó el 11-10 con dos cargas del ENERO).
-    const filas = parsed.rows.filter(r => r.date);
-    if (filas.length === 0) {
+    const conFecha = parsed.rows.filter(r => r.date);
+    if (conFecha.length === 0) {
       res.status(400).json({
         error: parsed.rows.length === 0
           ? 'El archivo no trae ninguna fila de datos. ¿Es el extracto correcto?'
@@ -70,15 +106,27 @@ reconcileRouter.post('/upload', upload.single('file'), async (req, res) => {
       return;
     }
 
-    // Determinar fechas del extracto
+    const filas = conFecha.filter(r =>
+      (!filtroDesde.fecha || r.date! >= filtroDesde.fecha) &&
+      (!filtroHasta.fecha || r.date! <= filtroHasta.fecha));
+    if (filas.length === 0) {
+      res.status(400).json({
+        error: `El extracto no tiene movimientos en el rango ${filtroDesde.fecha || '…'} → ${filtroHasta.fecha || '…'}. No se guardó nada.`,
+      });
+      return;
+    }
+
+    // Determinar fechas del extracto. Con filtro manda el rango elegido (así la
+    // lista de libros pendientes también es la del mes); sin filtro, las fechas
+    // de las filas.
     const dates = filas
       .map(r => r.date)
       .sort() as string[];
-    const statementStart = new Date(dates[0]);
-    const statementEnd = new Date(dates[dates.length - 1]);
+    const statementStart = new Date(filtroDesde.fecha || dates[0]);
+    const statementEnd = new Date(filtroHasta.fecha || dates[dates.length - 1]);
 
-    const openingBalance = parsed.rows[0]?.balance ?? 0;
-    const closingBalance = parsed.rows[parsed.rows.length - 1]?.balance ?? 0;
+    const openingBalance = filas[0]?.balance ?? 0;
+    const closingBalance = filas[filas.length - 1]?.balance ?? 0;
 
     // Crear el statement
     const statement = await req.prisma.bankStatement.create({
@@ -129,6 +177,9 @@ reconcileRouter.post('/upload', upload.single('file'), async (req, res) => {
 
     res.status(201).json({
       ...(detalle ?? { statement, unmatchedBooks, summary: { total: statement.rows.length, matched: 0, unmatched: statement.rows.length, unmatchedBookCount: unmatchedBooks.length } }),
+      // Avisos del parser (p. ej. la cadena de saldos del PDF no cierra): el
+      // extracto se guardó igual, pero el frente muestra la alerta.
+      warnings: parsed.warnings || [],
       summary: {
         ...(detalle?.summary ?? { total: statement.rows.length, matched: 0, unmatched: statement.rows.length, unmatchedBookCount: unmatchedBooks.length }),
         matches,
@@ -164,7 +215,15 @@ async function detalleDeExtracto(prisma: any, companyId: string, statementId: st
           matches: {
             include: {
               entry: { select: { id: true, date: true, description: true } },
-              line: { select: { debit: true, credit: true } },
+              // La línea con TODOS sus vínculos: al editar una fila, el máximo
+              // aplicable es el total menos lo que ya usan las otras filas.
+              line: {
+                select: {
+                  debit: true,
+                  credit: true,
+                  bankRowMatches: { select: { rowId: true, amount: true } },
+                },
+              },
             },
             orderBy: { createdAt: 'asc' },
           },
@@ -440,93 +499,370 @@ reconcileRouter.post('/:id/rematch', requireRole('admin', 'contador', 'superadmi
   }
 });
 
+/** Cuentas cuyo saldo se mueve con un extracto: Caja, Bancos y Tarjetas de crédito. */
+function esCuentaMonetaria(code: string | null | undefined): boolean {
+  if (!code) return false;
+  return code === '1.1.01' || code.startsWith('1.1.01.') || code.startsWith('1.1.02') || code.startsWith('2.1.03');
+}
+
+interface MovidaCuenta {
+  lineId: string;
+  entryId: string;
+  desde: string; // "1.1.02.09 — Por Clasificar"
+  hasta: string; // "1.1.02.01 — Banco General …"
+  reabierto: boolean;
+}
+
+/**
+ * GET /api/reconcile/:id/candidates?rowId=…
+ *
+ * Partidas del libro del MISMO período que pueden sostener una fila del
+ * extracto pero están en OTRA cuenta monetaria (Caja 1.1.01, otro banco
+ * 1.1.02.*, tarjeta 2.1.03.*).
+ *
+ * Es la salida para la carga histórica: el movimiento se cargó en
+ * «Por Clasificar» (1.1.02.09) o en el banco equivocado, y el matcher —que solo
+ * mira la cuenta del extracto— no lo ve. El vinculador las ofrece al activar
+ * «buscar en otros bancos»; al guardar, `POST /:id/match` las mueve a esta
+ * cuenta (`moverCuenta`). Acá solo se listan; nada se toca.
+ */
+reconcileRouter.get('/:id/candidates', async (req, res) => {
+  // Todo dentro del try: en Express 4 un throw suelto en un handler async no
+  // llega al middleware de errores y deja la petición colgada para siempre.
+  try {
+    const rowId = typeof req.query.rowId === 'string' ? req.query.rowId : '';
+    if (!rowId) { res.status(400).json({ error: 'Falta rowId (la fila del extracto a vincular)' }); return; }
+
+    const statement = await req.prisma.bankStatement.findFirst({
+      where: { id: req.params.id, companyId: req.user!.companyId },
+      select: { id: true, bankAccountId: true, statementStart: true, statementEnd: true },
+    });
+    if (!statement) { res.status(404).json({ error: 'Extracto no encontrado' }); return; }
+
+    const row = await req.prisma.bankStatementRow.findFirst({
+      where: { id: rowId, statementId: statement.id },
+      select: { id: true, date: true, debit: true, credit: true },
+    });
+    if (!row) { res.status(404).json({ error: 'Fila no encontrada' }); return; }
+
+    // Cuentas monetarias distintas de la del extracto: son las únicas a las que
+    // tiene sentido mover una pata de banco.
+    const cuentas = await req.prisma.account.findMany({
+      where: {
+        companyId: req.user!.companyId,
+        id: { not: statement.bankAccountId },
+        OR: [
+          { code: '1.1.01' },
+          { code: { startsWith: '1.1.01.' } },
+          { code: { startsWith: '1.1.02' } },
+          { code: { startsWith: '2.1.03' } },
+        ],
+      },
+      select: { id: true, code: true, name: true },
+    });
+    if (!cuentas.length) { res.json({ candidates: [] }); return; }
+
+    const esEntrada = (row.credit || 0) > 0;
+    const desde = statement.statementStart || new Date(new Date(row.date).getTime() - 5 * 24 * 60 * 60 * 1000);
+    // Hasta el FIN del día de corte: un `lte` a medianoche deja fuera los asientos
+    // del último día, que se guardan a mediodía local.
+    const hasta = statement.statementEnd
+      ? new Date(new Date(statement.statementEnd).getTime() + 24 * 60 * 60 * 1000 - 1)
+      : new Date(new Date(row.date).getTime() + 6 * 24 * 60 * 60 * 1000 - 1);
+
+    // Asientos ya conciliados por la vía vieja (sin vínculo por línea): no se
+    // ofrecen de nuevo. El vínculo por línea ya se excluye con `bankRowMatches`.
+    const viejos = await req.prisma.bankStatementRow.findMany({
+      where: {
+        status: 'MATCHED',
+        matchedEntryId: { not: null },
+        matches: { none: {} },
+        statement: { companyId: req.user!.companyId },
+      },
+      select: { matchedEntryId: true },
+    });
+    const yaConciliados = new Set<string>(viejos.map((v: any) => v.matchedEntryId));
+
+    const lineas = await req.prisma.journalLine.findMany({
+      where: {
+        accountId: { in: cuentas.map((c: any) => c.id) },
+        // El lado que corresponde a la fila: una entrada del banco se sostiene con
+        // el débito del libro; una salida, con el crédito.
+        ...(esEntrada ? { debit: { gt: 0 } } : { credit: { gt: 0 } }),
+        bankRowMatches: { none: {} },
+        journalEntry: {
+          companyId: req.user!.companyId,
+          status: { notIn: ['RECHAZADO', 'ANULADO'] },
+          isClosing: false,
+          date: { gte: desde, lte: hasta },
+        },
+      },
+      include: {
+        journalEntry: { select: { id: true, date: true, description: true, status: true } },
+        account: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: { journalEntry: { date: 'asc' } },
+      take: 500,
+    });
+
+    const montoFila = esEntrada ? row.credit : row.debit;
+    const candidates = lineas
+      .filter((l: any) => !yaConciliados.has(l.journalEntry.id))
+      .map((l: any) => ({
+        lineId: l.id,
+        entryId: l.journalEntry.id,
+        date: l.journalEntry.date,
+        descripcion: l.journalEntry.description,
+        disponible: esEntrada ? l.debit : l.credit,
+        accountId: l.account.id,
+        accountCode: l.account.code,
+        accountName: l.account.name,
+        entryStatus: l.journalEntry.status,
+      }))
+      // Primero el monto exacto y después la fecha más cercana: con 293
+      // movimientos en «Por Clasificar» lo probable tiene que salir arriba.
+      .sort((a: any, b: any) => {
+        const exactoA = Math.abs(a.disponible - montoFila) <= 0.02 ? 0 : 1;
+        const exactoB = Math.abs(b.disponible - montoFila) <= 0.02 ? 0 : 1;
+        return exactoA - exactoB
+          || daysBetween(new Date(a.date), new Date(row.date)) - daysBetween(new Date(b.date), new Date(row.date))
+          || String(a.descripcion).localeCompare(String(b.descripcion));
+      });
+
+    res.json({ candidates });
+  } catch (error: any) {
+    console.error('[Reconcile] Candidates error:', error);
+    res.status(400).json({ error: error.message || 'No se pudieron buscar partidas en otras cuentas' });
+  }
+});
+
 /**
  * Vincula a mano una fila del extracto con las partidas del libro que la
- * sostienen. Devuelve el mensaje de error, o null si quedó vinculada.
+ * sostienen. Devuelve `{ error }` o `{ movidas }`.
  *
  * El caso que lo pide: el ACH de Inmobiliaria Don Antonio del 20-feb por
  * $17.353,68 son cuatro facturas cobradas de una vez. El matcher empareja UNA
  * línea contra UNA fila por monto exacto, así que ese depósito no tiene contra
  * qué conciliarse solo; acá el contador arma el vínculo y la suma tiene que dar
  * el monto de la fila (±2 centavos).
+ *
+ * `moverCuenta` habilita el caso de la carga histórica: la partida está en OTRA
+ * cuenta monetaria (típicamente 1.1.02.09 «Por Clasificar» o el banco
+ * equivocado) y el contador decide, en el mismo acto, cambiarla a la cuenta del
+ * extracto y conciliarla. El asiento conserva fecha, montos y contrapartidas;
+ * solo cambia la cuenta de esa línea. Si estaba CONFIRMADO vuelve a BORRADOR
+ * para que el contador lo re-apruebe: no se inventan asientos de reclasificación.
  */
 async function vincularLineas(
   prisma: any,
   companyId: string,
+  userId: string,
   row: any,
   links: Array<{ lineId: string; amount?: number }>,
-): Promise<string | null> {
+  moverCuenta: boolean,
+): Promise<{ error: string } | { movidas: MovidaCuenta[] }> {
   const bankAccountId = row.statement.bankAccountId;
   const lineIds = [...new Set(links.map(l => l.lineId))];
   const esEntrada = (row.credit || 0) > 0; // entra plata al banco → la partida va al débito
   const montoFila = esEntrada ? row.credit : row.debit;
 
   const lineas = await prisma.journalLine.findMany({
-    where: { id: { in: lineIds }, accountId: bankAccountId },
-    include: { journalEntry: { select: { id: true, companyId: true, date: true, description: true, status: true } } },
+    where: { id: { in: lineIds } },
+    include: {
+      journalEntry: {
+        select: { id: true, companyId: true, date: true, description: true, status: true, isClosing: true },
+      },
+      account: { select: { id: true, code: true, name: true } },
+    },
   });
   if (lineas.length !== lineIds.length) {
-    return 'Alguna de las partidas no es de la cuenta de este extracto.';
+    return { error: 'Alguna de las partidas no existe.' };
   }
 
-  const ocupadas = await prisma.bankRowMatch.findMany({
+  // Lo que OTRAS filas ya aplicaron de cada partida. Una línea puede repartirse
+  // entre varias filas mientras la suma no pase de su monto: una partida de $12
+  // que se cobra en dos movimientos de $6 se aplica $6 a cada fila.
+  const otros = await prisma.bankRowMatch.findMany({
     where: { lineId: { in: lineIds }, rowId: { not: row.id } },
-    select: { lineId: true },
+    select: { lineId: true, amount: true },
   });
-  if (ocupadas.length) {
-    return 'Una de esas partidas ya está conciliada en otra fila del extracto: desvinculala de ahí primero.';
+  const aplicadoPorLinea = new Map<string, number>();
+  for (const v of otros) {
+    aplicadoPorLinea.set(v.lineId, (aplicadoPorLinea.get(v.lineId) ?? 0) + (Number(v.amount) || 0));
   }
 
   const porLinea = new Map<string, any>(lineas.map((l: any) => [l.id, l]));
   const aplicados: Array<{ lineId: string; entryId: string; amount: number }> = [];
+  /** Líneas que hay que cambiar de cuenta, con su asiento, en el mismo acto. */
+  const movimientos: Array<{
+    linea: any;
+    je: any;
+    reabrir: boolean;
+    desde: { id: string; code: string; name: string };
+    estadoOriginal: string;
+  }> = [];
+  const lineasPorAsiento = new Map<string, any[]>();
+
   for (const link of links) {
     const linea = porLinea.get(link.lineId)!;
     const je = linea.journalEntry;
-    if (je.companyId !== companyId) return 'Alguna de esas partidas es de otra empresa.';
+    if (je.companyId !== companyId) return { error: 'Alguna de esas partidas es de otra empresa.' };
     if (je.status === 'RECHAZADO' || je.status === 'ANULADO') {
-      return `El asiento "${je.description}" está ${je.status.toLowerCase()} y no puede conciliarse.`;
+      return { error: `El asiento "${je.description}" está ${je.status.toLowerCase()} y no puede conciliarse.` };
+    }
+    if (je.isClosing) {
+      return { error: `El asiento "${je.description}" es un asiento de cierre y no puede conciliarse.` };
     }
 
     // En el extracto, débito = salida del banco y crédito = entrada; en libros
     // la partida va al revés. Solo sirve el lado que corresponde.
-    const disponible = esEntrada ? linea.debit : linea.credit;
-    if (!(disponible > 0)) {
-      return `La partida "${je.description}" no sirve para esta fila: es una ${esEntrada ? 'entrada' : 'salida'} de dinero y esa partida está del otro lado.`;
+    const total = esEntrada ? linea.debit : linea.credit;
+    if (!(total > 0)) {
+      return { error: `La partida "${je.description}" no sirve para esta fila: es una ${esEntrada ? 'entrada' : 'salida'} de dinero y esa partida está del otro lado.` };
+    }
+    const aplicado = Math.round((aplicadoPorLinea.get(linea.id) ?? 0) * 100) / 100;
+    const disponible = Math.round((total - aplicado) * 100) / 100;
+    if (!(disponible > 0.005)) {
+      return { error: `La partida "${je.description}" ya está conciliada en otra fila por completo ($${total.toFixed(2)}). Desvinculala de ahí primero.` };
     }
     const amount = link.amount ?? disponible;
     if (amount > disponible + 0.02) {
-      return `El monto aplicado a "${je.description}" ($${amount.toFixed(2)}) es mayor que el de la partida ($${disponible.toFixed(2)}).`;
+      return { error: `El monto aplicado a "${je.description}" ($${amount.toFixed(2)}) es mayor que lo que queda de la partida ($${disponible.toFixed(2)} de $${total.toFixed(2)}).` };
     }
+
+    if (linea.accountId !== bankAccountId) {
+      if (!moverCuenta) {
+        return { error: `La partida "${je.description}" está en ${linea.account.code} ${linea.account.name}, no en la cuenta de este extracto. Activá «mover cuenta» para cambiarla de banco y conciliarla.` };
+      }
+      // Mover una línea ya vinculada arrastraría las filas de OTRO extracto a
+      // una cuenta que no es la suya: primero se desvincula.
+      if (aplicado > 0) {
+        return { error: `La partida "${je.description}" ya está conciliada en otra fila: desvinculala de ahí antes de moverla de cuenta.` };
+      }
+      if (!esCuentaMonetaria(linea.account.code)) {
+        return { error: `La partida "${je.description}" está en ${linea.account.code} ${linea.account.name}, que no es una cuenta monetaria (Caja/Bancos/Tarjetas): moverla no es una corrección de banco.` };
+      }
+
+      // Un año ya cerrado no admite retoques: el saldo de cierre dejaría de
+      // cuadrar. Un cierre ANULADO no cuenta (es el que se reabrió para re-cerrar).
+      const anio = new Date(je.date).getFullYear();
+      const cierre = await prisma.journalEntry.findFirst({
+        where: { companyId, isClosing: true, status: { not: 'ANULADO' }, period: String(anio) },
+        select: { id: true },
+      });
+      if (cierre) {
+        return { error: `El año ${anio} está cerrado: anulá el cierre antes de mover movimientos de banco.` };
+      }
+
+      // Si el asiento ya tiene una línea en la cuenta destino, esto es una
+      // transferencia entre cuentas propias: mover la otra pata dejaría las dos
+      // en el mismo banco. Se bloquea; la línea que ya está ahí concilia sola.
+      if (!lineasPorAsiento.has(je.id)) {
+        lineasPorAsiento.set(je.id, await prisma.journalLine.findMany({
+          where: { journalEntryId: je.id },
+          select: { id: true, accountId: true },
+        }));
+      }
+      const delAsiento = lineasPorAsiento.get(je.id)!;
+      if (delAsiento.some((l: any) => l.id !== linea.id && l.accountId === bankAccountId)) {
+        return { error: `El asiento "${je.description}" ya tiene la otra pata en esta cuenta: parece una transferencia entre cuentas, no un movimiento mal clasificado.` };
+      }
+
+      movimientos.push({
+        linea,
+        je,
+        reabrir: je.status === 'CONFIRMADO',
+        desde: { id: linea.account.id, code: linea.account.code, name: linea.account.name },
+        estadoOriginal: je.status,
+      });
+    }
+
     aplicados.push({ lineId: linea.id, entryId: je.id, amount: Math.round(amount * 100) / 100 });
   }
 
   const total = Math.round(aplicados.reduce((s, a) => s + a.amount, 0) * 100) / 100;
   const dif = Math.round((total - montoFila) * 100) / 100;
   if (Math.abs(dif) > 0.02) {
-    return dif < 0
+    return { error: dif < 0
       ? `Faltan $${Math.abs(dif).toFixed(2)} para cuadrar la fila de $${montoFila.toFixed(2)}.`
-      : `Las partidas se pasan por $${dif.toFixed(2)} de la fila de $${montoFila.toFixed(2)}.`;
+      : `Las partidas se pasan por $${dif.toFixed(2)} de la fila de $${montoFila.toFixed(2)}.` };
   }
 
-  // Primero los vínculos nuevos y después los que ya no van: el unique
-  // (rowId, lineId) no se pisa y la fila nunca queda a medias.
-  const previos = await prisma.bankRowMatch.findMany({ where: { rowId: row.id }, select: { lineId: true } });
-  const previosSet = new Set<string>(previos.map((p: any) => p.lineId));
-  const nuevos = aplicados.filter(a => !previosSet.has(a.lineId));
-  if (nuevos.length) {
-    await prisma.bankRowMatch.createMany({
-      data: nuevos.map(a => ({ rowId: row.id, entryId: a.entryId, lineId: a.lineId, amount: a.amount, isManual: true })),
+  // El cambio de cuenta y el vínculo van juntos: una fila nunca queda a medias.
+  await prisma.$transaction(async (tx: any) => {
+    for (const mov of movimientos) {
+      await tx.journalLine.update({
+        where: { id: mov.linea.id },
+        data: { accountId: bankAccountId },
+      });
+      if (mov.reabrir) {
+        await tx.journalEntry.update({
+          where: { id: mov.je.id },
+          data: { status: 'BORRADOR', reviewedById: null, reviewedAt: null, reviewNotes: null },
+        });
+      }
+    }
+
+    // Primero los vínculos nuevos y después los que ya no van: el unique
+    // (rowId, lineId) no se pisa y la fila nunca queda a medias.
+    const previos = await tx.bankRowMatch.findMany({ where: { rowId: row.id }, select: { lineId: true } });
+    const previosSet = new Set<string>(previos.map((p: any) => p.lineId));
+    const nuevos = aplicados.filter(a => !previosSet.has(a.lineId));
+    if (nuevos.length) {
+      await tx.bankRowMatch.createMany({
+        data: nuevos.map(a => ({ rowId: row.id, entryId: a.entryId, lineId: a.lineId, amount: a.amount, isManual: true })),
+      });
+    }
+    await tx.bankRowMatch.deleteMany({
+      where: { rowId: row.id, lineId: { notIn: aplicados.map(a => a.lineId) } },
     });
-  }
-  await prisma.bankRowMatch.deleteMany({
-    where: { rowId: row.id, lineId: { notIn: aplicados.map(a => a.lineId) } },
-  });
-  await prisma.bankStatementRow.update({
-    where: { id: row.id },
-    data: { matchedEntryId: aplicados[0].entryId, status: 'MATCHED', matchConfidence: 1.0 },
+    await tx.bankStatementRow.update({
+      where: { id: row.id },
+      data: { matchedEntryId: aplicados[0].entryId, status: 'MATCHED', matchConfidence: 1.0 },
+    });
   });
 
-  return null;
+  const destino = row.statement.bankAccount;
+  for (const mov of movimientos) {
+    await logAudit(prisma, {
+      userId,
+      action: 'JOURNAL_LINE_MOVED',
+      entity: 'JournalLine',
+      entityId: mov.linea.id,
+      before: {
+        accountId: mov.desde.id,
+        accountCode: mov.desde.code,
+        accountName: mov.desde.name,
+      },
+      after: {
+        accountId: bankAccountId,
+        accountCode: destino?.code ?? null,
+        accountName: destino?.name ?? null,
+        statementId: row.statement.id,
+        rowId: row.id,
+      },
+    });
+    if (mov.reabrir) {
+      await logAudit(prisma, {
+        userId,
+        action: 'JOURNAL_REOPENED',
+        entity: 'JournalEntry',
+        entityId: mov.je.id,
+        before: { status: mov.estadoOriginal },
+        after: { status: 'BORRADOR', reason: 'bank-account-moved' },
+      });
+    }
+  }
+
+  return {
+    movidas: movimientos.map(m => ({
+      lineId: m.linea.id,
+      entryId: m.je.id,
+      desde: `${m.desde.code} — ${m.desde.name}`,
+      hasta: destino ? `${destino.code} — ${destino.name}` : '',
+      reabierto: m.reabrir,
+    })),
+  };
 }
 
 /**
@@ -534,27 +870,48 @@ async function vincularLineas(
  *
  *  · `{ rowId, links: [{ lineId, amount? }] }` — vínculo fino: una fila
  *    sostenida por varias partidas del libro (o por una, con monto parcial).
+ *  · `moverCuenta: true` — las partidas que están en otra cuenta monetaria se
+ *    mueven a la del extracto antes de vincularlas (carga histórica).
  *  · `{ rowId, entryId }` — el 1:1 clásico; `entryId: null` desvincula.
  *
  * Responde el detalle completo del extracto, igual que la subida y el rematch:
  * el frente tiene un solo render.
  */
 reconcileRouter.post('/:id/match', validate(reconcileMatchSchema), async (req, res) => {
-  const { rowId, entryId, links } = req.body;
+  const { rowId, entryId, links, moverCuenta } = req.body;
 
   // Todo dentro del try: en Express 4 un throw suelto en un handler async no
   // llega al middleware de errores y deja la petición colgada para siempre.
   try {
     const row = await req.prisma.bankStatementRow.findFirst({
       where: { id: rowId, statement: { id: req.params.id, companyId: req.user!.companyId } },
-      include: { statement: { select: { bankAccountId: true } } },
+      include: {
+        statement: {
+          select: {
+            id: true,
+            bankAccountId: true,
+            bankAccount: { select: { code: true, name: true } },
+          },
+        },
+      },
     });
 
     if (!row) { res.status(404).json({ error: 'Fila no encontrada' }); return; }
 
     if (Array.isArray(links) && links.length > 0) {
-      const error = await vincularLineas(req.prisma, req.user!.companyId, row, links);
-      if (error) { res.status(400).json({ error }); return; }
+      // Mover una línea de banco es una corrección contable: no la hace un
+      // usuario de solo lectura. Desvincular/vincular de la misma cuenta sigue
+      // abierto a cualquier autenticado, como antes.
+      if (moverCuenta && !['admin', 'contador', 'superadmin'].includes(req.user!.role || '')) {
+        res.status(403).json({ error: 'Solo un admin o contador puede cambiar un movimiento de cuenta bancaria.' });
+        return;
+      }
+      const result = await vincularLineas(req.prisma, req.user!.companyId, req.user!.userId, row, links, !!moverCuenta);
+      if ('error' in result) { res.status(400).json({ error: result.error }); return; }
+
+      const detalle = await detalleDeExtracto(req.prisma, req.user!.companyId, req.params.id);
+      res.json({ ...detalle, movidas: result.movidas });
+      return;
     } else {
       await req.prisma.bankRowMatch.deleteMany({ where: { rowId } });
       await req.prisma.bankStatementRow.update({

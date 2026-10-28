@@ -72,7 +72,13 @@ const prisma = {
   journalEntry: { findMany: async () => [] },
   // Vínculos banco ↔ partidas del libro (los crea el matcher y el vinculador)
   bankRowMatch: {
-    findMany: async () => vinculos,
+    findMany: async ({ where }: any = {}) => {
+      let out = vinculos;
+      if (typeof where?.rowId === 'string') out = out.filter(v => v.rowId === where.rowId);
+      if (where?.rowId?.not) out = out.filter(v => v.rowId !== where.rowId.not);
+      if (where?.lineId?.in) out = out.filter(v => where.lineId.in.includes(v.lineId));
+      return out;
+    },
     create: async ({ data }: any) => { vinculos.push(data); return data; },
     createMany: async ({ data }: any) => { vinculos.push(...data); return { count: data.length }; },
     deleteMany: async ({ where }: any = {}) => {
@@ -85,6 +91,9 @@ const prisma = {
       return { count: antes - vinculos.length };
     },
   },
+  // El vínculo corre en una transacción (el cambio de cuenta y el match van
+  // juntos); el stub ejecuta el callback contra el mismo prisma.
+  $transaction: async (fn: any) => fn(prisma),
 };
 /** Vínculos vivos entre corridas (cada test arranca sin ninguno). */
 let vinculos: any[] = [];
@@ -119,10 +128,11 @@ beforeEach(() => {
   lineasLibro = [lineaDe('je-1', 10)];
 });
 
-async function subir(csv: string): Promise<{ status: number; body: any }> {
+async function subir(csv: string, extra: Record<string, string> = {}): Promise<{ status: number; body: any }> {
   const fd = new FormData();
   fd.append('file', new Blob([csv], { type: 'text/csv' }), 'ENERO.csv');
   fd.append('bankAccountId', 'acc-banco');
+  for (const [k, v] of Object.entries(extra)) fd.append(k, v);
   const res = await fetch(`${base}/upload`, { method: 'POST', body: fd });
   return { status: res.status, body: await res.json() };
 }
@@ -145,8 +155,68 @@ describe('POST /reconcile/upload — aviso cuando no se lee ninguna partida', ()
   });
 });
 
-describe('POST /reconcile/upload — extracto del Banco General', () => {
-  it('guarda las partidas con su fecha y su débito', async () => {
+/**
+ * El estado de tarjeta de Banco General llega en PDF digital. El parser lo
+ * convierte a la misma tabla y el resto del flujo no cambia: la fila del pago
+ * entra como crédito (entrada al pasivo) y el cargo como débito.
+ */
+describe('POST /reconcile/upload — estado de tarjeta en PDF', () => {
+  it('acepta el PDF y guarda los movimientos con su débito/crédito', async () => {
+    const { default: PDFDocument } = await import('pdfkit');
+    const doc = new PDFDocument({ size: 'A4', margin: 36 });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    const listo = new Promise<Buffer>(resolve => doc.on('end', () => resolve(Buffer.concat(chunks))));
+    doc.fontSize(8).text([
+      'Fecha Descripción Categoría Monto',
+      '21-jul-2026 PAGO TARJETA Pagos $3,399.67',
+      '31-jul-2026 FINANCIAMIENTO Cargos -$12.23',
+    ].join('\n'));
+    doc.end();
+
+    const fd = new FormData();
+    fd.append('file', new Blob([new Uint8Array(await listo)], { type: 'application/pdf' }), 'ESTADO.pdf');
+    fd.append('bankAccountId', 'acc-banco');
+    const res = await fetch(`${base}/upload`, { method: 'POST', body: fd });
+    const body: any = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(creado.rows.create).toHaveLength(2);
+    expect(creado.rows.create[0]).toMatchObject({ description: 'PAGO TARJETA Pagos', debit: 0, credit: 3399.67 });
+    expect(creado.rows.create[1]).toMatchObject({ description: 'FINANCIAMIENTO Cargos', debit: 12.23, credit: 0 });
+    expect(creado.statementStart.toISOString().slice(0, 10)).toBe('2026-07-21');
+    expect(body.warnings).toEqual([]);
+  }, 20000);
+
+  it('una cadena de saldos rota avisa pero NO bloquea la carga', async () => {
+    const { default: PDFDocument } = await import('pdfkit');
+    const doc = new PDFDocument({ size: 'A4', margin: 36 });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    const listo = new Promise<Buffer>(resolve => doc.on('end', () => resolve(Buffer.concat(chunks))));
+    doc.fontSize(8).text([
+      '23-oct-2026 06:20 PM',
+      'CUENTA DE AHORROS',
+      '01-jun-2026 PAGO UNO -$10.00 $100.00',
+      '02-jun-2026 PAGO DOS -$5.00 $90.00',
+      '03-jun-2026 PAGO TRES -$7.00 $83.00',
+    ].join('\n'));
+    doc.end();
+
+    const fd = new FormData();
+    fd.append('file', new Blob([new Uint8Array(await listo)], { type: 'application/pdf' }), 'ROTO.pdf');
+    fd.append('bankAccountId', 'acc-banco');
+    const res = await fetch(`${base}/upload`, { method: 'POST', body: fd });
+    const body: any = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(creado.rows.create).toHaveLength(3);
+    expect(body.warnings).toHaveLength(1);
+    expect(body.warnings[0]).toMatch(/cadena de saldos no cierra/i);
+  }, 20000);
+});
+
+describe('POST /reconcile/upload — extracto del Banco General', () => {  it('guarda las partidas con su fecha y su débito', async () => {
     const r = await subir(EXTRACTO_ENERO);
     expect(r.status).toBe(201);
 
@@ -190,6 +260,58 @@ describe('POST /reconcile/upload — extracto del Banco General', () => {
  * quedaron apuntando al MISMO asiento y su gemelo aparecía siempre como
  * "sin conciliar (libros)".
  */
+/**
+ * Un solo PDF puede traer 4 meses (la cuenta de pagos de ODESA, jun-sep). El
+ * contador quiere conciliar por mes: el rango opcional recorta lo que se guarda,
+ * lo que se matchea y el período de la lista de libros pendientes.
+ */
+describe('POST /reconcile/upload — filtro opcional de fechas', () => {
+  const EXTRACTO_JULIO_AGOSTO = [
+    ',Fecha,Referencia,Descripción,Monto,Saldo total',
+    ',01-jul-2026,1,JULIO UNO," - $ 10,00","$ 55.039,36"',
+    ',31-jul-2026,2,JULIO DOS," - $ 22,00","$ 55.017,36"',
+    ',01-ago-2026,3,AGOSTO UNO," - $ 5,00","$ 55.012,36"',
+  ].join('\n');
+
+  it('guarda solo las filas del rango y ajusta el período del extracto', async () => {
+    const r = await subir(EXTRACTO_JULIO_AGOSTO, { fechaDesde: '2026-07-01', fechaHasta: '2026-07-31' });
+
+    expect(r.status).toBe(201);
+    expect(creado.rows.create).toHaveLength(2);
+    expect(creado.rows.create.map((f: any) => f.date.toISOString().slice(0, 10)))
+      .toEqual(['2026-07-01', '2026-07-31']);
+    expect(creado.statementStart.toISOString().slice(0, 10)).toBe('2026-07-01');
+    expect(creado.statementEnd.toISOString().slice(0, 10)).toBe('2026-07-31');
+  });
+
+  it('sin filtro se guarda todo el archivo, como antes', async () => {
+    const r = await subir(EXTRACTO_JULIO_AGOSTO);
+    expect(r.status).toBe(201);
+    expect(creado.rows.create).toHaveLength(3);
+  });
+
+  it('un rango sin movimientos no guarda nada y lo dice', async () => {
+    const r = await subir(EXTRACTO_JULIO_AGOSTO, { fechaDesde: '2026-09-01', fechaHasta: '2026-09-30' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/no tiene movimientos en el rango/i);
+    expect(creado).toBeNull();
+  });
+
+  it('un rango invertido se rechaza', async () => {
+    const r = await subir(EXTRACTO_JULIO_AGOSTO, { fechaDesde: '2026-08-01', fechaHasta: '2026-07-01' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/no puede ser posterior/i);
+    expect(creado).toBeNull();
+  });
+
+  it('una fecha con formato inválido se rechaza', async () => {
+    const r = await subir(EXTRACTO_JULIO_AGOSTO, { fechaDesde: '07/01/2026' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/formato YYYY-MM-DD/i);
+    expect(creado).toBeNull();
+  });
+});
+
 describe('POST /reconcile/:id/rematch — volver a conciliar sin volver a subir', () => {
   const conAsientoRepetido = () => {
     filas = [
@@ -391,5 +513,75 @@ describe('POST /reconcile/:id/match — una fila del extracto contra varias part
     expect(vinculos).toHaveLength(0);
     expect(filas[0].status).toBe('UNMATCHED');
     expect(body.statement.rows[0].matches).toHaveLength(0);
+  });
+});
+
+/**
+ * Una partida del libro de $12 que el banco cobra en DOS movimientos de $6.
+ *
+ * El contador aplica $6 al primer movimiento y los otros $6 quedan para el
+ * segundo. Antes, el primer vínculo bloqueaba la línea entera («ya está
+ * conciliada en otra fila») y el saldo de $6 desaparecía de la lista de libros:
+ * la segunda fila no tenía contra qué conciliarse (28-10).
+ */
+describe('POST /reconcile/:id/match — una partida repartida entre dos filas', () => {
+  const conPartidaDe12 = () => {
+    const fecha = new Date('2026-07-10T12:00:00');
+    filas = ['f1', 'f2', 'f3'].map(id => ({
+      id, date: fecha, description: 'COBRO EN DOS PARTES', reference: null,
+      debit: 6, credit: 0, balance: 0, status: 'UNMATCHED', matchedEntryId: null, matchConfidence: null,
+    }));
+    lineasLibro = [{
+      id: 'jl-12', journalEntryId: 'je-12', accountId: 'acc-banco', debit: 0, credit: 12,
+      journalEntry: { id: 'je-12', date: fecha, description: 'Cobro en dos partes', status: 'BORRADOR', companyId: 'c1' },
+      account: { code: '1.1.02.01', name: 'Banco General' },
+    }];
+    vinculos = [];
+  };
+
+  const vincular = async (rowId: string, amount: number): Promise<{ status: number; body: any }> => {
+    const res = await fetch(`${base}/bs1/match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rowId, links: [{ lineId: 'jl-12', amount }] }),
+    });
+    return { status: res.status, body: await res.json() };
+  };
+
+  it('los $6 que sobran del primer vínculo se aplican al segundo movimiento', async () => {
+    conPartidaDe12();
+
+    const primero = await vincular('f1', 6);
+    expect(primero.status).toBe(200);
+    expect(vinculos).toEqual([expect.objectContaining({ rowId: 'f1', lineId: 'jl-12', amount: 6 })]);
+
+    const segundo = await vincular('f2', 6);
+    expect(segundo.status).toBe(200);
+    expect(vinculos).toHaveLength(2);
+    expect(vinculos.reduce((s, v) => s + v.amount, 0)).toBe(12);
+    expect(filas.filter(f => f.status === 'MATCHED')).toHaveLength(2);
+  });
+
+  it('no deja aplicar más que el total de la partida', async () => {
+    conPartidaDe12();
+    await vincular('f1', 6);
+    await vincular('f2', 6);
+
+    const tercera = await vincular('f3', 6);
+
+    expect(tercera.status).toBe(400);
+    expect(tercera.body.error).toMatch(/ya está conciliada en otra fila/i);
+    expect(filas.find(f => f.id === 'f3').status).toBe('UNMATCHED');
+  });
+
+  it('un monto mayor que el saldo de la partida se rechaza con el disponible', async () => {
+    conPartidaDe12();
+    await vincular('f1', 6);
+
+    // f3 intenta los $12 completos: de la partida solo quedan $6
+    const r = await vincular('f3', 12);
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/lo que queda de la partida \(\$6\.00 de \$12\.00\)/i);
   });
 });
