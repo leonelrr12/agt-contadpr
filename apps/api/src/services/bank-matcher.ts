@@ -267,6 +267,11 @@ export async function autoMatch(
         journalEntry: {
           companyId,
           status: { notIn: ['RECHAZADO', 'ANULADO'] },
+          // Anular no cambia `status`: el original conserva BORRADOR/CONFIRMADO y
+          // solo lleva `anuladoPorId`. Sin este filtro, una fila del extracto puede
+          // conciliarse contra un asiento ya revertido —una corrida de planilla
+          // re-hecha— y la pantalla lo muestra como si siguiera vivo.
+          anuladoPorId: null,
           date: { gte: startDate, lte: endDate },
         },
       },
@@ -385,6 +390,10 @@ export async function findUnmatchedBookEntries(
   const where: any = {
     companyId,
     status: { notIn: ['RECHAZADO', 'ANULADO'] },
+    // Un asiento anulado sigue en BORRADOR/CONFIRMADO (su reverso lo netea): sin
+    // este filtro reaparece como partida "sin conciliar" y se puede volver a
+    // vincular a una fila, aunque ya esté corregido.
+    anuladoPorId: null,
     lines: { some: { accountId: bankAccountId } },
   };
   if (Object.keys(dateFilter).length > 0) where.date = dateFilter;

@@ -77,7 +77,9 @@ async function computar(
   const companyId = e.id;
 
   const [borradores, cfg, correos, vencidas, obligaciones, sub] = await Promise.all([
-    prisma.journalEntry.count({ where: { companyId, status: 'BORRADOR', isClosing: false } }),
+    // Anular no cambia el estado del original (lo netea su reverso): sin el filtro,
+    // una corrida de planilla re-hecha cuenta como pendiente para siempre.
+    prisma.journalEntry.count({ where: { companyId, status: 'BORRADOR', isClosing: false, anuladoPorId: null } }),
     prisma.emailFacturaConfig.findUnique({ where: { companyId }, select: { ultimoEstado: true, ultimoDetalle: true, isActive: true } }),
     prisma.emailFacturaMensaje.count({
       where: { companyId, estado: { in: ESTADOS_QUE_AVISAN }, createdAt: { gte: new Date(hoy.getTime() - 30 * 86400000) } },

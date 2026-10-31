@@ -164,8 +164,9 @@ function conciliacionHTML() {
           <div style="margin-top:16px">
             <label for="e-contrapartida" id="e-etiqueta">La otra cuenta</label>
             <input type="text" class="buscar" id="e-buscar" placeholder="Filtrar por código o nombre…" oninput="filtrarContrapartidas()">
-            <select id="e-contrapartida" size="7"></select>
+            <select id="e-contrapartida" size="7" onchange="actualizarRestriccionAnexo()"></select>
             <div class="lado" id="e-lado"></div>
+            <div class="aviso-anexo hidden" id="e-anexo"></div>
           </div>
           <div class="manual">
             ¿El asiento lleva más de dos cuentas (ITBMS, retenciones, varios conceptos)? Hacelo desde
@@ -398,6 +399,11 @@ function renderDetail(data) {
   } else {
     for (const r of matchedRows) {
       const partes = (r.matches || []);
+      // Anular NO cambia el estado del asiento: el original sigue BORRADOR/CONFIRMADO
+      // y solo lleva `anuladoPorId`. El vínculo se conserva (el original cuenta en su
+      // período), pero el contador tiene que verlo para decidir si lo suelta y
+      // re-concilia contra el asiento vigente.
+      const anulado = !!r.matchedEntry?.anuladoPorId || partes.some((p) => p.entry?.anuladoPorId);
       const etiqueta = partes.length > 1
         ? `<span class="badge badge-neutral">${partes.length} partidas</span>`
         : (r.matchedEntry ? `<span style="font-size:11px">${r.matchedEntry.id.slice(0, 8)}...</span>` : '—');
@@ -405,7 +411,7 @@ function renderDetail(data) {
         <td>${new Date(r.date).toLocaleDateString('es-PA')}</td>
         <td>${esc(r.description)}</td>
         <td>${r.debit > 0 ? '$' + r.debit.toFixed(2) : r.credit > 0 ? '$' + r.credit.toFixed(2) : '—'}</td>
-        <td>${etiqueta}</td>
+        <td>${anulado ? '<span class="badge badge-err" title="El asiento conciliado fue anulado: el vínculo se mantiene, pero conviene desvincular y re-conciliar contra el asiento vigente">anulado</span> ' : ''}${etiqueta}</td>
         <td><span class="badge badge-ok">${(r.matchConfidence * 100).toFixed(0)}%</span></td>
         <td style="white-space:nowrap">
           <button class="btn btn-secondary btn-sm" onclick="abrirVinculador('${r.id}')">🔗 Partidas</button>
@@ -846,7 +852,7 @@ function llenarContrapartidas(filtro = '') {
 
   // La opción vacía solo va sin filtro: es el "todavía no elegí".
   const opciones = (q ? [] : ['<option value="">— elegí una cuenta —</option>'])
-    .concat(cuentas.map(a => `<option value="${a.id}">${esc(a.code)} — ${esc(a.name)}</option>`));
+    .concat(cuentas.map(a => `<option value="${a.id}">${esc(a.code)} — ${esc(a.name)}${a.requiresAnexo ? ' · 📎 Anexo' : ''}</option>`));
   select.innerHTML = opciones.join('') || '<option value="">Sin cuentas que coincidan</option>';
 
   // Lo elegido se conserva mientras siga en la lista (el filtro se escribe después
@@ -854,6 +860,39 @@ function llenarContrapartidas(filtro = '') {
   select.value = cuentas.some(a => a.id === previo) ? previo : '';
   const elegida = select.selectedOptions[0];
   if (elegida) elegida.scrollIntoView({ block: 'nearest' });
+  // El filtro puede cambiar la selección: el aviso de Anexo se recalcula acá.
+  actualizarRestriccionAnexo();
+}
+
+/** La primera de las cuentas que lleva Anexo DGI, o null. El banco del extracto
+ *  también cuenta: es una de las dos líneas del asiento. */
+function cuentaConAnexo(ids) {
+  for (const id of ids) {
+    const cuenta = cuentasCatalogo.find(a => a.id === id);
+    if (cuenta?.requiresAnexo) return cuenta;
+  }
+  return null;
+}
+
+/**
+ * Las cuentas con Anexo DGI exigen Nombre, RUC y N° de factura, y este formulario
+ * solo elige una cuenta: permitir el asiento dejaría el movimiento fuera del Anexo.
+ * Se avisa y se remite a Revisión → Asiento Manual, que sí pide el tercero.
+ */
+function actualizarRestriccionAnexo() {
+  const aviso = document.getElementById('e-anexo');
+  if (!aviso) return;
+  const contrapartida = document.getElementById('e-contrapartida').value;
+  const anexo = cuentaConAnexo([contrapartida, currentStatement?.bankAccountId]);
+  aviso.className = anexo ? 'aviso-anexo' : 'aviso-anexo hidden';
+  aviso.innerHTML = anexo
+    ? `📎 <b>${esc(anexo.code)} — ${esc(anexo.name)}</b> lleva Anexo DGI: el asiento necesita Nombre, RUC y N° de factura, y este formulario no los pide. ` +
+      'Para afectar esa cuenta, creá el asiento desde ' +
+      '<button type="button" class="conc-link" onclick="irARevisionDesdeConciliacion()">Revisión → ➕ Asiento Manual</button>' +
+      ' y después vinculá la fila con 🔗 Vincular.'
+    : '';
+  const boton = document.getElementById('e-crear');
+  if (boton) boton.disabled = !!anexo;
 }
 
 function filtrarContrapartidas() {
@@ -892,15 +931,15 @@ function abrirFormularioAsiento(rowId) {
 
   document.getElementById('e-descripcion').value = row.description || '';
   document.getElementById('e-buscar').value = '';
-  // La lista arranca vacía: si no, al abrir otra fila quedaría elegida la cuenta de
-  // la fila anterior (un gasto que se arrastra sin que nadie lo mire).
-  document.getElementById('e-contrapartida').innerHTML = '';
-  llenarContrapartidas();
-
   document.getElementById('entry-overlay').classList.remove('hidden');
   const boton = document.getElementById('e-crear');
-  boton.disabled = false;
   boton.textContent = 'Crear asiento';
+  boton.disabled = false;
+  // La lista arranca vacía: si no, al abrir otra fila quedaría elegida la cuenta de
+  // la fila anterior (un gasto que se arrastra sin que nadie lo mire). Va después
+  // de resetear el botón: `llenarContrapartidas` lo vuelve a bloquear si hay Anexo.
+  document.getElementById('e-contrapartida').innerHTML = '';
+  llenarContrapartidas();
   document.getElementById('e-buscar').focus();
 }
 
@@ -918,6 +957,12 @@ async function crearAsientoDesdeFila() {
   if (!bancoId) { showAlert('No pude identificar la cuenta del extracto.'); return; }
   if (!contrapartida) { showAlert('Elegí la cuenta de la contrapartida.'); return; }
   if (contrapartida === bancoId) { showAlert('La contrapartida no puede ser la cuenta del extracto.'); return; }
+  // El botón ya queda deshabilitado con el aviso; esto cubre el submit por Enter.
+  const anexo = cuentaConAnexo([contrapartida, bancoId]);
+  if (anexo) {
+    showAlert(`📎 La cuenta ${esc(anexo.code)} — ${esc(anexo.name)} lleva Anexo DGI. Creá el asiento desde Revisión → ➕ Asiento Manual.`);
+    return;
+  }
 
   // El monto es el de la fila —es el movimiento que se está registrando— y la fecha
   // la hereda el asiento: no se editan acá.
@@ -946,8 +991,8 @@ async function crearAsientoDesdeFila() {
     await loadStatement(currentStatement.id);
   } catch (e) {
     showAlert('Error: ' + esc(e.message));
-    boton.disabled = false;
     boton.textContent = 'Crear asiento';
+    actualizarRestriccionAnexo();
   }
 }
 

@@ -75,6 +75,8 @@
     acreedores: [],
     /** Empleado cuyo desglose de deducciones está abierto en el modal. */
     desglose: null,
+    /** Historial: esconde las corridas ANULADAS (siguen en los datos, no en la tabla). */
+    ocultarAnuladas: false,
   };
   let temporizador = null;
 
@@ -1022,7 +1024,13 @@
     if (estado.corridaDetalle) return vistaCorridaDetalle();
 
     const corridas = await pedir('/corridas');
-    const filas = corridas.map((c) => {
+    // Anular NO borra la corrida del historial —es la huella de lo que pasó—, pero
+    // un período re-hecho deja varias filas muertas que estorban. El checkbox las
+    // esconde sin tocar los datos: destildarlo las devuelve.
+    const visibles = estado.ocultarAnuladas
+      ? corridas.filter((c) => c.status !== 'ANULADA')
+      : corridas;
+    const filas = visibles.map((c) => {
       const asientos = Object.entries(c.asientos || {})
         .map(([k, v]) => `<span class="badge ${ESTADO_BADGE[k] || 'badge-neutral'}">${v} ${esc(k.toLowerCase())}</span>`).join(' ') || '<span class="nota">—</span>';
       return `<tr>
@@ -1038,16 +1046,35 @@
       </tr>`;
     }).join('');
 
+    const vacio = corridas.length
+      ? 'No hay corridas vivas: todas las de esta lista están anuladas.'
+      : 'Todavía no hay corridas.';
+
     return `
       <div class="card">
-        <h3>Corridas</h3>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <h3 style="margin:0">Corridas</h3>
+          <label class="salto" title="Las anuladas se quedan en el historial; esto solo las esconde de la lista">
+            <input type="checkbox" id="h-ocultar-anuladas" ${estado.ocultarAnuladas ? 'checked' : ''}>
+            Ocultar corridas anuladas
+          </label>
+        </div>
         <table class="data-table">
           <thead><tr><th>Tipo</th><th>Período</th><th>Estado</th><th>Fecha de pago</th>
             <th class="num">Empleados</th><th class="num">Neto</th><th class="num">Patronal</th><th>Asientos</th><th></th></tr></thead>
-          <tbody>${filas || '<tr><td colspan="9" class="nota">Todavía no hay corridas.</td></tr>'}</tbody>
+          <tbody>${filas || `<tr><td colspan="9" class="nota">${vacio}</td></tr>`}</tbody>
         </table>
       </div>`;
   }
+
+  // El checkbox solo decide qué filas se pintan; la vista se repinta como el resto
+  // de los filtros de la pantalla.
+  document.addEventListener('change', (e) => {
+    if (e.target.id === 'h-ocultar-anuladas') {
+      estado.ocultarAnuladas = e.target.checked;
+      render();
+    }
+  });
 
   async function vistaCorridaDetalle() {
     const c = estado.corridaDetalle;

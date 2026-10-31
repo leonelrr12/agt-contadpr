@@ -102,6 +102,9 @@
 #panel-conciliacion-content #entry-body .banco { margin-top: 12px; padding: 10px 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 13px; color: #374151; }
 #panel-conciliacion-content #entry-body .banco .etiqueta { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.4px; }
 #panel-conciliacion-content #entry-body .manual { margin-top: 16px; font-size: 12px; color: #6b7280; }
+/* Cuenta con Anexo DGI: este formulario no pide Nombre/RUC/N° de factura, así que
+ * se bloquea el alta y se remite al Asiento Manual (que sí los pide). */
+#panel-conciliacion-content #entry-body .aviso-anexo { margin-top: 10px; padding: 10px 12px; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; font-size: 12px; color: #92400e; line-height: 1.45; }
 #panel-conciliacion-content #entry-pie { padding: 14px 20px; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ── Celular ──

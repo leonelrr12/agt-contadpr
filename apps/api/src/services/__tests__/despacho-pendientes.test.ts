@@ -67,6 +67,20 @@ describe('pendientesPorEmpresa', () => {
     ]);
   });
 
+  it('los borradores anulados no cuentan como pendientes', async () => {
+    const prisma: any = prismaFalso({ borradores: 1 });
+    let args: any;
+    prisma.journalEntry.count = async (a: any) => { args = a; return 1; };
+
+    await pendientesPorEmpresa(prisma, EMPRESA);
+
+    expect(args.where).toMatchObject({
+      status: 'BORRADOR',
+      isClosing: false,
+      anuladoPorId: null,
+    });
+  });
+
   it('sin suscripción la cuota es 0 y no rompe', async () => {
     const prisma = prismaFalso({ sub: null });
     const [e] = await pendientesPorEmpresa(prisma, EMPRESA);

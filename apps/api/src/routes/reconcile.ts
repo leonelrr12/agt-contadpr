@@ -7,7 +7,7 @@ import { parseImportFile, debitCreditDeFila, type ParsedRow } from '../services/
 import { autoMatch, findUnmatchedBookEntries, daysBetween } from '../services/bank-matcher';
 import { reconcileMatchSchema, reconcileCreateEntrySchema } from '../validation/schemas';
 import { ClassificationAgent, AccountingAgent } from '@agt-contador/agents';
-import { checkNotBlocked } from '../services/journal-guard';
+import { checkNotBlocked, loadAccountFlags } from '../services/journal-guard';
 import { logAudit } from '../services/audit-log';
 import { parseLocalDate } from '../lib/dates';
 
@@ -208,13 +208,13 @@ async function detalleDeExtracto(prisma: any, companyId: string, statementId: st
       bankAccount: { select: { code: true, name: true } },
       rows: {
         include: {
-          matchedEntry: { select: { id: true, date: true, description: true, status: true } },
+          matchedEntry: { select: { id: true, date: true, description: true, status: true, anuladoPorId: true } },
           // Qué partidas del libro sostienen la fila: una sola (lo normal) o
           // varias (el ACH de cuatro facturas). El frente las muestra y el
           // vinculador las precarga al editar.
           matches: {
             include: {
-              entry: { select: { id: true, date: true, description: true } },
+              entry: { select: { id: true, date: true, description: true, anuladoPorId: true } },
               // La línea con TODOS sus vínculos: al editar una fila, el máximo
               // aplicable es el total menos lo que ya usan las otras filas.
               line: {
@@ -593,6 +593,9 @@ reconcileRouter.get('/:id/candidates', async (req, res) => {
         journalEntry: {
           companyId: req.user!.companyId,
           status: { notIn: ['RECHAZADO', 'ANULADO'] },
+          // Anular no cambia el estado: el original queda BORRADOR/CONFIRMADO con
+          // `anuladoPorId`. No se ofrece para mover de banco un asiento revertido.
+          anuladoPorId: null,
           isClosing: false,
           date: { gte: desde, lte: hasta },
         },
@@ -670,7 +673,7 @@ async function vincularLineas(
     where: { id: { in: lineIds } },
     include: {
       journalEntry: {
-        select: { id: true, companyId: true, date: true, description: true, status: true, isClosing: true },
+        select: { id: true, companyId: true, date: true, description: true, status: true, isClosing: true, anuladoPorId: true },
       },
       account: { select: { id: true, code: true, name: true } },
     },
@@ -709,6 +712,11 @@ async function vincularLineas(
     if (je.companyId !== companyId) return { error: 'Alguna de esas partidas es de otra empresa.' };
     if (je.status === 'RECHAZADO' || je.status === 'ANULADO') {
       return { error: `El asiento "${je.description}" está ${je.status.toLowerCase()} y no puede conciliarse.` };
+    }
+    // Un asiento anulado conserva su estado y solo lleva `anuladoPorId` (el
+    // reverso lo netea): sin este chequeo se puede conciliar una fila contra él.
+    if (je.anuladoPorId) {
+      return { error: `El asiento "${je.description}" está anulado y no puede conciliarse.` };
     }
     if (je.isClosing) {
       return { error: `El asiento "${je.description}" es un asiento de cierre y no puede conciliarse.` };
@@ -949,6 +957,20 @@ reconcileRouter.post('/:id/create-entry', requireQuota, validate(reconcileCreate
     // Cuentas bloqueadas: rechaza el asiento (antes no validaba nada aquí)
     const blocked = await checkNotBlocked(req.prisma, req.user!.companyId, [debitAccountId, creditAccountId]);
     if (blocked) { res.status(400).json({ error: blocked }); return; }
+
+    // Este formulario solo elige UNA cuenta: no pide Nombre, RUC ni N° de factura,
+    // así que un asiento contra una cuenta con Anexo DGI quedaría fuera del Anexo y
+    // sin tercero. Se rechaza y se remite al Asiento Manual, que sí los pide.
+    const flags = await loadAccountFlags(req.prisma, req.user!.companyId, [debitAccountId, creditAccountId]);
+    const anexo = [debitAccountId, creditAccountId]
+      .map((id) => flags.get(id))
+      .find((f) => f?.requiresAnexo);
+    if (anexo) {
+      res.status(400).json({
+        error: `📎 La cuenta ${anexo.code} — ${anexo.name} lleva Anexo DGI (Nombre, RUC y N° de factura). Creá este asiento desde Revisión → ➕ Asiento Manual.`,
+      });
+      return;
+    }
 
     const entry = await req.prisma.journalEntry.create({
       data: {

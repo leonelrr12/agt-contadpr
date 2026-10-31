@@ -161,6 +161,26 @@ describe('autoMatch — consulta al libro una vez por día', () => {
 
     expect(consultas).toBe(2); // 03-ene y 04-ene, no 3 filas × 2 bandas
   });
+
+  it('no ofrece asientos anulados: siguen en BORRADOR y solo llevan `anuladoPorId`', async () => {
+    const fila = {
+      id: 'a1', date: fecha('2026-01-03'), description: 'PAGO', reference: null,
+      debit: 5, credit: 0, balance: 0, status: 'UNMATCHED', matchedEntryId: null,
+    };
+    let filtro: any;
+    const prisma = {
+      bankStatementRow: {
+        findMany: async ({ where }: any) => (where.status === 'UNMATCHED' ? [fila] : []),
+        update: async ({ data }: any) => data,
+      },
+      journalLine: { findMany: async (args: any) => { filtro = args.where.journalEntry; return []; } },
+      bankRowMatch: vinculosFalsos(),
+    };
+
+    await autoMatch('bs1', prisma as any, 'odesa', 'acc-8829');
+
+    expect(filtro.anuladoPorId).toBeNull();
+  });
 });
 
 describe('findUnmatchedBookEntries — solo la cuenta del extracto', () => {
@@ -183,6 +203,7 @@ describe('findUnmatchedBookEntries — solo la cuenta del extracto', () => {
     const r = await findUnmatchedBookEntries(prisma as any, 'odesa', 'acc-8829', fecha('2026-01-01'), fin);
 
     expect(where.lines.some).toEqual({ accountId: 'acc-8829' });
+    expect(where.anuladoPorId).toBeNull();
     expect(include.lines.where).toEqual({ accountId: 'acc-8829' });
     // El fin guardado es medianoche UTC y los asientos van a mediodía local:
     // la lista de libros tiene que incluir el ÚLTIMO día completo.

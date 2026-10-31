@@ -72,6 +72,7 @@ const prisma: any = {
         out = out.filter(l =>
           (!je.companyId || l.journalEntry.companyId === je.companyId) &&
           (!je.status?.notIn || !je.status.notIn.includes(l.journalEntry.status)) &&
+          (je.anuladoPorId === undefined || (l.journalEntry.anuladoPorId ?? null) === je.anuladoPorId) &&
           (je.isClosing === undefined || l.journalEntry.isClosing === je.isClosing));
       }
       return out;
@@ -133,7 +134,7 @@ const lineaDe = (over: any = {}) => ({
   debit: 0, credit: 100,
   journalEntry: {
     id: 'je-1', companyId: 'c1', date: new Date('2026-07-10T12:00:00Z'),
-    description: 'PAGO PROVEEDOR', status: 'BORRADOR', isClosing: false,
+    description: 'PAGO PROVEEDOR', status: 'BORRADOR', isClosing: false, anuladoPorId: null,
   },
   account: MONETARIA_PC,
   ...over,
@@ -253,6 +254,17 @@ describe('POST /reconcile/:id/match — mover una partida de banco', () => {
     expect(r.status).toBe(200);
     expect(lineas[0].accountId).toBe('acc-banco');
   });
+
+  it('no concilia una partida de un asiento anulado (sigue en BORRADOR, solo lleva anuladoPorId)', async () => {
+    lineas[0].journalEntry.anuladoPorId = 'je-revo';
+
+    const r = await vincular({ moverCuenta: true });
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/anulado/i);
+    expect(filas[0].status).toBe('UNMATCHED');
+    expect(vinculos).toHaveLength(0);
+  });
 });
 
 describe('GET /reconcile/:id/candidates — partidas de otras cuentas', () => {
@@ -284,5 +296,22 @@ describe('GET /reconcile/:id/candidates — partidas de otras cuentas', () => {
 
     expect(res.status).toBe(200);
     expect(body.candidates.map((c: any) => c.lineId)).toEqual(['jl-debito']);
+  });
+
+  it('no ofrece las partidas de un asiento anulado', async () => {
+    lineas = [
+      lineaDe(),
+      lineaDe({
+        id: 'jl-anulado',
+        journalEntryId: 'je-9',
+        journalEntry: { ...lineaDe().journalEntry, id: 'je-9', anuladoPorId: 'je-revo' },
+      }),
+    ];
+
+    const res = await fetch(`${base}/bs1/candidates?rowId=r1`);
+    const body: any = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.candidates.map((c: any) => c.lineId)).toEqual(['jl-pc']);
   });
 });

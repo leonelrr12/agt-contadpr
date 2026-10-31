@@ -149,6 +149,11 @@ journalRouter.get('/pendientes', async (req, res) => {
     companyId: req.user!.companyId,
     status: 'BORRADOR',
     isClosing: false,
+    // Anular NO cambia el estado del original (sigue contando en su período, lo
+    // netea su reverso): `anuladoPorId` es la seña de que ya se corrigió. Sin este
+    // filtro, todo BORRADOR anulado —una corrida de planilla re-hecha— reaparece
+    // en la cola de revisión como si siguiera vivo.
+    anuladoPorId: null,
   };
   // Pendientes de revisión: SIN límite de año fiscal (abarcan todos los períodos)
   const dateFilter = buildDateFilter(startDate as string, endDate as string);
