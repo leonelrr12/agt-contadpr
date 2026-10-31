@@ -291,7 +291,7 @@ export interface AcreedorResumen {
   /** Las deducciones que acreditan esta cuenta, con el nombre que tenían al descontar. */
   deducciones: { deduccionId: string; acreedor: string; empleado: string }[];
   empleados: string[];
-  /** Se llena cuando el mayor y la planilla no cuentan lo mismo. */
+  /** Se llena cuando los ASIENTOS de la planilla no acreditan lo que dicen las cuotas. */
   aviso: string;
 }
 
@@ -300,9 +300,11 @@ export interface AcreedorResumen {
  *
  * Por cuenta y no por deducción: dos empleados pueden deberle al mismo banco y lo que
  * se paga es la cuenta. El `devengado` sale de las cuotas (lo que la planilla retuvo) y
- * el `saldo` del mayor (lo que de verdad se debe); si no coinciden es que alguien movió
- * la cuenta a mano, y el aviso lo dice en vez de mostrar un número que nadie puede
- * explicar.
+ * el `saldo` del mayor (lo que de verdad se debe, con los movimientos manuales y el
+ * histórico que la planilla no conoce). La comparación NO es contra el saldo del mayor
+ * —una cuenta con historia propia nunca cuadraría—: se compara el `devengado` contra
+ * el crédito que los ASIENTOS de las corridas vivas dejaron en esa cuenta. Así el aviso
+ * solo aparece cuando la planilla no contabilizó lo que ella misma descontó.
  */
 export async function resumenAcreedores(prisma: any, companyId: string): Promise<AcreedorResumen[]> {
   const filas = await prisma.payrollItemDeduction.findMany({
@@ -336,7 +338,7 @@ export async function resumenAcreedores(prisma: any, companyId: string): Promise
   }
 
   const ids = [...porCuenta.keys()];
-  const [cuentas, movimientos] = await Promise.all([
+  const [cuentas, movimientos, items] = await Promise.all([
     prisma.account.findMany({ where: { id: { in: ids }, companyId }, select: { id: true, code: true, name: true } }),
     // Mismo filtro que `saldoCuentaPasivo`: incluye BORRADOR (lo que se debe no depende
     // de que el contador haya aprobado el asiento) y excluye RECHAZADO y ANULADO.
@@ -345,10 +347,32 @@ export async function resumenAcreedores(prisma: any, companyId: string): Promise
       where: { accountId: { in: ids }, journalEntry: { companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] } } },
       _sum: { debit: true, credit: true },
     }),
+    // Los asientos que creó la planilla: la comparación del aviso es contra ESTOS
+    // créditos, no contra el saldo entero de la cuenta.
+    prisma.payrollItem.findMany({
+      where: { companyId, run: { status: { not: 'ANULADA' } }, journalEntryId: { not: null } },
+      select: { journalEntryId: true },
+    }),
   ]);
+
+  const idsAsientos = [...new Set(items.map((i: any) => i.journalEntryId).filter(Boolean))] as string[];
+  const creditosPlanilla = idsAsientos.length
+    ? await prisma.journalLine.groupBy({
+        by: ['accountId'],
+        where: {
+          accountId: { in: ids },
+          journalEntryId: { in: idsAsientos },
+          journalEntry: { companyId, status: { notIn: ['RECHAZADO', 'ANULADO'] } },
+        },
+        _sum: { credit: true },
+      })
+    : [];
 
   const nombreCuenta = new Map(cuentas.map((c: any) => [c.id, c]));
   const movs = new Map(movimientos.map((m: any) => [m.accountId, m]));
+  const creditosPorCuenta = new Map<string, number>(
+    creditosPlanilla.map((c: any) => [c.accountId, Number(c._sum?.credit) || 0] as [string, number]),
+  );
 
   return ids
     .map((cuentaId: string) => {
@@ -358,7 +382,8 @@ export async function resumenAcreedores(prisma: any, companyId: string): Promise
       const devengado = r2(acc.devengado);
       const pagado = r2(mov?._sum.debit || 0);
       const saldo = r2((mov?._sum.credit || 0) - (mov?._sum.debit || 0));
-      const cuadra = Math.abs(saldo - r2(devengado - pagado)) <= 0.01;
+      const creditoPlanilla = r2(creditosPorCuenta.get(cuentaId) || 0);
+      const cuadra = Math.abs(creditoPlanilla - devengado) <= 0.01;
       return {
         cuentaId,
         code: cuenta?.code ?? '',
@@ -370,7 +395,7 @@ export async function resumenAcreedores(prisma: any, companyId: string): Promise
         empleados: [...acc.empleados].filter(Boolean).sort(),
         aviso: cuadra
           ? ''
-          : `el mayor no cuadra con la planilla: se retuvo ${devengado.toFixed(2)} y el saldo de la cuenta es ${saldo.toFixed(2)} (hay movimientos que no vienen de planilla)`,
+          : `la planilla retuvo ${devengado.toFixed(2)} pero sus asientos acreditaron ${creditoPlanilla.toFixed(2)} en la cuenta`,
       };
     })
     .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));

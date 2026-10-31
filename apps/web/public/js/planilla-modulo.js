@@ -849,12 +849,14 @@
       <div class="card">
         <h3>Cuentas por pagar por acreedor</h3>
         <table class="data-table">
-          <thead><tr><th>Cuenta</th><th>Empleados / acreedores</th><th class="num">Retenido</th>
-            <th class="num">Pagado</th><th class="num">Saldo</th><th></th></tr></thead>
+          <thead><tr><th>Cuenta</th><th>Empleados / acreedores</th>
+            <th class="num" title="Cuotas aplicadas por el módulo de planilla (todas las corridas vivas). No incluye movimientos manuales ni históricos de la cuenta">Retenido</th>
+            <th class="num" title="Todos los débitos de la cuenta en el mayor, vengan o no de la planilla">Pagado</th>
+            <th class="num" title="Σ crédito − Σ débito del mayor (incluye BORRADOR): lo que se le debe hoy al acreedor, con o sin movimientos manuales">Saldo</th><th></th></tr></thead>
           <tbody>${filasAcreedores || '<tr><td colspan="6" class="nota">Todavía no hay cuotas descontadas.</td></tr>'}</tbody>
         </table>
         ${estado.acreedores.filter((a) => a.aviso).map((a) => `<div class="aviso">${esc(a.code)}: ${esc(a.aviso)}</div>`).join('')}
-        <p class="nota">El saldo sale del mayor (Σ crédito − Σ débito, incluidos los asientos en BORRADOR): es lo que de verdad se le debe a cada acreedor.</p>
+        <p class="nota">El saldo sale del mayor (Σ crédito − Σ débito, incluidos los asientos en BORRADOR): es lo que de verdad se le debe a cada acreedor, con los movimientos manuales e históricos que la planilla no conoce. El aviso compara lo <b>retenido</b> contra el crédito que dejaron los asientos de las corridas vivas, no contra el saldo de la cuenta.</p>
       </div>
 
       <div class="card">
