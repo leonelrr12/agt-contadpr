@@ -54,47 +54,106 @@ function showInformesLoading() {
 
 let _informesCharts = [];
 
+/** Último resultado del Diario: el buscador filtra sobre esto, sin volver a pedir. */
+let _diarioData = null;
+
 async function loadReportDiario() {
   const el = document.getElementById('informes-inline-result');
   try {
-    const params = getInformesDateParams(); params.set('limit','30');
+    // El Diario muestra el período COMPLETO: sin esto solo venía la primera página
+    // (50 asientos ordenados desc → con junio cargado, únicamente del 27 al 30).
+    const params = getInformesDateParams(); params.set('pageSize','all');
     const res = await authFetch(`${API_URL}/journal?${params}`);
     const d = await res.json();
-    if (!d.entries || !d.entries.length) { el.innerHTML = '<div class="empty">No hay asientos registrados</div>'; return; }
-    const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-    let totDeb = 0, totCred = 0;
-    let html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th><th>Estado</th></tr></thead><tbody>';
-    for (const e of d.entries) {
-      const date = new Date(e.date).toLocaleDateString('es-PA');
-      const desc = escapeHtml(e.description||'');
-      const statusHtml = statusTag(e.status);
-      // Bloquear corrección si ya fue revertido/corregido antes
-      const alreadyCorrected = (e.description||'').includes('[ref:') || d.entries.some(x => (x.description||'').includes(`[ref:${e.id.slice(0,12)}]`));
-      const canCorrect = e.status === 'CONFIRMADO' && !(e.description||'').startsWith('ANULACIÓN:') && !(e.description||'').startsWith('REVERSIÓN') && !alreadyCorrected;
-      const actionsHtml = canCorrect
-        ? `<button onclick="corregirEntry('${e.id}')" style="margin-left:4px;padding:2px 8px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer" title="Anular original y crear corrección">✏️ Corregir</button>`
-        : '';
-      for (let i = 0; i < e.lines.length; i++) {
-        const l = e.lines[i];
-        totDeb += (l.debit||0);
-        totCred += (l.credit||0);
-        html += `<tr>
-          <td>${i===0 ? date : ''}</td>
-          <td>${i===0 ? desc : ''}</td>
-          <td>${escapeHtml(l.account?.code||'')} — ${escapeHtml(l.account?.name||'')}</td>
-          <td style="color:#2e7d32;font-weight:600">${l.debit ? fmt(l.debit) : '—'}</td>
-          <td style="color:#c62828;font-weight:600">${l.credit ? fmt(l.credit) : '—'}</td>
-          <td>${i===0 ? statusHtml + actionsHtml : ''}</td>
-        </tr>`;
-      }
-    }
-    html += '</tbody><tfoot><tr style="border-top:2px solid #1a1a2e;font-weight:700">';
-    html += '<td></td><td></td><td style="padding-left:24px">Total</td>';
-    html += `<td style="color:#2e7d32">${fmt(totDeb)}</td>`;
-    html += `<td style="color:#c62828">${fmt(totCred)}</td>`;
-    html += '<td></td></tr></tfoot></table></div>';
-    el.innerHTML = informesPeriodoInfo(d) + html;
+    if (!d.entries || !d.entries.length) { _diarioData = null; el.innerHTML = '<div class="empty">No hay asientos registrados</div>'; return; }
+    _diarioData = { entries: d.entries, total: d.total ?? d.entries.length, periodo: d.periodo };
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <input type="search" id="diario-search" placeholder="🔍 Buscar descripción, cuenta, fecha o monto..." oninput="renderDiarioTabla()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;flex:1 1 320px;max-width:440px">
+        <span id="diario-count" style="font-size:12px;color:#6b7280"></span>
+      </div>
+      ${informesPeriodoInfo(d)}
+      <div id="diario-tabla"></div>`;
+    renderDiarioTabla();
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
+}
+
+/** ¿El asiento casa con TODAS las palabras del buscador? Mira descripción,
+ *  tercero, estado, fecha y TODAS sus cuentas, con los montos crudos y con
+ *  formato: "150" encuentra $1,150.00 y "banco" encuentra su línea de banco. */
+function diarioEntryMatches(e, terms) {
+  if (!terms.length) return true;
+  const num = n => (Number(n) || 0).toFixed(2);
+  const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const hay = normalizeSearch([
+    e.description,
+    e.provider,
+    e.status,
+    e.createdBy?.name,
+    e.date ? new Date(e.date).toLocaleDateString('es-PA') : '',
+    String(e.date || '').slice(0, 10),
+    ...(e.lines || []).flatMap(l => [
+      l.account?.code,
+      l.account?.name,
+      num(l.debit), num(l.credit),
+      money(l.debit), money(l.credit),
+    ]),
+  ].join(' '));
+  return terms.every(t => hay.includes(t));
+}
+
+/** Repinta solo la tabla: el <input> del buscador queda intacto (no pierde foco). */
+function renderDiarioTabla() {
+  const cont = document.getElementById('diario-tabla');
+  if (!cont || !_diarioData) return;
+  const raw = document.getElementById('diario-search')?.value.trim() || '';
+  const terms = normalizeSearch(raw).split(/\s+/).filter(Boolean);
+  const shown = _diarioData.entries.filter(e => diarioEntryMatches(e, terms));
+
+  const count = document.getElementById('diario-count');
+  if (count) {
+    count.textContent = terms.length
+      ? `${shown.length} de ${_diarioData.total} asiento(s)`
+      : `${_diarioData.total} asiento(s) en el período`;
+  }
+  if (!shown.length) {
+    cont.innerHTML = `<div style="text-align:center;padding:24px;color:#6b7280">🔍 Sin coincidencias para «${escapeHtml(raw)}»</div>`;
+    return;
+  }
+
+  const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  let totDeb = 0, totCred = 0;
+  let html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th><th>Estado</th></tr></thead><tbody>';
+  for (const e of shown) {
+    const date = new Date(e.date).toLocaleDateString('es-PA');
+    const desc = escapeHtml(e.description||'');
+    const statusHtml = statusTag(e.status);
+    // Bloquear corrección si ya fue revertido/corregido antes
+    const alreadyCorrected = (e.description||'').includes('[ref:') || _diarioData.entries.some(x => (x.description||'').includes(`[ref:${e.id.slice(0,12)}]`));
+    const canCorrect = e.status === 'CONFIRMADO' && !(e.description||'').startsWith('ANULACIÓN:') && !(e.description||'').startsWith('REVERSIÓN') && !alreadyCorrected;
+    const actionsHtml = canCorrect
+      ? `<button onclick="corregirEntry('${e.id}')" style="margin-left:4px;padding:2px 8px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer" title="Anular original y crear corrección">✏️ Corregir</button>`
+      : '';
+    for (let i = 0; i < e.lines.length; i++) {
+      const l = e.lines[i];
+      totDeb += (l.debit||0);
+      totCred += (l.credit||0);
+      html += `<tr>
+        <td>${i===0 ? date : ''}</td>
+        <td>${i===0 ? desc : ''}</td>
+        <td>${escapeHtml(l.account?.code||'')} — ${escapeHtml(l.account?.name||'')}</td>
+        <td style="color:#2e7d32;font-weight:600">${l.debit ? fmt(l.debit) : '—'}</td>
+        <td style="color:#c62828;font-weight:600">${l.credit ? fmt(l.credit) : '—'}</td>
+        <td>${i===0 ? statusHtml + actionsHtml : ''}</td>
+      </tr>`;
+    }
+  }
+  html += '</tbody><tfoot><tr style="border-top:2px solid #1a1a2e;font-weight:700">';
+  html += '<td></td><td></td><td style="padding-left:24px">Total</td>';
+  html += `<td style="color:#2e7d32">${fmt(totDeb)}</td>`;
+  html += `<td style="color:#c62828">${fmt(totCred)}</td>`;
+  html += '<td></td></tr></tfoot></table></div>';
+  cont.innerHTML = html;
 }
 /* ── Balance: modo "Nivel 3" (cuentas totalizadas) ──
  * Agrupa cada cuenta por su código de 3 segmentos ("1.1.02.01" → "1.1.02"):

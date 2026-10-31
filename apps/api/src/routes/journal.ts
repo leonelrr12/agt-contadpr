@@ -300,7 +300,11 @@ journalRouter.get('/', async (req, res) => {
   if (dateFilter) where.date = dateFilter;
 
   const page = Math.max(1, parseInt(pageStr as string) || 1);
-  const pageSize = Math.min(100, Math.max(1, parseInt(pageSizeStr as string) || 50));
+  // `pageSize=all` lo usa el Diario de Informes: el contador necesita el período
+  // COMPLETO, no la primera página ordenada por fecha desc (con junio cargado, los
+  // 50 más recientes son solo del 27 al 30). El export ya carga todo igual.
+  const todas = String(pageSizeStr || '') === 'all';
+  const pageSize = todas ? 0 : Math.min(100, Math.max(1, parseInt(pageSizeStr as string) || 50));
 
   // Filtro de proveedor en BD: busca el substring en el metadata JSON de la transacción
   // (antes se filtraba en JS tras cargar TODO el libro; now con contains insensitive)
@@ -308,7 +312,8 @@ journalRouter.get('/', async (req, res) => {
     where.transactions = { some: { metadata: { contains: String(providerFilter), mode: 'insensitive' } } };
   }
 
-  // Paginación real en BD: count + skip/take (antes se cargaba todo y se paginaba en memoria)
+  // Paginación real en BD: count + skip/take (antes se cargaba todo y se paginaba
+  // en memoria). Con `pageSize=all` se omite el recorte, como en el export.
   const [total, entries] = await Promise.all([
     req.prisma.journalEntry.count({ where }),
     req.prisma.journalEntry.findMany({
@@ -319,8 +324,7 @@ journalRouter.get('/', async (req, res) => {
         transactions: { select: { metadata: true, concept: true } },
       },
       orderBy: { date: 'desc' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      ...(todas ? {} : { skip: (page - 1) * pageSize, take: pageSize }),
     }),
   ]);
 
@@ -333,11 +337,11 @@ journalRouter.get('/', async (req, res) => {
     return { ...e, provider };
   });
 
-  const totalPages = Math.ceil(total / pageSize);
+  const totalPages = todas ? 1 : Math.ceil(total / pageSize);
 
   res.json({
     periodo: { start: rango.start, end: rango.end, anioFiscal },
-    entries: enriched, total, page, pageSize, totalPages,
+    entries: enriched, total, page: todas ? 1 : page, pageSize: todas ? total : pageSize, totalPages,
   });
 });
 
