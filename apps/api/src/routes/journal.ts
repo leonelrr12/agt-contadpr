@@ -565,7 +565,8 @@ journalRouter.post('/:id/anular', requireRole('admin', 'contador', 'superadmin')
       action: 'JOURNAL_ANNULED',
       entity: 'JournalEntry',
       entityId: entryId,
-      after: { anuladoPorId: result.reversal.id },
+      // Un borrador/rechazado se anula sin reverso: `anuladoPorId` queda en null.
+      after: { anuladoPorId: result.reversal?.id ?? null, conReverso: !!result.reversal },
     });
 
     res.json(result);

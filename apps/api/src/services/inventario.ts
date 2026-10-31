@@ -663,7 +663,7 @@ export async function anularMovimiento(
   userId: string,
   movimientoId: string,
   motivo?: string | null,
-): Promise<{ movimientos: any[]; asiento: any | null; cantidad: number }> {
+): Promise<{ movimientos: any[]; asiento: any | null; asientoAnulado: boolean; cantidad: number }> {
   const mov = await tx.inventoryMovement.findFirst({ where: { id: movimientoId, companyId } });
   if (!mov) throw Object.assign(new Error('Movimiento no encontrado'), { status: 404 });
   if (mov.estado === 'ANULADO') throw Object.assign(new Error('El movimiento ya está anulado'), { status: 409 });
@@ -747,16 +747,21 @@ export async function anularMovimiento(
 
   await tx.inventoryMovement.createMany({ data: filas });
 
-  // El asiento de la operación se anula con la misma semántica que el diario: el
-  // original sigue contando en su período y el reverso lo netea desde hoy.
+  // El asiento de la operación se anula con la misma semántica que el diario: si
+  // estaba CONFIRMADO, el reverso lo netea desde hoy; si era BORRADOR/RECHAZADO,
+  // se anula directo y los inversos del kardex quedan sin asiento propio.
   let asiento: any = null;
+  let asientoAnulado = false;
   if (mov.journalEntryId) {
     const r = await anularAsiento(tx, companyId, userId, mov.journalEntryId);
     asiento = r.reversal;
-    await tx.inventoryMovement.updateMany({
-      where: { dedupeKey: { startsWith: `${claveBase}:` } },
-      data: { journalEntryId: r.reversal.id },
-    });
+    asientoAnulado = true;
+    if (r.reversal) {
+      await tx.inventoryMovement.updateMany({
+        where: { dedupeKey: { startsWith: `${claveBase}:` } },
+        data: { journalEntryId: r.reversal.id },
+      });
+    }
   }
 
   await tx.inventoryMovement.updateMany({
@@ -771,7 +776,7 @@ export async function anularMovimiento(
     });
   }
 
-  return { movimientos: filas, asiento, cantidad: originales.length };
+  return { movimientos: filas, asiento, asientoAnulado, cantidad: originales.length };
 }
 
 // ── Carga inicial de inventario ─────────────────────────────────────────────

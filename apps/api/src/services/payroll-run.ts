@@ -961,11 +961,14 @@ export async function ejecutarCorrida(
 // ─── Anulación ───────────────────────────────────────────────────────────────
 
 /**
- * Anula la corrida entera: un reverso por asiento, fechado hoy.
+ * Anula la corrida entera.
  *
- * El original SIGUE contando en su período — así funciona `anularAsiento` en todo el
- * sistema. La corrida pasa a ANULADA y sus ítems salen de los acumulados por la
- * relación (`run.status != ANULADA`), sin borrar nada.
+ * Los asientos APROBADOS (CONFIRMADO) se revierten con un espejo fechado hoy: el
+ * original sigue contando en su período. Los que nunca se aprobaron (BORRADOR o
+ * RECHAZADO) se anulan directo, sin reverso — crearles un espejo CONFIRMADO dejaba
+ * un asiento inverso sumando solo en cuentas como 2.1.07.01. La corrida pasa a
+ * ANULADA y sus ítems salen de los acumulados por la relación (`run.status !=
+ * ANULADA`), sin borrar nada.
  */
 export async function anularCorrida(
   prisma: any,

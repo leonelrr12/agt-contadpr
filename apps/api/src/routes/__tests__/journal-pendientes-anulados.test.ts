@@ -1,11 +1,12 @@
 /**
  * La cola de Revisión no puede listar asientos anulados.
  *
- * Anular NO cambia el estado del original —sigue contando en su período y el reverso
- * lo netea—, así que un BORRADOR anulado conserva `status: 'BORRADOR'` y solo lleva
- * `anuladoPorId`. Sin el filtro reaparece como pendiente: pasó con una corrida de
- * planilla re-hecha (2026-07-S1 de ALBRYND CASTILLO), donde el asiento del 3 de julio
- * anulado seguía en Revisión al lado del bueno del 4 de julio.
+ * Un asiento CONFIRMADO anulado conserva su estado y solo lleva `anuladoPorId` (su
+ * reverso lo netea desde el mes de la corrección). Sin el filtro reaparece como
+ * pendiente —pasó con una corrida de planilla re-hecha (2026-07-S1 de ALBRYND
+ * CASTILLO), donde el asiento del 3 de julio anulado seguía en Revisión al lado del
+ * bueno del 4 de julio—. Los BORRADOR/RECHAZADO anulados ahora quedan en ANULADO,
+ * pero el filtro sigue siendo la red para los anulados bajo la regla anterior.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';

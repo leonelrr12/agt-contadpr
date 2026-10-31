@@ -1108,7 +1108,7 @@
           ${c.status !== 'ANULADA' ? '<button class="btn btn-danger" id="h-anular">Anular la corrida</button>' : ''}
         </div>
         ${c.motivoAnulacion ? `<div class="aviso err">Anulada: ${esc(c.motivoAnulacion)}</div>` : ''}
-        <p class="nota">El asiento de cada empleado entra al diario y se aprueba desde acá o desde Revisión, indistintamente. Anular la corrida revierte sus asientos con fecha de hoy: el original sigue contando en su período.</p>
+        <p class="nota">El asiento de cada empleado entra al diario y se aprueba desde acá o desde Revisión, indistintamente. Anular la corrida: los asientos aprobados se revierten con fecha de hoy (el original sigue contando en su período); los que siguen en borrador se anulan directo, sin reverso.</p>
       </div>
       <div class="card">
         <table class="data-table">
@@ -1160,10 +1160,10 @@
         await showAlert('⚠️ Explicá el motivo (mínimo 5 caracteres).');
         return;
       }
-      if (!(await showConfirm('Se van a revertir TODOS los asientos de la corrida con fecha de hoy. ¿Seguimos?'))) return;
+      if (!(await showConfirm('Se van a anular TODOS los asientos de la corrida: los aprobados se revierten con fecha de hoy y los borradores se anulan directo. ¿Seguimos?'))) return;
       try {
         const r = await pedir(`/corridas/${estado.corridaDetalle.id}/anular`, { method: 'POST', body: JSON.stringify({ motivo }) });
-        await showAlert(`Anulada: ${r.anulados} asiento(s) revertidos.`);
+        await showAlert(`Anulada: ${r.anulados} asiento(s) anulados.`);
         estado.corridaDetalle = null;
         await render();
       } catch (err) { await showAlert('❌ ' + err.message); }

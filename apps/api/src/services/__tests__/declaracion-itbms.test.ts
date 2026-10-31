@@ -509,12 +509,20 @@ describe('declaración 430 — pagar y anular', () => {
     expect(r.retencionesDevueltas).toBe(1);
     expect(r.obligacionDevuelta).toBe(true);
 
-    // Los espejos quedan marcados en el original y fechados hoy.
-    for (const a of r.asientosAnulados) {
+    // La compensación nace BORRADOR: se anula directo, sin reverso. El pago,
+    // CONFIRMADO, sí deja su espejo fechado hoy.
+    const conReverso = r.asientosAnulados.filter((a: any) => a.reversalId);
+    const sinReverso = r.asientosAnulados.filter((a: any) => !a.reversalId);
+    expect(conReverso).toHaveLength(1);
+    expect(sinReverso).toHaveLength(1);
+    for (const a of conReverso) {
       const original = ctx.db.asientos.find((x) => x.id === a.originalId);
       const reverso = ctx.db.asientos.find((x) => x.id === a.reversalId);
       expect(original.anuladoPorId).toBe(reverso.id);
       expect(reverso.description.startsWith('ANULACIÓN:')).toBe(true);
+    }
+    for (const a of sinReverso) {
+      expect(ctx.db.asientos.find((x) => x.id === a.originalId).status).toBe('ANULADO');
     }
     expect(ctx.db.retenciones[0].estado).toBe('RECIBIDA');
     expect(ctx.db.retenciones[0].declaracionId).toBeNull();

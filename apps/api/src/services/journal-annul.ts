@@ -1,16 +1,20 @@
 /**
- * Anulación de asientos. Fuente única: la usan el diario y el módulo de Inventario.
+ * Anulación de asientos. Fuente única: la usan el diario, Planilla, Inventario y
+ * la anulación de declaraciones.
  *
- * Anular NO es borrar. El asiento se contabilizó y después se corrigió, así que:
+ * La regla depende de si el asiento llegó a aprobarse:
  *
- *  · El original **sigue contando** en el período en que se registró. Marcarlo
- *    ANULADO lo sacaba de su propio período y el informe de enero pasaba a decir que
- *    ese gasto nunca había existido.
- *  · El reverso se crea **fechado hoy** (el día de la corrección) y netea al original
- *    desde ese mes en adelante. Es la práctica estándar: el error se corrige en el
- *    período en que se descubre, no se reescribe la historia.
- *  · El original queda marcado con `anuladoPorId`, que es una seña para la UI: ningún
- *    reporte la mira.
+ *  · **CONFIRMADO** — el asiento se contabilizó y después se corrigió. El original
+ *    **sigue contando** en el período en que se registró (marcarlo ANULADO borraba el
+ *    gasto de enero y reescribía la historia) y el reverso se crea **fechado hoy**,
+ *    neteándolo desde el mes de la corrección. El original queda con `anuladoPorId`.
+ *  · **BORRADOR / RECHAZADO** — nunca se aprobó: no hay nada que netear. Se marca
+ *    ANULADO y listo. Crearle un reverso CONFIRMADO dejaba un asiento inverso sumando
+ *    en cuentas como 2.1.07.01 mientras el original —RECHAZADO— no contaba en los
+ *    informes: un saldo fantasma (caso ALBRYND, julio 2026).
+ *
+ * Los informes excluyen RECHAZADO y ANULADO; incluyen BORRADOR. Por eso, en los dos
+ * caminos el efecto neto es cero desde el período de la corrección.
  *
  * Tiene que correr dentro de una transacción: si algo falla, no queda ni la marca ni
  * el reverso.
@@ -20,7 +24,8 @@ import { crearTransaccionReversion } from './reversion-transaction';
 
 export interface AsientoAnulado {
   original: any;
-  reversal: any;
+  /** `null` cuando el original no estaba aprobado: se anuló sin reverso. */
+  reversal: any | null;
 }
 
 export async function anularAsiento(
@@ -38,6 +43,16 @@ export async function anularAsiento(
   if (original.status === 'ANULADO') throw Object.assign(new Error('El asiento ya está anulado'), { status: 400 });
   if (original.description.startsWith('ANULACIÓN:')) {
     throw Object.assign(new Error('No se puede anular un asiento de reversión'), { status: 400 });
+  }
+
+  // Nunca se aprobó: no hay movimiento contabilizado que revertir. Se anula y sale
+  // de los informes por estado —sin dejar un espejo CONFIRMADO que sume solo—.
+  if (original.status !== 'CONFIRMADO') {
+    await tx.journalEntry.update({
+      where: { id: original.id },
+      data: { status: 'ANULADO' },
+    });
+    return { original: { ...original, status: 'ANULADO' }, reversal: null };
   }
 
   const reversal = await tx.journalEntry.create({

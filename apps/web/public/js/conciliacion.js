@@ -399,11 +399,11 @@ function renderDetail(data) {
   } else {
     for (const r of matchedRows) {
       const partes = (r.matches || []);
-      // Anular NO cambia el estado del asiento: el original sigue BORRADOR/CONFIRMADO
-      // y solo lleva `anuladoPorId`. El vínculo se conserva (el original cuenta en su
-      // período), pero el contador tiene que verlo para decidir si lo suelta y
-      // re-concilia contra el asiento vigente.
-      const anulado = !!r.matchedEntry?.anuladoPorId || partes.some((p) => p.entry?.anuladoPorId);
+      // Anular NO toca el vínculo. Un asiento aprobado anulado conserva su estado y
+      // lleva `anuladoPorId`; un borrador anulado queda en ANULADO. En ambos casos el
+      // contador tiene que verlo para decidir si suelta la fila y re-concilia.
+      const anulado = [r.matchedEntry, ...partes.map((p) => p.entry)]
+        .some((e) => !!e?.anuladoPorId || e?.status === 'ANULADO');
       const etiqueta = partes.length > 1
         ? `<span class="badge badge-neutral">${partes.length} partidas</span>`
         : (r.matchedEntry ? `<span style="font-size:11px">${r.matchedEntry.id.slice(0, 8)}...</span>` : '—');

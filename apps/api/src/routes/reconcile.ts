@@ -214,7 +214,7 @@ async function detalleDeExtracto(prisma: any, companyId: string, statementId: st
           // vinculador las precarga al editar.
           matches: {
             include: {
-              entry: { select: { id: true, date: true, description: true, anuladoPorId: true } },
+              entry: { select: { id: true, date: true, description: true, status: true, anuladoPorId: true } },
               // La línea con TODOS sus vínculos: al editar una fila, el máximo
               // aplicable es el total menos lo que ya usan las otras filas.
               line: {

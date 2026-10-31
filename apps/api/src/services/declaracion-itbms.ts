@@ -660,7 +660,7 @@ export async function anularDeclaracion(
   if (d.estado === 'ANULADA') throw err('La declaración ya está anulada.', 409);
 
   const resultado = await prisma.$transaction(async (tx: any) => {
-    const asientosAnulados: Array<{ originalId: string; reversalId: string }> = [];
+    const asientosAnulados: Array<{ originalId: string; reversalId: string | null }> = [];
     const saltados: string[] = [];
     for (const asientoId of asientosDe(d)) {
       const je = await tx.journalEntry.findFirst({ where: { id: asientoId, companyId }, select: { id: true, anuladoPorId: true, status: true } });
@@ -670,7 +670,9 @@ export async function anularDeclaracion(
         continue;
       }
       const r = await anularAsiento(tx, companyId, userId, asientoId);
-      asientosAnulados.push({ originalId: asientoId, reversalId: r.reversal.id });
+      // La compensación nace BORRADOR: se anula sin reverso. El pago, CONFIRMADO,
+      // sí deja su espejo. `reversalId` null significa "se anuló directo".
+      asientosAnulados.push({ originalId: asientoId, reversalId: r.reversal?.id ?? null });
     }
 
     // Las retenciones vuelven a RECIBIDA. Se escribe directo porque `canTransition`

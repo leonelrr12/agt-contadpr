@@ -602,7 +602,9 @@ async function anularMovimiento(id) {
     });
     await showAlert(
       `Anulado. Se revirtieron ${r.cantidad} movimiento(s) del kardex` +
-      (r.asiento ? ' y se generó el asiento de reversión.' : ' (la operación no tenía asiento).'),
+      (r.asiento ? ' y se generó el asiento de reversión.'
+        : r.asientoAnulado ? ' y se anuló su asiento en borrador.'
+        : ' (la operación no tenía asiento).'),
     );
     render();
   } catch (e) {
