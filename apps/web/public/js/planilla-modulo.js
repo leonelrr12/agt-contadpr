@@ -28,6 +28,15 @@
   }
   const hoy = () => isoDe(new Date());
 
+  /**
+   * 'YYYY-MM-DD' → Date a MEDIODÍA local. `new Date('2026-11-01')` se parsea como UTC
+   * y en Panamá se ve como el 31 a las 19:00: un día antes.
+   */
+  function fechaDeIso(iso) {
+    const [a, m, d] = String(iso || '').split('-').map(Number);
+    return a && m && d ? new Date(a, m - 1, d, 12) : null;
+  }
+
   async function pedir(ruta, opciones = {}) {
     const res = await authFetch(API + ruta, {
       ...opciones,
@@ -70,6 +79,11 @@
     parametros: null,
     corrida: null,
     ajustes: {},
+    /**
+     * Las fechas que el contador eligió para cada periodicidad. Ir y volver del
+     * selector (p. ej. Quincenal por error → Semanal) no puede mover el período.
+     */
+    fechas: {},
     deducciones: [],
     deduccionEditando: null,
     acreedores: [],
@@ -271,24 +285,80 @@
   }
 
   /**
-   * Al elegir Semanal, las fechas se van a la semana en curso.
-   *
-   * Dejarlas en la quincena que estaban daría un período de quince días —que el
-   * prorrateo cobra igual, pero con su aviso— y el contador tendría que corregir dos
-   * fechas antes de ver algo útil. El día de pago sale de Parámetros: es el mismo que
-   * usa el servidor para numerar el pago del mes.
+   * Al elegir Semanal, las fechas se van a la semana que contiene `ancla` —el inicio
+   * del período que se está mirando—, no a la de hoy: cambiar de frecuencia no puede
+   * mover al contador a otra semana. El día de pago sale de Parámetros: es el mismo
+   * que usa el servidor para numerar el pago del mes.
    */
-  async function prellenarSemana() {
+  async function prellenarSemana(ancla = new Date()) {
     if (!estado.parametros) estado.parametros = await pedir('/parametros');
     const dia = Number(estado.parametros?.settings?.diaPagoSemanal ?? 5);
-    const ahora = new Date();
-    // El lunes de esta semana: `getDay()` pone el domingo en 0.
-    const lunes = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - ((ahora.getDay() + 6) % 7));
+    // El lunes de esa semana: `getDay()` pone el domingo en 0.
+    const lunes = new Date(ancla.getFullYear(), ancla.getMonth(), ancla.getDate() - ((ancla.getDay() + 6) % 7));
     const pago = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate() + ((dia + 6) % 7));
 
     const f = formaCorrida();
     f.fechaDesde = isoDe(lunes);
     f.fechaPago = isoDe(pago);
+  }
+
+  /** Guarda las fechas escritas ahora bajo la periodicidad que se está usando. */
+  function recordarFechas() {
+    const f = formaCorrida();
+    const desde = $('c-desde');
+    const pago = $('c-pago');
+    estado.fechas[f.periodicidad] = {
+      fechaDesde: desde ? desde.value : f.fechaDesde,
+      fechaPago: pago ? pago.value : f.fechaPago,
+    };
+  }
+
+  /**
+   * Cambia la periodicidad conservando las fechas de la que se deja y restaurando
+   * las de la nueva (si ya se usó en esta sesión) o derivándolas del período actual.
+   *
+   * Sin esto, volver a Semanal reanclaba la semana de hoy —el 1-nov cae en 26–30 oct,
+   * el ÚLTIMO pago de octubre— y el descuento del acreedor salía por la cuota ENTERA,
+   * porque ese pago cierra el mes.
+   *
+   * Los ajustes se descartan: un monto tecleado en el desglose de una quincena no es
+   * la cuota de una semana — el servidor lo toma como monto manual (`montoAjustado`)
+   * y se salta el reparto entre los pagos del mes.
+   */
+  async function cambiarPeriodicidad(nueva) {
+    const f = formaCorrida();
+    f.periodicidad = nueva;
+    estado.ajustes = {};
+    if (estado.desglose) cerrarDesglose();
+
+    const guardadas = estado.fechas[nueva];
+    if (guardadas) {
+      f.fechaDesde = guardadas.fechaDesde;
+      f.fechaPago = guardadas.fechaPago;
+      return;
+    }
+
+    // La nueva frecuencia arranca en el período que se estaba mirando, no en otro.
+    const ancla = fechaDeIso(f.fechaDesde) || new Date();
+    if (nueva === 'SEMANAL') {
+      try { await prellenarSemana(ancla); } catch { /* sin parámetros, se dejan las fechas */ }
+      return;
+    }
+    if (nueva === 'MENSUAL') {
+      // El mensual se prorratea desde el día 1: heredar el lunes de una semana
+      // cobraría el mes corto. La fecha de pago es la que eligió el contador.
+      f.fechaDesde = isoDe(new Date(ancla.getFullYear(), ancla.getMonth(), 1, 12));
+      return;
+    }
+    // QUINCENAL: se alinea a la quincena que contiene el período (1–15 o 16–fin),
+    // no al lunes de la semana que quedó del selector anterior.
+    const primera = ancla.getDate() <= 15;
+    f.fechaDesde = isoDe(new Date(ancla.getFullYear(), ancla.getMonth(), primera ? 1 : 16, 12));
+    f.fechaPago = isoDe(
+      primera
+        ? new Date(ancla.getFullYear(), ancla.getMonth(), 15, 12)
+        : new Date(ancla.getFullYear(), ancla.getMonth() + 1, 0, 12),
+    );
   }
 
   /**
@@ -520,11 +590,20 @@
       await render();
       return;
     }
-    if (e.target.id === 'c-periodicidad' || e.target.id === 'c-desde' || e.target.id === 'c-pago') {
+    if (e.target.id === 'c-periodicidad') {
+      // Las fechas de la frecuencia que se deja se recuerdan tal como están escritas;
+      // recién después `leerForma` lee la periodicidad nueva.
+      recordarFechas();
+      const nueva = e.target.value;
       leerForma();
-      if (e.target.id === 'c-periodicidad' && e.target.value === 'SEMANAL') {
-        try { await prellenarSemana(); } catch { /* sin parámetros, se dejan las fechas como están */ }
-      }
+      await cambiarPeriodicidad(nueva);
+      estado.corrida = null;
+      await render();
+      return;
+    }
+    if (e.target.id === 'c-desde' || e.target.id === 'c-pago') {
+      leerForma();
+      recordarFechas();
       estado.corrida = null;
       await render();
     }
