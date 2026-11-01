@@ -70,9 +70,10 @@ const AYUDA = {
       'Cargá los <strong>empleados</strong> con su salario y su clase de riesgo.',
       'Revisá <strong>Parámetros</strong>: tasas de SS y SE, tabla de ISR, riesgos por clase y las cuentas contables de cada concepto.',
       'Corré la planilla —quincenal, mensual o semanal— y <strong>mirá el resultado antes de confirmar</strong>.',
+      'Los asientos entran en <strong>borrador</strong>: desde el detalle de la corrida los aprobás o rechazás <strong>en bloque</strong>, o desde Revisión.',
       'Registrá el <strong>pago a la CSS</strong> y los pagos a acreedores (préstamos, embargos) desde el mismo módulo.',
     ],
-    ojo: 'El pasivo del patrono va a <strong>tres cuentas</strong> (Seguro Social, Seguro Educativo y Riesgos Profesionales) y su gasto a la suya. Si un empleado tiene una clase de riesgo sin tarifa cargada, su fila <strong>se rechaza a propósito</strong>: mejor eso que un cálculo inventado.',
+    ojo: 'El pasivo del patrono va a <strong>tres cuentas</strong> (Seguro Social, Seguro Educativo y Riesgos Profesionales) y su gasto a la suya. Si un empleado tiene una clase de riesgo sin tarifa cargada, su fila <strong>se rechaza a propósito</strong>: mejor eso que un cálculo inventado. Y ojo con <strong>Rechazar</strong>: no toca la corrida — los asientos dejan de contar en el mayor, pero la corrida <strong>sigue en los acumulados del mes</strong> y el período sigue ocupado. Si el error es de fondo, <strong>Anular la corrida</strong>: revierte los aprobados con fecha de hoy, anula los borradores sin reverso y libera el período para rehacerla.',
   },
   email: {
     emoji: '📧',

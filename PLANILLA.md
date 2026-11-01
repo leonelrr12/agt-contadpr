@@ -416,6 +416,10 @@ preguntas que son las cuatro formas en que una nómina se descuadra:
    un saldo **mayor** que lo devengado es imposible sin que alguien haya acreditado algo por fuera del módulo.
 3. **Los asientos que no están vivos.** Uno rechazado o anulado no existe para el mayor, pero su corrida
    sigue contando para los acumulados: si el rechazo fue por un error, hay que anular la corrida y rehacerla.
+   **Rechazar en bloque no anula ni cambia la corrida**: los BORRADOR pasan a RECHAZADO (y el `journalEntryId`
+   del ítem sigue apuntando a ellos), la corrida queda EJECUTADA y el período sigue ocupado —rehacer exige
+   anular—; además, desde la corrida «Aprobar» los omite, así que re-aprobar exige devolver cada asiento a
+   BORRADOR con `PATCH /api/journal/:id/status` y revisarlo de nuevo.
 4. **Quién no cobró.** Empleados activos sin ninguna corrida en el período. Es el olvido más caro porque no
    genera ningún error, y nadie reclama hasta que no le pagan.
 
