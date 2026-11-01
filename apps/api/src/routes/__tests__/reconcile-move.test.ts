@@ -314,4 +314,28 @@ describe('GET /reconcile/:id/candidates — partidas de otras cuentas', () => {
     expect(res.status).toBe(200);
     expect(body.candidates.map((c: any) => c.lineId)).toEqual(['jl-pc']);
   });
+
+  it('muestra la partida parcialmente aplicada en otra fila, con el motivo', async () => {
+    // $40 de los $100 ya están conciliados en otra fila: queda $60, pero moverla
+    // de cuenta arrastraría ese vínculo. Se lista bloqueada, no desaparece.
+    vinculos = [{ rowId: 'otra-fila', lineId: 'jl-pc', entryId: 'je-1', amount: 40 }];
+
+    const res = await fetch(`${base}/bs1/candidates?rowId=r1`);
+    const body: any = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.candidates).toHaveLength(1);
+    expect(body.candidates[0]).toMatchObject({ lineId: 'jl-pc', disponible: 60, aplicado: 40 });
+    expect(body.candidates[0].motivo).toMatch(/desvinculala/i);
+  });
+
+  it('una partida aplicada al 100% no se lista: no queda saldo', async () => {
+    vinculos = [{ rowId: 'otra-fila', lineId: 'jl-pc', entryId: 'je-1', amount: 100 }];
+
+    const res = await fetch(`${base}/bs1/candidates?rowId=r1`);
+    const body: any = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.candidates).toHaveLength(0);
+  });
 });

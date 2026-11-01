@@ -589,7 +589,6 @@ reconcileRouter.get('/:id/candidates', async (req, res) => {
         // El lado que corresponde a la fila: una entrada del banco se sostiene con
         // el débito del libro; una salida, con el crédito.
         ...(esEntrada ? { debit: { gt: 0 } } : { credit: { gt: 0 } }),
-        bankRowMatches: { none: {} },
         journalEntry: {
           companyId: req.user!.companyId,
           status: { notIn: ['RECHAZADO', 'ANULADO'] },
@@ -608,26 +607,62 @@ reconcileRouter.get('/:id/candidates', async (req, res) => {
       take: 500,
     });
 
+    // Lo ya aplicado de cada línea, sumando TODAS las filas: una partida puede
+    // repartirse entre varias y lo que queda por conciliar es el total menos eso.
+    const aplicados = lineas.length
+      ? await req.prisma.bankRowMatch.findMany({
+          where: { lineId: { in: lineas.map((l: any) => l.id) } },
+          select: { lineId: true, amount: true },
+        })
+      : [];
+    const aplicadoPorLinea = new Map<string, number>();
+    for (const v of aplicados) {
+      aplicadoPorLinea.set(
+        v.lineId,
+        Math.round((Number(aplicadoPorLinea.get(v.lineId) || 0) + (Number(v.amount) || 0)) * 100) / 100,
+      );
+    }
+
     const montoFila = esEntrada ? row.credit : row.debit;
     const candidates = lineas
       .filter((l: any) => !yaConciliados.has(l.journalEntry.id))
-      .map((l: any) => ({
-        lineId: l.id,
-        entryId: l.journalEntry.id,
-        date: l.journalEntry.date,
-        descripcion: l.journalEntry.description,
-        disponible: esEntrada ? l.debit : l.credit,
-        accountId: l.account.id,
-        accountCode: l.account.code,
-        accountName: l.account.name,
-        entryStatus: l.journalEntry.status,
-      }))
-      // Primero el monto exacto y después la fecha más cercana: con 293
-      // movimientos en «Por Clasificar» lo probable tiene que salir arriba.
+      .map((l: any) => {
+        const total = esEntrada ? l.debit : l.credit;
+        const aplicado = aplicadoPorLinea.get(l.id) || 0;
+        const disponible = Math.round((total - aplicado) * 100) / 100;
+        // Una partida ya aplicada en otra fila NO se puede mover de cuenta: el
+        // vínculo quedaría apuntando a una fila de OTRO extracto (ver
+        // `vincularLineas`). Se lista igual, con el motivo, para que el contador
+        // vea por qué no está entre las elegibles y pueda desvincularla.
+        const motivo = aplicado > 0.005
+          ? `Ya está conciliada parcialmente en otra fila ($${aplicado.toFixed(2)} de $${total.toFixed(2)}): desvinculala de ahí antes de moverla de cuenta.`
+          : null;
+        return {
+          lineId: l.id,
+          entryId: l.journalEntry.id,
+          date: l.journalEntry.date,
+          descripcion: l.journalEntry.description,
+          disponible,
+          aplicado,
+          motivo,
+          accountId: l.account.id,
+          accountCode: l.account.code,
+          accountName: l.account.name,
+          entryStatus: l.journalEntry.status,
+        };
+      })
+      // Las aplicadas al 100% ya no pueden sostener ninguna fila.
+      .filter((c: any) => c.disponible > 0.005)
+      // Primero las elegibles, después las bloqueadas; y dentro de cada grupo el
+      // monto exacto y la fecha más cercana (con 293 en «Por Clasificar» lo
+      // probable tiene que salir arriba).
       .sort((a: any, b: any) => {
+        const bloqueadaA = a.motivo ? 1 : 0;
+        const bloqueadaB = b.motivo ? 1 : 0;
         const exactoA = Math.abs(a.disponible - montoFila) <= 0.02 ? 0 : 1;
         const exactoB = Math.abs(b.disponible - montoFila) <= 0.02 ? 0 : 1;
-        return exactoA - exactoB
+        return bloqueadaA - bloqueadaB
+          || exactoA - exactoB
           || daysBetween(new Date(a.date), new Date(row.date)) - daysBetween(new Date(b.date), new Date(row.date))
           || String(a.descripcion).localeCompare(String(b.descripcion));
       });

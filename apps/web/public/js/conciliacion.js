@@ -658,6 +658,10 @@ async function alternarOtrosBancos(activo) {
       disponible: c.disponible,
       ya: false,
       otraCuenta: true,
+      // Ya aplicada en otra fila: se muestra para que el contador sepa por qué,
+      // pero no se puede elegir — moverla arrastraría el vínculo de otro extracto.
+      bloqueada: !!c.motivo,
+      motivo: c.motivo || '',
       cuenta: `${c.accountCode} — ${c.accountName}`,
       reabrir: c.entryStatus === 'CONFIRMADO',
     }));
@@ -665,8 +669,10 @@ async function alternarOtrosBancos(activo) {
     candidatos = [...candidatos, ...candidatosOtros.filter(c => !vistos.has(c.lineId))];
     otrosBancosCargados = true;
     if (estado) {
+      const bloqueadas = candidatosOtros.filter(c => c.bloqueada).length;
+      const disponibles = candidatosOtros.length - bloqueadas;
       estado.textContent = candidatosOtros.length
-        ? `${candidatosOtros.length} partida(s) en otras cuentas del período. Al guardar se mueven a esta cuenta.`
+        ? `${disponibles} partida(s) de otras cuentas del período${bloqueadas ? ` · ${bloqueadas} ya aplicada(s) en otra fila (no se pueden mover)` : ''}.`
         : 'No hay partidas de otras cuentas en el período de este extracto.';
     }
     renderLista();
@@ -696,12 +702,17 @@ function renderLista() {
     const cuenta = c.otraCuenta
       ? ` <span class="badge badge-warn" title="Al guardar, la partida se mueve a la cuenta de este extracto">🔄 ${esc(c.cuenta)}</span>${c.reabrir ? ' <span class="badge badge-err" title="El asiento está aprobado: vuelve a BORRADOR para re-aprobarlo">se reabre</span>' : ''}`
       : '';
-    html += `<tr class="${c.ya ? 'ya' : ''}" style="${c.otraCuenta ? 'background:#fffbeb' : ''}">
-      <td><input type="checkbox" ${marcada ? 'checked' : ''} onchange="toggleLinea('${c.lineId}')"></td>
+    // Ya aplicada en otra fila: no se puede mover de cuenta, pero se lista con el
+    // motivo (antes desaparecía y parecía que la partida no existía).
+    const bloqueo = c.bloqueada
+      ? `<div class="nota" style="color:#92400e">🔒 ${esc(c.motivo)}</div>`
+      : '';
+    html += `<tr class="${c.ya ? 'ya' : ''}" style="${c.bloqueada ? 'background:#f3f4f6;color:#6b7280' : c.otraCuenta ? 'background:#fffbeb' : ''}">
+      <td>${c.bloqueada ? '🔒' : `<input type="checkbox" ${marcada ? 'checked' : ''} onchange="toggleLinea('${c.lineId}')">`}</td>
       <td>${c.date ? new Date(c.date).toLocaleDateString('es-PA') : '—'}</td>
-      <td>${esc(c.descripcion)}${c.ya ? ' <span class="badge badge-ok">vinculada</span>' : ''}${cuenta}</td>
+      <td>${esc(c.descripcion)}${c.ya ? ' <span class="badge badge-ok">vinculada</span>' : ''}${cuenta}${bloqueo}</td>
       <td class="num">$${c.disponible.toFixed(2)}${c.total ? ` <span style="color:#6b7280;font-size:11px" title="Total de la partida; el resto ya está conciliado">de $${c.total.toFixed(2)}</span>` : ''}</td>
-      <td class="num">${marcada ? `<input type="number" step="0.01" min="0" value="${seleccion.get(c.lineId).toFixed(2)}" onchange="cambiarMonto('${c.lineId}', this.value)">` : '—'}</td>
+      <td class="num">${c.bloqueada ? '—' : marcada ? `<input type="number" step="0.01" min="0" value="${seleccion.get(c.lineId).toFixed(2)}" onchange="cambiarMonto('${c.lineId}', this.value)">` : '—'}</td>
     </tr>`;
   }
   html += '</tbody></table>';
@@ -723,7 +734,7 @@ function renderLista() {
 
 function toggleLinea(lineId) {
   const c = candidatos.find(x => x.lineId === lineId);
-  if (!c) return;
+  if (!c || c.bloqueada) return;
   if (seleccion.has(lineId)) seleccion.delete(lineId);
   else seleccion.set(lineId, Math.round(c.disponible * 100) / 100);
   renderLista();
@@ -732,7 +743,7 @@ function toggleLinea(lineId) {
 function cambiarMonto(lineId, valor) {
   const c = candidatos.find(x => x.lineId === lineId);
   const n = Math.round(Number(valor) * 100) / 100;
-  if (!c || !(n > 0)) { seleccion.delete(lineId); renderLista(); return; }
+  if (!c || c.bloqueada || !(n > 0)) { seleccion.delete(lineId); renderLista(); return; }
   if (n > c.disponible + 0.02) {
     showAlert(`El monto no puede superar el de la partida ($${c.disponible.toFixed(2)}).`);
     renderLista();
