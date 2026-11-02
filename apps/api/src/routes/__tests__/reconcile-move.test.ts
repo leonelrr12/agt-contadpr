@@ -73,7 +73,9 @@ const prisma: any = {
           (!je.companyId || l.journalEntry.companyId === je.companyId) &&
           (!je.status?.notIn || !je.status.notIn.includes(l.journalEntry.status)) &&
           (je.anuladoPorId === undefined || (l.journalEntry.anuladoPorId ?? null) === je.anuladoPorId) &&
-          (je.isClosing === undefined || l.journalEntry.isClosing === je.isClosing));
+          (je.isClosing === undefined || l.journalEntry.isClosing === je.isClosing) &&
+          (!je.date?.gte || new Date(l.journalEntry.date).getTime() >= new Date(je.date.gte).getTime()) &&
+          (!je.date?.lte || new Date(l.journalEntry.date).getTime() <= new Date(je.date.lte).getTime()));
       }
       return out;
     },
@@ -331,6 +333,30 @@ describe('GET /reconcile/:id/candidates — partidas de otras cuentas', () => {
 
   it('una partida aplicada al 100% no se lista: no queda saldo', async () => {
     vinculos = [{ rowId: 'otra-fila', lineId: 'jl-pc', entryId: 'je-1', amount: 100 }];
+
+    const res = await fetch(`${base}/bs1/candidates?rowId=r1`);
+    const body: any = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.candidates).toHaveLength(0);
+  });
+
+  it('amplía el período del extracto ±5 días: la contraparte de 3 días antes aparece', async () => {
+    // Fila del 03-jul; el asiento está en «Por Clasificar» el 30-jun, antes del
+    // inicio del extracto (01-jul). Con la ventana del período a secas no salía.
+    filas = [filaSalida({ date: new Date('2026-07-03T16:00:00Z') })];
+    lineas = [lineaDe({ journalEntry: { ...lineaDe().journalEntry, date: new Date('2026-06-30T16:00:00Z') } })];
+
+    const res = await fetch(`${base}/bs1/candidates?rowId=r1`);
+    const body: any = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.candidates.map((c: any) => c.lineId)).toEqual(['jl-pc']);
+  });
+
+  it('el margen es de 5 días: un asiento 6 días antes del período queda fuera', async () => {
+    filas = [filaSalida({ date: new Date('2026-07-03T16:00:00Z') })];
+    lineas = [lineaDe({ journalEntry: { ...lineaDe().journalEntry, date: new Date('2026-06-25T16:00:00Z') } })];
 
     const res = await fetch(`${base}/bs1/candidates?rowId=r1`);
     const body: any = await res.json();

@@ -528,9 +528,9 @@ interface MovidaCuenta {
 /**
  * GET /api/reconcile/:id/candidates?rowId=…
  *
- * Partidas del libro del MISMO período que pueden sostener una fila del
- * extracto pero están en OTRA cuenta monetaria (Caja 1.1.01, otro banco
- * 1.1.02.*, tarjeta 2.1.03.*).
+ * Partidas del libro del período del extracto (±5 días) que pueden sostener una
+ * fila pero están en OTRA cuenta monetaria (Caja 1.1.01, otro banco 1.1.02.*,
+ * tarjeta 2.1.03.*).
  *
  * Es la salida para la carga histórica: el movimiento se cargó en
  * «Por Clasificar» (1.1.02.09) o en el banco equivocado, y el matcher —que solo
@@ -575,11 +575,19 @@ reconcileRouter.get('/:id/candidates', async (req, res) => {
     if (!cuentas.length) { res.json({ candidates: [] }); return; }
 
     const esEntrada = (row.credit || 0) > 0;
-    const desde = statement.statementStart || new Date(new Date(row.date).getTime() - 5 * 24 * 60 * 60 * 1000);
-    // Hasta el FIN del día de corte: un `lte` a medianoche deja fuera los asientos
-    // del último día, que se guardan a mediodía local.
+    // El período del extracto se AMPLÍA 5 días por cada lado: el matcher busca
+    // ±5 días alrededor de cada fila y un asiento cargado unos días antes del
+    // corte (o después) sigue siendo la contraparte probable. Antes la ventana
+    // era el período a secas y el asiento del 30-jun no aparecía para la fila
+    // del 03-jul, aunque fuera el mismo pago.
+    const MARGEN_DIAS_MS = 5 * 24 * 60 * 60 * 1000;
+    const desde = statement.statementStart
+      ? new Date(new Date(statement.statementStart).getTime() - MARGEN_DIAS_MS)
+      : new Date(new Date(row.date).getTime() - MARGEN_DIAS_MS);
+    // Hasta el FIN del día de corte más el margen: un `lte` a medianoche deja
+    // fuera los asientos del último día, que se guardan a mediodía local.
     const hasta = statement.statementEnd
-      ? new Date(new Date(statement.statementEnd).getTime() + 24 * 60 * 60 * 1000 - 1)
+      ? new Date(new Date(statement.statementEnd).getTime() + 24 * 60 * 60 * 1000 - 1 + MARGEN_DIAS_MS)
       : new Date(new Date(row.date).getTime() + 6 * 24 * 60 * 60 * 1000 - 1);
 
     // Asientos ya conciliados por la vía vieja (sin vínculo por línea): no se
