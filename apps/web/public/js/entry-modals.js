@@ -161,7 +161,7 @@ function terceroAsientoHtml(ns, tercero) {
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <div style="flex:2;min-width:180px">
         <label style="font-size:10px;color:#6b7280;display:block;margin-bottom:2px">Nombre</label>
-        <input id="${ns}-tercero-provider" type="text" value="${v(tercero?.provider)}" placeholder="Nombre del tercero" style="width:100%;padding:7px;border:1px solid #d1d5db;border-radius:5px;box-sizing:border-box;font-size:12px">
+        <input id="${ns}-tercero-provider" type="text" value="${v(tercero?.provider)}" placeholder="Nombre del tercero — escribí para buscar en el maestro" autocomplete="off" spellcheck="false" oninput="buscarTerceroAsiento('${ns}', this)" onfocus="buscarTerceroAsiento('${ns}', this)" onkeydown="teclaTerceroAsiento(event, '${ns}', this)" onblur="cerrarTerceroCombo()" style="width:100%;padding:7px;border:1px solid #d1d5db;border-radius:5px;box-sizing:border-box;font-size:12px">
       </div>
       <div style="flex:1;min-width:140px">
         <label style="font-size:10px;color:#6b7280;display:block;margin-bottom:2px">RUC/Cédula</label>
@@ -172,8 +172,146 @@ function terceroAsientoHtml(ns, tercero) {
         <input id="${ns}-tercero-ref" type="text" value="${v(tercero?.reference)}" placeholder="Factura del tercero" style="width:100%;padding:7px;border:1px solid #d1d5db;border-radius:5px;box-sizing:border-box;font-size:12px">
       </div>
     </div>
-    <div style="font-size:10px;color:#6b7280;margin-top:4px">Obligatorio en cuentas con 📎 Anexo. En ventas alimenta el maestro de clientes; en compras/gastos, el de proveedores.</div>
+    <div style="font-size:10px;color:#6b7280;margin-top:4px">Obligatorio en cuentas con 📎 Anexo. En ventas alimenta el maestro de clientes; en compras/gastos, el de proveedores. Elegí una sugerencia para traer el RUC ya cargado.</div>
   </div>`;
+}
+
+/* ── Buscar el tercero en el maestro mientras se escribe ──
+ * El nombre del asiento alimenta Client/Supplier (syncEntityFromEntry): teclearlo
+ * libre crea duplicados ("Ferretería X" vs "Ferretería X, S.A."). Al elegir una
+ * sugerencia se completan Nombre y RUC del registro que ya existe; si no está en
+ * el maestro se guarda igual, como antes. La caja es la misma del combo de cuentas
+ * (.entry-acc-combo, colgada de <body> en position:fixed): dentro del modal una
+ * lista absoluta la recortaría el overflow-y. */
+let _terceroCombo = null; // { box, input, ns, sugerencias, items, idx, seq, timer, onScroll }
+
+/** RUC completo para rellenar el campo: el maestro guarda base y DV separados. */
+function rucDeTercero(t) {
+  const taxId = String(t?.taxId || '').trim();
+  const dv = String(t?.dv || '').trim();
+  if (!taxId) return '';
+  if (!dv || taxId.endsWith(`-${dv}`)) return taxId;
+  return `${taxId}-${dv}`;
+}
+
+function closeTerceroCombo() {
+  if (!_terceroCombo) return;
+  clearTimeout(_terceroCombo.timer);
+  window.removeEventListener('scroll', _terceroCombo.onScroll, true);
+  window.removeEventListener('resize', closeTerceroCombo);
+  _terceroCombo.box.remove();
+  _terceroCombo = null;
+}
+
+/** Cuelga la lista bajo el campo (encima, si abajo no cabe), como el combo de cuentas. */
+function abrirCajaTercero(input, ns) {
+  closeTerceroCombo();
+  const box = document.createElement('div');
+  box.className = 'entry-acc-combo';
+  const r = input.getBoundingClientRect();
+  const abajo = window.innerHeight - r.bottom - 10;
+  box.style.left = `${r.left}px`;
+  box.style.width = `${r.width}px`;
+  if (abajo >= 140 || abajo >= r.top) {
+    box.style.top = `${r.bottom + 2}px`;
+    box.style.maxHeight = `${Math.max(120, Math.min(260, abajo))}px`;
+  } else {
+    box.style.bottom = `${window.innerHeight - r.top + 2}px`;
+    box.style.maxHeight = `${Math.max(120, Math.min(260, r.top - 10))}px`;
+  }
+  document.body.appendChild(box);
+
+  const st = { box, input, ns, sugerencias: [], items: [], idx: -1, seq: 0, timer: null, onScroll: null };
+  // mousedown (no click): preventDefault deja el foco en el campo, así el blur no
+  // cierra la lista antes de que se registre la elección.
+  box.addEventListener('mousedown', e => {
+    const el = e.target.closest('.entry-acc-item');
+    e.preventDefault();
+    if (el && _terceroCombo && _terceroCombo.box === box) elegirTerceroSugerido(el);
+  });
+  st.onScroll = e => { if (!st.box.contains(e.target)) closeTerceroCombo(); };
+  window.addEventListener('scroll', st.onScroll, true);
+  window.addEventListener('resize', closeTerceroCombo);
+  _terceroCombo = st;
+  return st;
+}
+
+function renderTerceroSugerencias(st, filas) {
+  const lista = filas.slice(0, 8);
+  st.sugerencias = lista;
+  st.box.innerHTML = lista.length
+    ? lista.map((t, i) => {
+        const ruc = rucDeTercero(t);
+        const proveedor = t.tipo === 'PROVEEDOR';
+        return `<div class="entry-acc-item${i === 0 ? ' sel' : ''}" data-idx="${i}">
+          <span class="entry-acc-name" style="font-weight:600;color:#1f2937">${escapeHtml(t.name || '')}</span>
+          ${ruc ? `<span class="entry-acc-code" style="margin-left:auto">${escapeHtml(ruc)}</span>` : '<span style="margin-left:auto"></span>'}
+          <span class="badge" style="background:${proveedor ? '#0f766e' : '#1d4ed8'};margin-left:6px">${proveedor ? 'Proveedor' : 'Cliente'}</span>
+        </div>`;
+      }).join('')
+    : '<div class="entry-acc-vacio">Sin coincidencias en el maestro: se guardará el nombre tal como está escrito.</div>';
+  st.items = [...st.box.querySelectorAll('.entry-acc-item')];
+  st.idx = st.items.length ? 0 : -1;
+}
+
+/** Debounce de 250 ms: una consulta por pausa de tecleo, no por letra. */
+function buscarTerceroAsiento(ns, input) {
+  const q = String(input?.value || '').trim();
+  if (q.length < 2) { closeTerceroCombo(); return; }
+  const st = (_terceroCombo && _terceroCombo.input === input) ? _terceroCombo : abrirCajaTercero(input, ns);
+  st.seq += 1;
+  const seq = st.seq;
+  clearTimeout(st.timer);
+  st.timer = setTimeout(async () => {
+    try {
+      const res = await authFetch(`${API_URL}/terceros/buscar?q=${encodeURIComponent(q)}`);
+      if (seq !== st.seq || _terceroCombo !== st) return; // otra tecla (o se cerró) manda
+      if (document.activeElement !== input) return;      // el foco ya se fue
+      const filas = res.ok ? await res.json() : [];
+      renderTerceroSugerencias(st, Array.isArray(filas) ? filas : []);
+    } catch (e) {
+      if (_terceroCombo === st) renderTerceroSugerencias(st, []);
+    }
+  }, 250);
+}
+
+function elegirTerceroSugerido(el) {
+  const st = _terceroCombo;
+  if (!st || !el) return;
+  const t = st.sugerencias[Number(el.dataset.idx)];
+  if (!t) return;
+  st.input.value = t.name || '';
+  const rucInput = document.getElementById(`${st.ns}-tercero-ruc`);
+  // El maestro ya tiene el RUC: se completa para no re-teclearlo con otro formato.
+  if (rucInput) rucInput.value = rucDeTercero(t);
+  closeTerceroCombo();
+  st.input.focus();
+}
+
+function teclaTerceroAsiento(e, ns, input) {
+  const st = (_terceroCombo && _terceroCombo.input === input) ? _terceroCombo : null;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (!st || !st.items.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const n = st.items.length;
+    st.idx = e.key === 'ArrowDown' ? (st.idx + 1) % n : (st.idx <= 0 ? n - 1 : st.idx - 1);
+    st.items.forEach((el, j) => el.classList.toggle('sel', j === st.idx));
+    st.items[st.idx].scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter') {
+    // Sin sugerencias, Enter sigue avanzando de campo (modal de Asiento Manual).
+    if (!st || !st.items.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    elegirTerceroSugerido(st.items[st.idx]);
+  } else if (e.key === 'Escape') {
+    if (!st) return;
+    e.preventDefault();
+    e.stopPropagation(); // cerrar la lista, no el modal
+    closeTerceroCombo();
+  } else if (e.key === 'Tab') {
+    closeTerceroCombo();
+  }
 }
 
 function toggleTerceroAsiento(ns, activeAccounts, lines, tercero) {
@@ -186,6 +324,8 @@ function toggleTerceroAsiento(ns, activeAccounts, lines, tercero) {
   const provider = document.getElementById(`${ns}-tercero-provider`);
   const yaTiene = !!(tercero?.provider || tercero?.ruc || (provider && provider.value.trim()));
   wrap.style.display = (relevante || yaTiene) ? '' : 'none';
+  // La lista flota fuera del modal: si el bloque se oculta, no puede quedar abierta.
+  if (wrap.style.display === 'none') closeTerceroCombo();
 }
 
 function leerTerceroAsiento(overlay, ns) {

@@ -35,6 +35,38 @@ tercerosRouter.use(requireRole('admin', 'contador', 'superadmin'));
 const modoDe = (v: unknown): ModoImport => (String(v || 'completar') === 'actualizar' ? 'actualizar' : 'completar');
 
 /**
+ * GET /api/terceros/buscar?q=… — autocompletado del tercero en el Asiento Manual.
+ *
+ * Busca por nombre en los DOS maestros (proveedores y clientes) y devuelve lo
+ * mínimo para completar el bloque del asiento: nombre, RUC/DV y el maestro de
+ * origen. `GET /clients` y `GET /suppliers` no sirven para esto: traen todas las
+ * facturas/bills de cada fila y se llamarían en cada tecla. El asiento alimenta
+ * uno u otro maestro según sus cuentas (INGRESO → cliente; GASTO/COSTO/CxP →
+ * proveedor), así que se listan los dos con su tipo.
+ */
+tercerosRouter.get('/buscar', async (req, res) => {
+  const q = String(req.query.q ?? '').trim();
+  // Una sola letra devuelve el maestro entero: no es una búsqueda.
+  if (q.length < 2) { res.json([]); return; }
+  try {
+    const where: any = { companyId: req.user!.companyId, name: { contains: q, mode: 'insensitive' } };
+    const campos = { id: true, name: true, taxId: true, dv: true, taxIdType: true } as const;
+    const [clientes, proveedores] = await Promise.all([
+      req.prisma.client.findMany({ where, select: campos, orderBy: { name: 'asc' }, take: 8 }),
+      req.prisma.supplier.findMany({ where, select: campos, orderBy: { name: 'asc' }, take: 8 }),
+    ]);
+    res.json([
+      ...(proveedores || []).map((t: any) => ({ ...t, tipo: 'PROVEEDOR' })),
+      ...(clientes || []).map((t: any) => ({ ...t, tipo: 'CLIENTE' })),
+    ].sort((a: any, b: any) =>
+      String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' })));
+  } catch (error: any) {
+    console.error('[Terceros] Buscar error:', error);
+    res.status(400).json({ error: error.message || 'No se pudieron buscar terceros' });
+  }
+});
+
+/**
  * Fusiona un duplicado en un maestro. Mueve facturas/bills, retenciones,
  * inventario, cuentas de trabajador y la metadata de las Transactions; después
  * elimina el duplicado. Es irreversible: la UI pide confirmación.
