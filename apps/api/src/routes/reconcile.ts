@@ -202,6 +202,12 @@ reconcileRouter.post('/upload', upload.single('file'), async (req, res) => {
  * solo render, así que el cuerpo tiene que ser siempre el mismo.
  */
 async function detalleDeExtracto(prisma: any, companyId: string, statementId: string): Promise<any | null> {
+  // Los vínculos viejos (fila MATCHED sin `bank_row_match`) se reconstruyen
+  // antes de leer: sin partida que la sostenga, el vinculador abre vacío y el
+  // asiento queda bloqueado para cualquier otra fila. Es idempotente —una fila
+  // que ya tiene vínculo no entra— y acotado al extracto que se está abriendo.
+  await reconstruirVinculos(prisma, companyId, statementId);
+
   const statement = await prisma.bankStatement.findFirst({
     where: { id: statementId, companyId },
     include: {
@@ -274,13 +280,17 @@ async function detalleDeExtracto(prisma: any, companyId: string, statementId: st
  * encaje, el match fue cruzado (el asiento salió de otra cuenta): no se inventa
  * vínculo y el asiento sigue bloqueado, que es lo conservador.
  */
-async function reconstruirVinculos(prisma: any, companyId: string): Promise<number> {
+async function reconstruirVinculos(prisma: any, companyId: string, statementId?: string): Promise<number> {
   const faltantes = await prisma.bankStatementRow.findMany({
     where: {
       status: 'MATCHED',
       matchedEntryId: { not: null },
       matches: { none: {} },
       statement: { companyId },
+      // Al abrir un extracto se repara solo ese; el «volver a conciliar» sigue
+      // reparando la empresa entera (los vínculos viejos bloquean sus líneas en
+      // cualquier extracto).
+      ...(statementId ? { statementId } : {}),
     },
     select: {
       id: true, date: true, debit: true, credit: true, matchedEntryId: true,
@@ -302,7 +312,7 @@ async function reconstruirVinculos(prisma: any, companyId: string): Promise<numb
     porCuenta.set(acc, [...(porCuenta.get(acc) || []), fila]);
   }
 
-  let creados = 0;
+  const aCrear: any[] = [];
   for (const [accountId, filas] of porCuenta) {
     const asientos = [...new Set(filas.map((f: any) => f.matchedEntryId))];
     const lineas = await prisma.journalLine.findMany({
@@ -335,21 +345,23 @@ async function reconstruirVinculos(prisma: any, companyId: string): Promise<numb
       const elegida = enVentana[0] ?? (porMonto.length === 1 ? porMonto[0] : undefined);
       if (!elegida) continue;
 
-      await prisma.bankRowMatch.create({
-        data: {
-          rowId: fila.id,
-          entryId: fila.matchedEntryId,
-          lineId: elegida.linea.id,
-          amount: Math.round(elegida.monto * 100) / 100,
-          isManual: false,
-        },
+      aCrear.push({
+        rowId: fila.id,
+        entryId: fila.matchedEntryId,
+        lineId: elegida.linea.id,
+        amount: Math.round(elegida.monto * 100) / 100,
+        isManual: false,
       });
       usadas.add(elegida.linea.id);
-      creados++;
     }
   }
 
-  return creados;
+  // `skipDuplicates` lo hace seguro si dos pestañas abren el mismo extracto a la
+  // vez: el unique (rowId, lineId) deja pasar una sola vez.
+  if (aCrear.length) {
+    await prisma.bankRowMatch.createMany({ data: aCrear, skipDuplicates: true });
+  }
+  return aCrear.length;
 }
 
 /**
@@ -1007,31 +1019,87 @@ reconcileRouter.post('/:id/create-entry', requireQuota, validate(reconcileCreate
       return;
     }
 
-    const entry = await req.prisma.journalEntry.create({
-      data: {
-        // Hereda la fecha de la fila del extracto (ya viene a mediodía local)
-        date: row.date,
-        description: description || row.description,
-        status: 'BORRADOR',
-        companyId: req.user!.companyId,
-        createdById: req.user!.userId,
-        lines: {
-          create: [
-            { accountId: debitAccountId, debit: amount, credit: 0 },
-            { accountId: creditAccountId, debit: 0, credit: amount },
-          ],
-        },
-      },
-    });
+    // La fila se concilia contra ESTA cuenta: si el asiento no la toca, no hay
+    // línea que la sostenga y la fila queda MATCHED sin partida —el vinculador
+    // salía vacío y la búsqueda en otros bancos la excluía como vínculo viejo—.
+    // El lado también tiene que ser el del movimiento: una salida acredita el
+    // banco y una entrada lo debita.
+    const bankAccountId = row.statement.bankAccountId;
+    if (debitAccountId === creditAccountId) {
+      res.status(400).json({ error: 'Las cuentas del débito y del crédito deben ser distintas.' });
+      return;
+    }
+    if (debitAccountId !== bankAccountId && creditAccountId !== bankAccountId) {
+      res.status(400).json({ error: 'Una de las dos cuentas del asiento tiene que ser la del extracto.' });
+      return;
+    }
+    const esSalida = (row.debit || 0) > 0;
+    // El asiento es el movimiento de la fila: crearlo por otro monto la dejaría
+    // "conciliada" contra una partida que no cuadra.
+    const montoFila = esSalida ? row.debit : row.credit;
+    if (Math.abs(Number(amount) - Number(montoFila)) > 0.02) {
+      res.status(400).json({ error: `El asiento tiene que ser por el monto de la fila ($${Number(montoFila).toFixed(2)}).` });
+      return;
+    }
+    if (esSalida && creditAccountId !== bankAccountId) {
+      res.status(400).json({ error: 'Es una salida del banco: la cuenta del extracto va al crédito del asiento.' });
+      return;
+    }
+    if (!esSalida && debitAccountId !== bankAccountId) {
+      res.status(400).json({ error: 'Es una entrada al banco: la cuenta del extracto va al débito del asiento.' });
+      return;
+    }
 
-    // Vincular la fila al nuevo asiento
-    await req.prisma.bankStatementRow.update({
-      where: { id: rowId },
-      data: {
-        matchedEntryId: entry.id,
-        status: 'MATCHED',
-        matchConfidence: 1.0,
-      },
+    // El asiento y el vínculo por línea van juntos: son la misma conciliación.
+    // Sin el `bank_row_match` la fila queda con el asiento pero sin partida que
+    // la sostenga (le pasó a 43 filas del 02-11 creadas desde «+ Crear asiento»).
+    const entry = await req.prisma.$transaction(async (tx: any) => {
+      const creado = await tx.journalEntry.create({
+        data: {
+          // Hereda la fecha de la fila del extracto (ya viene a mediodía local)
+          date: row.date,
+          description: description || row.description,
+          status: 'BORRADOR',
+          companyId: req.user!.companyId,
+          createdById: req.user!.userId,
+          lines: {
+            create: [
+              { accountId: debitAccountId, debit: amount, credit: 0 },
+              { accountId: creditAccountId, debit: 0, credit: amount },
+            ],
+          },
+        },
+        include: { lines: true },
+      });
+
+      const bancoLinea = (creado.lines || []).find((l: any) => l.accountId === bankAccountId);
+      if (!bancoLinea) throw new Error('El asiento no quedó con una línea en la cuenta del extracto.');
+
+      // Por si la fila venía con vínculos de un intento anterior: el vínculo
+      // nuevo es la verdad y no se pueden quedar los dos.
+      await tx.bankRowMatch.deleteMany({ where: { rowId } });
+
+      // Vincular la fila al nuevo asiento
+      await tx.bankStatementRow.update({
+        where: { id: rowId },
+        data: {
+          matchedEntryId: creado.id,
+          status: 'MATCHED',
+          matchConfidence: 1.0,
+        },
+      });
+
+      await tx.bankRowMatch.create({
+        data: {
+          rowId,
+          entryId: creado.id,
+          lineId: bancoLinea.id,
+          amount: Math.round(Number(amount) * 100) / 100,
+          isManual: true,
+        },
+      });
+
+      return creado;
     });
 
     await incrementUsage(req);

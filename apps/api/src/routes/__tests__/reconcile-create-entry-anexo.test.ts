@@ -15,6 +15,7 @@ const GASTO = { id: 'acc-gasto', code: '6.01.01', name: 'Gastos Generales', requ
 
 let cuentas: any[] = [];
 let entradas: any[] = [];
+let vinculos: any[] = [];
 let fila: any;
 
 const prisma: any = {
@@ -27,7 +28,7 @@ const prisma: any = {
     update: async () => ({}),
   },
   bankStatementRow: {
-    findFirst: async () => ({ ...fila, statement: { id: 'bs1', companyId: 'c1' } }),
+    findFirst: async () => ({ ...fila, statement: { id: 'bs1', companyId: 'c1', bankAccountId: BANCO.id } }),
     update: async ({ data }: any) => { Object.assign(fila, data); return fila; },
   },
   account: {
@@ -35,8 +36,23 @@ const prisma: any = {
       cuentas.filter((c) => !where?.id?.in || where.id.in.includes(c.id)),
   },
   journalEntry: {
-    create: async ({ data }: any) => { const e = { id: 'je-nuevo', ...data }; entradas.push(e); return e; },
+    create: async ({ data }: any) => {
+      // Como Prisma con `include: { lines: true }`: devuelve las líneas creadas.
+      const lines = (data.lines?.create || []).map((l: any, i: number) => ({ id: `jl-${i + 1}`, ...l }));
+      const e = { id: 'je-nuevo', ...data, lines };
+      entradas.push(e);
+      return e;
+    },
   },
+  bankRowMatch: {
+    deleteMany: async ({ where }: any) => {
+      const antes = vinculos.length;
+      vinculos = vinculos.filter((v) => v.rowId !== where?.rowId);
+      return { count: antes - vinculos.length };
+    },
+    create: async ({ data }: any) => { vinculos.push(data); return data; },
+  },
+  $transaction: async (fn: any) => fn(prisma),
 };
 
 let server: any;
@@ -61,6 +77,7 @@ afterAll(() => server?.close());
 beforeEach(() => {
   cuentas = [BANCO, GASTO_ANEXO, GASTO];
   entradas = [];
+  vinculos = [];
   fila = {
     id: 'r1', statementId: 'bs1', date: new Date('2026-07-10T12:00:00Z'),
     description: 'COMPRA', debit: 100, credit: 0,
@@ -98,12 +115,54 @@ describe('POST /reconcile/:id/create-entry — cuentas con Anexo DGI', () => {
     expect(entradas).toHaveLength(0);
   });
 
-  it('crea el asiento y vincula la fila cuando ninguna cuenta lleva Anexo', async () => {
+  it('crea el asiento, vincula la fila y deja el vínculo por LÍNEA', async () => {
     const r = await crear(GASTO.id);
 
     expect(r.status).toBe(201);
     expect(entradas).toHaveLength(1);
     expect(fila.status).toBe('MATCHED');
     expect(fila.matchedEntryId).toBe('je-nuevo');
+    // Sin `bank_row_match` la fila quedaba MATCHED sin partida que la sostenga:
+    // el vinculador abría vacío y la búsqueda en otros bancos la excluía.
+    expect(vinculos).toHaveLength(1);
+    expect(vinculos[0]).toMatchObject({
+      rowId: 'r1',
+      entryId: 'je-nuevo',
+      lineId: 'jl-2', // la línea del banco (crédito de la salida)
+      amount: 100,
+      isManual: true,
+    });
+  });
+
+  it('rechaza un asiento que no toca la cuenta del extracto', async () => {
+    const OTRA = { id: 'acc-gasto2', code: '6.01.02', name: 'Otros gastos', requiresAnexo: false, isBlocked: false };
+    cuentas = [BANCO, GASTO, OTRA];
+
+    const r = await crear(GASTO.id, OTRA.id);
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/tiene que ser la del extracto/);
+    expect(entradas).toHaveLength(0);
+    expect(fila.status).toBe('UNMATCHED');
+  });
+
+  it('rechaza el lado invertido: la salida tiene que acreditar el banco', async () => {
+    const r = await crear(BANCO.id, GASTO.id); // banco al débito = al revés
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/salida del banco/);
+    expect(entradas).toHaveLength(0);
+  });
+
+  it('rechaza un monto distinto al de la fila', async () => {
+    const res = await fetch(`${base}/bs1/create-entry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rowId: 'r1', description: 'Compra', debitAccountId: GASTO.id, creditAccountId: BANCO.id, amount: 90 }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as any).error).toMatch(/monto de la fila/);
+    expect(entradas).toHaveLength(0);
   });
 });
