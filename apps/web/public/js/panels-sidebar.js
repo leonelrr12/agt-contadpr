@@ -200,15 +200,19 @@ async function deleteRecurring(id) {
 
 function toggleRecDayFields() {
   const freq = document.getElementById('rec-freq').value;
-  const container = document.getElementById('rec-day-container');
+  // El markup pinta `rec-day-group`; acá se buscaba `rec-day-container`, que no
+  // existe: abrir el formulario o cambiar la frecuencia lanzaba TypeError y el
+  // campo "Día" nunca se ocultaba ni cambiaba a "Día de semana".
+  const container = document.getElementById('rec-day-group');
+  if (!container) return;
   if (freq === 'MONTHLY' || freq === 'YEARLY') {
     container.style.display = 'block';
-    document.querySelector('#rec-day-container label').textContent = 'Día del mes';
+    document.querySelector('#rec-day-group label').textContent = 'Día del mes';
     document.getElementById('rec-day').min = 1;
     document.getElementById('rec-day').max = 31;
   } else if (freq === 'WEEKLY') {
     container.style.display = 'block';
-    document.querySelector('#rec-day-container label').textContent = 'Día de semana (0=Dom)';
+    document.querySelector('#rec-day-group label').textContent = 'Día de semana (0=Dom)';
     document.getElementById('rec-day').min = 0;
     document.getElementById('rec-day').max = 6;
   } else {

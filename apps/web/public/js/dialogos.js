@@ -180,7 +180,7 @@ function showPrompt(msg, opciones = {}) {
   return _abrirDialogo({
     tipo: 'question',
     icono: opciones.icon || '✍️',
-    titulo: opciones.title || 'Escribí un dato',
+    titulo: opciones.title || 'Escribe un dato',
     mensaje: _limpiarMensajeDialogo(msg),
     input: {
       type: opciones.inputType || 'text',

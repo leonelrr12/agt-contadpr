@@ -66,7 +66,10 @@ facturasRouter.post('/', requireRole('admin', 'contador', 'superadmin', 'inventa
     clientDv, clientPhone, clientEmail, clientAddress, clientLocation,
     clientTradeName, clientContactName, clientTaxIdType,
   } = req.body;
-  const tasa = itbmsRate ?? 0.07;
+  // La tasa configurada vive en ITBMS_RATE (Configuración la escribe ahí).
+  // Antes se caía a 0.07 fijo y una empresa con otra tasa emitía con 7 % si el
+  // cliente no la mandaba.
+  const tasa = itbmsRate ?? (parseFloat(process.env.ITBMS_RATE || '') || 0.07);
   const companyId = req.user!.companyId;
 
   try {

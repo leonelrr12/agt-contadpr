@@ -29,7 +29,7 @@
   <meta name="twitter:description" content="Agente contable con IA para Panamá. Facturas, asientos y reportes automatizados.">
   <meta name="twitter:image" content="https://contador507.com/og-image.png">
 
-  <link rel="stylesheet" href="styles.css?v=53">
+  <link rel="stylesheet" href="styles.css?v=54">
   <link rel="stylesheet" href="dialogos.css?v=1">
   <link rel="stylesheet" href="conciliacion.css?v=3">
 </head>
@@ -176,13 +176,16 @@
             <p class="subtitle">¿Qué deseas registrar hoy?</p>
           </div>
           <div id="capture-date-widget" style="display:flex;align-items:center;gap:8px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:10px 14px">
-            <span style="font-size:13px;color:#0369a1;white-space:nowrap">📅 Fecha de registro:</span>
+            <span style="font-size:13px;color:#0369a1;white-space:nowrap" title="Fecha que usan las transacciones escritas. Los documentos (OCR/PDF/QR) usan la fecha que trae el comprobante.">📅 Fecha por defecto:</span>
             <input type="date" id="capture-date-picker" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;font-family:inherit;background:#fff">
           </div>
         </div>
         <div id="capture-date-banner" class="hidden" style="margin-top:10px;padding:10px 16px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-          <span style="font-size:13px;color:#92400e">📅 Estás registrando con fecha <strong id="capture-date-banner-date"></strong>. ¿Es correcta?</span>
-          <button onclick="dismissDateBanner()" style="padding:4px 12px;background:#fcd34d;border:none;border-radius:6px;cursor:pointer;font-size:12px;color:#78350f;font-weight:600">Entendido</button>
+          <span style="font-size:13px;color:#92400e">📅 Estás registrando con fecha <strong id="capture-date-banner-date"></strong>. Los documentos usan la fecha del comprobante. ¿Es correcta?</span>
+          <span style="display:inline-flex;gap:6px;flex-wrap:wrap">
+            <button onclick="dismissDateBanner();document.getElementById('capture-date-picker').focus()" style="padding:4px 12px;background:#fff;border:1px solid #fcd34d;border-radius:6px;cursor:pointer;font-size:12px;color:#78350f;font-weight:600">Cambiar</button>
+            <button onclick="dismissDateBanner()" style="padding:4px 12px;background:#fcd34d;border:none;border-radius:6px;cursor:pointer;font-size:12px;color:#78350f;font-weight:600">Entendido</button>
+          </span>
         </div>
       </header>
 
@@ -193,7 +196,7 @@
           <button class="quick-btn" onclick="showInput('escribir')">✏️ Escribir</button>
           <button class="quick-btn" onclick="showInput('factura')">📷 Factura</button>
           <button class="quick-btn" onclick="showDGIMenu()">📄 DGI</button>
-          <button class="quick-btn" onclick="showInput('voz')">🎤 Hablar</button>
+          <button class="quick-btn" onclick="showInput('voz')" title="Abre el campo de texto: dicta con el micrófono de tu teclado o escríbelo">🎤 Dictar</button>
         </div>
         <div id="dgi-menu" class="hidden" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <button class="quick-btn" onclick="showInput('pdf')" style="flex:1">📄 Subir PDF</button>
@@ -349,7 +352,7 @@
                 <input type="radio" name="import-inline-mode" value="cobros" style="display:none"> 💰 Pagos a facturas
               </label>
             </div>
-            <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap" id="import-inline-date-label">📅 Fecha:</label>
+            <label style="font-size:13px;font-weight:600;color:#374151;white-space:nowrap" id="import-inline-date-label" title="Solo se usa cuando el archivo no trae fecha propia (la API la trata como defaultDate)">📅 Fecha por defecto:</label>
             <input type="date" id="import-inline-date" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit;width:160px">
             <label id="import-inline-itbms-wrap" style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#374151;cursor:pointer" title="Apagada: el asiento dice exactamente el monto del archivo. Encendida: en ventas y compras sin columna de ITBMS se calcula el 7% y el asiento sale mayor.">
               <input type="checkbox" id="import-inline-calcular-itbms" style="width:15px;height:15px;cursor:pointer">
@@ -359,16 +362,18 @@
           </div>
           <p id="import-inline-mode-hint" style="margin:8px 0 0 0;color:#6b7280;font-size:12px">Sube el CSV/Excel con tus transacciones históricas. La IA clasificará cada concepto.</p>
         </div>
+        <!-- Resumen ANTES del preview: lo que decide si ejecutar (listas,
+             errores, total del archivo) tiene que verse sin bajar 20 filas. -->
+        <div id="import-inline-summary" class="hidden" style="display:flex;gap:14px;margin-bottom:16px;flex-wrap:wrap">
+          <div class="summary-card" style="flex:1;min-width:120px;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700" id="import-inline-total">0</div><div style="font-size:11px;color:#6b7280">Filas totales</div></div>
+          <div class="summary-card" style="flex:1;min-width:120px;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:#059669" id="import-inline-ok">0</div><div style="font-size:11px;color:#6b7280">Listas</div></div>
+          <div class="summary-card" style="flex:1;min-width:120px;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:#dc2626" id="import-inline-err">0</div><div style="font-size:11px;color:#6b7280">Errores</div></div>
+        </div>
         <div id="import-inline-preview" class="hidden" style="overflow-x:auto;margin-bottom:16px">
           <table style="width:100%;border-collapse:collapse;font-size:12px" id="import-inline-table">
             <thead id="import-inline-thead"></thead>
             <tbody id="import-inline-tbody"></tbody>
           </table>
-        </div>
-        <div id="import-inline-summary" class="hidden" style="display:flex;gap:14px;margin-bottom:16px">
-          <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700" id="import-inline-total">0</div><div style="font-size:11px;color:#6b7280">Filas totales</div></div>
-          <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:#059669" id="import-inline-ok">0</div><div style="font-size:11px;color:#6b7280">Listas</div></div>
-          <div class="summary-card" style="flex:1;background:#fff;border-radius:8px;padding:12px;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.06)"><div style="font-size:20px;font-weight:700;color:#dc2626" id="import-inline-err">0</div><div style="font-size:11px;color:#6b7280">Errores</div></div>
         </div>
         <div id="import-inline-actions" class="hidden" style="display:flex;gap:10px;align-items:center">
           <button id="import-inline-execute" class="btn-primary" onclick="executeImportInline()" style="padding:10px 20px;font-size:14px">✅ Importar transacciones</button>
@@ -726,34 +731,34 @@
 
   <script src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="js/terminos.js?v=1"></script>
-  <script src="js/dialogos.js?v=1"></script>
-  <script src="js/core.js?v=84"></script>
+  <script src="js/terminos.js?v=2"></script>
+  <script src="js/dialogos.js?v=2"></script>
+  <script src="js/core.js?v=85"></script>
   <script src="js/capture.js?v=75"></script>
   <script src="js/capture-qr.js?v=74"></script>
-  <script src="js/chat.js?v=77"></script>
+  <script src="js/chat.js?v=78"></script>
   <script src="js/router.js?v=84"></script>
-  <script src="js/conciliacion.js?v=3"></script>
-  <script src="js/admin.js?v=95"></script>
-  <script src="js/ayuda.js?v=2"></script>
-  <script src="js/init.js?v=81"></script>
-  <script src="js/panels-sidebar.js?v=74"></script>
-  <script src="js/import.js?v=98"></script>
+  <script src="js/conciliacion.js?v=4"></script>
+  <script src="js/admin.js?v=96"></script>
+  <script src="js/ayuda.js?v=3"></script>
+  <script src="js/init.js?v=82"></script>
+  <script src="js/panels-sidebar.js?v=75"></script>
+  <script src="js/import.js?v=99"></script>
   <script src="js/carga-inicial.js?v=3"></script>
   <script src="js/auxiliares-revision.js?v=82"></script>
-  <script src="js/entry-modals.js?v=88"></script>
-  <script src="js/informes.js?v=103"></script>
-  <script src="js/terceros.js?v=8"></script>
+  <script src="js/entry-modals.js?v=89"></script>
+  <script src="js/informes.js?v=104"></script>
+  <script src="js/terceros.js?v=9"></script>
   <script src="js/terceros-import.js?v=2"></script>
   <script src="js/presupuestos.js?v=2"></script>
   <script src="js/borrador430.js?v=4"></script>
   <script src="js/tax-calendar.js?v=76"></script>
   <script src="js/salud.js?v=74"></script>
-  <script src="js/reembolsos.js?v=7"></script>
-  <script src="js/email-facturas.js?v=7"></script>
-  <script src="js/despacho.js?v=4"></script>
-<script src="js/empresa.js?v=10"></script>
+  <script src="js/reembolsos.js?v=8"></script>
+  <script src="js/email-facturas.js?v=8"></script>
+  <script src="js/despacho.js?v=5"></script>
+<script src="js/empresa.js?v=11"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="js/facturas.js?v=83"></script>
+<script src="js/facturas.js?v=84"></script>
 </body>
 </html>

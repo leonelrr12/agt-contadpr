@@ -232,7 +232,7 @@
 
       ${cards}
       ${tabla}
-      ${p && p.items.length ? '<p class="nota">Editá días, horas extras u otros ingresos y el servidor vuelve a calcular. Los montos que ves son los que van al asiento.</p>' : ''}
+      ${p && p.items.length ? '<p class="nota">Edita días, horas extras u otros ingresos y el servidor vuelve a calcular. Los montos que ves son los que van al asiento.</p>' : ''}
     `;
   }
 
@@ -461,8 +461,8 @@
       <div class="cerrar">
         <div>
           <h3>Deducciones de ${esc(item?.nombre || '')}</h3>
-          <div class="nota">Se precargan solas desde el catálogo. Podés cambiar el monto de esta cuota o saltarla:
-            queda la constancia en la corrida y el saldo no baja — la cuota se corre a la próxima (no la perdés ni le pagás de más al acreedor).</div>
+          <div class="nota">Se precargan solas desde el catálogo. Puedes cambiar el monto de esta cuota o saltarla:
+            queda la constancia en la corrida y el saldo no baja — la cuota se corre a la próxima (no la pierdes ni le pagas de más al acreedor).</div>
         </div>
         <button class="btn btn-secondary btn-sm" id="dg-cerrar">Cerrar</button>
       </div>
@@ -730,7 +730,7 @@
         <table class="data-table">
           <thead><tr><th>Nombre</th><th>Cédula</th><th>Cargo</th><th>Pago</th><th>Riesgo</th>
             <th class="num">Sueldo mensual</th><th class="num">Décimo acum.</th><th>Estado</th><th></th></tr></thead>
-          <tbody>${filas || '<tr><td colspan="9" class="nota">Sin empleados. Cargalos a mano o importá el archivo.</td></tr>'}</tbody>
+          <tbody>${filas || '<tr><td colspan="9" class="nota">Sin empleados. Cárgalos a mano o importa el archivo.</td></tr>'}</tbody>
         </table>
       </div>`;
   }
@@ -782,7 +782,7 @@
     }
     if (id === 'r-previa') {
       const archivo = $('r-archivo').files[0];
-      if (!archivo) { await showAlert('⚠️ Elegí el archivo primero.'); return; }
+      if (!archivo) { await showAlert('⚠️ Elige el archivo primero.'); return; }
       const fd = new FormData();
       fd.append('file', archivo);
       fd.append('tipoPago', $('r-tipopago').value);
@@ -921,7 +921,7 @@
           <thead><tr><th>Empleado</th><th>Acreedor</th><th>Cuenta por pagar</th>
             <th class="num" title="Es la cuota del MES: se reparte entre los pagos del mes si el empleado cobra quincenal o semanal">Cuota mensual</th>
             <th class="num">Cuotas</th><th class="num">Saldo</th><th>Estado</th><th></th></tr></thead>
-          <tbody>${filas || '<tr><td colspan="8" class="nota">Sin deducciones de acreedores. Cargá la primera arriba.</td></tr>'}</tbody>
+          <tbody>${filas || '<tr><td colspan="8" class="nota">Sin deducciones de acreedores. Carga la primera arriba.</td></tr>'}</tbody>
         </table>
       </div>
 
@@ -1238,7 +1238,7 @@
       });
       if (motivo === null) return;
       if (motivo.trim().length < 5) {
-        await showAlert('⚠️ Explicá el motivo (mínimo 5 caracteres).');
+        await showAlert('⚠️ Explica el motivo (mínimo 5 caracteres).');
         return;
       }
       if (!(await showConfirm('Se van a anular TODOS los asientos de la corrida: los aprobados se revierten con fecha de hoy y los borradores se anulan directo. ¿Seguimos?'))) return;
@@ -1584,7 +1584,7 @@
               <input class="riesgo-clase" data-clase="${c}" type="number" step="0.0001"
                 value="${s.riesgosPorClase[c] != null ? s.riesgosPorClase[c] : ''}" placeholder="sin tarifa"></div>`).join('')}
         </div>
-        <p class="nota">Una clase sin tarifa <b>rechaza</b> la fila de ese empleado en la corrida, en vez de asumir cero: un cero silencioso subvaluaría el pasivo del patrono y nadie lo notaría. Dejá el campo vacío para que siga sin tarifa.</p>
+        <p class="nota">Una clase sin tarifa <b>rechaza</b> la fila de ese empleado en la corrida, en vez de asumir cero: un cero silencioso subvaluaría el pasivo del patrono y nadie lo notaría. Deja el campo vacío para que siga sin tarifa.</p>
       </div>
 
       <div class="card">
@@ -1606,7 +1606,7 @@
 
         <h3 style="margin-top:18px">Pasivo del patrono (por pagar)</h3>
         <div class="form-grid tres">${camposPasivoPatrono.map(selectorCuenta).join('')}</div>
-        <p class="nota">Una cuenta por concepto. Sin configurar caen al pasivo del obrero —a la CSS se le paga todo junto— y el pago de la pestaña CSS debita cada una con su monto: si el catálogo está partido y no las configurás, las subcuentas se acreditan y nunca bajan.</p>
+        <p class="nota">Una cuenta por concepto. Sin configurar caen al pasivo del obrero —a la CSS se le paga todo junto— y el pago de la pestaña CSS debita cada una con su monto: si el catálogo está partido y no las configuras, las subcuentas se acreditan y nunca bajan.</p>
 
         <h3 style="margin-top:18px">Gasto del patrono</h3>
         <div class="form-grid tres">${camposGastoPatrono.map(selectorCuenta).join('')}</div>

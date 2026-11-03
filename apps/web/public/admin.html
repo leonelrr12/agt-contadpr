@@ -128,7 +128,7 @@
     }
   </style>
   <link rel="stylesheet" href="dialogos.css?v=1">
-  <script src="js/dialogos.js?v=1"></script>
+  <script src="js/dialogos.js?v=2"></script>
   <script src="js/shared.js?v=4"></script>
 </head>
 <body>
@@ -157,7 +157,7 @@
     <div class="stat-card"><div class="stat-label">Empresas</div><div class="stat-value blue" id="statCompanies">—</div></div>
     <div class="stat-card"><div class="stat-label">Suscripciones Activas</div><div class="stat-value green" id="statActive">—</div></div>
     <div class="stat-card"><div class="stat-label">Demos por Vencer (≤3 días)</div><div class="stat-value amber" id="statDemos">—</div></div>
-    <div class="stat-card"><div class="stat-label">Ingresos (30 días)</div><div class="stat-value green" id="statRevenue">—</div></div>
+    <div class="stat-card"><div class="stat-label">Ingresos del mes</div><div class="stat-value green" id="statRevenue">—</div></div>
   </div>
 
   <!-- Cuentas Panel -->
@@ -483,7 +483,14 @@ async function createSubscription() {
   const days = parseInt(document.getElementById('newDays').value) || 30;
   const note = document.getElementById('newNote').value.trim();
 
-  if (!cuentaId) { await showAlert('Elegí una cuenta'); return; }
+  if (!cuentaId) { await showAlert('Elige una cuenta'); return; }
+
+  const planTxt = document.querySelector('#newPlanId option:checked')?.textContent || 'el plan elegido';
+  const ok = await showConfirm(
+    `¿Asignar «${planTxt}» a esta cuenta?\n\nLa suscripción vigente se expira y se crea una nueva por ${days} día(s).`,
+    { title: 'Asignar plan', confirmText: 'Sí, asignar' },
+  );
+  if (!ok) return;
 
   const body = { cuentaId, planId, status, periodDays: days, note };
   if (limit) body.movementsLimit = parseInt(limit);
@@ -512,7 +519,17 @@ async function toggleAddon(subId, addon) {
     if (!res.ok) return;
     const sub = await res.json();
     const addons = sub.addons || [];
-    const next = addons.includes(addon) ? addons.filter(a => a !== addon) : [...addons, addon];
+    const quitando = addons.includes(addon);
+    const precio = (addonsCatalogo || []).find(a => a.id === addon)?.precio;
+    const nombre = MODULO_NOMBRE[addon] || addon;
+    const ok = await showConfirm(
+      quitando
+        ? `¿Quitar «${nombre}» de esta suscripción?${precio ? ` Deja de cobrarse $${precio.toFixed(2)}/mes.` : ''}`
+        : `¿Agregar «${nombre}» a esta suscripción?${precio ? ` Se cobrarán $${precio.toFixed(2)}/mes.` : ''}`,
+      { title: quitando ? 'Quitar add-on' : 'Agregar add-on', danger: quitando, confirmText: quitando ? 'Sí, quitar' : 'Agregar' },
+    );
+    if (!ok) return;
+    const next = quitando ? addons.filter(a => a !== addon) : [...addons, addon];
     const r = await fetch(`${API}/admin/subscriptions/${subId}/addons`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },

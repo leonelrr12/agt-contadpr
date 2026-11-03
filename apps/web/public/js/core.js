@@ -342,7 +342,7 @@ function showInput(mode, keepContext = false) {
   if (mode === 'escribir') {
     document.getElementById('message-input').placeholder = 'Ej: Compré combustible por $40 con tarjeta...';
   } else if (mode === 'voz') {
-    document.getElementById('message-input').placeholder = 'Dicta tu transacción...';
+    document.getElementById('message-input').placeholder = 'Dicta con el micrófono de tu teclado o escribe la transacción...';
   }
   document.getElementById('message-input').focus();
   // Mostrar recordatorio de fecha al abrir el input de captura

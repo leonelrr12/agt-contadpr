@@ -161,7 +161,7 @@ function terceroAsientoHtml(ns, tercero) {
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <div style="flex:2;min-width:180px">
         <label style="font-size:10px;color:#6b7280;display:block;margin-bottom:2px">Nombre</label>
-        <input id="${ns}-tercero-provider" type="text" value="${v(tercero?.provider)}" placeholder="Nombre del tercero — escribí para buscar en el maestro" autocomplete="off" spellcheck="false" oninput="buscarTerceroAsiento('${ns}', this)" onfocus="buscarTerceroAsiento('${ns}', this)" onkeydown="teclaTerceroAsiento(event, '${ns}', this)" onblur="cerrarTerceroCombo()" style="width:100%;padding:7px;border:1px solid #d1d5db;border-radius:5px;box-sizing:border-box;font-size:12px">
+        <input id="${ns}-tercero-provider" type="text" value="${v(tercero?.provider)}" placeholder="Nombre del tercero — escribe para buscar en el maestro" autocomplete="off" spellcheck="false" oninput="buscarTerceroAsiento('${ns}', this)" onfocus="buscarTerceroAsiento('${ns}', this)" onkeydown="teclaTerceroAsiento(event, '${ns}', this)" onblur="cerrarTerceroCombo()" style="width:100%;padding:7px;border:1px solid #d1d5db;border-radius:5px;box-sizing:border-box;font-size:12px">
       </div>
       <div style="flex:1;min-width:140px">
         <label style="font-size:10px;color:#6b7280;display:block;margin-bottom:2px">RUC/Cédula</label>
@@ -172,7 +172,7 @@ function terceroAsientoHtml(ns, tercero) {
         <input id="${ns}-tercero-ref" type="text" value="${v(tercero?.reference)}" placeholder="Factura del tercero" style="width:100%;padding:7px;border:1px solid #d1d5db;border-radius:5px;box-sizing:border-box;font-size:12px">
       </div>
     </div>
-    <div style="font-size:10px;color:#6b7280;margin-top:4px">Obligatorio en cuentas con 📎 Anexo. En ventas alimenta el maestro de clientes; en compras/gastos, el de proveedores. Elegí una sugerencia para traer el RUC ya cargado.</div>
+    <div style="font-size:10px;color:#6b7280;margin-top:4px">Obligatorio en cuentas con 📎 Anexo. En ventas alimenta el maestro de clientes; en compras/gastos, el de proveedores. Elige una sugerencia para traer el RUC ya cargado.</div>
   </div>`;
 }
 
@@ -455,14 +455,29 @@ function setupEntryLines({ tbody, balanceEl, saveBtn, activeAccounts, namespace,
     // 0 = 0 cuadra pero no es un asiento: sin montos no se guarda (el backend
     // también lo rechaza). Es el caso de la copia abierta sin llenar.
     const enCero = Math.round((totalDebit + totalCredit) * 100) === 0;
-    const ok = balanced && !enCero;
-    balanceEl.textContent = enCero
-      ? 'Asigna montos a las líneas: un asiento no puede quedar en cero'
-      : `Débito: $${totalDebit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · Crédito: $${totalCredit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · Diferencia: $${diff.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-    // El cero no es un error sino el punto de partida (una copia abre así):
-    // ámbar. El rojo queda para lo que de verdad no cuadra.
-    balanceEl.style.background = enCero ? '#fffbeb' : ok ? '#ecfdf5' : '#fef2f2';
-    balanceEl.style.color = enCero ? '#92400e' : ok ? '#059669' : '#dc2626';
+    const conMonto = lines.filter(l => (l.debit || 0) > 0 || (l.credit || 0) > 0);
+    const mixta = lines.some(l => (l.debit || 0) > 0 && (l.credit || 0) > 0);
+    const sinCuenta = conMonto.some(l => !l.accountId);
+    // Un asiento de doble partida necesita al menos DOS líneas con monto. Una
+    // sola línea con 100 al débito y 100 al crédito daba "Diferencia $0.00" y
+    // habilitaba Guardar; el backend la rechazaba recién al enviar.
+    const dosLados = conMonto.length >= 2;
+    let motivo = '';
+    if (mixta) motivo = 'Cada línea va al débito O al crédito, no a los dos';
+    else if (sinCuenta) motivo = 'Cada línea con monto necesita una cuenta';
+    else if (!enCero && !dosLados) motivo = 'Un asiento necesita al menos dos líneas con monto';
+    const ok = balanced && !enCero && !mixta && !sinCuenta && dosLados;
+    balanceEl.textContent = motivo
+      ? `⚠️ ${motivo}`
+      : enCero
+        ? 'Asigna montos a las líneas: un asiento no puede quedar en cero'
+        : `Débito: $${totalDebit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · Crédito: $${totalCredit.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} · Diferencia: $${diff.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+    // El cero y "falta la otra pata" no son errores, son el punto de partida:
+    // ámbar. El rojo queda para lo que de verdad no cuadra (línea mixta,
+    // cuenta faltante o débito ≠ crédito).
+    const arranque = enCero || motivo === 'Un asiento necesita al menos dos líneas con monto';
+    balanceEl.style.background = arranque ? '#fffbeb' : ok ? '#ecfdf5' : '#fef2f2';
+    balanceEl.style.color = arranque ? '#92400e' : ok ? '#059669' : '#dc2626';
     saveBtn.disabled = !ok;
     if (typeof onChange === 'function') onChange(lines);
   }
@@ -677,14 +692,18 @@ async function showCreateEntryModal(originalEntry, originalEntryId, mode) {
     : isCopy ? originalEntry.description || '' : '';
   const modalTitle = isCorrection ? '✏️ Corregir Asiento' : '📝 Asiento Manual';
   const modalSubtitle = isCorrection
-    ? 'El asiento original fue anulado. Crea la versión corregida como BORRADOR.'
+    ? 'Se creará una REVERSIÓN del original; el original sigue CONFIRMADO y esta versión queda en BORRADOR.'
     : isCopy
       ? 'Copia del asiento: mismas cuentas y descripción, con la fecha de hoy y los montos en cero.'
       : 'Crea un asiento contable manual. Quedará en BORRADOR para revisión y aprobación.';
   const saveLabel = isCorrection ? 'Guardar como BORRADOR' : 'Guardar asiento';
   const savingLabel = isCorrection ? 'Creando reversión...' : 'Guardando...';
   // La corrección conserva los montos del original; la copia los deja en cero.
-  const initialLines = !isCorrection && !isCopy ? [] : (originalEntry.lines || []).map(l => ({
+  // El asiento manual abre con DOS líneas: es la forma mínima de una partida
+  // doble y evita que la primera línea se lea como un asiento de una sola pata.
+  const initialLines = !isCorrection && !isCopy
+    ? [{ accountId: '', debit: 0, credit: 0 }, { accountId: '', debit: 0, credit: 0 }]
+    : (originalEntry.lines || []).map(l => ({
     accountId: l.accountId,
     debit: isCopy ? 0 : l.debit || 0,
     credit: isCopy ? 0 : l.credit || 0,
@@ -790,11 +809,15 @@ async function showCreateEntryModal(originalEntry, originalEntryId, mode) {
     const description = overlay.querySelector('#create-entry-desc').value.trim();
     if (!date || !description) { await showAlert('Fecha y descripción son requeridas'); return; }
 
-    const invalid = window.createEntryLines.some(l => !l.accountId);
-    if (invalid) { await showAlert('Todas las líneas deben tener una cuenta asignada'); return; }
+    // Las líneas vacías (sin cuenta ni monto) no se envían: el formulario
+    // conserva una de sobra para escribir la siguiente, pero no es parte del
+    // asiento. Solo se exige cuenta a las líneas que sí tienen contenido.
+    const lineasActivas = window.createEntryLines.filter(l => l.accountId || (l.debit || 0) > 0 || (l.credit || 0) > 0);
+    const invalid = lineasActivas.some(l => !l.accountId);
+    if (invalid) { await showAlert('Todas las líneas con monto deben tener una cuenta asignada'); return; }
 
     const tercero = leerTerceroAsiento(overlay, 'createEntry');
-    const faltaTercero = validarTerceroAsiento(activeAccounts, window.createEntryLines, tercero);
+    const faltaTercero = validarTerceroAsiento(activeAccounts, lineasActivas, tercero);
     if (faltaTercero) { await showAlert(faltaTercero); return; }
 
     saveBtn.disabled = true;
@@ -845,7 +868,7 @@ async function showCreateEntryModal(originalEntry, originalEntryId, mode) {
         body: JSON.stringify({
           date,
           description: description + refTag,
-          lines: window.createEntryLines.map(l => ({
+          lines: lineasActivas.map(l => ({
             accountId: l.accountId,
             debit: l.debit || 0,
             credit: l.credit || 0,

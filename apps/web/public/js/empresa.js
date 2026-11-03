@@ -80,7 +80,7 @@ function renderEmpresaPerfil(d, tieneFacturas, pac, pacError) {
       <label>${label}</label>
       <div class="emp-dropzone" id="emp-${name}-drop">
         <img id="emp-${name}-preview" class="emp-preview${dataUrl ? '' : ' hidden'}" src="${dataUrl || ''}" alt="${label}">
-        <p class="emp-drop-text">Arrastrá una imagen o hacé clic para seleccionar</p>
+        <p class="emp-drop-text">Arrastra una imagen o haz clic para seleccionar</p>
         <p class="emp-drop-file" id="emp-${name}-file" data-tenia="${dataUrl ? '1' : '0'}">PNG, JPG o similar — máx. 2 MB</p>
         <input id="emp-${name}-input" type="file" accept="image/*" class="hidden">
       </div>
@@ -96,7 +96,7 @@ function renderEmpresaPerfil(d, tieneFacturas, pac, pacError) {
         ${dropzone('logo', 'Logo', d.logoDataUrl)}
         ${dropzone('sello', 'Sello', d.selloDataUrl)}
       </div>
-      <div class="emp-note" style="margin-top:8px">El logo sale en el PDF de las facturas de venta. El sello queda guardado para los documentos que lo lleven. Después de elegir la imagen, guardá con <strong>💾 Guardar</strong> (al final de la ficha).</div>
+      <div class="emp-note" style="margin-top:8px">El logo sale en el PDF de las facturas de venta. El sello queda guardado para los documentos que lo lleven. Después de elegir la imagen, guarda con <strong>💾 Guardar</strong> (al final de la ficha).</div>
     </div>`;
 
   const pacCard = tieneFacturas ? renderEmpresaPacCard(pac, pacError) : '';
@@ -118,7 +118,7 @@ function renderEmpresaPerfil(d, tieneFacturas, pac, pacError) {
         <div>
           <label>DV</label>
           <input id="emp-dv" maxlength="2" value="${v(d.dv)}" placeholder="88">
-          <div class="emp-note">El dígito verificador de la ficha de la DGI. Si pegás el RUC completo, se separa solo al guardar.</div>
+          <div class="emp-note">El dígito verificador de la ficha de la DGI. Si pegas el RUC completo, se separa solo al guardar.</div>
         </div>
         <div>
           <label>Tipo de entidad</label>
@@ -265,7 +265,7 @@ function renderEmpresaPacCard(pac, pacError) {
         <div style="grid-column:1/-1">
           <label>API key</label>
           <input id="emp-pac-api-key" type="password" maxlength="500" autocomplete="new-password" placeholder="${p.apiKeySet ? '•••••••• (guardada)' : 'Pega la API key del PAC'}">
-          <div class="emp-note">Se guarda cifrada. Dejá el campo vacío para conservar la que ya está cargada.</div>
+          <div class="emp-note">Se guarda cifrada. Deja el campo vacío para conservar la que ya está cargada.</div>
         </div>
         <div>
           <label>Usuario HTTP Basic</label>
@@ -274,7 +274,7 @@ function renderEmpresaPacCard(pac, pacError) {
         <div>
           <label>Contraseña HTTP Basic</label>
           <input id="emp-pac-basic-password" type="password" maxlength="500" autocomplete="new-password" placeholder="${p.basicPasswordSet ? '•••••••• (guardada)' : 'Opcional'}">
-          <div class="emp-note">Si borrás el usuario, se elimina también la contraseña Basic guardada.</div>
+          <div class="emp-note">Si borras el usuario, se elimina también la contraseña Basic guardada.</div>
         </div>
         <div>
           <label>UUID de sucursal</label>
@@ -294,7 +294,7 @@ function renderEmpresaPacCard(pac, pacError) {
         <input type="checkbox" id="emp-pac-enabled" ${p.enabled ? 'checked' : ''}>
         Emitir facturas electrónicas con esta configuración
       </label>
-      <div class="emp-note">Esto se guarda aparte del perfil: usá <strong>Guardar PAC</strong> (el <strong>💾 Guardar</strong> del perfil no incluye esta sección). <strong>Probar conexión</strong> usa lo ya guardado, no los cambios sin guardar.</div>
+      <div class="emp-note">Esto se guarda aparte del perfil: usa <strong>Guardar PAC</strong> (el <strong>💾 Guardar</strong> del perfil no incluye esta sección). <strong>Probar conexión</strong> usa lo ya guardado, no los cambios sin guardar.</div>
       <div class="emp-pac-actions">
         <button type="button" class="btn-primary" onclick="savePacConfigUI()">💾 Guardar PAC</button>
         <button type="button" class="btn-sm" onclick="testPacConexion(this)">🔌 Probar conexión</button>

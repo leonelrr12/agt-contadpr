@@ -2,6 +2,25 @@
 
 const fmtFac = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/** Tasa de ITBMS configurada por la empresa. El modal usaba 7 % fijo y la API
+ *  caía a 0.07 cuando el cliente no la mandaba: si la empresa tenía otra tasa,
+ *  el total que veía el usuario no era el de la factura fiscal. */
+let facturaItbmsRate = null;
+async function cargarTasaItbmsFactura() {
+  try {
+    // Endpoint público a propósito: el contador y el usuario de inventario
+    // también emiten facturas y no tienen acceso a /api/config (solo admin).
+    const res = await fetch(`${API_URL}/config/itbms-rate`);
+    if (!res.ok) return;
+    const cfg = await res.json();
+    const r = Number(cfg.rate);
+    if (Number.isFinite(r) && r >= 0) {
+      facturaItbmsRate = r;
+      if (document.getElementById('fac-totales')) updateFacturaTotales();
+    }
+  } catch { /* sin configuración: se conserva 7 % */ }
+}
+
 async function loadPanelFacturas() {
   document.getElementById('chat-messages').classList.add('hidden');
   document.getElementById('input-area').classList.add('hidden');
@@ -203,6 +222,7 @@ async function reemitirFactura(id) {
 let facturaItems = [{ descripcion: '', cantidad: 1, precio: '' }];
 
 function openFacturaModal() {
+  cargarTasaItbmsFactura();
   facturaItems = [{ descripcion: '', cantidad: 1, precio: '' }];
   // El catálogo se pide al abrir: si el usuario no tiene acceso al módulo, la lista
   // queda vacía y la factura se emite con servicios, sin selector y sin ruido.
@@ -379,8 +399,10 @@ function updateFacturaTotales() {
   const el = document.getElementById('fac-totales');
   if (!el) return;
   const subtotal = facturaItems.reduce((s, it) => s + (it.cantidad || 1) * (it.precio || 0), 0);
-  const itbms = subtotal * 0.07;
-  el.innerHTML = `Subtotal: <strong>${fmtFac(subtotal)}</strong> · ITBMS (7%): <strong>${fmtFac(itbms)}</strong> · <span style="font-size:15px">Total: <strong>${fmtFac(subtotal + itbms)}</strong></span>`;
+  const tasa = facturaItbmsRate ?? 0.07; // mientras llega /config/itbms-rate, la tasa histórica
+  const itbms = subtotal * tasa;
+  const pct = (tasa * 100).toLocaleString('es-PA', { maximumFractionDigits: 2 });
+  el.innerHTML = `Subtotal: <strong>${fmtFac(subtotal)}</strong> · ITBMS (${pct}%): <strong>${fmtFac(itbms)}</strong> · <span style="font-size:15px">Total: <strong>${fmtFac(subtotal + itbms)}</strong></span>`;
 }
 
 async function saveFactura() {
@@ -388,7 +410,7 @@ async function saveFactura() {
   const clienteId = clienteSel?.value && clienteSel.value !== '__nuevo__' ? clienteSel.value : undefined;
   const clienteNuevo = clienteId ? '' : (document.getElementById('fac-cliente').value.trim());
   if (!clienteId && !clienteNuevo && clienteSel?.value === '__nuevo__') {
-    await showAlert('❌ Escribí el nombre del cliente nuevo, o elegí «Consumidor final».');
+    await showAlert('❌ Escribe el nombre del cliente nuevo, o elige «Consumidor final».');
     return;
   }
   const items = facturaItems
@@ -407,6 +429,9 @@ async function saveFactura() {
         clientName: clienteNuevo || undefined,
         clientTaxId: clienteId ? undefined : (document.getElementById('fac-ruc').value.trim() || undefined),
         items,
+        // Solo se manda la tasa si se leyó de /config; si no, el servidor usa
+        // la suya (ITBMS_RATE) en vez de un 7 % inventado por el cliente.
+        itbmsRate: facturaItbmsRate ?? undefined,
         paymentMethod: pago,
       }),
     });
@@ -429,13 +454,13 @@ async function saveFactura() {
     } else if (fe.status === 'RECHAZADA') {
       mensaje += `\n\n❌ La DGI rechazó la factura electrónica:\n${fe.message || 'Sin detalle'}`;
     } else if (fe.status === 'ERROR') {
-      mensaje += `\n\n⚠️ No se pudo emitir electrónicamente:\n${fe.message || 'Error del PAC'}\n\nLa factura quedó guardada; podés reintentar desde la lista.`;
+      mensaje += `\n\n⚠️ No se pudo emitir electrónicamente:\n${fe.message || 'Error del PAC'}\n\nLa factura quedó guardada; puedes reintentar desde la lista.`;
     } else if (fe.status === 'NO_CONFIGURADO') {
       mensaje += '\n\nℹ️ No se emitió electrónicamente: el PAC no está configurado o está deshabilitado.';
     }
 
     const descargar = await showConfirm(
-      `${mensaje}\n\n¿Querés descargar el PDF?`,
+      `${mensaje}\n\n¿Quieres descargar el PDF?`,
       { type: 'success', title: 'Factura emitida', confirmText: 'Descargar PDF', cancelText: 'Ahora no' },
     );
     if (descargar) downloadFacturaPdf(d.id);

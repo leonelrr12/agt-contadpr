@@ -14,6 +14,13 @@ publicConfigRouter.get('/wa-phone', (_req, res) => {
   res.json({ phone: process.env.WA_BOT_PHONE || '+507 6403-4863' });
 });
 
+/** Tasa de ITBMS vigente, sin datos de la empresa.
+ *  La necesita el modal de Facturas para calcular el total ANTES de emitir, y
+ *  lo usan roles (contador, inventario) que no pueden leer /api/config. */
+publicConfigRouter.get('/itbms-rate', (_req, res) => {
+  res.json({ rate: parseFloat(process.env.ITBMS_RATE || '') || 0.07 });
+});
+
 configRouter.get('/', async (req, res) => {
   const company = await req.prisma.company.findUnique({
     where: { id: req.user!.companyId },

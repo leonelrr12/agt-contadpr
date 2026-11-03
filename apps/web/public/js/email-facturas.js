@@ -161,7 +161,7 @@ function efFormularioHTML(cfg) {
     </p>
     ${cfg.isActive && (cfg.tienePassword || cfg.inboxAlias)
       ? '<div style="font-size:12px;color:#059669;font-weight:600;margin:6px 0">● Configurado y activo</div>'
-      : '<div style="font-size:12px;color:#92400e;font-weight:600;margin:6px 0">● Sin terminar de configurar: completá los campos marcados y guardá con «Leer el buzón» en Sí</div>'}
+      : '<div style="font-size:12px;color:#92400e;font-weight:600;margin:6px 0">● Sin terminar de configurar: completa los campos marcados y guarda con «Leer el buzón» en Sí</div>'}
     <div class="form-grid">
       ${sinCuentas}
       <div>
@@ -238,11 +238,11 @@ function efFormularioHTML(cfg) {
       </div>
       <div style="min-width:100%">
         <label>Aceptar facturas a nombre de (opcional)</label>
-        <input type="text" id="ef-receptores" placeholder="Tu cédula o RUC personal, ej: 8-123-4567 — separá varios con comas"
+        <input type="text" id="ef-receptores" placeholder="Tu cédula o RUC personal, ej: 8-123-4567 — separa varios con comas"
           style="width:100%;padding:9px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit">
         <div style="font-size:11px;color:#6b7280;margin-top:4px">
-          Por defecto solo se cargan las facturas a nombre de la empresa. Si comprás a tu nombre personal (lo normal
-          cuando la factura no lleva el RUC de la empresa), agregá acá esa cédula o RUC y esas facturas también entran.
+          Por defecto solo se cargan las facturas a nombre de la empresa. Si compras a tu nombre personal (lo normal
+          cuando la factura no lleva el RUC de la empresa), agrega acá esa cédula o RUC y esas facturas también entran.
         </div>
       </div>
       <div>

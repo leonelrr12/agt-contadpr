@@ -123,7 +123,7 @@ function renderDiarioTabla() {
 
   const fmt = n => n===0?'—':'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
   let totDeb = 0, totCred = 0;
-  let html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th><th>Estado</th></tr></thead><tbody>';
+  let html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th style="text-align:right">Débito</th><th style="text-align:right">Crédito</th><th>Estado</th></tr></thead><tbody>';
   for (const e of shown) {
     const date = new Date(e.date).toLocaleDateString('es-PA');
     const desc = escapeHtml(e.description||'');
@@ -142,16 +142,16 @@ function renderDiarioTabla() {
         <td>${i===0 ? date : ''}</td>
         <td>${i===0 ? desc : ''}</td>
         <td>${escapeHtml(l.account?.code||'')} — ${escapeHtml(l.account?.name||'')}</td>
-        <td style="color:#2e7d32;font-weight:600">${l.debit ? fmt(l.debit) : '—'}</td>
-        <td style="color:#c62828;font-weight:600">${l.credit ? fmt(l.credit) : '—'}</td>
+        <td class="num" style="color:#2e7d32;font-weight:600">${l.debit ? fmt(l.debit) : '—'}</td>
+        <td class="num" style="color:#c62828;font-weight:600">${l.credit ? fmt(l.credit) : '—'}</td>
         <td>${i===0 ? statusHtml + actionsHtml : ''}</td>
       </tr>`;
     }
   }
   html += '</tbody><tfoot><tr style="border-top:2px solid #1a1a2e;font-weight:700">';
   html += '<td></td><td></td><td style="padding-left:24px">Total</td>';
-  html += `<td style="color:#2e7d32">${fmt(totDeb)}</td>`;
-  html += `<td style="color:#c62828">${fmt(totCred)}</td>`;
+  html += `<td class="num" style="color:#2e7d32">${fmt(totDeb)}</td>`;
+  html += `<td class="num" style="color:#c62828">${fmt(totCred)}</td>`;
   html += '<td></td></tr></tfoot></table></div>';
   cont.innerHTML = html;
 }
@@ -253,7 +253,7 @@ async function loadReportBalance() {
       ? ' · <strong style="color:#0369a1">📊 Resumido a nivel 3 (subcuentas totalizadas)</strong>'
       : '';
     const periodoInfo = d.periodo
-      ? `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">📅 Período de movimientos: ${new Date(d.periodo.start).toLocaleDateString('es-PA')} — ${new Date(d.periodo.end).toLocaleDateString('es-PA')} · Año fiscal ${d.periodo.anioFiscal} · <strong>Saldo acumulado</strong> al corte${nivelInfo}</div>`
+      ? `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">📅 Período de movimientos: ${fechaReporte(d.periodo.start)} — ${fechaReporte(d.periodo.end)} · Año fiscal ${d.periodo.anioFiscal} · <strong>Saldo acumulado</strong> al corte${nivelInfo}</div>`
       : '';
     el.innerHTML = periodoInfo + buildInformesTable([_balanceNivel3 ? 'Código (nivel 3)' : 'Código','Cuenta','Débito (período)','Crédito (período)','Saldo (acumulado)'], rows, footer);
   } catch(e) { el.innerHTML = '<div class="empty">Error al cargar</div>'; }
@@ -450,7 +450,10 @@ async function loadReportDashboard() {
     if (!ok) { el.innerHTML = '<div class="empty">Error al cargar gráficos. Recarga la página.</div>'; return; }
   }
   try {
-    const res = await authFetch(`${API_URL}/reports/dashboard`);
+    // El endpoint ya acepta startDate/endDate; antes el cliente no los mandaba
+    // y el filtro de fechas del Dashboard era un adorno que no filtraba nada.
+    const params = getInformesDateParams();
+    const res = await authFetch(`${API_URL}/reports/dashboard?${params}`);
     if (!res || !res.ok) { el.innerHTML = '<div class="empty">Error</div>'; return; }
     const d = await res.json();
 
@@ -877,13 +880,24 @@ function exportInforme(type, format) {
  *   Lo usa el auxiliar de cuenta para abrir el asiento original de cada línea.
  */
 function buildInformesTable(headers, rows, footer) {
+  // Columnas de importe: se alinean a la derecha y con números tabulares. La
+  // clase `.num` ya existía en styles.css, pero estas tablas no la usaban: los
+  // montos arrancaban a la izquierda y los decimales no se podían comparar.
+  const esColumnaNumero = (h) => /(débito|crédito|saldo|monto|total|importe|valor|abono|debe|haber|l[ií]mite|cupo)/i.test(String(h || ''));
+  const numCols = new Set(headers.map((h, i) => esColumnaNumero(h) ? i : -1).filter(i => i >= 0));
   let h = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>';
-  for (const th of headers) h += `<th style="text-align:left;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;text-transform:uppercase">${th}</th>`;
+  headers.forEach((th, i) => {
+    const align = numCols.has(i) ? 'text-align:right;' : 'text-align:left;';
+    h += `<th style="${align}padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:11px;color:#6b7280;text-transform:uppercase">${th}</th>`;
+  });
   h += '</tr></thead><tbody>';
   for (const row of rows) {
     const cells = Array.isArray(row) ? row : (row.cells || []);
     h += `<tr${!Array.isArray(row) && row.rowAttrs ? ' ' + row.rowAttrs : ''}>`;
-    for (const td of cells) h += `<td style="padding:8px 10px;border-bottom:1px solid #e5e7eb">${td}</td>`;
+    cells.forEach((td, i) => {
+      const cls = numCols.has(i) ? ' class="num"' : '';
+      h += `<td${cls} style="padding:8px 10px;border-bottom:1px solid #e5e7eb">${td}</td>`;
+    });
     h += '</tr>';
     if (!Array.isArray(row) && row.detalleId) {
       h += `<tr id="detalle-row-${row.detalleId}" class="hidden"><td colspan="${headers.length}" style="padding:0;border-bottom:1px solid #e5e7eb;background:#f8fafc">`
@@ -893,7 +907,10 @@ function buildInformesTable(headers, rows, footer) {
   h += '</tbody>';
   if (footer) {
     h += `<tfoot><tr style="border-top:2px solid #1a1a2e;font-weight:700">`;
-    for (const td of footer) h += `<td style="padding:8px 10px">${td||''}</td>`;
+    footer.forEach((td, i) => {
+      const cls = numCols.has(i) ? ' class="num"' : '';
+      h += `<td${cls} style="padding:8px 10px">${td||''}</td>`;
+    });
     h += '</tr></tfoot>';
   }
   h += '</table></div>';
@@ -911,11 +928,19 @@ function toggleInformesDetalle(detalleId, btn) {
   if (btn) btn.textContent = oculto ? '📋 Detalle' : '▲ Ocultar';
 }
 
+/** Fecha ISO (YYYY-MM-DD[Thh:mm…]) → dd/mm/aaaa, sin pasar por la zona horaria.
+ *  `new Date('2026-01-01T00:00:00Z').toLocaleDateString('es-PA')` mostraba
+ *  31/12/2025 porque Panamá está detrás de UTC. El reporte se fechaba un día antes. */
+function fechaReporte(v) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+}
+
 /** Línea de información del período efectivo que muestra el reporte. */
 function informesPeriodoInfo(d) {
   if (!d || !d.periodo) return '';
-  const s = d.periodo.start ? new Date(d.periodo.start).toLocaleDateString('es-PA') : '';
-  const e = d.periodo.end ? new Date(d.periodo.end).toLocaleDateString('es-PA') : '';
+  const s = d.periodo.start ? fechaReporte(d.periodo.start) : '';
+  const e = d.periodo.end ? fechaReporte(d.periodo.end) : '';
   const af = d.periodo.anioFiscal ? ` · Año fiscal ${d.periodo.anioFiscal}` : '';
   return `<div style="font-size:12px;color:#6b7280;margin-bottom:10px">📅 Período mostrado: ${s} — ${e}${af}</div>`;
 }

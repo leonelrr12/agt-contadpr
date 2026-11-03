@@ -114,6 +114,7 @@
       margin: 12px 0 4px;
     }
     .plan-price.free { color: var(--green); }
+    .plan-price .free-label { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
     .plan-price .currency { font-size: 20px; }
     .plan-price .period { font-size: 14px; color: var(--muted); font-weight: 400; }
     .plan-desc {
@@ -376,6 +377,30 @@ fetch('/api/plans')
       return `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]} incluidos`;
     };
 
+    // La ficha se arma con dos fuentes: la ESTRUCTURA que valida la API
+    // (empresas/usuarios/movimientos/módulos) y el JSON de features del plan.
+    // Si el JSON repite lo que ya dice la estructura, la tarjeta se contradice
+    // (Demo decía "3 usuarios" y "1 usuario"; Premium repetía los módulos).
+    // Se omite lo cubierto y se deduplica el resto.
+    const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+    const cubiertoPorEstructura = (f, estructura, incluido) => {
+      const n = norm(f);
+      if (estructura.some(e => norm(e) === n)) return true;
+      if (incluido) {
+        if (norm(incluido) === n) return true;
+        // "Facturas PDF incluido" cuando la línea de módulos ya dice
+        // "Inventario, Planilla y Facturas PDF incluidos".
+        const base = n.replace(/\s+incluid[oa]s?$/, '');
+        if (base && norm(incluido).includes(base)) return true;
+      }
+      if (/^hasta\s+\d[\d.,]*\s+movimientos$/.test(n)) return true;
+      if (/^\d[\d.,]*\s+movimientos?\s*\/?\s*mes$/.test(n)) return true;
+      if (/^movimientos ilimitados$/.test(n)) return true;
+      if (/^\d+\s+usuarios?$/.test(n) || /usuarios? por empresa/.test(n)) return true;
+      if (/^\d+\s+empresas?$/.test(n) || /hasta \d+ empresas/.test(n)) return true;
+      return false;
+    };
+
     container.innerHTML = plans.map((plan) => {
       const features = JSON.parse(plan.features || '[]');
       const isFree = plan.price === 0;
@@ -388,6 +413,15 @@ fetch('/api/plans')
         movimientos(plan.monthlyLimit),
       ];
       const incluido = modulos(plan.modulos);
+      const vistos = new Set();
+      const extra = [];
+      for (const f of features) {
+        const n = norm(f);
+        if (cubiertoPorEstructura(f, estructura, incluido) || vistos.has(n)) continue;
+        vistos.add(n);
+        extra.push(f);
+      }
+      const planHref = `/login.html?plan=${encodeURIComponent(plan.name)}#register`;
 
       return `
         <div class="plan-card ${isFeatured ? 'featured' : ''}">
@@ -395,16 +429,17 @@ fetch('/api/plans')
           ${isFree ? '<div class="plan-badge" style="background:var(--green)">Gratis</div>' : ''}
           <div class="plan-name">${plan.name}</div>
           <div class="plan-price ${isFree ? 'free' : ''}">
-            ${precioHTML(plan.price)}
-            <span class="period">/mes</span>
+            ${isFree
+              ? '<span class="free-label">14 días gratis</span>'
+              : `${precioHTML(plan.price)}<span class="period">/mes</span>`}
           </div>
           <div class="plan-desc">${plan.description || ''}</div>
           <ul class="plan-features">
             ${estructura.map(f => `<li>${f}</li>`).join('')}
             ${incluido ? `<li style="color:#059669;font-weight:600">${incluido}</li>` : ''}
-            ${features.map(f => `<li>${f}</li>`).join('')}
+            ${extra.map(f => `<li>${f}</li>`).join('')}
           </ul>
-          <a href="/login.html#register" class="plan-cta ${isFree ? 'cta-demo' : 'cta-primary'}">${isFree ? 'Comenzar Ahora' : 'Elegir Plan'}</a>
+          <a href="${planHref}" class="plan-cta ${isFree ? 'cta-demo' : 'cta-primary'}">${isFree ? 'Comenzar Ahora' : 'Elegir Plan'}</a>
         </div>
       `;
     }).join('');
