@@ -101,7 +101,8 @@ describe('la ayuda de la app', () => {
     const mapa: Record<string, string> = vm.runInContext('AYUDA_POR_PANEL', ctx);
 
     for (const id of Object.keys(mapa)) paneles.set(id, new Panel(id));
-    paneles.set('panel-whatsapp-content', new Panel('panel-whatsapp-content')); // no mapeado
+    // Conciliación tiene su propio «?» en la cabecera (ayudaEnCabecera), no el flotante.
+    paneles.set('panel-conciliacion-content', new Panel('panel-conciliacion-content')); // no mapeado
 
     vm.runInContext('pintarAyudas()', ctx);
 
@@ -109,7 +110,7 @@ describe('la ayuda de la app', () => {
       const p = paneles.get(id)!;
       expect(p._html, `${id} sin botón`).toContain(`abrirAyuda('${tema}')`);
     }
-    expect(paneles.get('panel-whatsapp-content')!._html).toBe(''); // no está en el mapa
+    expect(paneles.get('panel-conciliacion-content')!._html).toBe(''); // no está en el mapa
   });
 
   it('no rompe el posicionamiento de un panel que ya es relative', () => {

@@ -11,19 +11,17 @@ function loadPanelAuxiliares() {
 document.querySelectorAll('#panel-tabs-auxiliares button').forEach(btn => {
   btn.addEventListener('click', () => {
     const parentTabs = btn.closest('#panel-tabs-auxiliares');
-    parentTabs.querySelectorAll('button').forEach(b => { b.classList.remove('active'); b.style.color = '#6b7280'; b.style.borderBottomColor = 'transparent'; });
+    parentTabs.querySelectorAll('button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    btn.style.color = '#1a1a2e';
-    btn.style.borderBottomColor = '#1565c0';
     clickAuxTab(btn.dataset.aux);
   });
 });
 
 function clickAuxTab(tab) {
   const btns = document.querySelectorAll('#panel-tabs-auxiliares button');
-  btns.forEach(b => { b.classList.remove('active'); b.style.color = '#6b7280'; b.style.borderBottomColor = 'transparent'; });
+  btns.forEach(b => b.classList.remove('active'));
   const active = document.querySelector(`#panel-tabs-auxiliares button[data-aux="${tab}"]`);
-  if (active) { active.classList.add('active'); active.style.color = '#1a1a2e'; active.style.borderBottomColor = '#1565c0'; }
+  if (active) active.classList.add('active');
   const sub = document.getElementById('aux-sidebar-content');
   sub.innerHTML = '<div style="text-align:center;padding:24px;color:#6b7280">Cargando...</div>';
   if (tab === 'cuenta') loadAuxCuenta(sub);

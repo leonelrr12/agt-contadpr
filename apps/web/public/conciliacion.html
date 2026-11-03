@@ -8,20 +8,39 @@
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png">
   <link rel="manifest" href="/manifest.json">
-  <link rel="stylesheet" href="styles.css?v=54">
+  <link rel="stylesheet" href="styles.css?v=59">
   <link rel="stylesheet" href="dialogos.css?v=1">
   <link rel="stylesheet" href="conciliacion.css?v=3">
+  <link rel="stylesheet" href="modulos.css?v=1">
   <script src="js/dialogos.js?v=2"></script>
   <script src="js/shared.js?v=2"></script>
-  <script src="js/ayuda.js?v=3"></script>
+  <script src="js/ayuda.js?v=4"></script>
   <script src="js/conciliacion.js?v=4"></script>
 </head>
 <body>
-  <!-- Shell de la página suelta: monta el MISMO panel que usa el SPA
-       (js/conciliacion.js). Se conserva para los enlaces y marcadores viejos. -->
+  <!-- La página suelta monta el MISMO panel que usa el SPA. Antes no tenía
+       cabecera ni forma de volver a la app: era un callejón sin salida para
+       quien llegaba por un enlace viejo. -->
+  <header class="module-topbar">
+    <div class="module-topbar-left">
+      <a class="module-brand" href="/" aria-label="Contador507 — ir al inicio">Contador<span>507</span></a>
+      <nav class="module-nav" aria-label="Navegación">
+        <a href="/">App</a>
+        <a href="/api-keys.html">API Keys</a>
+        <a href="/planes.html">Planes</a>
+      </nav>
+    </div>
+    <div class="module-topbar-right">
+      <span class="module-user" id="module-user-info"></span>
+      <button type="button" class="module-logout" onclick="logout()">Salir</button>
+    </div>
+  </header>
   <div id="panel-conciliacion-content"></div>
   <script>
     if (!getToken()) { window.location.href = '/login.html'; }
+    const _u = getUser();
+    const _el = document.getElementById('module-user-info');
+    if (_el && _u && _u.name) _el.textContent = _u.name;
     loadPanelConciliacion();
   </script>
 </body>
