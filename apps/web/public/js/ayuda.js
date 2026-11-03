@@ -158,6 +158,66 @@ const AYUDA = {
     ],
     ojo: 'Las obligaciones sin monto valorado quedan en cero y la proyección <strong>no inventa</strong> esa cifra: si quieres que estime impuestos, carga el monto histórico.',
   },
+  recurrentes: {
+    emoji: '🔄',
+    titulo: 'Transacciones recurrentes',
+    para: 'Automatizar lo que se repite todos los meses o todas las semanas.',
+    pasos: [
+      'Crea la recurrente con su descripción, cuenta, monto y frecuencia.',
+      'El sistema la ejecuta sola según la frecuencia y la fecha de la última corrida.',
+      'Cada corrida crea un asiento en <strong>BORRADOR</strong>: se revisa y se aprueba como cualquier otro.',
+      'Puedes pausarla, editarla o ejecutarla a mano con <strong>«Ejecutar ahora»</strong>.',
+    ],
+    ojo: 'Si el asiento no se aprueba, no entra a los informes. La recurrente no salta meses: si se pausa, se reanuda desde la fecha que corresponda.',
+  },
+  terceros: {
+    emoji: '👥',
+    titulo: 'Terceros (clientes y proveedores)',
+    para: 'Tener el maestro limpio para que el Anexo DGI y los estados de cuenta salgan bien.',
+    pasos: [
+      'Busca por nombre, RUC, DV, teléfono, email o dirección.',
+      'Crea o edita el tercero con su identidad fiscal y su contacto.',
+      'Abre su <strong>estado de cuenta</strong> para ver saldo, antigüedad y movimientos.',
+      'Si hay duplicados, usa <strong>Fusionar</strong>: se conserva el maestro elegido y se mueve el historial.',
+    ],
+    ojo: 'El DV va en su campo, separado del RUC. En cuentas con Anexo DGI, el tercero es obligatorio para que el asiento sea válido.',
+  },
+  auxiliares: {
+    emoji: '📒',
+    titulo: 'Auxiliares',
+    para: 'El detalle de una cuenta, de un cliente/proveedor o de una obligación fiscal.',
+    pasos: [
+      '<strong>Cuenta</strong>: mayor de una cuenta con saldo corrido; toca una fila para abrir el asiento de origen.',
+      '<strong>CxC / CxP</strong>: quién debe y a quién se le debe, con la factura y su saldo.',
+      '<strong>Anexos-DGI</strong>: por cuenta y por tercero, con subtotales y exportación.',
+      '<strong>Retenciones ITBMS</strong>: certificados recibidos, PDF/CSV y salto al Form. 430.',
+    ],
+    ojo: 'Los auxiliares muestran los <strong>asientos confirmados</strong>. Un borrador no aparece hasta que se aprueba en Revisión.',
+  },
+  admin: {
+    emoji: '⚙️',
+    titulo: 'Administración',
+    para: 'Los datos maestros y la configuración de la empresa.',
+    pasos: [
+      '<strong>Cuentas y Conceptos</strong>: el catálogo contable y las reglas de clasificación.',
+      '<strong>Configuración</strong>: ITBMS, banco por defecto y facturas por correo.',
+      '<strong>Empresa</strong>: perfil fiscal, logo, serie DGI y emisión electrónica (PAC).',
+      '<strong>Carga Inicial, Carga de Terceros y Cierres</strong>: procesos de puesta en marcha y cierre de año.',
+      '<strong>Usuarios</strong>: quién entra a esta empresa y con qué rol.',
+    ],
+    ojo: 'Los cambios de configuración afectan a todos los asientos nuevos. La carga inicial se usa una sola vez por empresa: si ya existe, revísala antes de crear otra.',
+  },
+  whatsapp: {
+    emoji: '📱',
+    titulo: 'WhatsApp',
+    para: 'Registrar transacciones mandando un mensaje, una foto o un PDF.',
+    pasos: [
+      'Envía <strong>HOLA</strong> al WhatsApp del bot.',
+      'Recibes un código de 6 dígitos y lo ingresas en esta pantalla junto a tu número.',
+      'Desde ahí, cada mensaje o documento se convierte en un asiento BORRADOR.',
+    ],
+    ojo: 'Solo los números vinculados pueden registrar. Si cambias de celular, vuelve a vincular el número nuevo.',
+  },
 };
 
 /** Panel del SPA → tema de ayuda. Lo que no está acá no tiene botón (todavía). */
@@ -172,6 +232,11 @@ const AYUDA_POR_PANEL = {
   'panel-informes-content': 'informes',
   'panel-facturas-content': 'facturas',
   'panel-taxcalendar-content': 'taxcalendar',
+  'panel-recurring-content': 'recurrentes',
+  'panel-terceros-content': 'terceros',
+  'panel-auxiliares-content': 'auxiliares',
+  'panel-admin-content': 'admin',
+  'panel-whatsapp-content': 'whatsapp',
 };
 
 /** El CSS va desde acá para que las páginas sueltas no tengan que tocarse. */

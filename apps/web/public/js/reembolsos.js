@@ -77,9 +77,7 @@ function reembPintarTabs() {
   for (const [id, valor] of [['reemb-tab-trabajadores', 'trabajadores'], ['reemb-tab-facturas', 'facturas']]) {
     const b = document.getElementById(id);
     if (!b) continue;
-    const activo = _reembTab === valor;
-    b.style.color = activo ? '#1a1a2e' : '#6b7280';
-    b.style.borderBottomColor = activo ? '#1565c0' : 'transparent';
+    b.classList.toggle('active', _reembTab === valor);
   }
 }
 

@@ -72,10 +72,8 @@ function clickAdminTab(panel) {
 document.querySelectorAll('#panel-tabs-admin button').forEach(btn => {
   btn.addEventListener('click', () => {
     const parentTabs = btn.closest('#panel-tabs-admin');
-    parentTabs.querySelectorAll('button').forEach(b => { b.classList.remove('active'); b.style.color = '#6b7280'; b.style.borderBottomColor = 'transparent'; });
+    parentTabs.querySelectorAll('button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    btn.style.color = '#1a1a2e';
-    btn.style.borderBottomColor = '#1565c0';
     // Usuarios: solo admin/superadmin (el contador no ve el tab)
     const ubtn = document.getElementById('tab-usuarios-admin');
     if (ubtn) ubtn.style.display = (getUser()?.role === 'contador') ? 'none' : '';

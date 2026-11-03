@@ -4,6 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Planes — Contador507</title>
+  <meta name="description" content="Planes de Contador507: contabilidad con IA para negocios y despachos en Panamá. Compara empresas, usuarios, movimientos e inventario/planilla.">
+  <meta property="og:title" content="Planes — Contador507">
+  <meta property="og:description" content="Contabilidad con IA para Panamá. Elige el plan según tus empresas, usuarios y movimientos.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://contador507.com/planes.html">
+  <meta property="og:image" content="https://contador507.com/og-image.png">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png">
@@ -15,11 +22,11 @@
       --text: #1e293b;
       --muted: #64748b;
       --border: #e2e8f0;
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --accent: #F05323;
+      --primary: #1565c0;
+      --primary-hover: #0d47a1;
+      --accent: #ef4444;
       --gold: #f59e0b;
-      --green: #10b981;
+      --green: #047857;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -257,17 +264,21 @@
       .payment-detail { font-size: 13px; overflow-wrap: anywhere; }
     }
   </style>
+  <link rel="stylesheet" href="public.css?v=1">
 </head>
 <body>
 
-<div class="header">
-  <a href="/" class="logo"><img src="/logo-600.jpg" alt="Contador507" style="height:32px"></a>
-  <div class="header-actions">
-    <a href="/funciones.html" style="color:var(--muted);text-decoration:none;font-size:14px;margin-right:4px">Qué hace</a>
-    <a href="/login.html" class="btn-outline">Iniciar Sesión</a>
-    <a href="/login.html#register" class="btn-primary">Comenzar Gratis</a>
+<header class="public-topbar">
+  <a href="/" class="brand-wordmark" aria-label="Contador507 — inicio">Contador<span class="brand-507">507</span></a>
+  <nav class="public-nav" aria-label="Navegación principal">
+    <a href="/funciones.html">Qué hace</a>
+    <a href="/planes.html" aria-current="page">Planes y precios</a>
+  </nav>
+  <div class="public-actions">
+    <a href="/login.html" class="public-btn public-btn-outline">Iniciar sesión</a>
+    <a href="/login.html#register" class="public-btn public-btn-primary">Comenzar gratis</a>
   </div>
-</div>
+</header>
 
 <div class="hero">
   <h1>Planes que crecen con tu negocio</h1>
@@ -338,9 +349,16 @@
   </div>
 </div>
 
-<div class="footer">
-  © 2026 Contador507 — contabilidad inteligente para Panamá 🇵🇦
-</div>
+<footer class="public-footer">
+  <div class="public-footer-inner">
+    <span>© 2026 Contador507 — contabilidad inteligente para Panamá</span>
+    <span>
+      <a href="/terminos-y-condiciones.html">Términos</a>
+      <a href="/politica-de-privacidad.html">Privacidad</a>
+      <a href="mailto:admin@contador507.com">Contacto</a>
+    </span>
+  </div>
+</footer>
 
 <script>
 // Cargar planes desde la API

@@ -952,7 +952,7 @@
           <div><label>Referencia</label><input id="ad-ref" placeholder="opcional"></div>
         </div>
         <div style="margin-top:14px">
-          <button class="btn btn-primary" id="ad-pagar" ${estado.acreedores.length && bancos.length ? '' : 'disabled'}>Registrar el pago</button>
+          <button class="btn btn-success" id="ad-pagar" ${estado.acreedores.length && bancos.length ? '' : 'disabled'}>Registrar el pago</button>
         </div>
         <p class="nota">Debita la cuenta por pagar del acreedor y acredita el banco, en BORRADOR. Si el monto supera el saldo, se pregunta antes de registrarlo.</p>
       </div>`;
@@ -1184,7 +1184,7 @@
           <button class="btn btn-secondary" id="h-volver">← Volver</button>
           <button class="btn btn-secondary" id="h-export-xlsx" title="El detalle de los cálculos de esta corrida: días, sueldo, extras, deducciones, neto y aportes del patrono">Exportar Excel</button>
           <button class="btn btn-secondary" id="h-export" title="El formato del archivo viejo, para presentar la planilla a la CSS">Exportar CSV (CSS)</button>
-          ${c.status !== 'ANULADA' ? '<button class="btn btn-primary" id="h-aprobar">Aprobar los asientos</button>' : ''}
+          ${c.status !== 'ANULADA' ? '<button class="btn btn-success" id="h-aprobar">Aprobar los asientos</button>' : ''}
           ${c.status !== 'ANULADA' ? '<button class="btn btn-secondary" id="h-rechazar">Rechazar</button>' : ''}
           ${c.status !== 'ANULADA' ? '<button class="btn btn-danger" id="h-anular">Anular la corrida</button>' : ''}
         </div>
@@ -1337,7 +1337,7 @@
           ${campoPago('p-isr', 'ISR retenido', 'isr')}
         </div>
         <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-primary" id="p-pagar" ${bancos.length ? '' : 'disabled'}>Registrar el pago</button>
+          <button class="btn btn-success" id="p-pagar" ${bancos.length ? '' : 'disabled'}>Registrar el pago</button>
           <button class="btn btn-secondary" id="p-traer">Traer los montos del mes</button>
         </div>
         <p class="nota">Cada concepto debita SU cuenta por pagar contra el banco, en BORRADOR. Van separados porque el pasivo de la CSS puede estar partido en subcuentas —obrero, patrono y riesgos—: con un solo monto, la subcuenta del patrono se acreditaría y nunca bajaría. Marca la obligación CSS del calendario fiscal como cumplida.</p>

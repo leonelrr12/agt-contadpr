@@ -29,7 +29,7 @@
   <meta name="twitter:description" content="Agente contable con IA para Panamá. Facturas, asientos y reportes automatizados.">
   <meta name="twitter:image" content="https://contador507.com/og-image.png">
 
-  <link rel="stylesheet" href="styles.css?v=54">
+  <link rel="stylesheet" href="styles.css?v=59">
   <link rel="stylesheet" href="dialogos.css?v=1">
   <link rel="stylesheet" href="conciliacion.css?v=3">
 </head>
@@ -189,7 +189,7 @@
         </div>
       </header>
 
-      <div id="chat-messages"></div>
+      <div id="chat-messages" aria-live="polite" aria-relevant="additions text"></div>
 
       <div id="input-area">
         <div id="quick-actions">
@@ -201,20 +201,20 @@
         <div id="dgi-menu" class="hidden" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <button class="quick-btn" onclick="showInput('pdf')" style="flex:1">📄 Subir PDF</button>
           <button class="quick-btn" onclick="showQRScanner()" style="flex:1">📷 Escanear QR</button>
-          <button class="btn-secondary" onclick="hideDGIMenu()" style="padding:10px 14px;font-size:16px">✕</button>
+          <button aria-label="Cerrar" class="btn-secondary" onclick="hideDGIMenu()" style="padding:10px 14px;font-size:16px">✕</button>
         </div>
         <div id="text-input" class="hidden">
           <textarea id="message-input" placeholder="Ej: Compré combustible por $40 con tarjeta..." rows="2"></textarea>
           <div style="display:flex;gap:6px">
             <button id="send-btn" onclick="sendMessage()">Enviar</button>
-            <button class="btn-secondary" onclick="cancelInput()" style="padding:10px 16px;font-size:14px">✕</button>
+            <button aria-label="Cerrar" class="btn-secondary" onclick="cancelInput()" style="padding:10px 16px;font-size:14px">✕</button>
           </div>
         </div>
         <div id="ocr-upload" class="hidden">
           <div id="ocr-capture-actions">
             <button class="quick-btn" onclick="openCamera()" style="flex:2">📸 Tomar foto</button>
             <button class="quick-btn" onclick="openGallery()" style="flex:2">🖼 Elegir de galería</button>
-            <button class="btn-secondary" onclick="cancelOCR()" style="padding:10px 20px">✕</button>
+            <button aria-label="Cerrar" class="btn-secondary" onclick="cancelOCR()" style="padding:10px 20px">✕</button>
           </div>
           <input type="file" id="ocr-camera-input" accept="image/*" capture="environment" hidden>
           <input type="file" id="ocr-gallery-input" accept="image/jpeg,image/png,image/webp" hidden>
@@ -238,7 +238,7 @@
         <div id="pdf-upload" class="hidden">
           <div id="pdf-actions">
             <button class="quick-btn" onclick="openPDFPicker()" style="flex:2">📄 Seleccionar PDF</button>
-            <button class="btn-secondary" onclick="cancelPDF()" style="padding:10px 20px">✕</button>
+            <button aria-label="Cerrar" class="btn-secondary" onclick="cancelPDF()" style="padding:10px 20px">✕</button>
           </div>
           <input type="file" id="pdf-file-input" accept="application/pdf" hidden>
           <div id="pdf-loading" class="hidden">
@@ -265,7 +265,7 @@
           <div id="qr-actions" style="display:flex;gap:6px;align-items:center">
             <input type="url" id="qr-url-input" placeholder="Pega la URL del PDF (desde QR)..." style="flex:1;padding:10px 12px;border:1px solid #d0d5dd;border-radius:8px;font-size:14px;font-family:inherit">
             <button class="btn-primary" onclick="processQRUrl()" style="white-space:nowrap">🔍 Procesar</button>
-            <button class="btn-secondary" onclick="cancelQR()" style="padding:10px 14px">✕</button>
+            <button aria-label="Cerrar" class="btn-secondary" onclick="cancelQR()" style="padding:10px 14px">✕</button>
           </div>
           <div id="qr-loading" class="hidden">
             <div class="spinner"></div>
@@ -399,9 +399,9 @@
           </div>
           <button class="btn-secondary" onclick="loadPanelReembolsos()" style="padding:10px 20px;font-size:14px">🔄 Actualizar</button>
         </div>
-        <div style="display:flex;gap:4px;border-bottom:1px solid #e5e7eb">
-          <button id="reemb-tab-trabajadores" onclick="loadPanelReembolsos('trabajadores')" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#1a1a2e;border-bottom:2px solid #1565c0;margin-bottom:-2px">👷 Trabajadores</button>
-          <button id="reemb-tab-facturas" onclick="loadPanelReembolsos('facturas')" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🧾 Facturas recibidas</button>
+        <div class="ui-tabs" style="gap:4px">
+          <button id="reemb-tab-trabajadores" class="ui-tab active" onclick="loadPanelReembolsos('trabajadores')" style="padding:8px 14px;background:none;cursor:pointer;font-weight:600;font-size:13px">👷 Trabajadores</button>
+          <button id="reemb-tab-facturas" class="ui-tab" onclick="loadPanelReembolsos('facturas')" style="padding:8px 14px;background:none;cursor:pointer;font-weight:600;font-size:13px">🧾 Facturas recibidas</button>
         </div>
         <div id="reembolsos-inline-list">
           <div style="text-align:center;padding:32px;color:#6b7280">Cargando reembolsos...</div>
@@ -438,12 +438,12 @@
       <div id="panel-auxiliares-content" class="hidden" style="padding:24px;max-width:1000px">
         <h2 style="margin:0 0 4px 0;color:#1a1a2e">📒 Auxiliares</h2>
         <p style="margin:0 0 20px 0;color:#6b7280;font-size:13px">Consulta detallada de cuentas, clientes, proveedores y anexos DGI</p>
-        <div id="panel-tabs-auxiliares" style="display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap;border-bottom:2px solid #e5e7eb;padding-bottom:0">
-          <button class="panel-tab-btn active" data-aux="cuenta" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#1a1a2e;border-bottom:2px solid #1565c0;margin-bottom:-2px">📒 Cuenta</button>
-          <button class="panel-tab-btn" data-aux="cxc" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">👥 CxC</button>
-          <button class="panel-tab-btn" data-aux="cxp" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🏭 CxP</button>
-          <button class="panel-tab-btn" data-aux="anexos" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚖️ Anexos-DGI</button>
-          <button class="panel-tab-btn" data-aux="retenciones" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🔖 Retenciones ITBMS</button>
+        <div id="panel-tabs-auxiliares" class="ui-tabs" style="margin-bottom:20px">
+          <button class="panel-tab-btn ui-tab active" data-aux="cuenta" style="padding:8px 16px;background:none;cursor:pointer;font-weight:600;font-size:13px;">📒 Cuenta</button>
+          <button class="panel-tab-btn ui-tab" data-aux="cxc" style="padding:8px 16px;background:none;cursor:pointer;font-weight:600;font-size:13px;">👥 CxC</button>
+          <button class="panel-tab-btn ui-tab" data-aux="cxp" style="padding:8px 16px;background:none;cursor:pointer;font-weight:600;font-size:13px;">🏭 CxP</button>
+          <button class="panel-tab-btn ui-tab" data-aux="anexos" style="padding:8px 16px;background:none;cursor:pointer;font-weight:600;font-size:13px;">⚖️ Anexos-DGI</button>
+          <button class="panel-tab-btn ui-tab" data-aux="retenciones" style="padding:8px 16px;background:none;cursor:pointer;font-weight:600;font-size:13px;">🔖 Retenciones ITBMS</button>
         </div>
         <div id="aux-sidebar-content"></div>
       </div>
@@ -492,15 +492,15 @@
       <div id="panel-informes-content" class="hidden" style="padding:24px">
         <h2 style="margin:0 0 4px 0;color:#1a1a2e">📊 Informes</h2>
         <p style="margin:0 0 20px 0;color:#6b7280;font-size:13px">Reportes financieros, contables y de gestión para tu empresa</p>
-        <div id="panel-tabs-informes" style="display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap;border-bottom:2px solid #e5e7eb;padding-bottom:0">
-          <button class="panel-tab-btn active" data-informe="diario" style="padding:8px 12px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#1a1a2e;border-bottom:2px solid #1565c0;margin-bottom:-2px">📋 Diario</button>
-          <button class="panel-tab-btn" data-informe="balance" style="padding:8px 12px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚖️ Balance</button>
-          <button class="panel-tab-btn" data-informe="balance-general" style="padding:8px 12px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📄 Balance General</button>
-          <button class="panel-tab-btn" data-informe="resultados" style="padding:8px 12px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📊 Resultados</button>
-          <button class="panel-tab-btn" data-informe="flujo-caja" style="padding:8px 12px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">💵 Flujo de Caja</button>
-          <button class="panel-tab-btn" data-informe="dashboard" style="padding:8px 12px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📈 Dashboard</button>
-          <button class="panel-tab-btn" data-informe="presupuestos" style="padding:8px 12px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">💰 Presupuesto</button>
-          <button class="panel-tab-btn" data-informe="borrador430" style="padding:8px 12px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px" title="Borrador de la declaración mensual de ITBMS calculado del libro (solo lectura)">🧾 Form. 430</button>
+        <div id="panel-tabs-informes" class="ui-tabs" style="margin-bottom:20px">
+          <button class="panel-tab-btn ui-tab active" data-informe="diario" style="padding:8px 12px;background:none;cursor:pointer;font-weight:600;font-size:13px;">📋 Diario</button>
+          <button class="panel-tab-btn ui-tab" data-informe="balance" style="padding:8px 12px;background:none;cursor:pointer;font-weight:600;font-size:13px;">⚖️ Balance</button>
+          <button class="panel-tab-btn ui-tab" data-informe="balance-general" style="padding:8px 12px;background:none;cursor:pointer;font-weight:600;font-size:13px;">📄 Balance General</button>
+          <button class="panel-tab-btn ui-tab" data-informe="resultados" style="padding:8px 12px;background:none;cursor:pointer;font-weight:600;font-size:13px;">📊 Resultados</button>
+          <button class="panel-tab-btn ui-tab" data-informe="flujo-caja" style="padding:8px 12px;background:none;cursor:pointer;font-weight:600;font-size:13px;">💵 Flujo de Caja</button>
+          <button class="panel-tab-btn ui-tab" data-informe="dashboard" style="padding:8px 12px;background:none;cursor:pointer;font-weight:600;font-size:13px;">📈 Dashboard</button>
+          <button class="panel-tab-btn ui-tab" data-informe="presupuestos" style="padding:8px 12px;background:none;cursor:pointer;font-weight:600;font-size:13px;">💰 Presupuesto</button>
+          <button class="panel-tab-btn ui-tab" data-informe="borrador430" style="padding:8px 12px;background:none;cursor:pointer;font-weight:600;font-size:13px;" title="Borrador de la declaración mensual de ITBMS calculado del libro (solo lectura)">🧾 Form. 430</button>
         </div>
         <div id="informes-date-filter" class="hidden" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
           <input type="date" id="informes-filter-from" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px">
@@ -528,15 +528,15 @@
       <div id="panel-admin-content" class="hidden" style="padding:24px;max-width:1000px">
         <h2 style="margin:0 0 4px 0;color:#1a1a2e">⚙️ Administración</h2>
         <p style="margin:0 0 20px 0;color:#6b7280;font-size:13px">Gestiona cuentas contables, conceptos y configuración de tu empresa</p>
-        <div id="panel-tabs-admin" style="display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap;border-bottom:2px solid #e5e7eb;padding-bottom:0">
-          <button class="panel-tab-btn active" data-panel="cuentas-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#1a1a2e;border-bottom:2px solid #1565c0;margin-bottom:-2px">🏦 Cuentas</button>
-          <button class="panel-tab-btn" data-panel="conceptos-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📝 Conceptos</button>
-          <button class="panel-tab-btn" data-panel="config" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">⚙️ Configuración</button>
-          <button class="panel-tab-btn" data-panel="empresa" id="tab-empresa-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🏢 Empresa</button>
-          <button class="panel-tab-btn" data-panel="carga-inicial" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📋 Carga Inicial</button>
-          <button class="panel-tab-btn" data-panel="terceros-import" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">📥 Carga de Terceros</button>
-          <button class="panel-tab-btn" data-panel="cierres-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">🗓 Cierres</button>
-          <button class="panel-tab-btn" data-panel="usuarios-admin" id="tab-usuarios-admin" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px">👥 Usuarios</button>
+        <div id="panel-tabs-admin" class="ui-tabs" style="margin-bottom:20px">
+          <button class="panel-tab-btn ui-tab active" data-panel="cuentas-admin" style="padding:8px 16px;background:none;cursor:pointer;font-weight:600;font-size:13px;">🏦 Cuentas</button>
+          <button class="panel-tab-btn ui-tab" data-panel="conceptos-admin" style="padding:8px 16px;background:none;cursor:pointer;font-weight:600;font-size:13px;">📝 Conceptos</button>
+          <button class="panel-tab-btn ui-tab" data-panel="config" style="padding:8px 16px;background:none;cursor:pointer;font-weight:600;font-size:13px;">⚙️ Configuración</button>
+          <button class="panel-tab-btn ui-tab" data-panel="empresa" id="tab-empresa-admin" style="padding:8px 16px;background:none;cursor:pointer;font-weight:600;font-size:13px;">🏢 Empresa</button>
+          <button class="panel-tab-btn ui-tab" data-panel="carga-inicial" style="padding:8px 16px;background:none;cursor:pointer;font-weight:600;font-size:13px;">📋 Carga Inicial</button>
+          <button class="panel-tab-btn ui-tab" data-panel="terceros-import" style="padding:8px 16px;background:none;cursor:pointer;font-weight:600;font-size:13px;">📥 Carga de Terceros</button>
+          <button class="panel-tab-btn ui-tab" data-panel="cierres-admin" style="padding:8px 16px;background:none;cursor:pointer;font-weight:600;font-size:13px;">🗓 Cierres</button>
+          <button class="panel-tab-btn ui-tab" data-panel="usuarios-admin" id="tab-usuarios-admin" style="padding:8px 16px;background:none;cursor:pointer;font-weight:600;font-size:13px;">👥 Usuarios</button>
         </div>
         <!-- Cuentas Admin -->
         <div id="cuentas-admin-content"></div>
@@ -692,8 +692,8 @@
         <p style="margin:0 0 16px 0;color:#6b7280;font-size:13px">Facturas de venta con numeración correlativa y cumplimiento DGI</p>
         <!-- Aviso si falta la configuración DGI (se carga en Administración → Empresa) -->
         <div id="facturas-aviso-config"></div>
-        <div id="facturas-tabs" style="display:flex;gap:4px;margin-bottom:16px;flex-wrap:wrap;border-bottom:2px solid #e5e7eb">
-          <button class="panel-tab-btn active" data-ftab="lista" style="padding:8px 16px;border:none;background:none;cursor:pointer;font-weight:600;font-size:13px;color:#1a1a2e;border-bottom:2px solid #1565c0;margin-bottom:-2px">📋 Facturas</button>
+        <div id="facturas-tabs" class="ui-tabs" style="margin-bottom:16px">
+          <button class="panel-tab-btn ui-tab active" data-ftab="lista" style="padding:8px 16px;background:none;cursor:pointer;font-weight:600;font-size:13px;">📋 Facturas</button>
         </div>
         <div id="facturas-lista-content"></div>
       </div>
@@ -702,23 +702,23 @@
     </main>
   </div>
 
-  <div id="modal-overlay" class="hidden">
+  <div id="modal-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div id="modal">
       <div id="modal-header">
-        <h3>Confirmar Transacción</h3>
-        <button onclick="closeModal()">✕</button>
+        <h3 id="modal-title">Confirmar Transacción</h3>
+        <button onclick="closeModal()" aria-label="Cerrar">✕</button>
       </div>
       <div id="modal-body"></div>
       <div id="modal-footer">
         <button class="btn-primary" onclick="confirmTransaction()">✅ Confirmar</button>
         <button class="btn-secondary" onclick="editTransaction()">✏️ Editar</button>
-        <button class="btn-danger" onclick="closeModal()">❌ Cancelar</button>
+        <button class="btn-secondary" onclick="closeModal()">Cancelar</button>
       </div>
     </div>
   </div>
 
   <div id="confirm-overlay" class="hidden" onclick="closeConfirm()"></div>
-  <div id="confirm-dialog" class="hidden">
+  <div id="confirm-dialog" class="hidden" role="alertdialog" aria-modal="true" aria-labelledby="confirm-msg">
     <div id="confirm-body">
       <div id="confirm-icon">⚠️</div>
       <div id="confirm-msg"></div>
@@ -737,28 +737,28 @@
   <script src="js/capture.js?v=75"></script>
   <script src="js/capture-qr.js?v=74"></script>
   <script src="js/chat.js?v=78"></script>
-  <script src="js/router.js?v=84"></script>
+  <script src="js/router.js?v=85"></script>
   <script src="js/conciliacion.js?v=4"></script>
   <script src="js/admin.js?v=96"></script>
-  <script src="js/ayuda.js?v=3"></script>
+  <script src="js/ayuda.js?v=4"></script>
   <script src="js/init.js?v=82"></script>
   <script src="js/panels-sidebar.js?v=75"></script>
   <script src="js/import.js?v=99"></script>
   <script src="js/carga-inicial.js?v=3"></script>
-  <script src="js/auxiliares-revision.js?v=82"></script>
+  <script src="js/auxiliares-revision.js?v=83"></script>
   <script src="js/entry-modals.js?v=89"></script>
-  <script src="js/informes.js?v=104"></script>
+  <script src="js/informes.js?v=105"></script>
   <script src="js/terceros.js?v=9"></script>
   <script src="js/terceros-import.js?v=2"></script>
   <script src="js/presupuestos.js?v=2"></script>
   <script src="js/borrador430.js?v=4"></script>
   <script src="js/tax-calendar.js?v=76"></script>
   <script src="js/salud.js?v=74"></script>
-  <script src="js/reembolsos.js?v=8"></script>
+  <script src="js/reembolsos.js?v=9"></script>
   <script src="js/email-facturas.js?v=8"></script>
   <script src="js/despacho.js?v=5"></script>
 <script src="js/empresa.js?v=11"></script>
   <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="js/facturas.js?v=84"></script>
+<script src="js/facturas.js?v=85"></script>
 </body>
 </html>

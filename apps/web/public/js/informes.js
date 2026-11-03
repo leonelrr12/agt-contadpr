@@ -12,10 +12,8 @@ function loadPanelInformes() {
 document.querySelectorAll('#panel-tabs-informes button').forEach(btn => {
   btn.addEventListener('click', () => {
     const parentTabs = btn.closest('#panel-tabs-informes');
-    parentTabs.querySelectorAll('button').forEach(b => { b.classList.remove('active'); b.style.color = '#6b7280'; b.style.borderBottomColor = 'transparent'; });
+    parentTabs.querySelectorAll('button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    btn.style.color = '#1a1a2e';
-    btn.style.borderBottomColor = '#1565c0';
     clickInformeTab(btn.dataset.informe);
   });
 });
@@ -24,9 +22,9 @@ let _currentInformeTab = 'diario';
 
 function clickInformeTab(informe) {
   const btns = document.querySelectorAll('#panel-tabs-informes button');
-  btns.forEach(b => { b.classList.remove('active'); b.style.color = '#6b7280'; b.style.borderBottomColor = 'transparent'; });
+  btns.forEach(b => b.classList.remove('active'));
   const active = document.querySelector(`#panel-tabs-informes button[data-informe="${informe}"]`);
-  if (active) { active.classList.add('active'); active.style.color = '#1a1a2e'; active.style.borderBottomColor = '#1565c0'; }
+  if (active) active.classList.add('active');
   _currentInformeTab = informe;
   // Mostrar filtro de fecha solo para reportes que lo soportan
   // La barra de export vive DENTRO de #informes-date-filter, que las pestañas sin filtro

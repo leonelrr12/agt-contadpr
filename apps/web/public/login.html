@@ -31,7 +31,7 @@
       box-shadow: 0 20px 60px rgba(0,0,0,0.15);
     }
     .login-card h1 {
-      font-size: 18px;
+      font-size: 24px;
       color: #1a1a2e;
       margin-bottom: 4px;
       text-align: center;
@@ -150,6 +150,10 @@
     .legal-pie { text-align: center; margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e4e8; font-size: 12px; color: #6b7280; line-height: 1.5; }
     .legal-pie a { color: #6b7280; text-decoration: none; }
     .legal-pie a:hover { color: #1565c0; text-decoration: underline; }
+    .login-links { text-align: center; margin-top: 12px; font-size: 13px; color: #9ca3af; }
+    .login-links a { color: #1565c0; text-decoration: none; font-weight: 600; }
+    .login-links a:hover { text-decoration: underline; }
+    .login-links span { margin: 0 8px; }
     /* Móvil: la tarjeta ocupa TODA la pantalla. Antes se veía como una tarjeta
        chica flotando en el centro (el layout de escritorio con 420px de tope).
        `100dvh` en vez de `100vh` para que el alto siga a la barra del navegador
@@ -173,10 +177,14 @@
       .pw-toggle { width: 38px; height: 38px; }
     }
   </style>
+  <link rel="stylesheet" href="public.css?v=1">
 </head>
 <body>
   <div class="login-card">
-    <img src="/logo-600.jpg" alt="Contador507" style="display:block;max-width:200px;height:auto;margin:0 auto 16px">
+    <div style="text-align:center;margin-bottom:16px">
+      <a href="/" class="brand-wordmark brand-wordmark-lg" aria-label="Contador507 — inicio">Contador<span class="brand-507">507</span></a>
+      <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;margin-top:4px">Contabilidad · Panamá</div>
+    </div>
     <h1>Inicia sesión</h1>
     <p class="subtitle">Contabilidad inteligente para Panamá</p>
     <div class="error-msg" id="error-msg" role="alert" aria-live="polite"></div>
@@ -244,6 +252,9 @@
       </form>
     </div>
 
+    <p class="login-links">
+      <a href="/planes.html">Ver planes</a><span>·</span><a href="/funciones.html">Qué hace Contador507</a>
+    </p>
     <p class="legal-pie">
       Al crear una cuenta aceptas los <a href="/terminos-y-condiciones.html">Términos y Condiciones</a><br>
       y la <a href="/politica-de-privacidad.html">Política de Privacidad</a>.

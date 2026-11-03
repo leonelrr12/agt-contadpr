@@ -94,11 +94,9 @@ document.querySelectorAll('#facturas-tabs button').forEach(btn => {
 });
 
 function clickFacturasTab(tab) {
-  document.querySelectorAll('#facturas-tabs button').forEach(b => {
-    b.classList.remove('active'); b.style.color = '#6b7280'; b.style.borderBottomColor = 'transparent';
-  });
+  document.querySelectorAll('#facturas-tabs button').forEach(b => b.classList.remove('active'));
   const active = document.querySelector(`#facturas-tabs button[data-ftab="${tab}"]`);
-  if (active) { active.classList.add('active'); active.style.color = '#1a1a2e'; active.style.borderBottomColor = '#1565c0'; }
+  if (active) active.classList.add('active');
   document.getElementById('facturas-lista-content').classList.remove('hidden');
   loadFacturasList();
 }
