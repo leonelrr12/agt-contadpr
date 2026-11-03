@@ -30,6 +30,24 @@
 #panel-conciliacion-content .summary-card.ok .num { color: #059669; }
 #panel-conciliacion-content .summary-card.warn .num { color: #d97706; }
 #panel-conciliacion-content .summary-card.err .num { color: #dc2626; }
+#panel-conciliacion-content .conc-leyenda {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: -6px 0 18px;
+  font-size: 12px;
+  color: #6b7280;
+}
+#panel-conciliacion-content .conc-leyenda .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+#panel-conciliacion-content .conc-leyenda .dot.ok { background: #059669; }
+#panel-conciliacion-content .conc-leyenda .dot.warn { background: #d97706; }
+#panel-conciliacion-content .conc-leyenda .dot.err { background: #dc2626; }
 #panel-conciliacion-content .section { margin-bottom: 24px; }
 #panel-conciliacion-content .section-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; padding: 8px 12px; border-radius: 6px; }
 #panel-conciliacion-content .section-matched { background: #d1fae5; color: #065f46; }

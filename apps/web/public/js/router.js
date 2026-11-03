@@ -18,6 +18,8 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
       });
       const rp = document.getElementById('reports-panel');
       document.body.style.overflow = '';
+      const hoy = document.getElementById('chat-hoy');
+      if (hoy) hoy.classList.add('hidden');
     }
 
     if (view === 'chat') {
@@ -25,6 +27,8 @@ document.querySelectorAll('#sidebar-nav .nav-link[data-view]').forEach(btn => {
       document.getElementById('chat-header').classList.remove('hidden');
       document.getElementById('chat-messages').classList.remove('hidden');
       document.getElementById('input-area').classList.remove('hidden');
+      const hoy = document.getElementById('chat-hoy');
+      if (hoy && hoy.innerHTML.trim()) hoy.classList.remove('hidden');
       return;
     }
 

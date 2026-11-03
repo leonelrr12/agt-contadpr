@@ -244,26 +244,33 @@ function renderTerceros() {
     const ecoT = t._eco || ecoTercero(t);
     const saldoColor = ecoT.vencido > 0.01 ? '#dc2626' : (t.tipo === 'Cliente' ? '#1d4ed8' : '#b45309');
     const saldoBadge = ecoT.saldo > 0.01
-      ? `<div style="font-size:11px;margin-top:2px;color:${saldoColor}">💵 ${t.tipo === 'Cliente' ? 'Debe' : 'Por pagar'} ${moneyTercero(ecoT.saldo)}`
-        + (ecoT.vencido > 0.01 ? ` · vencido ${moneyTercero(ecoT.vencido)}` : '') + '</div>'
-      : '<div style="font-size:11px;margin-top:2px;color:#059669">✅ Al día</div>';
+      ? `<div style="font-weight:700;color:${saldoColor}">${moneyTercero(ecoT.saldo)}</div>`
+        + (ecoT.vencido > 0.01 ? `<div class="grilla-secundario" style="color:#dc2626">vencido ${moneyTercero(ecoT.vencido)}</div>` : '')
+      : '<div style="color:#059669;font-weight:600">Al día</div>';
+    const identidad = d.taxId
+      ? `<div>${escapeHtml(d.taxId)}${d.dv ? ` <span class="grilla-secundario">DV ${escapeHtml(d.dv)}</span>` : ''}</div>`
+      : '<div class="grilla-secundario">Sin RUC/Cédula</div>';
+    const contacto = (d.phone || d.email)
+      ? `<div>${escapeHtml(d.phone || '—')}</div><div class="grilla-secundario" title="${escapeHtml(d.email || '')}">${escapeHtml(d.email || '—')}</div>`
+      : '<div class="grilla-secundario">Sin contacto</div>';
+    const direccion = d.address
+      ? `<div class="grilla-secundario" title="${escapeHtml(d.address)}">${escapeHtml(d.address)}</div>`
+      : '';
     const celdas = [
       badge(t.tipo),
-      `<div style="font-weight:600">${nombre}</div>${comercial}${saldoBadge}`,
-      escapeHtml(d.taxId || '—'),
-      escapeHtml(d.dv || '—'),
-      escapeHtml(d.phone || '—'),
-      escapeHtml(d.email || '—'),
-      escapeHtml(d.address || '—'),
+      `<div class="grilla-2l"><div class="grilla-principal" title="${escapeHtml(d.name || '')}">${nombre}</div>${comercial}${direccion}</div>`,
+      identidad,
+      contacto,
+      saldoBadge,
     ];
     const acciones = [
-      `<button onclick="verEstadoTercero('${t.tipo}', '${d.id}')" title="Estado de cuenta: saldo, antigüedad y movimientos" style="padding:3px 8px;font-size:11px;background:#059669;color:#fff;border:none;border-radius:4px;cursor:pointer">💵</button>`,
+      `<button onclick="verEstadoTercero('${t.tipo}', '${d.id}')" title="Estado de cuenta: saldo, antigüedad y movimientos" aria-label="Ver estado de cuenta de ${escapeHtml(d.name || '')}" style="padding:3px 8px;font-size:11px;background:#059669;color:#fff;border:none;border-radius:4px;cursor:pointer">💵</button>`,
     ];
     if (puede) {
       acciones.push(
-        `<button onclick="abrirFusionTercero('${t.tipo}', '${d.id}')" title="Fusionar con otro ${t.tipo.toLowerCase()}" style="padding:3px 8px;font-size:11px;background:#7c3aed;color:#fff;border:none;border-radius:4px;cursor:pointer">🔀</button>`,
-        `<button onclick="abrirTerceroModal('${t.tipo}', '${d.id}')" title="Editar ${t.tipo.toLowerCase()}" style="padding:3px 8px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">✏️</button>`,
-        `<button onclick="eliminarTercero('${t.tipo}', '${d.id}')" title="Eliminar ${t.tipo.toLowerCase()}" style="padding:3px 8px;font-size:11px;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer">🗑️</button>`,
+        `<button onclick="abrirFusionTercero('${t.tipo}', '${d.id}')" title="Fusionar con otro ${t.tipo.toLowerCase()}" aria-label="Fusionar ${escapeHtml(d.name || '')}" style="padding:3px 8px;font-size:11px;background:#7c3aed;color:#fff;border:none;border-radius:4px;cursor:pointer">🔀</button>`,
+        `<button onclick="abrirTerceroModal('${t.tipo}', '${d.id}')" title="Editar ${t.tipo.toLowerCase()}" aria-label="Editar ${escapeHtml(d.name || '')}" style="padding:3px 8px;font-size:11px;background:#1565c0;color:#fff;border:none;border-radius:4px;cursor:pointer">✏️</button>`,
+        `<button onclick="eliminarTercero('${t.tipo}', '${d.id}')" title="Eliminar ${t.tipo.toLowerCase()}" aria-label="Eliminar ${escapeHtml(d.name || '')}" style="padding:3px 8px;font-size:11px;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer">🗑️</button>`,
       );
     }
     celdas.push(acciones.join(' '));
@@ -271,7 +278,7 @@ function renderTerceros() {
   });
 
   list.innerHTML = buildInformesTable(
-    ['Clasificación', 'Nombre', 'RUC', 'DV', 'Teléfono', 'Email', 'Dirección', 'Acciones'],
+    ['Clasificación', 'Tercero', 'Identidad fiscal', 'Contacto', 'Saldo', 'Acciones'],
     rows,
   );
 }
