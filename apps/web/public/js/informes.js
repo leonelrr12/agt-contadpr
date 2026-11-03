@@ -694,7 +694,7 @@ function renderAuxiliarTable() {
     (terms.length ? `<div style="font-size:11.5px;color:#6b7280;margin-bottom:6px">Mostrando ${shown.length} de ${all.length} movimiento(s)</div>` : '') +
     buildInformesTable(['Fecha','Detalle','Débito','Crédito','Saldo',''],
       shown.map(e => ({
-        rowAttrs: `class="aux-row" data-entry-id="${e.id}" style="cursor:pointer" title="Ver el asiento original" onclick="showEntryDrawer('${e.id}', '${_auxFiltro.cuentaId}')"`,
+        rowAttrs: `class="aux-row" tabindex="0" data-entry-id="${e.id}" style="cursor:pointer" title="Ver el asiento original" onclick="showEntryDrawer('${e.id}', '${_auxFiltro.cuentaId}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showEntryDrawer('${e.id}', '${_auxFiltro.cuentaId}')}"`,
         cells: [
           new Date(e.date).toLocaleDateString('es-PA'),
           escapeHtml(e.description||''),

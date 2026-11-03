@@ -273,6 +273,7 @@ function openFacturaModal() {
     </div>
   </div>`;
   document.body.appendChild(overlay);
+  activarFocoModal(overlay, '#fac-cliente-sel');
   renderFacturaItems();
 }
 
@@ -527,6 +528,7 @@ async function payFactura(id) {
   overlay.querySelector('#pay-ret').addEventListener('input', upd);
   upd();
   document.body.appendChild(overlay);
+  activarFocoModal(overlay, '#pay-efectivo');
 }
 
 async function confirmarCobro(id, btn) {

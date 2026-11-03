@@ -570,6 +570,7 @@ async function showEditEntryModal(entryId) {
     </div>
   </div>`;
   document.body.appendChild(overlay);
+  activarFocoModal(overlay, '#edit-entry-date');
 
   // Fecha y Descripción: con click se resalta el contenido, igual que con Tab.
   // (Los campos de cada línea se conectan al pintarse, en setupEntryLines.)
@@ -750,6 +751,7 @@ async function showCreateEntryModal(originalEntry, originalEntryId, mode) {
     </div>
   </div>`;
   document.body.appendChild(overlay);
+  activarFocoModal(overlay, '#create-entry-desc');
 
   // Fecha y Descripción: con click se resalta el contenido, igual que con Tab.
   // (Los campos de cada línea se conectan al pintarse, en setupEntryLines.)
@@ -942,6 +944,7 @@ async function showEntryDrawer(entryId, accountId) {
     </div>
   </aside>`;
   document.body.appendChild(overlay);
+  activarFocoModal(overlay);
 
   // Cierre: ✕, click en el fondo o Esc. El drawer NO bloquea el scroll de la
   // tabla de atrás: es un visor, no un formulario con datos sin guardar.
