@@ -296,6 +296,7 @@ async function verEstadoTercero(tipo, id) {
     <div style="padding:28px;text-align:center;color:#6b7280;font-size:13px">Cargando estado de cuenta...</div>
   </div>`;
   document.body.appendChild(overlay);
+  activarFocoModal(overlay);
   const cerrar = () => overlay.remove();
   overlay.addEventListener('click', (e) => { if (e.target === overlay) cerrar(); });
 
@@ -478,6 +479,7 @@ function abrirFusionTercero(tipo, id) {
     </div>
   </div>`;
   document.body.appendChild(overlay);
+  activarFocoModal(overlay, '#fusion-search');
 
   const list = overlay.querySelector('#fusion-list');
   const preview = overlay.querySelector('#fusion-preview');
@@ -680,6 +682,7 @@ function abrirTerceroModal(tipo, id) {
     </div>
   </div>`;
   document.body.appendChild(overlay);
+  activarFocoModal(overlay);
   overlay.querySelector('#tercero-cancel').onclick = () => overlay.remove();
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   overlay.querySelector('#tercero-save').onclick = () => guardarTercero(overlay, tipoInicial, id);

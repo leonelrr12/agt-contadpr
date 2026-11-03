@@ -59,3 +59,46 @@ async function api(url, opts = {}) {
   if (res.status === 401) { localStorage.clear(); window.location = '/login.html'; return; }
   return res;
 }
+
+/**
+ * Atrapa Tab/Shift+Tab dentro de un modal propio y devuelve la función para
+ * liberar el foco. Los diálogos de `dialogos.js` ya manejan Escape y foco; esto
+ * es para los overlays que se construyen a mano (facturas, terceros, asientos).
+ */
+function trapFocus(container, initialSelector = '') {
+  if (!container) return () => {};
+  const previo = document.activeElement;
+  const focoables = () => [...container.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([type="hidden"]), select, textarea, [tabindex]:not([tabindex="-1"])',
+  )].filter(el => el.getClientRects().length > 0 || el === document.activeElement);
+  const onKey = (e) => {
+    if (e.key !== 'Tab') return;
+    const lista = focoables();
+    if (!lista.length) return;
+    const primero = lista[0];
+    const ultimo = lista[lista.length - 1];
+    const fuera = !container.contains(document.activeElement);
+    if (e.shiftKey && (document.activeElement === primero || fuera)) {
+      e.preventDefault(); ultimo.focus();
+    } else if (!e.shiftKey && (document.activeElement === ultimo || fuera)) {
+      e.preventDefault(); primero.focus();
+    }
+  };
+  document.addEventListener('keydown', onKey, true);
+  setTimeout(() => {
+    const el = initialSelector ? container.querySelector(initialSelector) : focoables()[0];
+    if (el && typeof el.focus === 'function') el.focus();
+  }, 40);
+  return () => {
+    document.removeEventListener('keydown', onKey, true);
+    if (previo && previo.isConnected && typeof previo.focus === 'function') previo.focus();
+  };
+}
+
+/** Activa el foco atrapado en un overlay y lo libera cuando el overlay se quita. */
+function activarFocoModal(overlay, initialSelector = '') {
+  if (!overlay) return;
+  const liberar = trapFocus(overlay, initialSelector);
+  const quitar = overlay.remove.bind(overlay);
+  overlay.remove = () => { liberar(); quitar(); };
+}

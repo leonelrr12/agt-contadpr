@@ -1723,6 +1723,9 @@ body.spa { height: 100vh; }
 .aux-row:hover td { background: #f1f5f9; }
 .aux-row-active td { background: #e0f2fe !important; }
 .aux-row-active td:first-child { box-shadow: inset 3px 0 0 var(--azul); }
+.aux-row:focus-visible { outline: none; }
+.aux-row:focus-visible td { background: #f1f5f9; }
+.aux-row:focus-visible td:first-child { box-shadow: inset 3px 0 0 var(--azul); }
 
 /* ── Combo de cuentas del editor de asientos (entry-modals.js) ──
  * La caja se cuelga de <body> en position:fixed: dentro del modal, el

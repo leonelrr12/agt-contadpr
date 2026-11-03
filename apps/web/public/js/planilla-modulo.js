@@ -73,6 +73,8 @@
     URL.revokeObjectURL(a.href);
   }
 
+  let liberarFocoDesglose = null;
+
   const estado = {
     vista: 'corrida',
     empleados: [],
@@ -484,9 +486,11 @@
   }
 
   function pintarDesglose() {
+    if (liberarFocoDesglose) liberarFocoDesglose();
     const caja = $('pl-modal');
     caja.innerHTML = htmlDesglose();
     caja.classList.remove('hidden');
+    liberarFocoDesglose = trapFocus(caja, '#dg-cerrar');
   }
 
   /** Repinta solo el estado y el total: los inputs no se tocan (se perdería el foco). */
@@ -505,6 +509,7 @@
 
   function cerrarDesglose() {
     estado.desglose = null;
+    if (liberarFocoDesglose) { liberarFocoDesglose(); liberarFocoDesglose = null; }
     const caja = $('pl-modal');
     caja.classList.add('hidden');
     caja.innerHTML = '';
