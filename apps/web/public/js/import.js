@@ -2,6 +2,17 @@
 /* ── Panel: Importar (inline) ── */
 let importInlineFile = null;
 let importInlinePreview = null;
+
+/** Marca el paso del flujo: 1 Archivo, 2 Revisión, 3 Confirmar. */
+function setImportStep(n) {
+  document.querySelectorAll('#import-steps .import-step').forEach(el => {
+    const paso = Number(el.dataset.step);
+    el.classList.toggle('active', paso === n);
+    el.classList.toggle('done', paso < n);
+    if (paso === n) el.setAttribute('aria-current', 'step');
+    else el.removeAttribute('aria-current');
+  });
+}
 /** id de cuenta → { code, name } para mostrar la cuenta DESTINO en el preview.
  *  El endpoint de preview manda accountId, pero no el código ni el nombre. */
 let importAccountsById = null;
@@ -63,6 +74,7 @@ function loadPanelImport() {
   // destino aunque se haya creado/renombrado una cuenta en otra pestaña.
   importAccountsById = null;
   cargarCuentasImport();
+  setImportStep(1);
   // Inicializar fecha por defecto
   const dateInput = document.getElementById('import-inline-date');
   if (!dateInput.value) dateInput.value = todayLocalStr();
@@ -98,6 +110,7 @@ async function handleImportInlineFile(file, verTodas = false) {
   document.getElementById('import-inline-loading').classList.remove('hidden');
   document.getElementById('import-inline-loading-text').textContent = isCobros
     ? 'Analizando pagos a facturas...' : 'Analizando archivo...';
+  setImportStep(2);
 
   const formData = new FormData();
   formData.append('file', file);
@@ -139,6 +152,22 @@ function moneyLote(n) {
   return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** Descarga las filas rechazadas para corregirlas sin rearmar el archivo entero. */
+function descargarCSVRechazos(errors, nombre = 'rechazos-importacion.csv') {
+  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = '﻿' + 'Fila,Motivo\n'
+    + errors.map(e => `${esc(e.row)},${esc(e.error || e.message || '')}`).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 /** ¿Está activada la casilla de calcular ITBMS? (apagada = el asiento dice el archivo) */
 function calcularItbmsOn() {
   return !!document.getElementById('import-inline-calcular-itbms')?.checked;
@@ -157,6 +186,7 @@ function importPagoLabel(pm) {
 
 function renderImportInlinePreview() {
   if (!importInlinePreview) return;
+  setImportStep(2);
   const isCobros = importInlinePreview.cobros === true;
   // Limpiar aviso de filas fuera de la muestra de un render previo
   const prevWarn = document.getElementById('import-inline-warn');
@@ -486,6 +516,7 @@ async function executeImportInline() {
     }
     const ok = await showConfirm(msg);
     if (!ok) return;
+    setImportStep(3);
 
     document.getElementById('import-inline-loading').classList.remove('hidden');
     document.getElementById('import-inline-actions').classList.add('hidden');
@@ -514,6 +545,13 @@ async function executeImportInline() {
             (result.errors.length > 6 ? `\n… y ${result.errors.length - 6} más.` : '');
         }
         await showAlert(msg2);
+        if (result.errors && result.errors.length) {
+          const descargar = await showConfirm(
+            `¿Descargar el detalle de las ${result.errors.length} fila(s) rechazadas?`,
+            { type: 'warning', title: 'Filas rechazadas', confirmText: 'Descargar CSV', cancelText: 'Ahora no' },
+          );
+          if (descargar) descargarCSVRechazos(result.errors, 'rechazos-pagos.csv');
+        }
       } else {
         await showAlert(`❌ ${result.error || 'Error'}`);
       }
@@ -540,6 +578,7 @@ async function executeImportInline() {
   confirmMsg += `\n\n📅 Fecha: ${dateLabel}\n\n⚠️ Verifica la fecha. Los asientos se crearán como BORRADOR.`;
   const ok = await showConfirm(confirmMsg);
   if (!ok) return;
+  setImportStep(3);
 
   document.getElementById('import-inline-loading').classList.remove('hidden');
   document.getElementById('import-inline-actions').classList.add('hidden');
@@ -581,6 +620,13 @@ async function executeImportInline() {
           (result.errors.length > 6 ? `\n… y ${result.errors.length - 6} más.` : '');
       }
       await showAlert(msg);
+      if (result.errors && result.errors.length) {
+        const descargar = await showConfirm(
+          `¿Descargar el detalle de las ${result.errors.length} fila(s) rechazadas?`,
+          { type: 'warning', title: 'Filas rechazadas', confirmText: 'Descargar CSV', cancelText: 'Ahora no' },
+        );
+        if (descargar) descargarCSVRechazos(result.errors);
+      }
     } else {
       await showAlert(`❌ ${result.error || 'Error'}`);
     }
@@ -591,6 +637,7 @@ async function executeImportInline() {
 function resetImportInline() {
   importInlineFile = null;
   importInlinePreview = null;
+  setImportStep(1);
   document.getElementById('import-inline-file').value = '';
   document.getElementById('import-inline-file-name').textContent = '';
   document.getElementById('import-inline-zone').classList.remove('hidden');

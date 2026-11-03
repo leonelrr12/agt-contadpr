@@ -398,6 +398,103 @@ body.spa { height: 100vh; }
   to { opacity: 1; }
 }
 
+.chat-company-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--azul-suave);
+  color: var(--azul);
+  border: 1px solid #bfdbfe;
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Resumen del día: lo primero que ve el usuario al entrar, sin tener que
+   recorrer el menú. */
+.chat-hoy {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 14px 24px 0;
+  flex-shrink: 0;
+}
+.hoy-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 150px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+.hoy-card:hover { border-color: var(--azul); background: var(--azul-suave); }
+.hoy-card .hoy-num { font-size: 18px; font-weight: 800; line-height: 1; color: var(--tinta); }
+.hoy-card .hoy-lbl { font-size: 11px; color: var(--texto-suave); }
+.hoy-card.alerta .hoy-num { color: var(--ambar); }
+.hoy-card.ok .hoy-num { color: var(--verde); }
+
+.import-steps { display: flex; gap: 8px; margin: 0 0 16px; flex-wrap: wrap; }
+.import-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid var(--borde);
+  color: var(--texto-suave);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.import-step .n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #e5e7eb;
+  color: #374151;
+  font-size: var(--fs-xs);
+}
+.import-step.active { border-color: var(--azul); background: var(--azul-suave); color: var(--azul); }
+.import-step.active .n { background: var(--azul); color: #fff; }
+.import-step.done { color: var(--verde); border-color: #a7f3d0; background: var(--verde-suave); }
+.import-step.done .n { background: var(--verde); color: #fff; }
+@media (max-width: 768px) {
+  .import-steps { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .import-steps::-webkit-scrollbar { display: none; }
+  .import-step { flex: 0 0 auto; white-space: nowrap; }
+}
+
+.chat-suggestions { margin: 0 0 16px; }
+.chat-suggestions-title { font-size: 12px; color: var(--texto-suave); margin-bottom: 8px; }
+.suggestion-chip {
+  display: inline-block;
+  margin: 0 6px 6px 0;
+  padding: 7px 12px;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  background: #fff;
+  color: #374151;
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.suggestion-chip:hover { border-color: var(--azul); background: var(--azul-suave); color: var(--azul); }
+
 #chat-messages {
   flex: 1;
   overflow-y: auto;
@@ -830,6 +927,21 @@ body.spa { height: 100vh; }
 .tag-conf { background: #e8f5e9; color: var(--verde); }
 .tag-rejected { background: #ffebee; color: var(--rojo); }
 .tag-void { background: #f3f4f6; color: var(--texto-suave); }
+
+.revision-bulk {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: #fff;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+.revision-bulk label { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: #374151; cursor: pointer; }
+.revision-bulk .btn-success { padding: 7px 14px; font-size: 12.5px; }
 
 .revision-card {
   background: #fff;
@@ -1284,6 +1396,10 @@ body.spa { height: 100vh; }
   #capture-date-picker { flex: 1 1 auto; min-width: 0; max-width: 100%; }
 
   #chat-messages { padding: 12px 16px; flex: 1; min-height: 0; overflow-y: auto; }
+  .chat-hoy { padding: 10px 16px 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .chat-hoy::-webkit-scrollbar { display: none; }
+  .hoy-card { flex: 0 0 auto; min-width: 140px; }
+  .chat-company-chip { max-width: 140px; }
   .message {
     max-width: 95%;
     padding: 14px 16px;

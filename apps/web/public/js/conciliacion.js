@@ -10,6 +10,7 @@
 // suelta no lo necesita. Declararlo acá chocaría con core.js.
 
 const CONC_API = typeof API_URL === 'string' ? API_URL : '/api';
+const concMoney = (n) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** El panel se arma UNA vez: reabrirlo solo refresca cuentas e historial. */
 let conciliacionRenderizada = false;
@@ -364,12 +365,26 @@ function renderDetail(data) {
   detailEl.classList.remove('hidden');
 
   // Summary
+  const matchedRows = statement.rows.filter(r => r.status === 'MATCHED');
+  const unmatchedRows = statement.rows.filter(r => r.status !== 'MATCHED');
+  const montoConciliado = matchedRows.reduce((s, r) => s + Math.abs((Number(r.debit) || 0) - (Number(r.credit) || 0)), 0);
+  const montoPendiente = unmatchedRows.reduce((s, r) => s + Math.abs((Number(r.debit) || 0) - (Number(r.credit) || 0)), 0);
   document.getElementById('summary-cards').innerHTML = `
     <div class="summary-card ok"><div class="num">${summary.matched}</div><div class="label">Conciliados ✅</div></div>
     <div class="summary-card err"><div class="num">${summary.unmatched}</div><div class="label">Sin conciliar (extracto)</div></div>
     <div class="summary-card warn"><div class="num">${summary.unmatchedBookCount}</div><div class="label">Sin conciliar (libros)</div></div>
     <div class="summary-card"><div class="num">${summary.total}</div><div class="label">Filas del extracto</div></div>
   `;
+  const leyendaVieja = document.getElementById('conc-leyenda');
+  if (leyendaVieja) leyendaVieja.remove();
+  const leyenda = document.createElement('div');
+  leyenda.id = 'conc-leyenda';
+  leyenda.className = 'conc-leyenda';
+  leyenda.innerHTML = `
+    <span><i class="dot ok"></i>Conciliado: <strong>${concMoney(montoConciliado)}</strong></span>
+    <span><i class="dot err"></i>Pendiente en extracto: <strong>${concMoney(montoPendiente)}</strong></span>
+    <span><i class="dot warn"></i>Confianza &lt; 90 %: revisar el vínculo</span>`;
+  document.getElementById('summary-cards').after(leyenda);
 
   // El rango que se cargó (un PDF de varios meses se puede recortar por mes).
   const periodoEl = document.getElementById('periodo-extracto');
@@ -392,7 +407,6 @@ function renderDetail(data) {
     : '';
 
   // Matched
-  const matchedRows = statement.rows.filter(r => r.status === 'MATCHED');
   let mHtml = '';
   if (matchedRows.length === 0) {
     mHtml = '<tr><td colspan="6" style="text-align:center;color:#6b7280;padding:16px">No hay partidas conciliadas</td></tr>';
@@ -428,7 +442,6 @@ function renderDetail(data) {
   document.getElementById('matched-tbody').innerHTML = mHtml;
 
   // Unmatched bank
-  const unmatchedRows = statement.rows.filter(r => r.status !== 'MATCHED');
   let uHtml = '';
   if (unmatchedRows.length === 0) {
     uHtml = '<tr><td colspan="6" style="text-align:center;color:#6b7280;padding:16px">¡Todas las partidas conciliadas!</td></tr>';

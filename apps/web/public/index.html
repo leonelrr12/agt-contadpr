@@ -29,9 +29,9 @@
   <meta name="twitter:description" content="Agente contable con IA para Panamá. Facturas, asientos y reportes automatizados.">
   <meta name="twitter:image" content="https://contador507.com/og-image.png">
 
-  <link rel="stylesheet" href="styles.css?v=59">
+  <link rel="stylesheet" href="styles.css?v=60">
   <link rel="stylesheet" href="dialogos.css?v=1">
-  <link rel="stylesheet" href="conciliacion.css?v=3">
+  <link rel="stylesheet" href="conciliacion.css?v=4">
 </head>
 <body class="spa">
   <!-- Sprite de iconos del menú (stroke heredado de .nav-ico en styles.css) -->
@@ -172,7 +172,7 @@
       <header id="chat-header">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
           <div>
-            <h1>Agente Contable</h1>
+            <h1>Agente Contable <span id="chat-company-chip" class="chat-company-chip"></span></h1>
             <p class="subtitle">¿Qué deseas registrar hoy?</p>
           </div>
           <div id="capture-date-widget" style="display:flex;align-items:center;gap:8px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:10px 14px">
@@ -189,6 +189,7 @@
         </div>
       </header>
 
+      <div id="chat-hoy" class="chat-hoy hidden" aria-label="Resumen del día"></div>
       <div id="chat-messages" aria-live="polite" aria-relevant="additions text"></div>
 
       <div id="input-area">
@@ -336,6 +337,11 @@
             <p style="margin:4px 0 0 0;color:#6b7280;font-size:13px">Sube tu archivo CSV o Excel con transacciones históricas. La IA clasificará cada concepto.</p>
           </div>
         </div>
+        <div id="import-steps" class="import-steps" aria-label="Pasos de importación">
+          <div class="import-step active" data-step="1"><span class="n">1</span> Archivo</div>
+          <div class="import-step" data-step="2"><span class="n">2</span> Revisión</div>
+          <div class="import-step" data-step="3"><span class="n">3</span> Confirmar</div>
+        </div>
         <div id="import-inline-zone" style="border:2px dashed #d0d5dd;border-radius:12px;padding:32px 24px;text-align:center;background:#f9fafb;cursor:pointer;margin-bottom:16px">
           <div style="font-size:36px;margin-bottom:8px">📂</div>
           <h3 style="margin:0 0 8px 0;color:#1a1a2e">Arrastra tu archivo aquí o haz clic</h3>
@@ -479,6 +485,10 @@
             <input type="checkbox" id="revision-oneclick" style="cursor:pointer"> ⚡ Aprobar con 1-click
           </label>
         </div>
+        <div id="revision-bulk" class="revision-bulk hidden">
+          <label><input type="checkbox" id="revision-select-all" onchange="seleccionarTodosRevision(this.checked)"> Seleccionar todos</label>
+          <button id="revision-approve-selected" class="btn-success" onclick="aprobarSeleccionados()" disabled>✅ Aprobar seleccionados (0)</button>
+        </div>
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px">
           <p id="revision-subtitle" style="margin:0;color:#6b7280;font-size:13px">Asientos pendientes de revisión por el contador</p>
           <input type="search" id="revision-search" oninput="renderRevisionList()" placeholder="🔍 Filtrar por descripción, proveedor o cuenta..." style="padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12.5px;flex:0 1 320px;min-width:220px">
@@ -494,7 +504,7 @@
         <p style="margin:0 0 20px 0;color:#6b7280;font-size:13px">Reportes financieros, contables y de gestión para tu empresa</p>
         <div id="panel-tabs-informes" class="ui-tabs" style="margin-bottom:20px">
           <button class="panel-tab-btn ui-tab active" data-informe="diario" style="padding:8px 12px;background:none;cursor:pointer;font-weight:600;font-size:13px;">📋 Diario</button>
-          <button class="panel-tab-btn ui-tab" data-informe="balance" style="padding:8px 12px;background:none;cursor:pointer;font-weight:600;font-size:13px;">⚖️ Balance</button>
+          <button class="panel-tab-btn ui-tab" data-informe="balance" style="padding:8px 12px;background:none;cursor:pointer;font-weight:600;font-size:13px;" title="Débitos, créditos y saldo por cuenta, con el cuadre">⚖️ Balance de comprobación</button>
           <button class="panel-tab-btn ui-tab" data-informe="balance-general" style="padding:8px 12px;background:none;cursor:pointer;font-weight:600;font-size:13px;">📄 Balance General</button>
           <button class="panel-tab-btn ui-tab" data-informe="resultados" style="padding:8px 12px;background:none;cursor:pointer;font-weight:600;font-size:13px;">📊 Resultados</button>
           <button class="panel-tab-btn ui-tab" data-informe="flujo-caja" style="padding:8px 12px;background:none;cursor:pointer;font-weight:600;font-size:13px;">💵 Flujo de Caja</button>
@@ -737,18 +747,18 @@
   <script src="js/capture.js?v=75"></script>
   <script src="js/capture-qr.js?v=74"></script>
   <script src="js/chat.js?v=78"></script>
-  <script src="js/router.js?v=85"></script>
-  <script src="js/conciliacion.js?v=4"></script>
+  <script src="js/router.js?v=86"></script>
+  <script src="js/conciliacion.js?v=5"></script>
   <script src="js/admin.js?v=96"></script>
   <script src="js/ayuda.js?v=4"></script>
-  <script src="js/init.js?v=82"></script>
+  <script src="js/init.js?v=83"></script>
   <script src="js/panels-sidebar.js?v=75"></script>
-  <script src="js/import.js?v=99"></script>
+  <script src="js/import.js?v=100"></script>
   <script src="js/carga-inicial.js?v=3"></script>
-  <script src="js/auxiliares-revision.js?v=83"></script>
+  <script src="js/auxiliares-revision.js?v=84"></script>
   <script src="js/entry-modals.js?v=89"></script>
-  <script src="js/informes.js?v=105"></script>
-  <script src="js/terceros.js?v=9"></script>
+  <script src="js/informes.js?v=106"></script>
+  <script src="js/terceros.js?v=10"></script>
   <script src="js/terceros-import.js?v=2"></script>
   <script src="js/presupuestos.js?v=2"></script>
   <script src="js/borrador430.js?v=4"></script>

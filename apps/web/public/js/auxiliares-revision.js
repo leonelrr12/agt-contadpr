@@ -102,15 +102,75 @@ function renderRevisionList() {
   if (!revisionEntries.length) {
     el.innerHTML = '<div style="text-align:center;padding:48px;color:#059669;font-size:15px">✅ No hay asientos pendientes de revisión</div>';
     updateRevisionCount(0, 0);
+    actualizarSeleccionRevision();
     return;
   }
   if (!shown.length) {
     el.innerHTML = `<div style="text-align:center;padding:48px;color:#6b7280;font-size:14px">🔍 Sin coincidencias para «${escapeHtml(raw)}»<br><span style="font-size:12px">Prueba con otra palabra o borra el buscador</span></div>`;
     updateRevisionCount(0, revisionEntries.length);
+    actualizarSeleccionRevision();
     return;
   }
   el.innerHTML = shown.map(revisionEntryCard).join('');
   updateRevisionCount(shown.length, revisionEntries.length);
+  actualizarSeleccionRevision();
+}
+
+/** Refresca la barra de acciones masivas según los checkboxes visibles. */
+function actualizarSeleccionRevision() {
+  const checks = [...document.querySelectorAll('.rev-select')];
+  const marcados = checks.filter(c => c.checked);
+  const bulk = document.getElementById('revision-bulk');
+  if (bulk) bulk.classList.toggle('hidden', checks.length === 0);
+  const btn = document.getElementById('revision-approve-selected');
+  if (btn) {
+    btn.disabled = marcados.length === 0;
+    btn.textContent = marcados.length
+      ? `✅ Aprobar seleccionados (${marcados.length})`
+      : '✅ Aprobar seleccionados (0)';
+  }
+  const todos = document.getElementById('revision-select-all');
+  if (todos) {
+    todos.checked = checks.length > 0 && marcados.length === checks.length;
+    todos.indeterminate = marcados.length > 0 && marcados.length < checks.length;
+  }
+}
+
+function seleccionarTodosRevision(marcar) {
+  document.querySelectorAll('.rev-select').forEach(c => { c.checked = marcar; });
+  actualizarSeleccionRevision();
+}
+
+async function aprobarSeleccionados() {
+  const ids = [...document.querySelectorAll('.rev-select:checked')].map(c => c.dataset.id);
+  if (!ids.length) return;
+  const ok = await showConfirm(
+    `¿Aprobar ${ids.length} asiento(s)? Quedarán CONFIRMADOS y afectarán los saldos contables.`,
+    { title: 'Aprobar seleccionados', confirmText: `Sí, aprobar ${ids.length}` },
+  );
+  if (!ok) return;
+  const btn = document.getElementById('revision-approve-selected');
+  if (btn) { btn.disabled = true; btn.textContent = 'Aprobando...'; }
+  let aprobados = 0;
+  const errores = [];
+  for (const id of ids) {
+    try {
+      const res = await authFetch(`${API_URL}/journal/${id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'aprobar' }),
+      });
+      if (res.ok) { aprobados++; removeRevisionEntry(id); }
+      else {
+        const e = await res.json().catch(() => ({}));
+        errores.push(e.error || `No se pudo aprobar ${id.slice(0, 8)}`);
+      }
+    } catch { errores.push('Error de conexión'); }
+  }
+  if (errores.length) {
+    await showAlert(`Aprobados ${aprobados} de ${ids.length}.\n\n${errores.slice(0, 6).join('\n')}`);
+  }
+  actualizarSeleccionRevision();
 }
 
 /** Tarjeta de un asiento pendiente. */
@@ -137,6 +197,9 @@ function revisionEntryCard(e) {
         ${lineasHtml}
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#6b7280;cursor:pointer;justify-content:flex-end">
+          <input type="checkbox" class="rev-select" data-id="${e.id}" onchange="actualizarSeleccionRevision()" aria-label="Seleccionar asiento"> Seleccionar
+        </label>
         ${getUser()?.role === 'admin' || getUser()?.role === 'superadmin' ? `<button onclick="showEditEntryModal('${e.id}')" style="padding:6px 14px;font-size:12px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✏️ Editar</button>
         <button onclick="reviewCopy('${e.id}')" style="padding:6px 14px;font-size:12px;background:#475569;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">📋 Copiar</button>` : ''}
         <button onclick="reviewApprove('${e.id}')" style="padding:6px 14px;font-size:12px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;white-space:nowrap">✅ Aprobar</button>
@@ -176,7 +239,7 @@ function removeRevisionEntry(id) {
     // Sin tarjetas en pantalla se repinta el estado vacío: sin pendientes, o
     // sin coincidencias si el filtro dejó fuera a los que quedan.
     if (restantes === 0) renderRevisionList();
-    else updateRevisionCount(restantes, revisionEntries.length);
+    else { updateRevisionCount(restantes, revisionEntries.length); actualizarSeleccionRevision(); }
   }, 250);
 }
 

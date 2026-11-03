@@ -123,6 +123,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (user) {
     document.getElementById('sidebar-user-name').textContent = user.name;
+    const chip = document.getElementById('chat-company-chip');
+    if (chip && user.company?.name) {
+      chip.textContent = user.company.name;
+      chip.title = `Empresa activa: ${user.company.name}`;
+    }
     pintarSelectorEmpresa(user);
     // El rol y las empresas llegan con /auth/me (core.js), que puede resolver
     // después de este punto: cuando llega, se repinta.
@@ -162,7 +167,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const hora = new Date().getHours();
   const saludo = hora < 12 ? '¡Buenos días!' : hora < 19 ? '¡Buenas tardes!' : '¡Buenas noches!';
   addMessage(`${saludo} Soy tu agente contable. ¿Qué deseas registrar hoy?`, 'assistant');
-  addMessage('Puedes escribir algo como:\n• "Compré combustible por $40 con tarjeta"\n• "Vendí $250 en efectivo"\n• "Pagué la electricidad"\n• "Compra de mercancía por $100 con ITBMS a Distribuidora XYZ, crédito"\n• "Vendí $200 en efectivo con ITBMS"\n• "Pago de ITBMS por $150"', 'assistant');
+  pintarSugerenciasChat();
+  cargarChatHoy();
 
   // ── Inicializar date picker persistente ──
   const datePicker = document.getElementById('capture-date-picker');
@@ -177,4 +183,87 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+/* ── Inicio del chat: sugerencias y resumen del día ──
+ * La pantalla de arranque era solo un saludo y una lista de ejemplos en texto.
+ * Ahora el usuario ve el trabajo pendiente y puede entrar a las pantallas que
+ * más usa sin recorrer el menú. */
+
+const CHAT_SUGERENCIAS = [
+  'Compré combustible por $40 con tarjeta',
+  'Vendí $250 en efectivo',
+  'Pagué la electricidad',
+  'Compra de mercancía por $100 con ITBMS a Distribuidora XYZ, crédito',
+  'Pago de ITBMS por $150',
+];
+
+function pintarSugerenciasChat() {
+  const cont = document.getElementById('chat-messages');
+  if (!cont) return;
+  const div = document.createElement('div');
+  div.className = 'chat-suggestions';
+  const titulo = document.createElement('div');
+  titulo.className = 'chat-suggestions-title';
+  titulo.textContent = 'Prueba con un ejemplo (puedes editarlo antes de enviar):';
+  div.appendChild(titulo);
+  for (const texto of CHAT_SUGERENCIAS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'suggestion-chip';
+    btn.textContent = texto;
+    btn.addEventListener('click', () => usarSugerencia(texto));
+    div.appendChild(btn);
+  }
+  cont.appendChild(div);
+  cont.scrollTop = cont.scrollHeight;
+}
+
+function usarSugerencia(texto) {
+  showInput('escribir');
+  const input = document.getElementById('message-input');
+  if (!input) return;
+  input.value = texto;
+  input.focus();
+  input.setSelectionRange(texto.length, texto.length);
+}
+
+/** Navega a un panel como si se hubiera tocado su enlace del menú. */
+function irAPanel(view) {
+  const link = document.querySelector(`#sidebar-nav .nav-link[data-view="${view}"]`);
+  if (link) link.click();
+}
+
+async function cargarChatHoy() {
+  const el = document.getElementById('chat-hoy');
+  if (!el) return;
+  let pendientes = null;
+  try {
+    const res = await authFetch(`${API_URL}/journal/pendientes`);
+    if (res && res.ok) pendientes = (await res.json()).length;
+  } catch { /* sin datos: la tarjeta muestra "—" */ }
+
+  const cards = [
+    {
+      view: 'panel-revision',
+      num: pendientes === null ? '—' : pendientes,
+      label: 'Pendientes de revisión',
+      cls: pendientes ? 'alerta' : 'ok',
+    },
+    { view: 'panel-import', num: '📥', label: 'Importar movimientos', cls: '' },
+    { view: 'panel-conciliacion', num: '🏦', label: 'Conciliar banco', cls: '' },
+    { view: 'panel-informes', num: '📊', label: 'Ver informes', cls: '' },
+  ];
+  el.innerHTML = '';
+  for (const c of cards) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `hoy-card ${c.cls}`.trim();
+    btn.innerHTML = `<span class="hoy-num">${c.num}</span><span class="hoy-lbl">${c.label}</span>`;
+    btn.addEventListener('click', () => irAPanel(c.view));
+    el.appendChild(btn);
+  }
+  // Si el usuario ya se fue a un panel mientras cargaba, no reaparecer encima.
+  const chatVisible = !document.getElementById('chat-messages')?.classList.contains('hidden');
+  if (chatVisible) el.classList.remove('hidden');
+}
 

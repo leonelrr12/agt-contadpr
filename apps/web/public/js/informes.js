@@ -1,11 +1,17 @@
 // informes.js (12/14) — panel informes con tabs y export
 /* ── Panel: Informes (inline) ── */
+const INFORMES_TAB_KEY = 'c507-informe-tab';
+const INFORMES_TABS = ['diario', 'balance', 'balance-general', 'resultados', 'flujo-caja', 'dashboard', 'presupuestos', 'borrador430'];
+
 function loadPanelInformes() {
   document.getElementById('chat-messages').classList.add('hidden');
   document.getElementById('input-area').classList.add('hidden');
   document.getElementById('panel-informes-content').classList.remove('hidden');
-  // Activar tab Diario por defecto
-  clickInformeTab('diario');
+  // Recordar la última pestaña: antes cada entrada caía en Diario y se perdía
+  // el contexto de quien estaba revisando el 430 o el flujo de caja.
+  let guardado = null;
+  try { guardado = localStorage.getItem(INFORMES_TAB_KEY); } catch { /* sin storage */ }
+  clickInformeTab(INFORMES_TABS.includes(guardado) ? guardado : 'diario');
 }
 
 // Tabs de informes
@@ -22,10 +28,11 @@ let _currentInformeTab = 'diario';
 
 function clickInformeTab(informe) {
   const btns = document.querySelectorAll('#panel-tabs-informes button');
-  btns.forEach(b => b.classList.remove('active'));
+  btns.forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
   const active = document.querySelector(`#panel-tabs-informes button[data-informe="${informe}"]`);
-  if (active) active.classList.add('active');
+  if (active) { active.classList.add('active'); active.setAttribute('aria-selected', 'true'); }
   _currentInformeTab = informe;
+  try { localStorage.setItem(INFORMES_TAB_KEY, informe); } catch { /* sin storage */ }
   // Mostrar filtro de fecha solo para reportes que lo soportan
   // La barra de export vive DENTRO de #informes-date-filter, que las pestañas sin filtro
   // de fechas ocultan (`.hidden` es `display:none !important`). Presupuesto y el 430
