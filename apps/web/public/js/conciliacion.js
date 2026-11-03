@@ -84,7 +84,7 @@ function conciliacionHTML() {
         Si el extracto trae varios meses, pon el rango que quieres conciliar. Vacío = todo el archivo.
       </div>
     </div>
-    <div class="upload-zone" id="drop-zone">
+    <div class="upload-zone" id="drop-zone" role="button" tabindex="0" aria-label="Subir extracto bancario">
       <div class="upload-zone-icon">🏦</div>
       <h3>Arrastra tu extracto aquí o haz clic para seleccionar</h3>
       <p>Formatos aceptados: CSV/XLSX del banco o del estado de la tarjeta (Banco General, Banistmo, etc.) o el PDF digital del extracto</p>
@@ -195,6 +195,14 @@ function conciliacionHTML() {
 /** Drag & drop del extracto. Se engancha una sola vez, al armar el panel. */
 function eventosDropZone() {
   const dropZone = document.getElementById('drop-zone');
+  if (dropZone) {
+    dropZone.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        document.getElementById('file-input')?.click();
+      }
+    };
+  }
   const fileInput = document.getElementById('file-input');
   if (!dropZone || !fileInput) return;
   dropZone.addEventListener('click', () => fileInput.click());

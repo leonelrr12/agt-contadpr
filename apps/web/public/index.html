@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <title>Contador507 — Contabilidad Inteligente</title>
   <meta name="description" content="Agente contable inteligente para Panamá. Registra transacciones, genera asientos contables, OCR de facturas y reportes financieros.">
   <meta name="theme-color" content="#1565c0">
@@ -29,9 +30,41 @@
   <meta name="twitter:description" content="Agente contable con IA para Panamá. Facturas, asientos y reportes automatizados.">
   <meta name="twitter:image" content="https://contador507.com/og-image.png">
 
-  <link rel="stylesheet" href="styles.css?v=60">
+  <link rel="stylesheet" href="styles.css?v=61">
   <link rel="stylesheet" href="dialogos.css?v=1">
   <link rel="stylesheet" href="conciliacion.css?v=4">
+  <!-- Scripts con defer: descargan en paralelo y ejecutan después del parseo. -->
+  <script defer src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
+  <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script defer src="js/terminos.js?v=2"></script>
+  <script defer src="js/dialogos.js?v=2"></script>
+  <script defer src="js/core.js?v=85"></script>
+  <script defer src="js/capture.js?v=75"></script>
+  <script defer src="js/capture-qr.js?v=74"></script>
+  <script defer src="js/chat.js?v=78"></script>
+  <script defer src="js/router.js?v=86"></script>
+  <script defer src="js/conciliacion.js?v=6"></script>
+  <script defer src="js/admin.js?v=96"></script>
+  <script defer src="js/ayuda.js?v=4"></script>
+  <script defer src="js/init.js?v=83"></script>
+  <script defer src="js/panels-sidebar.js?v=75"></script>
+  <script defer src="js/import.js?v=100"></script>
+  <script defer src="js/carga-inicial.js?v=3"></script>
+  <script defer src="js/auxiliares-revision.js?v=84"></script>
+  <script defer src="js/entry-modals.js?v=89"></script>
+  <script defer src="js/informes.js?v=106"></script>
+  <script defer src="js/terceros.js?v=11"></script>
+  <script defer src="js/terceros-import.js?v=3"></script>
+  <script defer src="js/presupuestos.js?v=2"></script>
+  <script defer src="js/borrador430.js?v=4"></script>
+  <script defer src="js/tax-calendar.js?v=76"></script>
+  <script defer src="js/salud.js?v=74"></script>
+  <script defer src="js/reembolsos.js?v=9"></script>
+  <script defer src="js/email-facturas.js?v=8"></script>
+  <script defer src="js/despacho.js?v=5"></script>
+  <script defer src="js/empresa.js?v=12"></script>
+  <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script defer src="js/facturas.js?v=86"></script>
 </head>
 <body class="spa">
   <!-- Sprite de iconos del menú (stroke heredado de .nav-ico en styles.css) -->
@@ -342,7 +375,7 @@
           <div class="import-step" data-step="2"><span class="n">2</span> Revisión</div>
           <div class="import-step" data-step="3"><span class="n">3</span> Confirmar</div>
         </div>
-        <div id="import-inline-zone" style="border:2px dashed #d0d5dd;border-radius:12px;padding:32px 24px;text-align:center;background:#f9fafb;cursor:pointer;margin-bottom:16px">
+        <div id="import-inline-zone" role="button" tabindex="0" aria-label="Subir archivo de transacciones" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('import-inline-file').click()}" style="border:2px dashed #d0d5dd;border-radius:12px;padding:32px 24px;text-align:center;background:#f9fafb;cursor:pointer;margin-bottom:16px">
           <div style="font-size:36px;margin-bottom:8px">📂</div>
           <h3 style="margin:0 0 8px 0;color:#1a1a2e">Arrastra tu archivo aquí o haz clic</h3>
           <p style="margin:0;color:#6b7280;font-size:13px">Formatos aceptados: CSV, XLSX (máx. 10MB)</p>
@@ -614,7 +647,7 @@
             <h4>📋 Carga Inicial (Balance de Apertura)</h4>
             <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0">Sube el archivo con las columnas <strong>Categoria</strong> (Activo/Pasivo/Patrimonio), <strong>Concepto</strong> y <strong>Monto</strong>. Se crea <strong>un solo asiento BORRADOR</strong> de apertura. Este proceso se usa una sola vez por empresa: si ya existe una carga inicial, revisa antes de crear otra.</p>
             <div id="carga-inicial-existe-warn" class="hidden" style="background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:10px"></div>
-            <div id="carga-inicial-zone" style="border:2px dashed #d0d5dd;border-radius:12px;padding:24px;text-align:center;background:#f9fafb;cursor:pointer;margin-bottom:12px">
+            <div id="carga-inicial-zone" role="button" tabindex="0" aria-label="Subir archivo de balance inicial" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('carga-inicial-file').click()}" style="border:2px dashed #d0d5dd;border-radius:12px;padding:24px;text-align:center;background:#f9fafb;cursor:pointer;margin-bottom:12px">
               <div style="font-size:28px;margin-bottom:6px">📂</div>
               <h3 style="margin:0 0 6px 0;color:#1a1a2e;font-size:15px">Arrastra tu archivo aquí o haz clic</h3>
               <p style="margin:0;color:#6b7280;font-size:12px">Formatos aceptados: CSV, XLSX (máx. 10MB)</p>
@@ -739,36 +772,5 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script src="js/terminos.js?v=2"></script>
-  <script src="js/dialogos.js?v=2"></script>
-  <script src="js/core.js?v=85"></script>
-  <script src="js/capture.js?v=75"></script>
-  <script src="js/capture-qr.js?v=74"></script>
-  <script src="js/chat.js?v=78"></script>
-  <script src="js/router.js?v=86"></script>
-  <script src="js/conciliacion.js?v=5"></script>
-  <script src="js/admin.js?v=96"></script>
-  <script src="js/ayuda.js?v=4"></script>
-  <script src="js/init.js?v=83"></script>
-  <script src="js/panels-sidebar.js?v=75"></script>
-  <script src="js/import.js?v=100"></script>
-  <script src="js/carga-inicial.js?v=3"></script>
-  <script src="js/auxiliares-revision.js?v=84"></script>
-  <script src="js/entry-modals.js?v=89"></script>
-  <script src="js/informes.js?v=106"></script>
-  <script src="js/terceros.js?v=10"></script>
-  <script src="js/terceros-import.js?v=2"></script>
-  <script src="js/presupuestos.js?v=2"></script>
-  <script src="js/borrador430.js?v=4"></script>
-  <script src="js/tax-calendar.js?v=76"></script>
-  <script src="js/salud.js?v=74"></script>
-  <script src="js/reembolsos.js?v=9"></script>
-  <script src="js/email-facturas.js?v=8"></script>
-  <script src="js/despacho.js?v=5"></script>
-<script src="js/empresa.js?v=11"></script>
-  <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="js/facturas.js?v=85"></script>
 </body>
 </html>

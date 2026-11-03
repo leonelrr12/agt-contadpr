@@ -23,7 +23,7 @@ function loadPanelTercerosImport() {
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
           <button onclick="descargarPlantillaTerceros()" style="padding:7px 14px;font-size:12px;background:#1565c0;color:#fff;border:none;border-radius:6px;cursor:pointer">📄 Descargar plantilla</button>
         </div>
-        <div id="ti-zone" style="border:2px dashed #d0d5dd;border-radius:12px;padding:24px;text-align:center;background:#f9fafb;cursor:pointer;margin-bottom:12px;transition:background .15s">
+        <div id="ti-zone" role="button" tabindex="0" aria-label="Subir archivo de terceros" style="border:2px dashed #d0d5dd;border-radius:12px;padding:24px;text-align:center;background:#f9fafb;cursor:pointer;margin-bottom:12px;transition:background .15s">
           <div style="font-size:28px;margin-bottom:6px">📂</div>
           <h3 style="margin:0 0 6px 0;color:#1a1a2e;font-size:15px">Arrastra tu archivo aquí o haz clic</h3>
           <p style="margin:0;color:#6b7280;font-size:12px">CSV o XLSX · máx. 10 MB · encabezados en la primera fila</p>
@@ -56,6 +56,9 @@ function eventosTercerosImport(el) {
   const zone = el.querySelector('#ti-zone');
   const input = el.querySelector('#ti-file');
   zone.onclick = () => input.click();
+  zone.onkeydown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+  };
   zone.ondragover = (e) => { e.preventDefault(); zone.style.background = '#f0f7ff'; };
   zone.ondragleave = () => { zone.style.background = '#f9fafb'; };
   zone.ondrop = (e) => {

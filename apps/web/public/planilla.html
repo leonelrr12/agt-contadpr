@@ -3,13 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <meta name="theme-color" content="#0f172a">
   <title>Planilla — Contador507</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png">
   <link rel="manifest" href="/manifest.json">
-  <link rel="stylesheet" href="styles.css?v=18">
+  <link rel="stylesheet" href="styles.css?v=19">
   <link rel="stylesheet" href="dialogos.css?v=1">
   <style>
     .pl-container { max-width: 1280px; margin: 0 auto; padding: 24px; }
@@ -112,10 +113,10 @@
   <div id="pl-contenido"><div class="loading">Cargando…</div></div>
 
   <!-- Fuera de #pl-contenido: `render()` reemplaza ese innerHTML y se lo llevaría puesto. -->
-  <div id="pl-modal" class="hidden"></div>
+  <div id="pl-modal" class="hidden" role="dialog" aria-modal="true" aria-label="Detalle de la corrida"></div>
 </div>
 
-<script src="js/planilla-modulo.js?v=9"></script>
+<script src="js/planilla-modulo.js?v=10"></script>
 <script src="js/terminos.js?v=2"></script>
 <script>verificarTerminos();</script>
 <script>ayudaEnCabecera(document.querySelector('h1'), 'planilla');</script>

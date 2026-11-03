@@ -289,6 +289,9 @@ async function verEstadoTercero(tipo, id) {
   const overlay = document.createElement('div');
   overlay.className = 'app-dialog-overlay';
   overlay.id = 'tercero-estado-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', 'Estado de cuenta del tercero');
   overlay.innerHTML = `<div class="app-dialog" style="max-width:920px;max-height:90vh;overflow-y:auto">
     <div style="padding:28px;text-align:center;color:#6b7280;font-size:13px">Cargando estado de cuenta...</div>
   </div>`;
@@ -459,6 +462,9 @@ function abrirFusionTercero(tipo, id) {
   const overlay = document.createElement('div');
   overlay.className = 'app-dialog-overlay';
   overlay.id = 'tercero-fusion-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', 'Fusionar tercero');
   overlay.innerHTML = `<div class="app-dialog" style="max-width:760px;max-height:90vh;overflow-y:auto">
     <div style="font-weight:700;font-size:16px;margin-bottom:4px">🔀 Fusionar ${tipo.toLowerCase()}</div>
     <div style="font-size:12px;color:#6b7280;margin-bottom:12px">El registro actual <strong>${escapeHtml(origen.data.name || '—')}</strong> se eliminará; todo su historial pasa al maestro que elijas. El nombre y el RUC del maestro se conservan.</div>
@@ -606,6 +612,9 @@ function abrirTerceroModal(tipo, id) {
   const overlay = document.createElement('div');
   overlay.className = 'app-dialog-overlay';
   overlay.id = 'tercero-modal-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', 'Ficha del tercero');
   overlay.innerHTML = `<div class="app-dialog" style="max-width:720px;max-height:90vh;overflow-y:auto">
     <div style="font-weight:700;font-size:16px;margin-bottom:4px">${esEdicion ? '✏️ Editar' : '➕ Nuevo'} tercero</div>
     <div style="font-size:12px;color:#6b7280;margin-bottom:14px">El RUC, DV y la dirección se usan para facturar electrónicamente y para el Anexo DGI.</div>
