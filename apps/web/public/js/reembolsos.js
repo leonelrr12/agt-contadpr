@@ -362,7 +362,7 @@ function reembPintarDetalle() {
   if (sinJustificar > 0) {
     html += `<div class="reemb-aviso-rojo" style="margin-bottom:12px">
       🚨 <strong>Desembolso no justificado:</strong> ${sinJustificar} gasto(s) sin URL de DGI.
-      Confirmá con el empleado que son reales <strong>antes de reembolsar</strong>.
+      Confirma con el empleado que son reales <strong>antes de reembolsar</strong>.
     </div>`;
   }
 
@@ -487,7 +487,7 @@ async function reembolsosAbrirPago() {
       ${sinJustificar ? `
         <div class="reemb-aviso-rojo" style="margin:0 0 10px 0">
           🚨 <strong>${sinJustificar} gasto(s) sin URL de DGI.</strong>
-          Confirmá con ${escapeHtml(_reembDetalle.worker.nombre)} que son reales antes de reembolsar.
+          Confirma con ${escapeHtml(_reembDetalle.worker.nombre)} que son reales antes de reembolsar.
         </div>
         <label class="reemb-confirma">
           <input type="checkbox" id="reemb-confirma-empleado" onchange="document.getElementById('reemb-pago-confirmar').disabled = !this.checked">
@@ -516,7 +516,7 @@ async function reembolsosConfirmarPago() {
   const sinJustificar = seleccionadas.filter(f => !f.dgiUrl).length;
   const confirmado = !!document.getElementById('reemb-confirma-empleado')?.checked;
   if (sinJustificar > 0 && !confirmado) {
-    await showAlert('Hay gastos sin URL de DGI: confirmá con el empleado antes de reembolsar.');
+    await showAlert('Hay gastos sin URL de DGI: confirma con el empleado antes de reembolsar.');
     return;
   }
 

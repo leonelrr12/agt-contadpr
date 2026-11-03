@@ -574,7 +574,7 @@ function openVincularUsuario() {
 async function guardarVinculado(btn) {
   const email = document.getElementById('vu-email')?.value.trim();
   const role = document.getElementById('vu-rol')?.value;
-  if (!email) { await showAlert('Escribí el correo de su cuenta'); return; }
+  if (!email) { await showAlert('Escribe el correo de su cuenta'); return; }
   btn.disabled = true;
   try {
     const res = await authFetch(`${API_URL}/users/vincular`, {

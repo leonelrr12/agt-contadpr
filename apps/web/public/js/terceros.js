@@ -458,7 +458,7 @@ function abrirFusionTercero(tipo, id) {
     <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px">Buscar el maestro que se conserva</label>
     <input id="fusion-search" type="search" placeholder="Nombre, RUC o DV..." style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px;margin-bottom:8px">
     <div id="fusion-list" style="max-height:240px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:12px;background:#fff"></div>
-    <div id="fusion-preview" style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;font-size:12px;color:#374151;margin-bottom:12px">Elegí el maestro que se conserva.</div>
+    <div id="fusion-preview" style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;font-size:12px;color:#374151;margin-bottom:12px">Elige el maestro que se conserva.</div>
     <div class="app-dialog-buttons">
       <button class="app-dialog-btn secondary" id="fusion-cancel">Cancelar</button>
       <button class="app-dialog-btn primary" id="fusion-confirm" disabled>🔀 Fusionar</button>
@@ -500,7 +500,7 @@ function abrirFusionTercero(tipo, id) {
   const actualizarPreview = () => {
     const target = candidatos.find((t) => t.data.id === destinoId);
     if (!target) {
-      preview.textContent = 'Elegí el maestro que se conserva.';
+      preview.textContent = 'Elige el maestro que se conserva.';
       confirm.disabled = true;
       return;
     }
@@ -543,7 +543,7 @@ function abrirFusionTercero(tipo, id) {
           `⚠️ Los RUC son distintos:\n\n`
           + `${origen.data.name}: ${etiquetaRuc(origen.data)}\n`
           + `${target.data.name}: ${etiquetaRuc(target.data)}\n\n`
-          + '¿Confirmás que son el mismo tercero? Se conservará el RUC del maestro.',
+          + '¿Confirmas que son el mismo tercero? Se conservará el RUC del maestro.',
         );
         if (!ok2) {
           confirm.disabled = false;

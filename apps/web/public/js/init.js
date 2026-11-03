@@ -159,7 +159,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Cargar info de suscripción
   loadSubscriptionInfo();
 
-  addMessage('¡Buenos días! Soy tu agente contable. ¿Qué deseas registrar hoy?', 'assistant');
+  const hora = new Date().getHours();
+  const saludo = hora < 12 ? '¡Buenos días!' : hora < 19 ? '¡Buenas tardes!' : '¡Buenas noches!';
+  addMessage(`${saludo} Soy tu agente contable. ¿Qué deseas registrar hoy?`, 'assistant');
   addMessage('Puedes escribir algo como:\n• "Compré combustible por $40 con tarjeta"\n• "Vendí $250 en efectivo"\n• "Pagué la electricidad"\n• "Compra de mercancía por $100 con ITBMS a Distribuidora XYZ, crédito"\n• "Vendí $200 en efectivo con ITBMS"\n• "Pago de ITBMS por $150"', 'assistant');
 
   // ── Inicializar date picker persistente ──

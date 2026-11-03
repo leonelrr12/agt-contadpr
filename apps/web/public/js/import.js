@@ -2,6 +2,20 @@
 /* ── Panel: Importar (inline) ── */
 let importInlineFile = null;
 let importInlinePreview = null;
+/** id de cuenta → { code, name } para mostrar la cuenta DESTINO en el preview.
+ *  El endpoint de preview manda accountId, pero no el código ni el nombre. */
+let importAccountsById = null;
+
+async function cargarCuentasImport() {
+  if (importAccountsById) return importAccountsById;
+  try {
+    const res = await authFetch(`${API_URL}/accounts`);
+    if (!res.ok) return null;
+    const list = await res.json();
+    importAccountsById = new Map((Array.isArray(list) ? list : []).map(a => [a.id, a]));
+  } catch { importAccountsById = null; }
+  return importAccountsById;
+}
 
 /* ── Tipo de importación: transacciones / pagos a facturas ── */
 function importMode() {
@@ -45,6 +59,10 @@ function loadPanelImport() {
   document.getElementById('chat-messages').classList.add('hidden');
   document.getElementById('input-area').classList.add('hidden');
   document.getElementById('panel-import-content').classList.remove('hidden');
+  // El catálogo de cuentas se relee al entrar: así el preview nombra la cuenta
+  // destino aunque se haya creado/renombrado una cuenta en otra pestaña.
+  importAccountsById = null;
+  cargarCuentasImport();
   // Inicializar fecha por defecto
   const dateInput = document.getElementById('import-inline-date');
   if (!dateInput.value) dateInput.value = todayLocalStr();
@@ -111,6 +129,7 @@ async function handleImportInlineFile(file, verTodas = false) {
       if (radio) { radio.checked = true; applyImportModeUI(); }
       return handleImportInlineFile(file); // reprocesar en modo cobros
     }
+    await cargarCuentasImport();
     renderImportInlinePreview();
   } catch (e) { await showAlert('Error de conexión'); resetImportInline(); }
 }
@@ -189,9 +208,17 @@ function renderImportInlinePreview() {
     const problemRows = new Set(
       [...invalidRows.map(x => x.row), ...blockedByRow.keys()].filter(n => !omittedRows.has(n)),
     );
+    const okCount = Math.max(0, totalRows - problemRows.size - omittedRows.size);
     document.getElementById('import-inline-total').textContent = totalRows;
-    document.getElementById('import-inline-ok').textContent = Math.max(0, totalRows - problemRows.size - omittedRows.size);
+    document.getElementById('import-inline-ok').textContent = okCount;
     document.getElementById('import-inline-err').textContent = problemRows.size;
+    // Sin filas válidas no se puede ejecutar: antes el botón quedaba activo y el
+    // diálogo confirmaba el total del ARCHIVO, no las filas que se crearían.
+    btnExecute.disabled = okCount === 0;
+    btnExecute.textContent = okCount === 0 ? '⚠️ Nada que importar' : '✅ Importar transacciones';
+    btnExecute.title = okCount === 0
+      ? 'Todas las filas tienen errores o ya están cargadas; corrige el archivo y vuelve a subirlo.'
+      : '';
 
     // Aviso si hay incompletas más allá de la muestra de 20
     const beyond = invalidRows.filter(x => x.row > 20);
@@ -307,6 +334,14 @@ function renderImportInlinePreview() {
         }
       }
 
+      // La cuenta DESTINO del asiento. Si la clasificación devolvió accountId,
+      // se resuelve contra el catálogo; si no, se muestra el concepto como
+      // respaldo (nunca se hace pasar por nombre de cuenta).
+      const acc = conf?.accountId ? importAccountsById?.get(conf.accountId) : null;
+      const cuentaHtml = acc
+        ? `<span title="${escapeHtml(conf.concept || '')}">${escapeHtml(acc.code)} — ${escapeHtml(acc.name)}</span>`
+        : (conf ? `<span title="No se pudo resolver la cuenta; se muestra el concepto clasificado">${escapeHtml(conf.concept)}</span>` : '—');
+
       html += `<tr${rowCls}>
         <td>${i+1}</td><td>${r.date||'—'}</td><td>${escapeHtml(r.description||'')}</td>
         <td>${montoHtml}</td>
@@ -314,7 +349,7 @@ function renderImportInlinePreview() {
         <td>${bancoHtml}</td>
         <td>${escapeHtml(r.reference||'')}</td><td>${escapeHtml(r.ruc||'')}</td>
         <td>${escapeHtml(r.concept||'')}</td>
-        <td>${conf?escapeHtml(conf.concept):'—'}</td>
+        <td>${cuentaHtml}</td>
         <td>${conf?Math.round(conf.confidence*100)+'%':'—'}</td>
         <td>${omitida
           ? '<span style="color:#b45309;font-size:11px;font-weight:600" title="Ya está en el sistema con los mismos datos: se omite al importar">↩️ Ya cargada</span>'
@@ -338,6 +373,12 @@ function renderImportCobrosPreview() {
   document.getElementById('import-inline-total').textContent = totalRows;
   document.getElementById('import-inline-ok').textContent = okCount;
   document.getElementById('import-inline-err').textContent = errors.length;
+  const btnExecute = document.getElementById('import-inline-execute');
+  if (btnExecute) {
+    btnExecute.disabled = okCount === 0;
+    btnExecute.textContent = okCount === 0 ? '⚠️ Nada que aplicar' : '💰 Aplicar pagos';
+    btnExecute.title = okCount === 0 ? 'No hay pagos válidos para aplicar en este archivo.' : '';
+  }
 
   // Tarjetas extra: total abonado, saldadas, pendientes y ya aplicadas
   const summaryEl = document.getElementById('import-inline-summary');
@@ -482,12 +523,27 @@ async function executeImportInline() {
   }
 
   // ── Flujo normal ──
-  const ok = await showConfirm(`¿Importar ${total} transacciones?\n\n📅 Fecha: ${dateLabel}\n\n⚠️ Verifica la fecha. Los asientos se crearán como BORRADOR.`);
+  // El número que se confirma es el de filas que SÍ se van a crear, no el total
+  // del archivo (podía haber errores y filas ya cargadas).
+  const omitidas = new Set(importInlinePreview.omittedRows || []);
+  const problemas = new Set(
+    [...(importInlinePreview.invalidRows || []).map(x => x.row),
+     ...(importInlinePreview.blockedRows || []).map(b => b.row)]
+      .filter(n => !omitidas.has(n)),
+  );
+  const validas = Math.max(0, total - problemas.size - omitidas.size);
+  if (validas === 0) { await showAlert('No hay filas válidas para importar.'); return; }
+  let confirmMsg = `¿Importar ${validas} de ${total} transacciones?`;
+  if (validas < total) {
+    confirmMsg += `\n\nSe omitirán ${total - validas} fila(s): ${problemas.size} con errores o cuentas bloqueadas y ${omitidas.size} ya cargadas.`;
+  }
+  confirmMsg += `\n\n📅 Fecha: ${dateLabel}\n\n⚠️ Verifica la fecha. Los asientos se crearán como BORRADOR.`;
+  const ok = await showConfirm(confirmMsg);
   if (!ok) return;
 
   document.getElementById('import-inline-loading').classList.remove('hidden');
   document.getElementById('import-inline-actions').classList.add('hidden');
-  document.getElementById('import-inline-loading-text').textContent = `Importando ${total} transacciones...`;
+  document.getElementById('import-inline-loading-text').textContent = `Importando ${validas} transacciones...`;
 
   const formData = new FormData();
   formData.append('file', importInlineFile);

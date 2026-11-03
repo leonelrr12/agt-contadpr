@@ -65,15 +65,57 @@ function render() {
     .catch((err) => { el.innerHTML = `<div class="aviso">No se pudo cargar: ${esc(err.message)}</div>`; });
 }
 
-/** Recarga el catálogo y vuelve a pintar. El servidor es la única fuente de verdad. */
+/** Recarga el catálogo y vuelve a pintar. El servidor es la única fuente de verdad.
+ *  La API topa cada página en 200; antes se pedía una sola y la tabla mostraba
+ *  200 de 350 productos (los demás no se podían recibir, sacar ni ver en kardex).
+ *  Se recorren todas las páginas. */
 async function recargar() {
-  const data = await pedir(`${API_URL}/inventario/productos?pageSize=200`);
-  _invProductos = data.items || [];
-  _invTotales = data.totales || {};
-  return data;
+  const pageSize = 200;
+  let page = 1;
+  let totalPages = 1;
+  let total = 0;
+  let totales = {};
+  const items = [];
+  do {
+    const data = await pedir(`${API_URL}/inventario/productos?pageSize=${pageSize}&page=${page}`);
+    items.push(...(data.items || []));
+    total = data.total ?? items.length;
+    totalPages = data.totalPages || 1;
+    totales = data.totales || totales;
+    page++;
+  } while (page <= totalPages);
+  _invProductos = items;
+  _invTotales = totales;
+  return { items, total, totales };
 }
 
 let _invTotales = {};
+
+/** Evita doble clic en las acciones que mueven stock/asientos. El `dedupeKey`
+ *  por sí solo no bastaba: se generaba con Date.now() en cada clic, así que dos
+ *  clics enviaban dos claves distintas y podían duplicar stock y asiento. */
+let _invGuardando = false;
+function bloquearMientras(btn, texto) {
+  if (!btn) return () => {};
+  const anterior = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = texto;
+  return () => { btn.disabled = false; btn.textContent = anterior; };
+}
+
+/** Clave idempotente por formulario + contenido.
+ *  El doble clic se frena con el botón, pero un reintento tras una respuesta
+ *  perdida también tiene que ser seguro: mientras el formulario no cambie, la
+ *  clave es la misma y el servidor no duplica stock/asiento. Si el usuario
+ *  corrige un dato, el hash cambia y se permite un intento nuevo. */
+const _invSesion = { entrada: null, salida: null, toma: null, carga: null };
+function claveAccion(prefijo, payload) {
+  if (!_invSesion[prefijo]) _invSesion[prefijo] = Math.random().toString(36).slice(2, 8);
+  const s = JSON.stringify(payload);
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return `${prefijo}:${h}:${_invSesion[prefijo]}`;
+}
 
 // ── Existencias ─────────────────────────────────────────────────────────────
 
@@ -104,7 +146,7 @@ async function vistaExistencias() {
     <div style="overflow-x:auto"><table class="data-table">
       <thead><tr><th>Código</th><th>Producto</th><th class="num">Existencia</th><th class="num">Costo prom.</th><th class="num">P. Venta</th><th class="num">Margen</th><th class="num">Valor</th><th class="num">Mínimo</th><th>Estado</th></tr></thead>
       <tbody>${filas}</tbody>
-    </table></div>` : '<div class="card">Todavía no hay productos. Cargá el primero desde <code>POST /api/inventario/productos</code> o el formulario de alta.</div>'}
+    </table></div>` : '<div class="card">Todavía no hay productos. Carga el primero con el formulario de alta.</div>'}
     ${puedeEditar() ? formularioProducto() : ''}`;
 }
 
@@ -179,7 +221,7 @@ async function vistaEntradas() {
   <div class="card">
     <h3>⬇️ Entrada de mercancía</h3>
     <p class="nota" style="margin-top:0">Registra la compra y su asiento: <code>Debe Inventario</code> por el costo, y el pago contra banco, caja o proveedores. Es la <strong>única</strong> vía que debita la cuenta de inventario.</p>
-    ${_invProductos.length ? '' : '<div class="aviso">Primero creá un producto en la pestaña Existencias.</div>'}
+    ${_invProductos.length ? '' : '<div class="aviso">Primero crea un producto en la pestaña Existencias.</div>'}
 
     <div id="inv-lineas">${lineasHtml()}</div>
     <button class="btn btn-secondary btn-sm" onclick="agregarLinea()">+ Agregar producto</button>
@@ -207,7 +249,7 @@ async function vistaEntradas() {
       <div><label>&nbsp;</label><button class="btn btn-secondary" style="width:100%" onclick="previsualizar()">Ver el asiento</button></div>
     </div>
     <div id="en-preview"></div>
-    <div style="margin-top:12px"><button class="btn btn-primary" onclick="guardarEntrada()">Registrar entrada</button></div>
+    <div style="margin-top:12px"><button class="btn btn-primary" onclick="guardarEntrada(this)">Registrar entrada</button></div>
     <div class="nota">El asiento nace en <strong>borrador</strong>: lo revisa el contador antes de que afecte los informes. El ITBMS va aparte como crédito fiscal solo si la empresa lo declara; si no, sumalo al costo unitario.</div>
   </div>`;
 }
@@ -347,9 +389,10 @@ function previsualizar() {
   </div>`;
 }
 
-async function guardarEntrada() {
+async function guardarEntrada(btn) {
+  if (_invGuardando) return;
   const lineas = _invLineas.filter((l) => l.productId && l.cantidad > 0);
-  if (!lineas.length) return showAlert('Elegí al menos un producto con cantidad');
+  if (!lineas.length) return showAlert('Elige al menos un producto con cantidad');
 
   const cuerpo = {
     lineas,
@@ -357,13 +400,11 @@ async function guardarEntrada() {
     paymentMethod: document.getElementById('en-pago').value,
     itbmsAmount: Number(document.getElementById('en-itbms').value) || 0,
     referencia: document.getElementById('en-referencia').value.trim() || undefined,
-    // Clave por envío: si se hace doble clic, el segundo intento no duplica el stock.
-    dedupeKey: `entrada:${Date.now()}`,
   };
 
   const eligeProveedor = document.getElementById('en-proveedor-sel')?.value;
   if (cuerpo.paymentMethod === 'CREDITO' && !eligeProveedor) {
-    return showAlert('Una compra a crédito necesita proveedor: elegí uno de la lista o creá uno nuevo.');
+    return showAlert('Una compra a crédito necesita proveedor: elige uno de la lista o crea uno nuevo.');
   }
   try {
     const supplierId = await resolverProveedor();
@@ -371,7 +412,10 @@ async function guardarEntrada() {
   } catch (e) {
     return showAlert(e.message);
   }
+  cuerpo.dedupeKey = claveAccion('entrada', cuerpo);
 
+  _invGuardando = true;
+  const liberar = bloquearMientras(btn, 'Registrando...');
   try {
     const r = await pedir(`${API_URL}/inventario/entradas`, {
       method: 'POST',
@@ -380,10 +424,14 @@ async function guardarEntrada() {
     });
     const avisos = (r.avisos || []).length ? `\n\n${r.avisos.join('\n')}` : '';
     await showAlert(`Entrada registrada. Asiento ${r.asiento.id.slice(-6)} en borrador.${avisos}`);
+    _invSesion.entrada = null;
     _invLineas = [];
     render();
   } catch (e) {
     await showAlert(e.message);
+  } finally {
+    _invGuardando = false;
+    liberar();
   }
 }
 
@@ -416,7 +464,7 @@ async function vistaSalidas() {
     <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:12px">
       <input type="checkbox" id="sa-forzar"> Permitir dejar el stock en negativo (venta ya ocurrida sin mercancía cargada)
     </label>
-    <div style="margin-top:12px"><button class="btn btn-primary" onclick="guardarSalida()">Registrar salida</button></div>
+    <div style="margin-top:12px"><button class="btn btn-primary" onclick="guardarSalida(this)">Registrar salida</button></div>
   </div>
 
   ${_invProductos.length ? tomaFisicaHtml() : ''}`;
@@ -443,7 +491,7 @@ function tomaFisicaHtml() {
   return `
   <div class="card">
     <h3>🧮 Toma física</h3>
-    <p class="nota" style="margin-top:0">Contá el depósito y corregí lo que no coincida. Los productos que queden igual no generan nada.
+    <p class="nota" style="margin-top:0">Cuenta el depósito y corrige lo que no coincida. Los productos que queden igual no generan nada.
     Un solo asiento para toda la toma: los sobrantes al debe del inventario y los faltantes al haber.</p>
     <div style="overflow-x:auto;max-height:340px;overflow-y:auto">
       <table class="data-table">
@@ -455,18 +503,19 @@ function tomaFisicaHtml() {
       <div><label>Fecha</label><input id="tf-fecha" type="date" value="${hoy()}"></div>
       <div><label>Motivo</label><input id="tf-motivo" placeholder="Ej: toma física trimestral"></div>
     </div>
-    <div style="margin-top:12px"><button class="btn btn-primary" onclick="guardarTomaFisica()">Registrar diferencias</button></div>
+    <div style="margin-top:12px"><button class="btn btn-primary" onclick="guardarTomaFisica(this)">Registrar diferencias</button></div>
     <div class="nota">Un sobrante de un producto sin existencia previa necesita costo: no hay promedio del que heredar. Si aparece uno, el sistema lo rechaza con el nombre del producto.</div>
   </div>`;
 }
 
-async function guardarTomaFisica() {
+async function guardarTomaFisica(btn) {
+  if (_invGuardando) return;
   const campos = [...document.querySelectorAll('[data-contado]')];
   const conteos = campos
     .map((el) => ({ productId: el.dataset.contado, cantidadContada: Number(el.value) }))
     .filter((c) => Number.isFinite(c.cantidadContada));
 
-  if (!conteos.length) return showAlert('Completá al menos una cantidad');
+  if (!conteos.length) return showAlert('Completa al menos una cantidad');
 
   // Se avisa antes de mandar: si nada cambió, no tiene sentido generar un asiento.
   const distintos = conteos.filter((c) => {
@@ -474,48 +523,64 @@ async function guardarTomaFisica() {
     return p && Math.abs(c.cantidadContada - p.stockActual) > 0.0001;
   });
   if (!distintos.length) return showAlert('Todas las cantidades coinciden con el sistema: no hay nada que ajustar.');
-  if (!(await showConfirm(`Se van a ajustar ${distintos.length} producto(s). ¿Confirmás la toma física?`))) return;
+  if (!(await showConfirm(`Se van a ajustar ${distintos.length} producto(s). ¿Confirmas la toma física?`))) return;
 
+  const datos = {
+    conteos,
+    fecha: document.getElementById('tf-fecha').value || hoy(),
+    motivo: document.getElementById('tf-motivo').value.trim() || undefined,
+  };
+  datos.dedupeKey = claveAccion('toma', datos);
+
+  _invGuardando = true;
+  const liberar = bloquearMientras(btn, 'Registrando...');
   try {
     const r = await pedir(`${API_URL}/inventario/ajustes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        conteos,
-        fecha: document.getElementById('tf-fecha').value || hoy(),
-        motivo: document.getElementById('tf-motivo').value.trim() || undefined,
-        dedupeKey: `toma:${Date.now()}`,
-      }),
+      body: JSON.stringify(datos),
     });
     const avisos = (r.avisos || []).length ? `\n\n${r.avisos.join('\n')}` : '';
     await showAlert(`Toma física registrada: ${r.ajustados} producto(s) ajustado(s).\nAsiento ${r.asiento?.id.slice(-6) || '—'} en borrador.${avisos}`);
+    _invSesion.toma = null;
     render();
   } catch (e) {
     await showAlert(e.message);
+  } finally {
+    _invGuardando = false;
+    liberar();
   }
 }
 
-async function guardarSalida() {
+async function guardarSalida(btn) {
+  if (_invGuardando) return;
   const lineas = _invSalidas.filter((l) => l.productId && l.cantidad > 0);
-  if (!lineas.length) return showAlert('Elegí al menos un producto con cantidad');
+  if (!lineas.length) return showAlert('Elige al menos un producto con cantidad');
+  const datos = {
+    lineas,
+    fecha: document.getElementById('sa-fecha').value || hoy(),
+    motivo: document.getElementById('sa-motivo').value.trim() || undefined,
+    forzar: document.getElementById('sa-forzar').checked,
+  };
+  datos.dedupeKey = claveAccion('salida', datos);
+  _invGuardando = true;
+  const liberar = bloquearMientras(btn, 'Registrando...');
   try {
     const r = await pedir(`${API_URL}/inventario/salidas`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        lineas,
-        fecha: document.getElementById('sa-fecha').value || hoy(),
-        motivo: document.getElementById('sa-motivo').value.trim() || undefined,
-        forzar: document.getElementById('sa-forzar').checked,
-        dedupeKey: `salida:${Date.now()}`,
-      }),
+      body: JSON.stringify(datos),
     });
     const avisos = (r.avisos || []).length ? `\n\n${r.avisos.join('\n')}` : '';
     await showAlert(`Salida registrada. Asiento ${r.asiento.id.slice(-6)} en borrador.${avisos}`);
+    _invSesion.salida = null;
     _invSalidas = [];
     render();
   } catch (e) {
     await showAlert(e.message);
+  } finally {
+    _invGuardando = false;
+    liberar();
   }
 }
 
@@ -589,10 +654,10 @@ async function anularMovimiento(id) {
   });
   if (motivo === null) return;
   if (motivo.trim().length < 5) {
-    await showAlert('⚠️ Explicá el motivo (mínimo 5 caracteres).');
+    await showAlert('⚠️ Explica el motivo (mínimo 5 caracteres).');
     return;
   }
-  if (!(await showConfirm('Se revierte la operación completa: sus movimientos de kardex y su asiento. ¿Confirmás?'))) return;
+  if (!(await showConfirm('Se revierte la operación completa: sus movimientos de kardex y su asiento. ¿Confirmas?'))) return;
 
   try {
     const r = await pedir(`${API_URL}/inventario/movimientos/${id}/anular`, {
@@ -728,7 +793,7 @@ async function vistaCarga() {
   <div class="card">
     <h3>📥 Carga inicial de inventario</h3>
     <p class="nota" style="margin-top:0">
-      Subí el catálogo de <strong>mercancía de reventa</strong> con sus existencias. La materia prima y los
+      Sube el catálogo de <strong>mercancía de reventa</strong> con sus existencias. La materia prima y los
       insumos no van acá: son gasto y no llevan kardex.
       <br>Columnas: <code>SKU</code> (opcional), <code>Nombre</code>, <code>Existencia</code>,
       <code>Costo</code>, <code>Precio de Venta</code> (opcional). El precio va <strong>sin ITBMS</strong>.
@@ -755,7 +820,7 @@ async function vistaCarga() {
 
     <div style="margin-top:12px"><button class="btn btn-secondary" onclick="previsualizarCarga()">Ver qué va a entrar</button></div>
     <div class="nota">
-      Si el inventario <strong>ya está en el mayor</strong> —porque cargaste el balance de apertura— dejá "Sí":
+      Si el inventario <strong>ya está en el mayor</strong> —porque cargaste el balance de apertura— deja "Sí":
       la carga crea solo los movimientos del kardex, para que el kardex alcance al mayor en vez de duplicarlo.
     </div>
   </div>
@@ -765,7 +830,7 @@ async function vistaCarga() {
 async function previsualizarCarga() {
   const input = document.getElementById('ci-archivo');
   const el = document.getElementById('ci-resultado');
-  if (!input.files?.length) return showAlert('Elegí un archivo primero');
+  if (!input.files?.length) return showAlert('Elige un archivo primero');
 
   el.innerHTML = '<div class="loading">Leyendo el archivo…</div>';
   const fd = new FormData();
@@ -805,41 +870,45 @@ function htmlPreviewCarga(d) {
     <div class="summary-card"><div class="num">${money(s.valorTotal)}</div><div class="label">Valor de la carga</div></div>
   </div>
   ${d.duplicadas?.length ? `<div class="aviso">El archivo repite ${d.duplicadas.length} producto(s); sus existencias se sumaron en una sola fila: ${esc(d.duplicadas.slice(0, 5).join(', '))}${d.duplicadas.length > 5 ? '…' : ''}</div>` : ''}
-  ${s.conError ? '<div class="aviso">Las filas en rojo tienen errores y <strong>no se van a cargar</strong>. Corregí el archivo y volvé a subirlo, o cargá solo las válidas.</div>' : ''}
+  ${s.conError ? '<div class="aviso">Las filas en rojo tienen errores y <strong>no se van a cargar</strong>. Corrige el archivo y vuelve a subirlo, o carga solo las válidas.</div>' : ''}
   <div style="overflow-x:auto;max-height:400px;overflow-y:auto"><table class="data-table">
     <thead><tr><th>SKU</th><th>Producto</th><th class="num">Existencia</th><th class="num">Costo</th><th class="num">P. Venta</th><th class="num">Valor</th><th>Estado</th></tr></thead>
     <tbody>${filas}</tbody>
   </table></div>
   <div style="margin-top:12px">
-    <button class="btn btn-primary" onclick="ejecutarCarga()" ${puedeCargar ? '' : 'disabled'}>Cargar ${s.validas} producto(s)</button>
+    <button class="btn btn-primary" onclick="ejecutarCarga(this)" ${puedeCargar ? '' : 'disabled'}>Cargar ${s.validas} producto(s)</button>
   </div>
   <div class="nota">Los productos que ya existen suman la existencia a la que tenían. Todo queda con su movimiento de kardex fechado el día que elegiste.</div>`;
 }
 
-async function ejecutarCarga() {
-  if (!_invCargaPreview) return showAlert('Primero previsualizá el archivo');
+async function ejecutarCarga(btn) {
+  if (_invGuardando) return;
+  if (!_invCargaPreview) return showAlert('Primero previsualiza el archivo');
   const yaEnContabilidad = document.getElementById('ci-ya').value === '1';
   const contrapartida = document.getElementById('ci-contrapartida')?.value;
 
   if (!yaEnContabilidad && !contrapartida) {
-    return showAlert('Elegí la cuenta de contrapartida del asiento de apertura.');
+    return showAlert('Elige la cuenta de contrapartida del asiento de apertura.');
   }
   const validas = _invCargaPreview.filas.filter((f) => !f.errores.length);
+  const datos = {
+    filas: validas.map((f) => ({
+      sku: f.sku, nombre: f.nombre, cantidad: f.cantidad,
+      costoUnitario: f.costoUnitario, precioVenta: f.precioVenta,
+    })),
+    fecha: document.getElementById('ci-fecha').value || hoy(),
+    yaEnContabilidad,
+    cuentaContrapartidaId: yaEnContabilidad ? undefined : contrapartida,
+  };
+  datos.dedupeKey = claveAccion('carga', datos);
 
+  _invGuardando = true;
+  const liberar = bloquearMientras(btn, 'Cargando...');
   try {
     const r = await pedir(`${API_URL}/inventario/carga-inicial/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        filas: validas.map((f) => ({
-          sku: f.sku, nombre: f.nombre, cantidad: f.cantidad,
-          costoUnitario: f.costoUnitario, precioVenta: f.precioVenta,
-        })),
-        fecha: document.getElementById('ci-fecha').value || hoy(),
-        yaEnContabilidad,
-        cuentaContrapartidaId: yaEnContabilidad ? undefined : contrapartida,
-        dedupeKey: `carga-inicial:${Date.now()}`,
-      }),
+      body: JSON.stringify(datos),
     });
     await showAlert(
       `Cargados ${r.creados} producto(s) nuevo(s) y actualizados ${r.actualizados}.\n` +
@@ -847,12 +916,16 @@ async function ejecutarCarga() {
       (r.asiento ? `\nAsiento de apertura ${r.asiento.id.slice(-6)} en borrador.` : '\nSin asiento: el kardex alcanzó al mayor.') +
       (r.avisos?.length ? `\n\n${r.avisos.join('\n')}` : ''),
     );
+    _invSesion.carga = null;
     _invCargaPreview = null;
     _invTab = 'existencias';
     document.querySelectorAll('.inv-tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === 'existencias'));
     render();
   } catch (e) {
     await showAlert(e.message);
+  } finally {
+    _invGuardando = false;
+    liberar();
   }
 }
 

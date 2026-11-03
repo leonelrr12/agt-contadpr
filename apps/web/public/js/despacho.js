@@ -101,7 +101,7 @@ function despachoDato(valor, etiqueta, alerta) {
 
 function despachoHTML(empresas, actualId) {
   if (!empresas.length) {
-    return '<div class="empty" style="padding:32px;text-align:center">No tenés acceso a ninguna empresa.</div>';
+    return '<div class="empty" style="padding:32px;text-align:center">No tienes acceso a ninguna empresa.</div>';
   }
 
   const tarjetas = empresas.map((e) => {
@@ -192,7 +192,7 @@ function openCrearEmpresa(misEmpresas = []) {
     <input id="ce-ruc" placeholder="1555-1234-5678" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;box-sizing:border-box;font-size:13px">
     <label style="font-size:11px;color:#6b7280;display:block;margin:8px 0 2px">Copiar el plan de cuentas y los conceptos de</label>
     <select id="ce-plantilla" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px">${opciones}</select>
-    <div style="font-size:11px;color:#6b7280;margin-top:4px">Elegí una empresa tuya si querés que este cliente nazca con tu mismo catálogo.</div>
+    <div style="font-size:11px;color:#6b7280;margin-top:4px">Elige una empresa tuya si quieres que este cliente nazca con tu mismo catálogo.</div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
       <button class="app-dialog-btn" onclick="this.closest('.app-dialog-overlay').remove()">Cancelar</button>
       <button class="app-dialog-btn primary" onclick="guardarEmpresaNueva(this)">🏢 Crear y entrar</button>
@@ -205,7 +205,7 @@ async function guardarEmpresaNueva(btn) {
   const nombre = document.getElementById('ce-nombre')?.value.trim();
   const taxId = document.getElementById('ce-ruc')?.value.trim() || null;
   const plantillaCompanyId = document.getElementById('ce-plantilla')?.value || null;
-  if (!nombre) { await showAlert('Poné el nombre de la empresa'); return; }
+  if (!nombre) { await showAlert('Pon el nombre de la empresa'); return; }
   btn.disabled = true;
   btn.textContent = 'Creando…';
   try {

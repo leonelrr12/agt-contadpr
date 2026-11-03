@@ -454,12 +454,19 @@ function closeModal() {
   document.getElementById('quick-actions').classList.remove('hidden');
 }
 
-async function confirmTransaction() {
-  const result = pendingResult;
+let confirmingTransaction = false;
+
+async function confirmTransaction(resultOverride = null) {
+  if (confirmingTransaction) return;
+  const result = resultOverride || pendingResult;
+  if (!result) return;
   // Guardar selectedEntityId antes de que closeModal lo borre
   const selectedEntityId = dialogContext?.selectedEntityId || null;
   closeModal();
-  addMessage('✅ Transacción confirmada. Registrando...', 'assistant');
+  confirmingTransaction = true;
+  const sendBtn = document.getElementById('send-btn');
+  if (sendBtn) sendBtn.disabled = true;
+  addMessage('⏳ Registrando la transacción...', 'assistant');
 
   try {
     // Si el usuario seleccionó una entidad existente, pasar el ID
@@ -478,7 +485,7 @@ async function confirmTransaction() {
       if (data.autoCreated) {
         const label = data.autoCreated.type.includes('nuevo') ? '✨ Nuevo' : '📋 Existente';
         const entity = data.autoCreated.type.startsWith('cliente') ? 'cliente' : 'proveedor';
-        msg += `\n\n${label} ${entity}: **${data.autoCreated.name}** → /${entity}s.html`;
+        msg += `\n\n${label} ${entity}: **${data.autoCreated.name}** (revísalo en Terceros)`;
       }
       addMessage(msg, 'assistant');
       loadSubscriptionInfo(); // Actualizar contador de movimientos
@@ -496,12 +503,37 @@ async function confirmTransaction() {
       }
     }
   } catch (err) {
-    simulateConfirm();
+    // Antes acá se llamaba a simulateConfirm(), que anunciaba "registrada
+    // exitosamente" sin haber hablado con el servidor. El usuario creía que el
+    // asiento existía. Ahora se dice la verdad y se ofrece reintentar con el
+    // mismo payload.
+    addMessage('❌ No se pudo conectar con el servidor. **La transacción NO se registró.**', 'assistant');
+    addRetryConfirmation(result);
+  } finally {
+    confirmingTransaction = false;
+    if (sendBtn) sendBtn.disabled = false;
+    dialogContext = null;
+    pendingResult = null;
+    document.getElementById('quick-actions').classList.remove('hidden');
   }
+}
 
-  dialogContext = null;
-  pendingResult = null;
-  document.getElementById('quick-actions').classList.remove('hidden');
+/** Ofrece reintentar la confirmación sin volver a escribir la transacción. */
+function addRetryConfirmation(result) {
+  const container = document.getElementById('chat-messages');
+  if (!container) return;
+  const div = document.createElement('div');
+  div.className = 'message assistant';
+  div.innerHTML = '<div>Tu transacción sigue lista. Puedes reintentar sin volver a escribirla.</div>';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn-primary';
+  btn.textContent = '🔁 Reintentar';
+  btn.style.cssText = 'margin-top:8px;padding:8px 16px;font-size:13px';
+  btn.onclick = () => { btn.disabled = true; confirmTransaction(result); };
+  div.appendChild(btn);
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
 }
 
 function addUndoButton(entryId) {
@@ -580,10 +612,6 @@ async function anularEntry(id, btn) {
       if (btn) btn.remove();
     }
   });
-}
-
-function simulateConfirm() {
-  addMessage(`✅ **Transacción registrada exitosamente**\n\nAsiento registrado en el Libro Diario.`, 'assistant');
 }
 
 function editTransaction() {

@@ -208,6 +208,7 @@
     <div class="register-fields" id="register-fields">
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0">
       <p style="font-size:14px;font-weight:600;color:#1a1a2e;margin-bottom:10px">Registrar nueva empresa</p>
+      <p id="register-plan-note" style="display:none;font-size:12px;color:#0369a1;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:8px 10px;margin-bottom:10px"></p>
       <form id="register-form" onsubmit="handleRegister(event)">
         <div class="form-group">
           <label for="reg-name">Tu nombre</label>
@@ -313,6 +314,34 @@
       hideError();
     }
 
+    /**
+     * Los CTA de la vitrina ("Comenzar Gratis", "Probar 14 días", "Elegir Plan")
+     * llegan a login.html?plan=…#register. Antes el hash se ignoraba y el visitante
+     * caía en el formulario de login: el alta quedaba oculta y el plan se perdía.
+     */
+    function abrirAltaSiCorresponde() {
+      const params = new URLSearchParams(window.location.search);
+      const plan = (params.get('plan') || '').trim();
+      const fields = document.getElementById('register-fields');
+      if (!fields) return;
+      if (window.location.hash === '#register' && !fields.classList.contains('show')) {
+        toggleRegister();
+      }
+      const note = document.getElementById('register-plan-note');
+      if (note && plan) {
+        note.textContent = `Plan elegido: ${plan}. Al crear la empresa puedes activarlo; el registro no hace el cobro.`;
+        note.style.display = 'block';
+      }
+      if (window.location.hash === '#register') {
+        const first = document.getElementById('reg-name');
+        if (first) setTimeout(() => first.focus(), 60);
+      }
+    }
+    abrirAltaSiCorresponde();
+    if (typeof window.addEventListener === 'function') {
+      window.addEventListener('hashchange', abrirAltaSiCorresponde);
+    }
+
     function saveAuth(data) {
       localStorage.setItem('agt_token', data.token);
       localStorage.setItem('agt_user', JSON.stringify(data.user));
@@ -372,7 +401,7 @@
           // El correo que ya tiene cuenta es el caso normal de alguien que quiere
           // una SEGUNDA empresa: no se registra de nuevo, entra y la crea adentro.
           const msg = res.status === 409
-            ? 'Ese correo ya tiene cuenta. Entrá con él y creá la empresa desde «🏢 Mis empresas» — así queda en la misma cuenta.'
+            ? 'Ese correo ya tiene cuenta. Entra con él y crea la empresa desde «🏢 Mis empresas» — así queda en la misma cuenta.'
             : (data.error || 'Error al registrar');
           showError(msg);
           btn.disabled = false;

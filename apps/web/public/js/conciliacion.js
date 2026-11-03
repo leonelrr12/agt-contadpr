@@ -80,7 +80,7 @@ function conciliacionHTML() {
         <input type="date" id="fecha-hasta">
       </div>
       <div style="grid-column:1/-1;font-size:12px;color:#6b7280;margin-top:-4px">
-        Si el extracto trae varios meses, poné el rango que querés conciliar. Vacío = todo el archivo.
+        Si el extracto trae varios meses, pon el rango que quieres conciliar. Vacío = todo el archivo.
       </div>
     </div>
     <div class="upload-zone" id="drop-zone">
@@ -125,7 +125,7 @@ function conciliacionHTML() {
 
     <div class="section">
       <div class="section-title section-book">📋 Sin Conciliar — Libros Contables (no en extracto)</div>
-      <div style="font-size:12px;color:#6b7280;margin-bottom:8px">Si el movimiento está en otro banco, caja o en «Por Clasificar», buscá desde la fila del extracto: <b>Vincular → «Buscar en otros bancos»</b>.</div>
+      <div style="font-size:12px;color:#6b7280;margin-bottom:8px">Si el movimiento está en otro banco, caja o en «Por Clasificar», busca desde la fila del extracto: <b>Vincular → «Buscar en otros bancos»</b>.</div>
       <div style="overflow-x:auto">
         <table class="data-table" id="book-table">
           <thead><tr><th>Fecha</th><th>Descripción</th><th>Cuenta</th><th>Débito</th><th>Crédito</th></tr></thead>
@@ -280,7 +280,7 @@ async function loadHistory() {
 
 async function uploadFile(file) {
   const bankAccountId = document.getElementById('bank-account-select').value;
-  if (!bankAccountId) { showAlert('Seleccioná primero la cuenta bancaria o la tarjeta a conciliar.'); return; }
+  if (!bankAccountId) { showAlert('Selecciona primero la cuenta bancaria o la tarjeta a conciliar.'); return; }
 
   // Rango opcional: si el extracto trae varios meses, se guarda y concilia solo
   // ese recorte. Vacío en las dos = todo el archivo (comportamiento de siempre).
@@ -313,7 +313,7 @@ async function uploadFile(file) {
       // corriendo aunque el navegador se rinda, así que el extracto pudo
       // haberse guardado igual.
       throw new Error(
-        `El servidor tardó en responder (HTTP ${res.status}). Revisá la lista de conciliaciones antes de volver a subir: el extracto puede haberse guardado igual.`,
+        `El servidor tardó en responder (HTTP ${res.status}). Revisa la lista de conciliaciones antes de volver a subir: el extracto puede haberse guardado igual.`,
       );
     }
     const data = await res.json();
@@ -368,7 +368,7 @@ function renderDetail(data) {
     <div class="summary-card ok"><div class="num">${summary.matched}</div><div class="label">Conciliados ✅</div></div>
     <div class="summary-card err"><div class="num">${summary.unmatched}</div><div class="label">Sin conciliar (extracto)</div></div>
     <div class="summary-card warn"><div class="num">${summary.unmatchedBookCount}</div><div class="label">Sin conciliar (libros)</div></div>
-    <div class="summary-card"><div class="num">${summary.total}</div><div class="label">Total extracto</div></div>
+    <div class="summary-card"><div class="num">${summary.total}</div><div class="label">Filas del extracto</div></div>
   `;
 
   // El rango que se cargó (un PDF de varios meses se puede recortar por mes).
@@ -388,7 +388,7 @@ function renderDetail(data) {
   const pocas = summary.total >= 10 && summary.matched / summary.total < 0.2;
   aviso.className = pocas ? 'section-title section-unmatched' : 'hidden';
   aviso.textContent = pocas
-    ? `⚠️ Solo ${summary.matched} de ${summary.total} filas conciliaron. Revisá que la cuenta elegida sea la de ESTE archivo: el match es solo contra los asientos de esa cuenta.`
+    ? `⚠️ Solo ${summary.matched} de ${summary.total} filas conciliaron. Revisa que la cuenta elegida sea la de ESTE archivo: el match es solo contra los asientos de esa cuenta.`
     : '';
 
   // Matched
@@ -407,12 +407,17 @@ function renderDetail(data) {
       const etiqueta = partes.length > 1
         ? `<span class="badge badge-neutral">${partes.length} partidas</span>`
         : (r.matchedEntry ? `<span style="font-size:11px">${r.matchedEntry.id.slice(0, 8)}...</span>` : '—');
+      // La confianza del matcher antes era siempre verde, aunque el par pudiera
+      // haberse armado al 50 %. El color ahora dice si hay que revisar.
+      const confPct = Math.round((Number(r.matchConfidence) || 0) * 100);
+      const confCls = confPct >= 90 ? 'badge-ok' : confPct >= 70 ? 'badge-warn' : 'badge-err';
+      const confTitle = confPct >= 90 ? 'Coincidencia alta' : 'Coincidencia dudosa: revisa el vínculo';
       mHtml += `<tr>
         <td>${new Date(r.date).toLocaleDateString('es-PA')}</td>
         <td>${esc(r.description)}</td>
         <td>${r.debit > 0 ? '$' + r.debit.toFixed(2) : r.credit > 0 ? '$' + r.credit.toFixed(2) : '—'}</td>
         <td>${anulado ? '<span class="badge badge-err" title="El asiento conciliado fue anulado: el vínculo se mantiene, pero conviene desvincular y re-conciliar contra el asiento vigente">anulado</span> ' : ''}${etiqueta}</td>
-        <td><span class="badge badge-ok">${(r.matchConfidence * 100).toFixed(0)}%</span></td>
+        <td><span class="badge ${confCls}" title="${confTitle}">${confPct}%</span></td>
         <td style="white-space:nowrap">
           <button class="btn btn-secondary btn-sm" onclick="abrirVinculador('${r.id}')">🔗 Partidas</button>
           <button class="btn btn-secondary btn-sm" onclick="unmatchRow('${r.id}')">Desvincular</button>
@@ -510,7 +515,7 @@ async function rematchStatement() {
     if (r.vinculos) partes.push(`${r.vinculos} vínculo(s) reconstruido(s)`);
     showAlert(partes.length
       ? `✅ Listo: ${partes.join(' · ')}.`
-      : '🔎 Sin cambios: no quedaron filas nuevas por conciliar.<br><br>Si esperabas más, revisá que la cuenta elegida sea la del archivo (el match es solo contra los asientos de esa cuenta).');
+      : '🔎 Sin cambios: no quedaron filas nuevas por conciliar.<br><br>Si esperabas más, revisa que la cuenta elegida sea la del archivo (el match es solo contra los asientos de esa cuenta).');
   } catch (e) {
     showAlert('No se pudo volver a conciliar: ' + esc(e.message));
   } finally {
@@ -541,6 +546,11 @@ async function eliminarExtracto() {
 }
 
 async function unmatchRow(rowId) {
+  const ok = await showConfirm(
+    '¿Desvincular esta fila del extracto? Se quita el vínculo con la(s) partida(s) del libro; el asiento no se modifica.',
+    { title: 'Desvincular fila', confirmText: 'Sí, desvincular' },
+  );
+  if (!ok) return;
   try {
     const res = await authFetch(`${CONC_API}/reconcile/${currentStatement.id}/match`, {
       method: 'POST',
@@ -815,6 +825,11 @@ async function guardarVinculo() {
 
 async function quitarVinculo() {
   if (!vinculando) return;
+  const ok = await showConfirm(
+    '¿Quitar TODOS los vínculos de esta fila? Se sueltan todas las partidas del libro vinculadas a este movimiento del banco.',
+    { title: 'Quitar vínculo', confirmText: 'Sí, quitar todos' },
+  );
+  if (!ok) return;
   const rowId = vinculando.id;
   try {
     const res = await authFetch(`${CONC_API}/reconcile/${currentStatement.id}/match`, {
@@ -861,13 +876,13 @@ function llenarContrapartidas(filtro = '') {
   const cuentas = cuentasParaElegir(currentStatement?.bankAccountId || null).filter(a =>
     !q || String(a.code).toLowerCase().includes(q) || String(a.name).toLowerCase().includes(q));
 
-  // La opción vacía solo va sin filtro: es el "todavía no elegí".
-  const opciones = (q ? [] : ['<option value="">— elegí una cuenta —</option>'])
+  // La opción vacía solo va sin filtro: es el "todavía no elige".
+  const opciones = (q ? [] : ['<option value="">— elige una cuenta —</option>'])
     .concat(cuentas.map(a => `<option value="${a.id}">${esc(a.code)} — ${esc(a.name)}${a.requiresAnexo ? ' · 📎 Anexo' : ''}</option>`));
   select.innerHTML = opciones.join('') || '<option value="">Sin cuentas que coincidan</option>';
 
   // Lo elegido se conserva mientras siga en la lista (el filtro se escribe después
-  // de elegir): si desapareció, la lista vuelve a "elegí una cuenta".
+  // de elegir): si desapareció, la lista vuelve a "elige una cuenta".
   select.value = cuentas.some(a => a.id === previo) ? previo : '';
   const elegida = select.selectedOptions[0];
   if (elegida) elegida.scrollIntoView({ block: 'nearest' });
@@ -898,9 +913,9 @@ function actualizarRestriccionAnexo() {
   aviso.className = anexo ? 'aviso-anexo' : 'aviso-anexo hidden';
   aviso.innerHTML = anexo
     ? `📎 <b>${esc(anexo.code)} — ${esc(anexo.name)}</b> lleva Anexo DGI: el asiento necesita Nombre, RUC y N° de factura, y este formulario no los pide. ` +
-      'Para afectar esa cuenta, creá el asiento desde ' +
+      'Para afectar esa cuenta, crea el asiento desde ' +
       '<button type="button" class="conc-link" onclick="irARevisionDesdeConciliacion()">Revisión → ➕ Asiento Manual</button>' +
-      ' y después vinculá la fila con 🔗 Vincular.'
+      ' y después vincula la fila con 🔗 Vincular.'
     : '';
   const boton = document.getElementById('e-crear');
   if (boton) boton.disabled = !!anexo;
@@ -966,12 +981,12 @@ async function crearAsientoDesdeFila() {
   const bancoId = currentStatement?.bankAccountId || null;
   const contrapartida = document.getElementById('e-contrapartida').value;
   if (!bancoId) { showAlert('No pude identificar la cuenta del extracto.'); return; }
-  if (!contrapartida) { showAlert('Elegí la cuenta de la contrapartida.'); return; }
+  if (!contrapartida) { showAlert('Elige la cuenta de la contrapartida.'); return; }
   if (contrapartida === bancoId) { showAlert('La contrapartida no puede ser la cuenta del extracto.'); return; }
   // El botón ya queda deshabilitado con el aviso; esto cubre el submit por Enter.
   const anexo = cuentaConAnexo([contrapartida, bancoId]);
   if (anexo) {
-    showAlert(`📎 La cuenta ${esc(anexo.code)} — ${esc(anexo.name)} lleva Anexo DGI. Creá el asiento desde Revisión → ➕ Asiento Manual.`);
+    showAlert(`📎 La cuenta ${esc(anexo.code)} — ${esc(anexo.name)} lleva Anexo DGI. Crea el asiento desde Revisión → ➕ Asiento Manual.`);
     return;
   }
 

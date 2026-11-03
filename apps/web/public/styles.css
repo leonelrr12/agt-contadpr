@@ -657,6 +657,47 @@ body.spa { height: 100vh; }
   line-height: 16px;
 }
 
+/* Estados de datos: las variantes viven acá, no dentro de un panel.
+   Antes `.badge-ok`/`.badge-err` solo existían con scope de Conciliación
+   (conciliacion.css), así que fuera de ese panel heredaban el rojo de `.badge`
+   y un recurrente ACTIVO se veía como error. */
+.badge-ok { background: #e8f5e9; color: var(--verde); }
+.badge-warn { background: #fff3e0; color: #e65100; }
+.badge-err { background: #ffebee; color: var(--rojo); }
+.badge-neutral { background: #f3f4f6; color: var(--texto-suave); }
+
+/* Estado vacío / error de carga. Se usa en 39 lugares (informes, terceros,
+   reembolsos, administración…), pero la clase no estaba definida en ningún CSS
+   global: se veía como texto pelado arriba a la izquierda. */
+.empty {
+  text-align: center;
+  padding: 32px 20px;
+  color: var(--texto-suave);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.empty .btn, .empty button { margin-top: 12px; }
+
+/* Estado de asiento (equivalente a .pildora, que nació después de statusTag).
+   `core.js` emite `.tag tag-*` y no había ninguna regla: el estado del Diario
+   salía como texto plano. */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.tag::before { content: ''; width: 5px; height: 5px; border-radius: 999px; background: currentColor; flex: 0 0 auto; }
+.tag-draft { background: #fff3e0; color: #e65100; }
+.tag-conf { background: #e8f5e9; color: var(--verde); }
+.tag-rejected { background: #ffebee; color: var(--rojo); }
+.tag-void { background: #f3f4f6; color: var(--texto-suave); }
+
 .revision-card {
   background: #fff;
   border: 1px solid var(--borde);

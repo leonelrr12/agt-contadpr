@@ -44,7 +44,7 @@
       <div class="trm-card" role="dialog" aria-modal="true" aria-labelledby="trm-titulo">
         <h2 id="trm-titulo">Actualizamos los Términos y Condiciones</h2>
         <p>Para seguir usando Contador507 necesitamos tu aceptación de la versión vigente
-           (<strong>${esc(terms && terms.currentVersion)}</strong>). Podés leer los documentos completos antes de aceptar:</p>
+           (<strong>${esc(terms && terms.currentVersion)}</strong>). Puedes leer los documentos completos antes de aceptar:</p>
         <p>
           <a href="/terminos-y-condiciones.html" target="_blank" rel="noopener">Términos y Condiciones</a> ·
           <a href="/politica-de-privacidad.html" target="_blank" rel="noopener">Política de Privacidad</a>
@@ -92,7 +92,7 @@
       } catch {
         btn.disabled = false;
         btn.textContent = 'Aceptar y continuar';
-        err.textContent = 'No se pudo registrar tu aceptación. Revisá tu conexión e intentá de nuevo.';
+        err.textContent = 'No se pudo registrar tu aceptación. Revisa tu conexión e intenta de nuevo.';
         err.classList.add('show');
       }
     });
