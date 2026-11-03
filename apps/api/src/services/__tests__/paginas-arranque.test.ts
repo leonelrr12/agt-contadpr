@@ -97,6 +97,15 @@ describe('arranque de las páginas sueltas', () => {
     expect(conScript.length).toBeGreaterThan(3);
   });
 
+  it('index.html no bloquea el parseo: sus scripts externos usan defer o async', () => {
+    const html = fs.readFileSync(path.join(PAGINAS, 'index.html'), 'utf8');
+    const tags = [...html.matchAll(/<script\b[^>]*\bsrc="[^"]+"[^>]*>/g)].map((m) => m[0]);
+    expect(tags.length).toBeGreaterThan(20);
+    for (const tag of tags) {
+      expect(tag, `script sin defer/async: ${tag}`).toMatch(/\b(?:defer|async)\b/);
+    }
+  });
+
   for (const archivo of archivos) {
     const trozos = scriptsInline(fs.readFileSync(path.join(PAGINAS, archivo), 'utf8'));
     if (!trozos.length) continue;

@@ -163,7 +163,7 @@ body.spa { height: 100vh; }
   padding: 10px 12px 4px;
   background: none;
   border: none;
-  color: rgba(255,255,255,0.45);
+  color: rgba(255,255,255,0.62);
   font-family: inherit;
   font-size: 11px;
   font-weight: 700;
@@ -532,7 +532,7 @@ body.spa { height: 100vh; }
 .message.loading {
   background: #fff;
   border: 1px solid var(--borde-suave);
-  color: #999;
+  color: var(--texto-suave);
 }
 
 #input-area {
@@ -1914,4 +1914,14 @@ body.spa { height: 100vh; }
   font-weight: 700;
   color: #1a1a2e;
   border-top: 2px solid #1a1a2e;
+}
+
+/* Respeta la preferencia del sistema: menos animación, no cero información. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

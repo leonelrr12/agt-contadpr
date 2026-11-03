@@ -78,7 +78,7 @@ function renderEmpresaPerfil(d, tieneFacturas, pac, pacError) {
   const dropzone = (name, label, dataUrl) => `
     <div>
       <label>${label}</label>
-      <div class="emp-dropzone" id="emp-${name}-drop">
+      <div class="emp-dropzone" id="emp-${name}-drop" role="button" tabindex="0" aria-label="Subir ${label}">
         <img id="emp-${name}-preview" class="emp-preview${dataUrl ? '' : ' hidden'}" src="${dataUrl || ''}" alt="${label}">
         <p class="emp-drop-text">Arrastra una imagen o haz clic para seleccionar</p>
         <p class="emp-drop-file" id="emp-${name}-file" data-tenia="${dataUrl ? '1' : '0'}">PNG, JPG o similar — máx. 2 MB</p>
@@ -195,6 +195,9 @@ function initEmpresaDropzones() {
     };
 
     zone.addEventListener('click', () => input.click());
+    zone.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+    });
     input.addEventListener('change', () => mostrarArchivo(input.files?.[0]));
 
     ['dragover', 'dragenter'].forEach((ev) => zone.addEventListener(ev, (e) => {

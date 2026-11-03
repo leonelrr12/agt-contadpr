@@ -236,6 +236,9 @@ function openFacturaModal() {
   });
   const overlay = document.createElement('div'); overlay.className = 'app-dialog-overlay';
   overlay.id = 'factura-modal-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', 'Nueva factura');
   overlay.innerHTML = `<div class="app-dialog" style="max-width:720px;max-height:90vh;overflow-y:auto">
     <div style="font-weight:700;font-size:16px;margin-bottom:16px">➕ Nueva Factura</div>
     <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
@@ -491,6 +494,9 @@ async function payFactura(id) {
 
   const overlay = document.createElement('div');
   overlay.className = 'app-dialog-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', 'Cobrar factura');
   overlay.innerHTML = `<div class="app-dialog" style="max-width:440px">
     <div style="font-weight:700;font-size:16px;margin-bottom:4px">💵 Cobrar factura ${escapeHtml(inv.number || '')}</div>
     <div style="font-size:12px;color:#6b7280;margin-bottom:14px">${escapeHtml(cli.name || '')} · Saldo: <strong>${fmtFac(saldo)}</strong>${inv.itbms > 0 ? ` · ITBMS: ${fmtFac(inv.itbms)}` : ''}</div>

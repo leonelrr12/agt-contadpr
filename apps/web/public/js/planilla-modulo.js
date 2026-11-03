@@ -531,6 +531,7 @@
   });
 
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && estado.desglose) { cerrarDesglose(); return; }
     if (e.key !== 'Enter') return;
     const el = e.target;
     if (!(el instanceof HTMLElement) || !el.matches('input, select, textarea')) return;
