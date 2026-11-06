@@ -1731,6 +1731,12 @@ model PacConfig {
   basicUser       String?
   /// Contraseña Basic. Cifrada en reposo.
   pacBasicPassword String?
+  /// HKA: usuario de integración (`usuario` del POST /Autenticacion).
+  apiUser         String?
+  /// HKA: clave de integración (`clave`). Cifrada en reposo.
+  apiPassword     String?
+  /// URL base propia del proveedor. HKA producción la entrega por empresa.
+  baseUrl         String?
   /// Sucursal: UUID en cabecera (X-FF-Branch) o código de 4 caracteres en el cuerpo.
   branchUuid      String?
   branchCode      String?

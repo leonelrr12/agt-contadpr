@@ -11,7 +11,7 @@
  * códigos como "FAC", "01" o "X-FF-Company".
  */
 
-/** Identificador del proveedor. Hoy: 'FACTURA_FACIL'. */
+/** Identificador del proveedor. Hoy: 'FACTURA_FACIL' | 'HKA'. */
 export type PacProviderId = string;
 
 export type PacEnvironment = 'PRUEBAS' | 'PRODUCCION';
@@ -54,6 +54,12 @@ export interface PacProviderConfig {
   /** Autenticación HTTP Basic, si el proveedor la exige además de la API key. */
   basicUser?: string;
   basicPassword?: string;
+  /**
+   * Usuario/clave de integración para proveedores que autentican con un login
+   * propio y devuelven un token (The Factory HKA: `usuario`/`clave`).
+   */
+  apiUser?: string;
+  apiPassword?: string;
   /** Código de sucursal en el cuerpo (Factura Fácil: 4 caracteres). */
   branchCode?: string;
   /** UUID de la sucursal en la cabecera (Factura Fácil: X-FF-Branch). */
@@ -211,6 +217,15 @@ export interface PacEventRequest {
   /** Motivo. Factura Fácil exige un mínimo de 15 caracteres para AN. */
   reason?: string;
   code?: string;
+  /**
+   * Datos del documento para proveedores que anulan por número fiscal en vez
+   * de por CUFE (The Factory HKA: `datosDocumento`). Factura Fácil los ignora.
+   */
+  documentNumber?: string;
+  documentKind?: PacDocumentKind;
+  branchCode?: string;
+  pos?: string;
+  tipoEmision?: string;
 }
 
 export interface PacEventResult {
@@ -255,9 +270,24 @@ export class PacError extends Error {
   }
 }
 
+/** Resultado de una prueba de credenciales, sin emitir documentos. */
+export interface PacConnectionTest {
+  ok: boolean;
+  message: string;
+  status?: number;
+  raw?: unknown;
+}
+
 export interface PacProvider {
   readonly id: PacProviderId;
   readonly environment: PacEnvironment;
+
+  /**
+   * Prueba credenciales con una operación de solo lectura. Si el proveedor no
+   * la implementa, `probePacCredentials` cae al truco de consultar un CUFE
+   * inexistente.
+   */
+  testConnection?(): Promise<PacConnectionTest>;
 
   /** Emite una FE/NC/ND/exportación. Un rechazo de la DGI NO lanza: viene en `rejected`. */
   issue(req: PacInvoiceRequest): Promise<PacInvoiceResult>;

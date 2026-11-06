@@ -1,6 +1,6 @@
-# Facturación electrónica vía PAC (Factura Fácil)
+# Facturación electrónica vía PAC (Factura Fácil + The Factory HKA)
 
-**Estado al 20-10-2026:** integración, configuración por empresa, UI y emisión cableada a `POST /api/facturas`, todo en código. **Sin emitir todavía**: faltan las credenciales del ambiente de pruebas del proveedor y la autorización para aplicar las migraciones `0047_pac_config` y `0048_factura_pac`. Hoy la app solo genera el PDF local (`apps/api/src/services/factura-pdf.ts`); no hay XML, firma, CUFE ni envío a la DGI. **Difusión:** `apps/web/public/funciones.html` y `PUBLICIDAD.md` ya presentan el servicio con la condición «PAC configurado».
+**Estado al 06-11-2026:** integración, configuración por empresa, UI y emisión cableada a `POST /api/facturas`, todo en código. **Dos proveedores:** Factura Fácil (REST con UUID/API key) y The Factory HKA (REST con usuario/clave + JWT). Las credenciales demo de HKA **quedaron verificadas** contra `GET /api/FoliosRestantes` (5.000 folios del ciclo, licencia vigente). **Sin emitir documentos reales todavía** en ninguno de los dos: falta la prueba de emisión en QA de HKA y la autorización para aplicar la migración `0050_pac_multi_provider`. Hoy la app solo genera el PDF local (`apps/api/src/services/factura-pdf.ts`); no hay XML, firma, CUFE ni envío a la DGI. **Difusión:** `apps/web/public/funciones.html` y `PUBLICIDAD.md` ya presentan el servicio con la condición «PAC configurado».
 
 Documento de retomada. La spec del proveedor está en `docs/facturafacil.openapi.json` (Swagger 2.0 del QA).
 
@@ -23,7 +23,8 @@ POST /api/facturas (fase siguiente)
 | Archivo | Rol |
 |---|---|
 | `apps/api/src/services/pac/types.ts` | Contrato neutral: `PacProvider`, `PacInvoiceRequest`, `PacInvoiceResult`, `PacError` |
-| `apps/api/src/services/pac/facturafacil.ts` | Adaptador: auth, códigos, montos, validaciones previas al 400 |
+| `apps/api/src/services/pac/facturafacil.ts` | Adaptador Factura Fácil: auth, códigos, montos, validaciones previas al 400 |
+| `apps/api/src/services/pac/hka.ts` | Adaptador The Factory HKA: login JWT, `/Enviar`, `/EstadoDocumento`, `/Descarga`, `/Anulacion` |
 | `apps/api/src/services/pac/company-config.ts` | Configuración por empresa, cifrado, prueba de credenciales |
 | `apps/api/src/services/pac/emit-invoice.ts` | Factura local → request neutral, emisión, estados y reintento |
 | `apps/api/src/services/pac/config.ts` | Config desde `PAC_*` (solo scripts/ops) |
@@ -53,6 +54,27 @@ El mapeo completo está en `facturafacil.ts` y cubierto por `pac-facturafacil.te
 
 ---
 
+## 2.b The Factory HKA
+
+- **Demo:** `https://demointegracion.thefactoryhka.com.pa/api`
+- **Swagger:** `https://demointegracion.thefactoryhka.com.pa/swagger/v1/swagger.json`
+- **Producción:** la URL y las credenciales las entrega HKA; se configuran por empresa en `PacConfig.baseUrl`. No se adivina.
+- **Auth:** `POST /api/Autenticacion` con `{ usuario, clave }` → `token` JWT (~24 h); el resto con `Authorization: Bearer <token>`. El adaptador cachea el JWT y lo renueva una vez si una llamada devuelve 401.
+- **Prueba de conexión:** `GET /api/FoliosRestantes` (solo lectura; no consume folios).
+- **Emisión:** `POST /api/Enviar` con `{ documento: { codigoSucursalEmisor, tipoSucursal, datosTransaccion, listaItems, totalesSubTotales } }`.
+- **Consulta:** `POST /api/EstadoDocumento` por número fiscal (no por CUFE).
+- **Descarga:** `POST /api/Descarga` con `tipoArchivo: "XML" | "PDF"`; el archivo vuelve en base64 (`Archivo`).
+- **Anulación:** `POST /api/Anulacion` con `datosDocumento`.
+- **Errores:** HKA devuelve HTTP 200 con `codigo != "200"` para errores de negocio; el adaptador los traduce a `rejected`/`PacError`.
+- **Campos en `PacConfig` (migración 0050):** `apiUser`, `apiPassword` (cifrada) y `baseUrl`. `branchCode` (4 caracteres) y `pos` (3 dígitos) son comunes.
+- **Pendiente de confirmar con HKA:** si `numeroDocumentoFiscal = "0"` hace que el PAC asigne el folio (la respuesta de `/Enviar` no devuelve el número). Si no, habrá que enviar el correlativo fiscal real.
+
+Códigos usados (ajustar si HKA entrega otra tabla): documento `01` factura / `02` NC / `03` ND / `04` exportación; receptor `01` contribuyente / `02` consumidor final / `03` gobierno / `04` extranjero; ITBMS `00` exento / `01` 7% / `02` 10% / `03` 15%; pago `01` efectivo / `02` tarjeta crédito / `03` tarjeta débito / `04` cheque / `05` transferencia / `06` crédito / `07` otro.
+
+El probe de credenciales (REST y SOAP) es `npx tsx scripts/hka-probe.ts`; detecta el protocolo por la URL y no emite documentos.
+
+---
+
 ## 3. Configuración por empresa (Contador507)
 
 ### 3.1 Modelo `PacConfig` (una fila por empresa)
@@ -66,6 +88,8 @@ El mapeo completo está en `facturafacil.ts` y cubierto por `pac-facturafacil.te
 | `companyUuid` | String? | UUID del emisor (`X-FF-Company`) |
 | `pacApiKey` | String? | API key (`X-FF-API-Key`), **cifrada en reposo** |
 | `basicUser` / `pacBasicPassword` | String? | HTTP Basic; la contraseña **cifrada en reposo** |
+| `apiUser` / `apiPassword` | String? | HKA: usuario/clave de integración; la clave **cifrada en reposo** |
+| `baseUrl` | String? | URL propia del proveedor; HKA producción la exige |
 | `branchUuid` | String? | UUID de sucursal (`X-FF-Branch`) |
 | `branchCode` | String? | Código de sucursal de 4 caracteres (cuerpo) |
 | `pos` | String | Punto de venta, 3 dígitos (default `001`) |
@@ -94,6 +118,10 @@ POST /api/pac/config/test   → prueba credenciales sin emitir
 ```json
 {
   "configured": true,
+  "providers": [
+    { "id": "FACTURA_FACIL", "label": "Factura Fácil" },
+    { "id": "HKA", "label": "The Factory HKA" }
+  ],
   "provider": "FACTURA_FACIL",
   "environment": "PRUEBAS",
   "companyUuid": "11111111-1111-4111-8111-111111111111",
@@ -101,25 +129,28 @@ POST /api/pac/config/test   → prueba credenciales sin emitir
   "branchUuid": "22222222-2222-4222-8222-222222222222",
   "branchCode": "",
   "basicUser": "",
+  "apiUser": "",
+  "baseUrl": "",
   "enabled": true,
   "apiKeySet": true,
   "basicPasswordSet": false,
+  "apiPasswordSet": false,
   "lastTestAt": "2026-10-20T18:00:00.000Z",
   "lastTestOk": true,
   "lastTestError": null
 }
 ```
 
-`PUT` acepta los mismos campos más los secretos en claro (solo en el request) y los flags de borrado. `POST /config/test` hace una consulta por un CUFE inexistente con formato válido: un `404` prueba que la autenticación y la compañía son correctas; `401/403` o error de red se reportan como fallo. **No emite nada.**
+`PUT` acepta los mismos campos más los secretos en claro (solo en el request) y los flags de borrado (`clearApiKey`, `clearBasicPassword`, `clearApiPassword`). `POST /config/test` usa la operación de solo lectura del proveedor: HKA consulta `GET /api/FoliosRestantes`; Factura Fácil consulta un CUFE inexistente y un `404` prueba que autenticó. **No emite nada.**
 
 ### 3.3 Migración
 
-`packages/prisma-schema/prisma/migrations/0047_pac_config/migration.sql` y `0048_factura_pac/migration.sql` están creadas **pero NO aplicadas**.
+`packages/prisma-schema/prisma/migrations/0047_pac_config/migration.sql`, `0048_factura_pac/migration.sql` y `0050_pac_multi_provider/migration.sql` están creadas. **0047/0048 se aplicaron en producción el 23-10-2026; 0050 está pendiente de autorización.**
 
 Orden de despliegue (cuando el dueño autorice el destino):
 
 1. Backup de la BD.
-2. `npx prisma migrate deploy` (nunca `migrate dev`: resetea) — aplica 0047 y 0048 en orden.
+2. `npx prisma migrate deploy` (nunca `migrate dev`: resetea) — aplica las migraciones pendientes (hoy `0050_pac_multi_provider`).
 3. `npx prisma generate` si no se generó antes.
 4. `pm2 restart agt-contador-api` y `pm2 save` (env congelado).
 
@@ -129,7 +160,8 @@ Si se reinicia la API **antes** de aplicar las migraciones, no solo falla `/api/
 
 En **Administración → 🏢 Empresa**, tarjeta **🧾 Emisión electrónica (PAC)** debajo de la sección DGI:
 
-- Proveedor, ambiente (Pruebas/Producción), UUID del emisor, API key write-only, usuario/contraseña Basic, UUID o código de sucursal, POS y switch de emisión.
+- **Proveedor** (selector alimentado por el catálogo de la API: Factura Fácil / The Factory HKA), ambiente (Pruebas/Producción), URL base opcional, sucursal (4), POS (3) y switch de emisión.
+- Campos por proveedor: Factura Fácil → UUID del emisor, API key write-only y usuario/contraseña Basic; HKA → usuario y clave de integración write-only.
 - Botón **Guardar PAC** (`PUT /api/pac/config`), separado del **💾 Guardar** del perfil, que no incluye esta sección.
 - Botón **Probar conexión** (`POST /api/pac/config/test`): usa la configuración ya guardada, no los cambios sin guardar.
 - Los secretos nunca se precargan: el placeholder dice «guardada» y un campo vacío conserva el valor. Borrar el usuario Basic elimina también su contraseña.
@@ -233,12 +265,14 @@ Limitaciones actuales: receptores Gobierno y extranjeros no están soportados (f
 
 ## 8. Checklist para retomar
 
-- [ ] Recibir credenciales QA (UUID emisor, API key, Basic, sucursal, POS).
-- [ ] Cargar `PAC_*` en `.env` y correr `--dry-run`.
-- [ ] Correr el smoke real y adjuntar CUFE/XML al proveedor si lo piden.
-- [x] UI de configuración en **Empresa** (hecha; requiere API reiniciada y migración aplicada para guardar).
-- [x] Emisión cableada a `POST /api/facturas` + `POST /:id/emitir` + `GET /:id/xml` (hecha; no live hasta aplicar 0047/0048 y reiniciar).
+- [x] Credenciales QA de Factura Fácil (ya cargadas en el `.env` del VPS).
+- [x] Credenciales demo de HKA verificadas con `GET /api/FoliosRestantes` (06-11-2026, 5.000 folios del ciclo).
+- [ ] Confirmar con HKA si `numeroDocumentoFiscal = "0"` usa la secuencia interna; si no, definir el correlativo fiscal que se envía.
+- [ ] Correr el smoke real de HKA en QA y adjuntar CUFE/XML al proveedor si lo piden.
+- [x] UI de configuración en **Empresa** con selector multi-proveedor.
+- [x] Emisión cableada a `POST /api/facturas` + `POST /:id/emitir` + `GET /:id/xml`.
 - [x] Página comercial (`funciones.html`) y documento de campañas (`PUBLICIDAD.md`) actualizados.
-- [ ] Autorizar y aplicar las migraciones `0047` y `0048` + `pm2 restart` + `pm2 save`.
+- [x] Migraciones `0047` y `0048` aplicadas en producción (23-10-2026).
+- [ ] Autorizar y aplicar `0050_pac_multi_provider` + `prisma generate` + `pm2 restart` + `pm2 save`.
 - [ ] Configurar la empresa desde la UI y completar DV/ubicación de los clientes contribuyentes.
 - [ ] E2E en QA y luego producción con autorización.

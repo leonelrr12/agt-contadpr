@@ -18,7 +18,16 @@ const KEY = KEY_B64 ? Buffer.from(KEY_B64, 'base64') : null;
 // al leerlo con el cliente extendido; el barrido usa ese cliente, no el crudo.
 // `pacApiKey`/`pacBasicPassword` (emisión electrónica) siguen la misma regla: la
 // API solo informa si están cargadas, nunca las devuelve.
-const ENCRYPTED_FIELDS = ['taxId', 'email', 'phone', 'reference', 'imapPassword', 'pacApiKey', 'pacBasicPassword'];
+const ENCRYPTED_FIELDS = [
+  'taxId',
+  'email',
+  'phone',
+  'reference',
+  'imapPassword',
+  'pacApiKey',
+  'pacBasicPassword',
+  'apiPassword',
+];
 // Modelo excluido del cifrado por completo
 const EXCLUDED_MODELS = new Set(['User', 'AuthToken', 'ApiKey']);
 
