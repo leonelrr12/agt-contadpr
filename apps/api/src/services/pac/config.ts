@@ -28,7 +28,8 @@ export function loadPacConfigFromEnv(env: NodeJS.ProcessEnv = process.env): PacP
   const companyUuid = env.PAC_COMPANY_UUID?.trim() ?? '';
   const apiKey = env.PAC_API_KEY?.trim() ?? '';
   const apiUser = env.PAC_API_USER?.trim() ?? '';
-  const apiPassword = env.PAC_API_PASSWORD || '';
+  // Falso positivo de GitGuardian: el valor sale del entorno, no está hardcodeado.
+  const apiPassword = env.PAC_API_PASSWORD || ''; // ggignore
 
   const missing = [
     !baseUrl && 'PAC_BASE_URL',
@@ -44,7 +45,8 @@ export function loadPacConfigFromEnv(env: NodeJS.ProcessEnv = process.env): PacP
   }
 
   const basicUser = env.PAC_BASIC_USER?.trim() || undefined;
-  const basicPassword = env.PAC_BASIC_PASSWORD || undefined;
+  // Falso positivo de GitGuardian: el valor sale del entorno, no está hardcodeado.
+  const basicPassword = env.PAC_BASIC_PASSWORD || undefined; // ggignore
   if (!isHka && Boolean(basicUser) !== Boolean(basicPassword)) {
     throw new PacError(
       'PAC_BASIC_USER y PAC_BASIC_PASSWORD deben configurarse juntas (autenticación HTTP Basic).',
