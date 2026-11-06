@@ -7,11 +7,13 @@
  */
 import { PacError } from './types';
 import type { PacEnvironment, PacProviderConfig } from './types';
+import { HKA, HKA_ENDPOINTS } from './hka';
 
 const FACTURA_FACIL_QA = 'https://backend-qa-api.facturafacil.com.pa';
 
 export function loadPacConfigFromEnv(env: NodeJS.ProcessEnv = process.env): PacProviderConfig {
   const provider = (env.PAC_PROVIDER ?? 'FACTURA_FACIL').trim().toUpperCase();
+  const isHka = provider === HKA;
 
   const environment = (env.PAC_ENVIRONMENT ?? 'PRUEBAS').trim().toUpperCase() as PacEnvironment;
   if (environment !== 'PRUEBAS' && environment !== 'PRODUCCION') {
@@ -19,15 +21,21 @@ export function loadPacConfigFromEnv(env: NodeJS.ProcessEnv = process.env): PacP
   }
 
   const baseUrl =
-    env.PAC_BASE_URL?.trim() || (provider === 'FACTURA_FACIL' ? FACTURA_FACIL_QA : '');
+    env.PAC_BASE_URL?.trim() ||
+    (isHka ? HKA_ENDPOINTS[environment] : provider === 'FACTURA_FACIL' ? FACTURA_FACIL_QA : '') ||
+    '';
 
   const companyUuid = env.PAC_COMPANY_UUID?.trim() ?? '';
   const apiKey = env.PAC_API_KEY?.trim() ?? '';
+  const apiUser = env.PAC_API_USER?.trim() ?? '';
+  // Falso positivo de GitGuardian: el valor sale del entorno, no está hardcodeado.
+  const apiPassword = env.PAC_API_PASSWORD || ''; // ggignore
 
   const missing = [
     !baseUrl && 'PAC_BASE_URL',
-    !companyUuid && 'PAC_COMPANY_UUID',
-    !apiKey && 'PAC_API_KEY',
+    ...(isHka
+      ? [!apiUser && 'PAC_API_USER', !apiPassword && 'PAC_API_PASSWORD']
+      : [!companyUuid && 'PAC_COMPANY_UUID', !apiKey && 'PAC_API_KEY']),
   ].filter((v): v is string => Boolean(v));
   if (missing.length) {
     throw new PacError(
@@ -37,8 +45,9 @@ export function loadPacConfigFromEnv(env: NodeJS.ProcessEnv = process.env): PacP
   }
 
   const basicUser = env.PAC_BASIC_USER?.trim() || undefined;
-  const basicPassword = env.PAC_BASIC_PASSWORD || undefined;
-  if (Boolean(basicUser) !== Boolean(basicPassword)) {
+  // Falso positivo de GitGuardian: el valor sale del entorno, no está hardcodeado.
+  const basicPassword = env.PAC_BASIC_PASSWORD || undefined; // ggignore
+  if (!isHka && Boolean(basicUser) !== Boolean(basicPassword)) {
     throw new PacError(
       'PAC_BASIC_USER y PAC_BASIC_PASSWORD deben configurarse juntas (autenticación HTTP Basic).',
       'CONFIG',
@@ -67,8 +76,10 @@ export function loadPacConfigFromEnv(env: NodeJS.ProcessEnv = process.env): PacP
     environment,
     companyUuid,
     apiKey,
-    basicUser,
-    basicPassword,
+    basicUser: isHka ? undefined : basicUser,
+    basicPassword: isHka ? undefined : basicPassword,
+    apiUser: isHka ? apiUser : undefined,
+    apiPassword: isHka ? apiPassword : undefined,
     branchUuid: env.PAC_BRANCH_UUID?.trim() || undefined,
     branchCode,
     pos,

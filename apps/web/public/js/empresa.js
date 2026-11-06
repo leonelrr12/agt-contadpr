@@ -233,13 +233,24 @@ function renderEmpresaPacCard(pac, pacError) {
   const p = pac || {};
   const env = p.environment || 'PRUEBAS';
   const provider = p.provider || 'FACTURA_FACIL';
+  // La API manda el catálogo; el fallback mantiene la tarjeta usable si la
+  // respuesta es vieja o la migración aún no está aplicada.
+  const providers = Array.isArray(p.providers) && p.providers.length
+    ? p.providers
+    : [
+        { id: 'FACTURA_FACIL', label: 'Factura Fácil' },
+        { id: 'HKA', label: 'The Factory HKA' },
+      ];
+  const providerOptions = providers
+    .map((x) => `<option value="${v(x.id)}" ${provider === x.id ? 'selected' : ''}>${v(x.label)}</option>`)
+    .join('');
 
   const ultima = p.lastTestAt
     ? `<span class="${p.lastTestOk ? 'ok' : 'error'}">${p.lastTestOk ? '✅ Última prueba OK' : '❌ La última prueba falló'} · ${v(fmtFechaHoraEmpresa(p.lastTestAt))}</span>${p.lastTestOk ? '' : ` — ${v(p.lastTestError || 'sin detalle')}`}`
     : 'Sin pruebas de conexión todavía.';
 
   const aviso = pacError
-    ? '<div class="emp-note" style="color:#b45309;margin-bottom:10px">⚠️ No se pudo cargar la configuración del PAC. Puede que la API no se haya reiniciado o que la migración 0047 no esté aplicada.</div>'
+    ? '<div class="emp-note" style="color:#b45309;margin-bottom:10px">⚠️ No se pudo cargar la configuración del PAC. Puede que la API no se haya reiniciado o que falte una migración del PAC.</div>'
     : '';
 
   return `
@@ -249,8 +260,8 @@ function renderEmpresaPacCard(pac, pacError) {
       <div class="form-grid">
         <div>
           <label>Proveedor</label>
-          <select id="emp-pac-provider">
-            <option value="FACTURA_FACIL" ${provider === 'FACTURA_FACIL' ? 'selected' : ''}>Factura Fácil</option>
+          <select id="emp-pac-provider" onchange="togglePacProviderFields()">
+            ${providerOptions}
           </select>
         </div>
         <div>
@@ -261,35 +272,57 @@ function renderEmpresaPacCard(pac, pacError) {
           </select>
         </div>
         <div style="grid-column:1/-1">
-          <label>UUID del emisor</label>
-          <input id="emp-pac-company-uuid" maxlength="100" spellcheck="false" value="${v(p.companyUuid)}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-          <div class="emp-note">Lo entrega el PAC al dar de alta la empresa. En Factura Fácil es el header X-FF-Company.</div>
+          <label>URL base (opcional)</label>
+          <input id="emp-pac-base-url" maxlength="300" spellcheck="false" value="${v(p.baseUrl)}" placeholder="https://demointegracion.thefactoryhka.com.pa/api">
+          <div class="emp-note">Solo si el proveedor te dio una URL distinta. En HKA producción es obligatoria.</div>
         </div>
-        <div style="grid-column:1/-1">
-          <label>API key</label>
-          <input id="emp-pac-api-key" type="password" maxlength="500" autocomplete="new-password" placeholder="${p.apiKeySet ? '•••••••• (guardada)' : 'Pega la API key del PAC'}">
-          <div class="emp-note">Se guarda cifrada. Deja el campo vacío para conservar la que ya está cargada.</div>
+
+        <div id="emp-pac-ff-fields" style="display:${provider === 'FACTURA_FACIL' ? 'contents' : 'none'}">
+          <div style="grid-column:1/-1">
+            <label>UUID del emisor</label>
+            <input id="emp-pac-company-uuid" maxlength="100" spellcheck="false" value="${v(p.companyUuid)}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+            <div class="emp-note">Lo entrega el PAC al dar de alta la empresa. En Factura Fácil es el header X-FF-Company.</div>
+          </div>
+          <div style="grid-column:1/-1">
+            <label>API key</label>
+            <input id="emp-pac-api-key" type="password" maxlength="500" autocomplete="new-password" placeholder="${p.apiKeySet ? '•••••••• (guardada)' : 'Pega la API key del PAC'}">
+            <div class="emp-note">Se guarda cifrada. Deja el campo vacío para conservar la que ya está cargada.</div>
+          </div>
+          <div>
+            <label>Usuario HTTP Basic</label>
+            <input id="emp-pac-basic-user" maxlength="150" autocomplete="off" value="${v(p.basicUser)}" placeholder="Opcional">
+          </div>
+          <div>
+            <label>Contraseña HTTP Basic</label>
+            <input id="emp-pac-basic-password" type="password" maxlength="500" autocomplete="new-password" placeholder="${p.basicPasswordSet ? '•••••••• (guardada)' : 'Opcional'}">
+            <div class="emp-note">Si borras el usuario, se elimina también la contraseña Basic guardada.</div>
+          </div>
+          <div>
+            <label>UUID de sucursal</label>
+            <input id="emp-pac-branch-uuid" maxlength="100" spellcheck="false" value="${v(p.branchUuid)}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+          </div>
         </div>
-        <div>
-          <label>Usuario HTTP Basic</label>
-          <input id="emp-pac-basic-user" maxlength="150" autocomplete="off" value="${v(p.basicUser)}" placeholder="Opcional">
+
+        <div id="emp-pac-hka-fields" style="display:${provider === 'HKA' ? 'contents' : 'none'}">
+          <div style="grid-column:1/-1">
+            <label>Usuario de integración</label>
+            <input id="emp-pac-api-user" maxlength="150" autocomplete="off" value="${v(p.apiUser)}" placeholder="Usuario que entrega HKA">
+            <div class="emp-note">Usuario del POST /Autenticacion (no el login del portal).</div>
+          </div>
+          <div style="grid-column:1/-1">
+            <label>Clave de integración</label>
+            <input id="emp-pac-api-password" type="password" maxlength="500" autocomplete="new-password" placeholder="${p.apiPasswordSet ? '•••••••• (guardada)' : 'Clave que entrega HKA'}">
+            <div class="emp-note">Se guarda cifrada. Deja el campo vacío para conservar la que ya está cargada.</div>
+          </div>
         </div>
-        <div>
-          <label>Contraseña HTTP Basic</label>
-          <input id="emp-pac-basic-password" type="password" maxlength="500" autocomplete="new-password" placeholder="${p.basicPasswordSet ? '•••••••• (guardada)' : 'Opcional'}">
-          <div class="emp-note">Si borras el usuario, se elimina también la contraseña Basic guardada.</div>
-        </div>
-        <div>
-          <label>UUID de sucursal</label>
-          <input id="emp-pac-branch-uuid" maxlength="100" spellcheck="false" value="${v(p.branchUuid)}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-        </div>
+
         <div>
           <label>Código de sucursal</label>
-          <input id="emp-pac-branch-code" maxlength="4" value="${v(p.branchCode)}" placeholder="0001">
-          <div class="emp-note">UUID o código de 4 caracteres; con uno alcanza.</div>
+          <input id="emp-pac-branch-code" maxlength="4" value="${v(p.branchCode)}" placeholder="0000">
+          <div class="emp-note">4 caracteres. En HKA suele ser 0000 si no te dieron otro.</div>
         </div>
         <div>
-          <label>Punto de venta (POS)</label>
+          <label>Punto de facturación (POS)</label>
           <input id="emp-pac-pos" maxlength="3" inputmode="numeric" value="${v(p.pos || '001')}" placeholder="001">
         </div>
       </div>
@@ -317,6 +350,14 @@ function fmtFechaHoraEmpresa(iso) {
   }
 }
 
+function togglePacProviderFields() {
+  const provider = document.getElementById('emp-pac-provider')?.value || 'FACTURA_FACIL';
+  const ff = document.getElementById('emp-pac-ff-fields');
+  const hka = document.getElementById('emp-pac-hka-fields');
+  if (ff) ff.style.display = provider === 'FACTURA_FACIL' ? 'contents' : 'none';
+  if (hka) hka.style.display = provider === 'HKA' ? 'contents' : 'none';
+}
+
 async function savePacConfigUI() {
   const ambiente = document.getElementById('emp-pac-env').value;
   if (ambiente === 'PRODUCCION' && empresaPacActual?.environment !== 'PRODUCCION') {
@@ -324,25 +365,38 @@ async function savePacConfigUI() {
     if (!ok) return;
   }
 
+  const provider = document.getElementById('emp-pac-provider').value;
+  const val = (id) => document.getElementById(id)?.value?.trim() ?? '';
+  const raw = (id) => document.getElementById(id)?.value ?? '';
+
   const body = {
-    provider: document.getElementById('emp-pac-provider').value,
+    provider,
     environment: ambiente,
-    companyUuid: document.getElementById('emp-pac-company-uuid').value.trim(),
-    basicUser: document.getElementById('emp-pac-basic-user').value.trim(),
-    branchUuid: document.getElementById('emp-pac-branch-uuid').value.trim(),
-    branchCode: document.getElementById('emp-pac-branch-code').value.trim(),
-    pos: document.getElementById('emp-pac-pos').value.trim(),
+    baseUrl: val('emp-pac-base-url'),
+    branchCode: val('emp-pac-branch-code'),
+    pos: val('emp-pac-pos'),
     enabled: document.getElementById('emp-pac-enabled').checked,
   };
 
-  // Los secretos viajan solo si el usuario escribió uno nuevo; vacío = conservar.
-  const apiKey = document.getElementById('emp-pac-api-key').value.trim();
-  if (apiKey) body.pacApiKey = apiKey;
-  const basicPassword = document.getElementById('emp-pac-basic-password').value;
-  if (basicPassword) body.pacBasicPassword = basicPassword;
-  // Borrar el usuario es la forma de quitar Basic: el backend exige limpiar la
-  // contraseña junto con él (el par va junto o no va).
-  if (!body.basicUser && empresaPacActual?.basicPasswordSet) body.clearBasicPassword = true;
+  // Cada proveedor manda solo SUS campos: el backend conserva los del otro.
+  if (provider === 'HKA') {
+    body.apiUser = val('emp-pac-api-user');
+    const apiPassword = raw('emp-pac-api-password');
+    if (apiPassword) body.apiPassword = apiPassword;
+    if (!body.apiUser && empresaPacActual?.apiPasswordSet) body.clearApiPassword = true;
+  } else {
+    body.companyUuid = val('emp-pac-company-uuid');
+    body.basicUser = val('emp-pac-basic-user');
+    body.branchUuid = val('emp-pac-branch-uuid');
+    // Los secretos viajan solo si el usuario escribió uno nuevo; vacío = conservar.
+    const apiKey = val('emp-pac-api-key');
+    if (apiKey) body.pacApiKey = apiKey;
+    const basicPassword = raw('emp-pac-basic-password');
+    if (basicPassword) body.pacBasicPassword = basicPassword;
+    // Borrar el usuario es la forma de quitar Basic: el backend exige limpiar la
+    // contraseña junto con él (el par va junto o no va).
+    if (!body.basicUser && empresaPacActual?.basicPasswordSet) body.clearBasicPassword = true;
+  }
 
   try {
     const res = await authFetch(`${API_URL}/pac/config`, { method: 'PUT', body: JSON.stringify(body) });
@@ -362,6 +416,13 @@ async function savePacConfigUI() {
     if (passInput) {
       passInput.value = '';
       passInput.placeholder = data.basicPasswordSet ? '•••••••• (guardada)' : 'Opcional';
+    }
+    const apiPassInput = document.getElementById('emp-pac-api-password');
+    if (apiPassInput) {
+      apiPassInput.value = '';
+      apiPassInput.placeholder = data.apiPasswordSet
+        ? '•••••••• (guardada)'
+        : 'Clave que entrega HKA';
     }
     const msg = document.getElementById('emp-pac-saved-msg');
     if (msg) {

@@ -201,3 +201,89 @@ describe('PacConfig: prueba de conexión', () => {
     );
   });
 });
+
+describe('PacConfig: multi-proveedor (HKA)', () => {
+  const rowHka = {
+    companyId: 'c1',
+    provider: 'HKA',
+    environment: 'PRUEBAS',
+    companyUuid: null,
+    pacApiKey: null,
+    basicUser: null,
+    pacBasicPassword: null,
+    apiUser: 'usuario-hka',
+    apiPassword: 'clave-hka',
+    baseUrl: null,
+    branchUuid: null,
+    branchCode: '0000',
+    pos: '001',
+    enabled: true,
+    lastTestAt: null,
+    lastTestOk: null,
+    lastTestError: null,
+  };
+
+  it('guarda usuario/clave de HKA sin exponer la clave', async () => {
+    const prisma = fakePrisma(null);
+    const view = await savePacConfig(prisma, 'c1', {
+      provider: 'HKA',
+      apiUser: 'usuario-hka',
+      apiPassword: 'clave-secreta-hka',
+      branchCode: '0000',
+      pos: '001',
+      enabled: true,
+    });
+
+    expect(view.provider).toBe('HKA');
+    expect(view.apiUser).toBe('usuario-hka');
+    expect(view.apiPasswordSet).toBe(true);
+    expect(JSON.stringify(view)).not.toContain('clave-secreta-hka');
+    expect(prisma.fila().apiPassword).toBe('clave-secreta-hka');
+  });
+
+  it('habilitar HKA exige usuario, clave y sucursal', async () => {
+    await expect(
+      savePacConfig(fakePrisma(null), 'c1', { provider: 'HKA', enabled: true }),
+    ).rejects.toThrowError(/usuario de integración.*clave de integración.*código de sucursal/);
+  });
+
+  it('HKA producción exige URL base; demo cae al endpoint demo', () => {
+    expect(buildProviderConfig(rowHka).baseUrl).toBe(
+      'https://demointegracion.thefactoryhka.com.pa/api',
+    );
+    expect(() =>
+      buildProviderConfig({ ...rowHka, environment: 'PRODUCCION' }),
+    ).toThrowError(/URL base/);
+    expect(
+      buildProviderConfig({
+        ...rowHka,
+        environment: 'PRODUCCION',
+        baseUrl: 'https://integracion.thefactoryhka.com.pa/api',
+      }).baseUrl,
+    ).toBe('https://integracion.thefactoryhka.com.pa/api');
+  });
+
+  it('HKA no exige UUID de emisor ni API key', () => {
+    const cfg = buildProviderConfig(rowHka);
+    expect(cfg.provider).toBe('HKA');
+    expect(cfg.apiUser).toBe('usuario-hka');
+    expect(cfg.apiPassword).toBe('clave-hka');
+    expect(cfg.companyUuid).toBe('');
+    expect(cfg.apiKey).toBe('');
+  });
+
+  it('detecta una clave HKA cifrada que llegó al adaptador', () => {
+    expect(() =>
+      buildProviderConfig({ ...rowHka, apiPassword: 'v1:aa:bb:cc' }),
+    ).toThrowError(/cifradas/);
+  });
+
+  it('probePacCredentials usa testConnection si el adaptador lo implementa', async () => {
+    const provider = {
+      testConnection: async () => ({ ok: true, message: 'folios ok', status: 200 }),
+    } as any;
+
+    const result = await probePacCredentials(provider);
+    expect(result).toEqual({ ok: true, message: 'folios ok', status: 200 });
+  });
+});

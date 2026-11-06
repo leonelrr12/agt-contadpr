@@ -24,7 +24,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { createPacProvider, loadPacConfigFromEnv, PacError, FacturaFacilProvider } from '../apps/api/src/services/pac';
+import { createPacProvider, loadPacConfigFromEnv, PacError } from '../apps/api/src/services/pac';
 import type { PacDocumentStatus, PacInvoiceRequest } from '../apps/api/src/services/pac';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -140,7 +140,7 @@ async function main(): Promise<void> {
   console.log(`\n🧾 PAC smoke · ${provider.id}`);
   line('Ambiente:', config.environment);
   line('Host:', config.baseUrl);
-  line('Emisor:', config.companyUuid);
+  line('Emisor:', config.companyUuid || config.apiUser);
   line('POS:', config.pos ?? '001');
   line(
     'Sucursal:',
@@ -154,11 +154,12 @@ async function main(): Promise<void> {
   line('Nº fiscal:', fiscalNumber === 0 ? '0 (secuencia interna del PAC)' : String(fiscalNumber));
 
   if (dryRun) {
-    if (!(provider instanceof FacturaFacilProvider)) {
+    const preview = (provider as { preview?: (req: PacInvoiceRequest) => unknown }).preview;
+    if (typeof preview !== 'function') {
       fatal(`Dry-run no implementado para el proveedor ${provider.id}.`);
     }
     console.log('\n🧪 Dry-run: payload que se enviaría (no se hace ninguna llamada):\n');
-    console.log(JSON.stringify(provider.preview(request), null, 2));
+    console.log(JSON.stringify(preview.call(provider, request), null, 2));
     return;
   }
 

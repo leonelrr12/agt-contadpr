@@ -16,6 +16,7 @@
  */
 import { PacError } from './types';
 import type {
+  PacConnectionTest,
   PacDocumentKind,
   PacDocumentStatus,
   PacEnvironment,
@@ -182,6 +183,28 @@ export class FacturaFacilProvider implements PacProvider {
       messages: toMessages(data),
       raw: data,
     };
+  }
+
+  async testConnection(): Promise<PacConnectionTest> {
+    // Un CUFE con formato válido pero inexistente: si el PAC autentica y dice
+    // "no encontrado", las credenciales y la compañía son correctas.
+    const nonexistentCufe = 'FE' + '0'.repeat(64);
+    try {
+      await this.find(nonexistentCufe);
+      return { ok: true, message: 'El PAC respondió a la consulta: credenciales válidas.' };
+    } catch (err) {
+      if (err instanceof PacError && err.code === 'NOT_FOUND') {
+        return {
+          ok: true,
+          message:
+            'Credenciales válidas: el PAC autenticó la consulta y no encontró el documento de prueba (esperado).',
+        };
+      }
+      if (err instanceof PacError) {
+        return { ok: false, message: err.message, status: err.status, raw: err.raw };
+      }
+      return { ok: false, message: (err as Error)?.message || 'Error desconocido al probar el PAC.' };
+    }
   }
 
   async find(cufeOrId: string): Promise<PacDocumentStatus> {

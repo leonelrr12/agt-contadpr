@@ -64,10 +64,13 @@ function montarCampos(sb: any, overrides: Record<string, any> = {}) {
   const valores: Record<string, any> = {
     'emp-pac-provider': 'FACTURA_FACIL',
     'emp-pac-env': 'PRUEBAS',
+    'emp-pac-base-url': '',
     'emp-pac-company-uuid': ' 11111111-1111-4111-8111-111111111111 ',
     'emp-pac-api-key': '',
     'emp-pac-basic-user': '',
     'emp-pac-basic-password': '',
+    'emp-pac-api-user': '',
+    'emp-pac-api-password': '',
     'emp-pac-branch-uuid': '',
     'emp-pac-branch-code': '0001',
     'emp-pac-pos': '001',
@@ -164,5 +167,89 @@ describe('tarjeta PAC en la ficha de la empresa', () => {
 
     expect(confirmado).toBe(1);
     expect(llamado).toBe(0);
+  });
+});
+
+describe('tarjeta PAC: proveedor HKA', () => {
+  const PAC_HKA = {
+    ...PAC,
+    provider: 'HKA',
+    companyUuid: '',
+    apiUser: 'usuario-hka',
+    apiPasswordSet: true,
+    branchUuid: '',
+    branchCode: '0000',
+    baseUrl: 'https://demointegracion.thefactoryhka.com.pa/api',
+  };
+
+  it('arma el selector con el catálogo que manda la API', () => {
+    const sb = sandboxEmpresa();
+    const html = sb.renderEmpresaPacCard(
+      {
+        ...PAC,
+        provider: 'OTRO',
+        providers: [
+          { id: 'FACTURA_FACIL', label: 'Factura Fácil' },
+          { id: 'OTRO', label: 'Otro PAC' },
+        ],
+      },
+      false,
+    );
+
+    expect(html).toContain('value="OTRO" selected');
+    expect(html).toContain('Otro PAC');
+  });
+
+  it('muestra HKA seleccionado y los campos de integración', () => {
+    const sb = sandboxEmpresa();
+    const html = sb.renderEmpresaPacCard(PAC_HKA, false);
+
+    expect(html).toContain('value="HKA" selected');
+    expect(html).toContain('value="usuario-hka"');
+    expect(html).toContain('•••••••• (guardada)');
+    expect(html).toContain('value="https://demointegracion.thefactoryhka.com.pa/api"');
+    expect(html).toContain('emp-pac-hka-fields');
+  });
+
+  it('guarda los campos de HKA y no reenvía la clave vacía', async () => {
+    const sb = sandboxEmpresa();
+    montarCampos(sb, {
+      'emp-pac-provider': 'HKA',
+      'emp-pac-api-user': ' usuario-hka ',
+      'emp-pac-base-url': 'https://demo.test/api',
+      'emp-pac-branch-code': '0000',
+    });
+    let enviado: any = null;
+    sb.authFetch = async (_url: string, opts: any) => {
+      enviado = JSON.parse(opts.body);
+      return { ok: true, json: async () => PAC_HKA };
+    };
+
+    await sb.savePacConfigUI();
+
+    expect(enviado.provider).toBe('HKA');
+    expect(enviado.apiUser).toBe('usuario-hka');
+    expect(enviado.baseUrl).toBe('https://demo.test/api');
+    expect(enviado.branchCode).toBe('0000');
+    expect(enviado).not.toHaveProperty('apiPassword');
+    expect(enviado).not.toHaveProperty('companyUuid');
+    expect(enviado).not.toHaveProperty('pacApiKey');
+  });
+
+  it('limpia la clave HKA si se borra el usuario', async () => {
+    const sb = sandboxEmpresa();
+    // `empresaPacActual` es un `let` del script: hay que asignarlo dentro del
+    // contexto del vm, no como propiedad del sandbox.
+    vm.runInContext(`empresaPacActual = ${JSON.stringify(PAC_HKA)};`, sb);
+    montarCampos(sb, { 'emp-pac-provider': 'HKA', 'emp-pac-api-user': '' });
+    let enviado: any = null;
+    sb.authFetch = async (_url: string, opts: any) => {
+      enviado = JSON.parse(opts.body);
+      return { ok: true, json: async () => ({ ...PAC_HKA, apiPasswordSet: false }) };
+    };
+
+    await sb.savePacConfigUI();
+
+    expect(enviado.clearApiPassword).toBe(true);
   });
 });

@@ -8,15 +8,25 @@
 import { PacError } from './types';
 import type { PacProvider, PacProviderConfig } from './types';
 import { FacturaFacilProvider, FACTURA_FACIL, FACTURA_FACIL_ENDPOINTS } from './facturafacil';
+import { HkaProvider, HKA, HKA_ENDPOINTS } from './hka';
 
 export * from './types';
 export { loadPacConfigFromEnv } from './config';
-export { FacturaFacilProvider, FACTURA_FACIL, FACTURA_FACIL_ENDPOINTS };
+export {
+  FacturaFacilProvider,
+  FACTURA_FACIL,
+  FACTURA_FACIL_ENDPOINTS,
+  HkaProvider,
+  HKA,
+  HKA_ENDPOINTS,
+};
 
 export function createPacProvider(config: PacProviderConfig): PacProvider {
   switch (config.provider) {
     case FACTURA_FACIL:
       return new FacturaFacilProvider(config);
+    case HKA:
+      return new HkaProvider(config);
     default:
       throw new PacError(
         `Proveedor PAC no soportado: "${config.provider}". Implementá la interfaz PacProvider y registralo en services/pac/index.ts.`,
