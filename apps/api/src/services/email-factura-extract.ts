@@ -73,6 +73,15 @@ const esPdf = (a: AdjuntoMensaje) =>
 const esXml = (a: AdjuntoMensaje) =>
   /xml/i.test(a.contentType || '') || /\.xml$/i.test(a.filename || '');
 
+/**
+ * El «Estado de cuenta» NO es una factura: viaja junto al CAFE en el mismo
+ * correo (caso Tigo) y el extractor lo leía como un segundo comprobante, que
+ * después fallaba por Anexo DGI. Se descarta por nombre antes de abrirlo.
+ */
+export function esEstadoDeCuenta(a: AdjuntoMensaje): boolean {
+  return /estados?[\s._-]*(de[\s._-]*)?cuentas?/i.test(String(a.filename || ''));
+}
+
 /** Una factura sin total o sin proveedor no es una factura: es un adjunto. */
 function esFactura(f: FacturaExtraida): boolean {
   return !!(f.total || f.proveedor);
@@ -142,7 +151,7 @@ export async function extraerFacturasDeMensaje(
   };
 
   // 1) PDFs
-  for (const a of adjuntos.filter(esPdf)) {
+  for (const a of adjuntos.filter(esPdf).filter((a) => !esEstadoDeCuenta(a))) {
     huboDocumento = true;
     try {
       const d = await facturaDePdf(prisma, a.content);
@@ -156,7 +165,7 @@ export async function extraerFacturasDeMensaje(
 
   // 2) XMLs (solo si el PDF no alcanzó el tope)
   if (facturas.length < MAX_FACTURAS_POR_CORREO) {
-    for (const a of adjuntos.filter(esXml)) {
+    for (const a of adjuntos.filter(esXml).filter((a) => !esEstadoDeCuenta(a))) {
       huboDocumento = true;
       const xml = a.content.toString('utf8');
       if (!pareceXmlDeFactura(xml)) continue;

@@ -107,6 +107,39 @@ describe('extraerFacturasDeMensaje — XML adjunto', () => {
   });
 });
 
+describe('extraerFacturasDeMensaje — Estado de cuenta', () => {
+  it('ignora el EstadoCuenta que acompaña al CAFE de Tigo', async () => {
+    const cafe = await pdfConTexto(lineasFactura('0095076387'));
+    const estado = await pdfConTexto([
+      'ESTADO DE CUENTA',
+      'TIGO HOGAR',
+      'RUC: 9-1-1',
+      'Emisor: TIGO',
+      'Número: 095076387',
+      'Total 34.86',
+    ]);
+    const r = await extraerFacturasDeMensaje({}, {
+      adjuntos: [
+        adjunto('CAFE_0095076387_206995.pdf', cafe, 'application/pdf'),
+        adjunto('EstadoCuenta_0095076387_206995.pdf', estado, 'application/pdf'),
+      ],
+    });
+
+    expect(r.facturas).toHaveLength(1);
+    expect(r.facturas[0].origen).toBe('CAFE_0095076387_206995.pdf');
+  });
+
+  it('un correo que solo trae el estado de cuenta no es una factura', async () => {
+    const estado = await pdfConTexto(['ESTADO DE CUENTA', 'RUC: 9-1-1', 'Emisor: TIGO', 'Total 34.86']);
+    const r = await extraerFacturasDeMensaje({}, {
+      adjuntos: [adjunto('Estado de Cuenta.pdf', estado, 'application/pdf')],
+    });
+
+    expect(r.facturas).toHaveLength(0);
+    expect(r.motivo).toBe('SIN_FACTURA');
+  });
+});
+
 describe('extraerFacturasDeMensaje — lo que NO es una factura', () => {
   it('una promoción sin adjuntos queda SIN_ADJUNTOS', async () => {
     const r = await extraerFacturasDeMensaje({}, {
